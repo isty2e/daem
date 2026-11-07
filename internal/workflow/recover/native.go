@@ -21,6 +21,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
@@ -40,17 +41,25 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 		return journal.PlanLoadOptions{}, err
 	}
 	budget, _ := physicalBudget.(*physicalwork.Budget)
+	piRoot, err := configuration.RootReferenceForScope(target.TargetPi, target.ScopeGlobal)
+	if err != nil {
+		return journal.PlanLoadOptions{}, err
+	}
+	codexRoot, err := configuration.RootReferenceForScope(target.TargetCodex, target.ScopeGlobal)
+	if err != nil {
+		return journal.PlanLoadOptions{}, err
+	}
 	profile := &journal.Profile{
 		StateCodec: stateCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
 		Manifest: paths.ManifestRoot, ManifestPath: paths.ManifestPath, Budget: budget,
-		ResolveRoot: func(role output.RootRole) (string, error) {
-			switch role {
-			case output.RootPiAgent:
+		ResolveRoot: func(reference output.RootReference) (string, error) {
+			switch reference {
+			case piRoot:
 				return pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: paths.ManifestRoot})
-			case output.RootCodexHome:
+			case codexRoot:
 				return codexhostpath.ResolveHomeRoot(paths.ManifestRoot)
 			default:
-				return "", fmt.Errorf("native recovery root role is not selected")
+				return "", fmt.Errorf("native recovery root reference is not selected")
 			}
 		},
 		StateReader: func(ctx context.Context) (durable.Snapshot, error) {

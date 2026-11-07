@@ -7,7 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -73,7 +73,11 @@ func TestCapturedRecoverySelectionRequiresOriginalAllocationAndManifestIncarnati
 		t.Fatal("replacement control did not isolate the manifest incarnation")
 	}
 	anchors, err := captured.journal.RecordedRootAnchors()
-	if err != nil || anchors[output.RootProject] != want {
+	manifestReference, referenceErr := configuration.ProjectRootReference()
+	if referenceErr != nil {
+		t.Fatal(referenceErr)
+	}
+	if err != nil || anchors[manifestReference] != want {
 		t.Fatal("stored publication provenance became unavailable before comparison", err)
 	}
 	if err := captured.RequireAllocation(budget); err != nil {

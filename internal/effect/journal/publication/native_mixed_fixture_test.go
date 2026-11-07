@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -38,7 +40,7 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := whole.roots.Manifest
+	root := namespacetest.LegacyRoot(t, whole.roots, output.RootProject)
 	ordinary := []byte("ordinary executable\n")
 	hash := artifact.HashFileContentWithExecutable(ordinary, true)
 	id, err := entity.New(entity.KindInstructions, "ordinary")

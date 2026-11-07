@@ -8,6 +8,8 @@ import (
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -42,11 +44,11 @@ func TestNativeEmptyObservationRetainsActualContext(t *testing.T) {
 	}
 	fixture.requireUnchanged(t)
 
-	input.Roots.Manifest = journalnamespace.RootSelection{}
+	input.Roots = namespacetest.WithLegacyRoot(t, input.Roots, output.RootProject, journalnamespace.RootSelection{})
 	if _, err := ObserveNativeDocuments(t.Context(), input); err == nil {
 		t.Fatal("empty census accepted absent manifest authority")
 	}
-	input.Roots.Manifest = nativeNamespaceRoot(t, t.TempDir())
+	input.Roots = namespacetest.WithLegacyRoot(t, input.Roots, output.RootProject, nativeNamespaceRoot(t, t.TempDir()))
 	other, err := ObserveNativeDocuments(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
@@ -147,7 +150,7 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	if err := documents.Evidence().ValidateBefore(t.Context()); err != nil || reader.loads != 1 || fixture.observation.Budget.RemainingBytes() != remaining || fixture.observation.Budget.RequireCapturePending() != nil {
 		t.Fatalf("assessment closed/reread/reset the borrowed observation: %v loads=%d", err, reader.loads)
 	}
-	root := fixture.observation.Roots.Manifest
+	root := namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject)
 	if err := root.Root.ValidateSelectionBounded(root.SelectedPath, physicalwork.MaximumPhysicalPathDepth, fixture.observation.Budget); err != nil {
 		t.Fatalf("assessment closed the externally owned root: %v", err)
 	}

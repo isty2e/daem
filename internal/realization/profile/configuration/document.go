@@ -87,6 +87,38 @@ type DocumentSpec struct {
 	outsideNativeLayout bool
 }
 
+// RootBindingForAlias projects the alias's root and root-relative path without
+// imposing placement or grammar admission on retained namespace addresses.
+func RootBindingForAlias(input AliasInput) (output.RootReference, string, error) {
+	if err := input.Destination.ValidateScope(input.Scope); err != nil {
+		return output.RootReference{}, "", err
+	}
+	var root rootFact
+	var relative string
+	if dedicated, matched := dedicatedAliasFor(input); matched {
+		root, relative = dedicated.root, dedicated.relative
+	} else {
+		layout, err := selectLayout(input.Target, input.Scope)
+		if err != nil {
+			return output.RootReference{}, "", err
+		}
+		var matched bool
+		relative, matched = layout.bindingRelativePathFor(input.Destination)
+		if !matched {
+			return output.RootReference{}, "", fmt.Errorf("%w: alias %q has no native root binding", ErrDocumentPath, input.Destination.String())
+		}
+		root = layout.root
+	}
+	if err := hostconfig.ValidateRelativePath(relative); err != nil {
+		return output.RootReference{}, "", err
+	}
+	reference, err := root.reference()
+	if err != nil {
+		return output.RootReference{}, "", err
+	}
+	return reference, relative, nil
+}
+
 func NewDocumentSpec(input DocumentInput) (DocumentSpec, error) {
 	layout, err := selectLayout(input.Target, input.Scope)
 	if err != nil {
@@ -102,18 +134,20 @@ func NewDocumentSpec(input DocumentInput) (DocumentSpec, error) {
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	return buildDocument(input, layout.root, layout.relativePrefix+input.Path, destination, layout.policy, layout.observations, false)
+	relative, matched := layout.bindingRelativePathFor(destination)
+	if !matched {
+		return DocumentSpec{}, fmt.Errorf("%w: native document has no root binding", ErrDocumentPath)
+	}
+	return buildDocument(input, layout.root, relative, destination, layout.policy, layout.observations, false)
 }
 
 func DocumentSpecForAlias(input AliasInput) (DocumentSpec, error) {
 	if err := input.Destination.ValidateScope(input.Scope); err != nil {
 		return DocumentSpec{}, err
 	}
-	for _, dedicated := range dedicatedDocumentAliases {
-		if dedicated.target == input.Target && dedicated.scope == input.Scope && dedicated.alias == input.Destination.String() {
-			return buildDocument(DocumentInput{Target: input.Target, Scope: input.Scope, Path: dedicated.relative, Syntax: input.Syntax},
-				dedicated.root, dedicated.relative, input.Destination, dedicated.policy, dedicated.observations, true)
-		}
+	if dedicated, matched := dedicatedAliasFor(input); matched {
+		return buildDocument(DocumentInput{Target: input.Target, Scope: input.Scope, Path: dedicated.relative, Syntax: input.Syntax},
+			dedicated.root, dedicated.relative, input.Destination, dedicated.policy, dedicated.observations, true)
 	}
 	layout, err := selectLayout(input.Target, input.Scope)
 	if err != nil {

@@ -12,9 +12,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -109,13 +111,13 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	if !known {
 		t.Fatal("Pi order fixture has no command context")
 	}
-	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot())}
-	selectedRoot := roots.Manifest
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, command.BaseRoot())})
+	selectedRoot := namespacetest.LegacyRoot(t, roots, output.RootProject)
 	if scope == target.ScopeGlobal {
-		roots.PiAgent = nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())
-		selectedRoot = roots.PiAgent
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot()))
+		selectedRoot = namespacetest.LegacyRoot(t, roots, output.RootPiAgent)
 	}
-	root := roots.Manifest.SelectedPath
+	root := namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath
 	paths := Paths{ManifestRoot: root, StatefilePath: filepath.Join(root, "state.json"), RecoveryDir: filepath.Join(root, "recovery")}
 	manifest := filepath.Join(root, "daem.toml")
 	requireWholeGroupWrite(t, manifest, []byte("version=1\ntargets=['pi']\n"), 0o600)
@@ -159,14 +161,14 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(roots.Manifest.Root, root, filepath.Join(paths.RecoveryDir, "native-record-apply"), physicalwork.MaximumPhysicalPathDepth, budget)
+	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(namespacetest.LegacyRoot(t, roots, output.RootProject).Root, root, filepath.Join(paths.RecoveryDir, "native-record-apply"), physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = entry.Close() })
 	return nativeCaptureTestInput{
 		paths: paths, batch: batch, after: before,
-		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}, OrderObservations: []pipackage.OrderObservation{order}},
+		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: namespacetest.LegacyRoot(t, roots, output.RootProject).Root, OperationAuthority: entry}, OrderObservations: []pipackage.OrderObservation{order}},
 		host:    host, registry: registryPath, original: loaded.Document, stateBytes: stateBytes, registryBytes: registryBytes,
 	}, order
 }

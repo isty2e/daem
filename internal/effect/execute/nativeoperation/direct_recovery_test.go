@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit/aggregatefixture"
 )
@@ -257,6 +258,10 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 	readState := func(ctx context.Context) (durable.Snapshot, error) {
 		return statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: budget})
 	}
+	piRoot, err := configuration.RootReferenceForScope(target.TargetPi, target.ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
 	load := journal.PlanLoadOptions{
 		Resolver: input.Resolver, Filesystem: filesystem, OwnershipRegistry: reader,
 		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
@@ -264,8 +269,8 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 			StateCodec: input.StateCodec, Codecs: input.Codecs, StateReader: readState, Budget: budget,
 			Manifest: input.Paths.ManifestRoot, ManifestPath: input.Owner.ManifestPath(),
 			Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
-			ResolveRoot: func(role output.RootRole) (string, error) {
-				if role == output.RootPiAgent {
+			ResolveRoot: func(reference output.RootReference) (string, error) {
+				if reference == piRoot {
 					return filepath.Dir(host), nil
 				}
 				return "", errors.New("order recovery has no selected root for this role")

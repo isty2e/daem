@@ -162,7 +162,8 @@ func (operation *NativeRecoveryOperation) ManifestRoot() *rootedpath.CapturedRoo
 	if operation.captured != nil {
 		return operation.borrowedManifest
 	}
-	return operation.roots.Manifest.Root
+	manifest, _ := operation.roots.Manifest()
+	return manifest.Root
 }
 
 func (operation *NativeRecoveryOperation) Budget() *physicalwork.Budget {

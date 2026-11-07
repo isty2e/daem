@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -33,7 +36,7 @@ func TestNativeWholeProducerRetainsSameOwnerMCPPhysicalParticipant(t *testing.T)
 		t.Fatal(err)
 	}
 	alias := row.Contribution().Contract().Address().Document()
-	path := filepath.Join(fixture.observation.Roots.Manifest.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
+	path := filepath.Join(namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject).SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

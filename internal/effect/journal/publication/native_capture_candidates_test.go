@@ -12,6 +12,7 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -171,7 +172,7 @@ func TestNativeCaptureCandidatesDiscardPrefixAfterLaterNamespaceFailure(t *testi
 	first := prepareWholeCaptureCandidate(t, &whole, budget)
 	selected := missingSelectedCapture(t)
 	second := prepareSelectedCaptureCandidate(t, &selected, budget)
-	if err := selected.roots.Manifest.Root.Close(); err != nil {
+	if err := namespacetest.LegacyRoot(t, selected.roots, output.RootProject).Root.Close(); err != nil {
 		t.Fatal(err)
 	}
 	groups, comparisons, demands, err := captureNativeDocumentCandidates(t.Context(), []nativeDocumentCaptureCandidate{first, second}, recovery.RemovalDemandSet{}, budget)

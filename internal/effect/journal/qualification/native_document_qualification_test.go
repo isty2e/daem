@@ -14,10 +14,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 )
 
 func preparedNativeFixture(t *testing.T) (nativeRecordFixture, journalrecord.Native, journaldocument.Comparison) {
@@ -159,7 +161,7 @@ func TestQualifiedNativeRecordJoinsActualRootsImagesAndSemanticRollback(t *testi
 	if err := json.Unmarshal(restored.Document().Content(), &values); err != nil || !values.Model || values.Outside != 1 {
 		t.Fatalf("selected rollback lost before values or protected foreign data: %+v, %v", values, err)
 	}
-	after, err := os.ReadFile(filepath.Join(roots.PiAgent.SelectedPath, "custom.json"))
+	after, err := os.ReadFile(filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, "custom.json"))
 	if err != nil || !bytes.Equal(host, after) {
 		t.Fatalf("read/reconstruction mutated host bytes: %v", err)
 	}
@@ -169,7 +171,7 @@ func TestQualifiedNativeWriterRefusesProtectedArtifactRoot(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	roots := fixture.roots
 	read := fixture.read
-	read.Artifacts = roots.Manifest.Root
+	read.Artifacts = namespacetest.LegacyRoot(t, roots, output.RootProject).Root
 	journal := fixture.journal
 	namespaces, err := journalqualification.LoadNamespaces(journal, t.Context(), read, roots)
 	if err == nil || namespaces != nil {

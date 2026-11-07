@@ -13,6 +13,7 @@ import (
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -117,7 +118,7 @@ func prospectiveLayoutFixture(t *testing.T, fixture ownershiptest.PermissionReco
 	}
 	batch, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{
 		Owner: fixture.Owner, Before: before, Aliases: aliases,
-		Roots:      journalnamespace.Roots{Manifest: journalnamespace.RootSelection{SelectedPath: fixture.Paths.ManifestRoot, Root: root}},
+		Roots:      namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: {SelectedPath: fixture.Paths.ManifestRoot, Root: root}}),
 		Filesystem: storagecommit.Adapter{}, Registry: fixture.Store,
 		Limits: configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}, Budget: budget,
 	})

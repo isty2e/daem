@@ -18,9 +18,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/output"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -257,7 +259,7 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		manifest, err := fixture.roots.Manifest.Root.Authority()
+		manifest, err := namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).Root.Authority()
 		if err != nil {
 			t.Fatal(err)
 		}

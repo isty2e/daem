@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func NewNativeCapture(operationID string, createdAt time.Time, owner stateauthority.Authority, manifest rootedpath.AuthorityProvenance, before, after durable.Snapshot, groups []SealedDocumentGroup) (Native, error) {
@@ -174,7 +175,7 @@ func (journal Native) DocumentAliases() ([][]aggregate.DocumentAddress, error) {
 	return result, nil
 }
 
-func (journal Native) RecordedRootAnchors() (map[output.RootRole]rootedpath.AuthorityProvenance, error) {
+func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath.AuthorityProvenance, error) {
 	if err := journal.requireNativeValue(); err != nil {
 		return nil, err
 	}
@@ -182,7 +183,11 @@ func (journal Native) RecordedRootAnchors() (map[output.RootRole]rootedpath.Auth
 	if err != nil {
 		return nil, err
 	}
-	anchors := map[output.RootRole]rootedpath.AuthorityProvenance{output.RootProject: manifest}
+	manifestReference, err := configuration.ProjectRootReference()
+	if err != nil {
+		return nil, err
+	}
+	anchors := map[output.RootReference]rootedpath.AuthorityProvenance{manifestReference: manifest}
 	documents, err := journal.Documents()
 	if err != nil {
 		return nil, err
@@ -193,15 +198,18 @@ func (journal Native) RecordedRootAnchors() (map[output.RootRole]rootedpath.Auth
 			if err != nil {
 				return nil, err
 			}
-			role := address.AggregateRoot().RootRole()
+			reference, _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+			if err != nil {
+				return nil, err
+			}
 			provenance, err := alias.record.LogicalRoot.Provenance.canonical()
 			if err != nil {
 				return nil, err
 			}
-			if previous, known := anchors[role]; known && previous != provenance {
-				return nil, fmt.Errorf("native role has inconsistent recorded root anchors")
+			if previous, known := anchors[reference]; known && previous != provenance {
+				return nil, fmt.Errorf("native reference has inconsistent recorded root anchors")
 			}
-			anchors[role] = provenance
+			anchors[reference] = provenance
 		}
 	}
 	return anchors, nil

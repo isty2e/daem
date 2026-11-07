@@ -24,6 +24,20 @@ func (fact rootFact) reference() (output.RootReference, error) {
 	return output.NewRootReference(fact.identity, fact.locator)
 }
 
+func ProjectRootReference() (output.RootReference, error) {
+	return projectRoot.reference()
+}
+
+// RootReferenceForScope selects the default native-layout root for a host
+// supplier. Document aliases may select a different dedicated root.
+func RootReferenceForScope(selected target.Target, scope target.Scope) (output.RootReference, error) {
+	layout, err := selectLayout(selected, scope)
+	if err != nil {
+		return output.RootReference{}, err
+	}
+	return layout.root.reference()
+}
+
 type nativeLayout struct {
 	root           rootFact
 	aliasRoot      output.RootRole
@@ -111,6 +125,13 @@ func (layout nativeLayout) nativePathFor(destination output.Destination) (string
 	return strings.CutPrefix(destination.RelativePath(), layout.aliasDirectory)
 }
 
+func (layout nativeLayout) bindingRelativePathFor(destination output.Destination) (string, bool) {
+	if nativePath, matched := layout.nativePathFor(destination); matched {
+		return layout.relativePrefix + nativePath, true
+	}
+	return destination.RelativePath(), destination.RootRole() == output.RootProject && layout.aliasRoot == output.RootProject
+}
+
 // Legacy owner aliases project reservations, not generic alias admission or
 // physical agreement with the selected root.
 func (layout nativeLayout) reservationPathFor(destination output.Destination) (string, bool) {
@@ -139,6 +160,15 @@ var dedicatedDocumentAliases = []dedicatedAliasFact{
 	{target.TargetClaudeCode, target.ScopeGlobal, aggregate.ClaudeGlobalMCPConfigPath, claudeAccount, ".claude.json", "claude-account-carrier-v1", 0},
 	{target.TargetClaudeCode, target.ScopeProject, aggregate.ClaudeProjectMCPConfigPath, projectRoot, ".mcp.json", "claude-mcp-carrier-v1", 0},
 	{target.TargetAntigravityCLI, target.ScopeGlobal, aggregate.AntigravityGlobalMCPConfigPath, antigravityShared, "mcp_config.json", "antigravity-mcp-carrier-v1", 0},
+}
+
+func dedicatedAliasFor(input AliasInput) (dedicatedAliasFact, bool) {
+	for _, dedicated := range dedicatedDocumentAliases {
+		if dedicated.target == input.Target && dedicated.scope == input.Scope && dedicated.alias == input.Destination.String() {
+			return dedicated, true
+		}
+	}
+	return dedicatedAliasFact{}, false
 }
 
 type documentRule struct {

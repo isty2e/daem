@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -19,7 +20,7 @@ func TestWriterObservationConsumesCapabilityWithoutOwningRoot(t *testing.T) {
 				t.Fatal(err)
 			}
 			budget := imageBudget(t)
-			qualified, err := (Roots{Manifest: root}).Qualify(t.Context(), budget)
+			qualified, err := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: root}).Qualify(t.Context(), budget)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -28,7 +29,11 @@ func TestWriterObservationConsumesCapabilityWithoutOwningRoot(t *testing.T) {
 				t.Fatal("fixture has no manifest grant")
 			}
 			address := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/settings.json")
-			capability, err := manifest.acquireRoute(t.Context(), address.AggregateRoot(), budget)
+			relative, err := rootedpath.NewRelativeDestination(address.AggregateRoot().RelativePath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			capability, err := manifest.acquireRoute(t.Context(), relative, budget)
 			if err != nil {
 				t.Fatal(err)
 			}

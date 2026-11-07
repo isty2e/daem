@@ -20,7 +20,9 @@ import (
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/output"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -96,10 +98,10 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	}
 	requireWholeGroupWrite(t, paths.StatefilePath, stateBytes, 0o600)
 	host := filepath.Join(rootPath, ".codex", "config.toml")
-	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, rootPath)}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, rootPath)})
 	if scope == target.ScopeGlobal {
-		roots.CodexHome = nativeNamespaceRoot(t, filepath.Join(rootPath, "codex-home"))
-		host = filepath.Join(roots.CodexHome.SelectedPath, filepath.FromSlash(destination.RelativePath()))
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, nativeNamespaceRoot(t, filepath.Join(rootPath, "codex-home")))
+		host = filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootCodexHome).SelectedPath, filepath.FromSlash(destination.RelativePath()))
 	}
 	if original.Exists() {
 		requireWholeGroupWrite(t, host, original.Content(), 0o644)
@@ -160,7 +162,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(roots.Manifest.Root, rootPath, filepath.Join(paths.RecoveryDir, fixture.journal.OperationID()), physicalwork.MaximumPhysicalPathDepth, budget)
+	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(namespacetest.LegacyRoot(t, roots, output.RootProject).Root, rootPath, filepath.Join(paths.RecoveryDir, fixture.journal.OperationID()), physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +170,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	return nativeCaptureTestInput{
 		paths: paths, batch: batch, budget: budget, after: fixture.after,
 		edits:   selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{after.Contribution().Contract()}, []durable.ManagedAggregateState{after}),
-		options: journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}},
+		options: journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: namespacetest.LegacyRoot(t, roots, output.RootProject).Root, OperationAuthority: entry}},
 		host:    host, registry: registryPath, original: original, stateBytes: stateBytes, registryBytes: registryBytes,
 	}
 }

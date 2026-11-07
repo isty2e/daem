@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -97,7 +98,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 	}
 	manifest := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "manifest"))
 	pi := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "host"))
-	rootSet := journalnamespace.Roots{Manifest: manifest, PiAgent: pi}
+	rootSet := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi})
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`))
 	if err := os.WriteFile(filepath.Join(pi.SelectedPath, "custom.json"), original.Content(), 0o600); err != nil {
 		t.Fatal(err)

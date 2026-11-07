@@ -7,9 +7,9 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func TestNativeRecordAliasAndAnchorQueriesReturnCompleteIndependentFacts(t *testing.T) {
@@ -25,13 +25,17 @@ func TestNativeRecordAliasAndAnchorQueriesReturnCompleteIndependentFacts(t *test
 		t.Fatal("caller changed recorded aliases", err)
 	}
 	anchors, err := value.RecordedRootAnchors()
+	manifestReference, referenceErr := configuration.ProjectRootReference()
+	if referenceErr != nil {
+		t.Fatal(referenceErr)
+	}
 	manifest, manifestErr := fixture.record.ManifestRootProvenance.canonical()
-	if err != nil || manifestErr != nil || anchors[output.RootProject] != manifest {
+	if err != nil || manifestErr != nil || anchors[manifestReference] != manifest {
 		t.Fatal("recorded manifest anchor changed", err, manifestErr)
 	}
-	delete(anchors, output.RootProject)
+	delete(anchors, manifestReference)
 	againAnchors, err := value.RecordedRootAnchors()
-	if err != nil || againAnchors[output.RootProject] != manifest {
+	if err != nil || againAnchors[manifestReference] != manifest {
 		t.Fatal("caller changed recorded anchors", err)
 	}
 	bad := value.record.DocumentGroups[0].Aliases[0]

@@ -1,6 +1,7 @@
 package output
 
 import (
+	"cmp"
 	"fmt"
 	"path"
 	"strings"
@@ -49,6 +50,10 @@ func NewRootReference(identity, locatorPolicy string) (RootReference, error) {
 
 func (reference RootReference) Identity() string      { return reference.identity }
 func (reference RootReference) LocatorPolicy() string { return reference.locatorPolicy }
+
+func (reference RootReference) Compare(other RootReference) int {
+	return cmp.Or(cmp.Compare(reference.identity, other.identity), cmp.Compare(reference.locatorPolicy, other.locatorPolicy))
+}
 
 func (reference RootReference) Validate() error {
 	_, err := NewRootReference(reference.identity, reference.locatorPolicy)

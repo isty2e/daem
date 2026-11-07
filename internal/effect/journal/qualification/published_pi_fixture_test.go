@@ -15,9 +15,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/target"
@@ -45,7 +47,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		manifest = selectManifest(command.BaseRoot())
 	}
 	pi := nativeNamespaceRoot(t, input.SettingsContext.BaseRoot())
-	roots := journalnamespace.Roots{Manifest: manifest, PiAgent: pi}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi})
 	if err := os.WriteFile(filepath.Join(pi.SelectedPath, "settings.json"), input.Document.Content(), 0o640); err != nil {
 		t.Fatal(err)
 	}

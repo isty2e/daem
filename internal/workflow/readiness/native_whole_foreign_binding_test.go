@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -103,7 +104,7 @@ func nativeForeignProjectBinding(t *testing.T, fixture nativePlanningFixture, de
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := fixture.observation.Roots.Manifest.SelectedPath
+	root := namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject).SelectedPath
 	statePath := filepath.Join(root, "foreign-state.json")
 	requireNativePreparationFile(t, statePath, content)
 	state, err := mutation.ObservePersistedDirectoryEntryAuthority(statePath)

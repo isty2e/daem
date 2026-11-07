@@ -23,6 +23,7 @@ import (
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -380,14 +381,14 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manifest.Close() })
-	roots := journalnamespace.Roots{Manifest: journalnamespace.RootSelection{Root: manifest, SelectedPath: root}}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: {Root: manifest, SelectedPath: root}})
 	if scope == target.ScopeGlobal {
 		agent, err := rootedpath.CaptureRoot(settings)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = agent.Close() })
-		roots.PiAgent = journalnamespace.RootSelection{Root: agent, SelectedPath: settings}
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, journalnamespace.RootSelection{Root: agent, SelectedPath: settings})
 	}
 	alias, err := pipackage.SettingsDocumentAddress(scope)
 	if err != nil {

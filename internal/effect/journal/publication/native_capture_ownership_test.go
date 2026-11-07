@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -232,7 +233,7 @@ func TestNativeCaptureOwnershipDiscardsEarlierGroupsOnFailureAndCancellation(t *
 	input, reader := captureOwnershipFixture(t, fixture)
 	other := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "record", []byte("other"), nil)
 	otherAliases := other.namespace.Addresses()
-	otherPath := filepath.Join(input.roots.Manifest.SelectedPath, filepath.FromSlash(otherAliases[0].AggregateRoot().RelativePath()))
+	otherPath := filepath.Join(namespacetest.LegacyRoot(t, input.roots, output.RootProject).SelectedPath, filepath.FromSlash(otherAliases[0].AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, otherPath, other.original.Content(), 0o600)
 	otherNamespace, err := journalnamespace.Observe(t.Context(), otherAliases, input.roots, journalTestFilesystem(), input.budget)
 	if err != nil {

@@ -153,7 +153,11 @@ func CaptureNativeJournalWithOptions(
 		return CapturedNativeJournal{}, err
 	}
 	roots := batch.roots
-	options.ManifestRoot = roots.Manifest.Root
+	manifest, supplied := roots.Manifest()
+	if !supplied {
+		return CapturedNativeJournal{}, fmt.Errorf("native capture requires its selected manifest binding")
+	}
+	options.ManifestRoot = manifest.Root
 	stageOptions := StageOptions{StateCodec: options.StateCodec, Codecs: options.Codecs, Limits: batch.Evidence().DocumentLimits(), Budget: batch.budget}
 	var fingerprint string
 	prepared, err := options.Filesystem.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {

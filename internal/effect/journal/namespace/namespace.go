@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -28,12 +30,51 @@ type RootSelection struct {
 	creation     *nativeRootCreation
 }
 
-// Roots supplies only the independently selected roots available
-// to this operation. Missing unused roles are allowed; supplied grants must qualify.
+func (selection RootSelection) validate() error {
+	if selection.Root == nil || !filepath.IsAbs(selection.SelectedPath) || filepath.Clean(selection.SelectedPath) != selection.SelectedPath || strings.ContainsRune(selection.SelectedPath, '\x00') {
+		return fmt.Errorf("selected root requires a retained handle and canonical lexical selector")
+	}
+	return nil
+}
+
+// Roots supplies an immutable selection of borrowed roots. Missing unused
+// bindings are allowed; every supplied selection must qualify before use.
 type Roots struct {
-	Manifest  RootSelection
-	PiAgent   RootSelection
-	CodexHome RootSelection
+	selected map[output.RootReference]RootSelection
+}
+
+func (roots Roots) With(reference output.RootReference, selection RootSelection) (Roots, error) {
+	if err := reference.Validate(); err != nil {
+		return Roots{}, err
+	}
+	if err := selection.validate(); err != nil {
+		return Roots{}, err
+	}
+	for existing := range roots.selected {
+		if existing.Identity() == reference.Identity() && existing != reference {
+			return Roots{}, fmt.Errorf("selected root identity %q has conflicting locator contracts", reference.Identity())
+		}
+	}
+	result := roots
+	result.selected = maps.Clone(roots.selected)
+	if result.selected == nil {
+		result.selected = make(map[output.RootReference]RootSelection)
+	}
+	result.selected[reference] = selection
+	return result, nil
+}
+
+func (roots Roots) Selection(reference output.RootReference) (RootSelection, bool) {
+	selection, supplied := roots.selected[reference]
+	return selection, supplied
+}
+
+func (roots Roots) Manifest() (RootSelection, bool) {
+	reference, err := configuration.ProjectRootReference()
+	if err != nil {
+		return RootSelection{}, false
+	}
+	return roots.Selection(reference)
 }
 
 type RootGrant struct {
@@ -43,11 +84,15 @@ type RootGrant struct {
 }
 
 type QualifiedRoots struct {
-	grants map[output.RootRole]RootGrant
+	grants map[output.RootReference]RootGrant
 }
 
 func (roots QualifiedRoots) Manifest() (RootGrant, bool) {
-	grant, present := roots.grants[output.RootProject]
+	reference, err := configuration.ProjectRootReference()
+	if err != nil {
+		return RootGrant{}, false
+	}
+	grant, present := roots.grants[reference]
 	return grant, present
 }
 
@@ -64,6 +109,7 @@ func (grant RootGrant) ValidateSelection(selector string, budget rootedpath.Phys
 type Alias struct {
 	address     aggregate.DocumentAddress
 	root        RootGrant
+	relative    rootedpath.RelativeDestination
 	observation mutation.DirectoryEntryAuthorityObservation
 }
 
@@ -188,11 +234,19 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 		if err := validateNativeDocumentRootRole(address, role); err != nil {
 			return DocumentNamespace{}, err
 		}
-		grant, present := grants[role]
+		reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+		if err != nil {
+			return DocumentNamespace{}, err
+		}
+		selectedRelative, err := rootedpath.NewRelativeDestination(relative)
+		if err != nil {
+			return DocumentNamespace{}, err
+		}
+		grant, present := grants[reference]
 		if !present {
 			return DocumentNamespace{}, fmt.Errorf("native document alias has no independently selected root")
 		}
-		logical := filepath.Join(grant.selection.SelectedPath, filepath.FromSlash(address.AggregateRoot().RelativePath()))
+		logical := filepath.Join(grant.selection.SelectedPath, filepath.FromSlash(selectedRelative.Path()))
 		physical, err := rootedpath.ResolveReferentPathBounded(logical, physicalwork.MaximumPhysicalPathDepth, budget)
 		if err != nil {
 			return DocumentNamespace{}, err
@@ -206,7 +260,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 		} else if !result.observation.Equal(observation) {
 			return DocumentNamespace{}, fmt.Errorf("native document aliases do not identify one physical referent")
 		}
-		result.aliases = append(result.aliases, Alias{address: address, root: grant, observation: observation})
+		result.aliases = append(result.aliases, Alias{address: address, root: grant, relative: selectedRelative, observation: observation})
 	}
 	writerGrant, relative, err := nativeDocumentWriterGrant(grants, referent, pinned)
 	if err != nil {
@@ -260,23 +314,29 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 	if ctx == nil || budget == nil {
 		return QualifiedRoots{}, fmt.Errorf("native roots require context and shared traversal budget")
 	}
-	result := make(map[output.RootRole]RootGrant)
-	for _, input := range []struct {
-		role      output.RootRole
-		selection RootSelection
-	}{{output.RootProject, roots.Manifest}, {output.RootPiAgent, roots.PiAgent}, {output.RootCodexHome, roots.CodexHome}} {
+	if err := ctx.Err(); err != nil {
+		return QualifiedRoots{}, err
+	}
+	manifest, err := configuration.ProjectRootReference()
+	if err != nil {
+		return QualifiedRoots{}, err
+	}
+	references := slices.Collect(maps.Keys(roots.selected))
+	slices.SortFunc(references, output.RootReference.Compare)
+	result := make(map[output.RootReference]RootGrant, len(roots.selected))
+	for _, reference := range references {
 		if err := ctx.Err(); err != nil {
 			return QualifiedRoots{}, err
 		}
-		selection := input.selection
-		if selection.Root == nil && selection.SelectedPath == "" {
-			continue
+		if err := reference.Validate(); err != nil {
+			return QualifiedRoots{}, err
 		}
-		if selection.Root == nil || !filepath.IsAbs(selection.SelectedPath) || filepath.Clean(selection.SelectedPath) != selection.SelectedPath || strings.ContainsRune(selection.SelectedPath, '\x00') {
-			return QualifiedRoots{}, fmt.Errorf("native document root requires an actual retained root and canonical lexical selector")
+		selection := roots.selected[reference]
+		if err := selection.validate(); err != nil {
+			return QualifiedRoots{}, err
 		}
 		if selection.creation != nil {
-			if input.role == output.RootProject {
+			if reference == manifest {
 				return QualifiedRoots{}, fmt.Errorf("native manifest root must already exist")
 			}
 			if _, err := selection.qualifyCreation(ctx, budget); err != nil {
@@ -293,7 +353,7 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 		if err != nil {
 			return QualifiedRoots{}, err
 		}
-		result[input.role] = RootGrant{selection, authority, provenance}
+		result[reference] = RootGrant{selection, authority, provenance}
 	}
 	return QualifiedRoots{grants: result}, nil
 }
@@ -311,14 +371,13 @@ func validateNativeDocumentRootRole(address aggregate.DocumentAddress, role outp
 	return fmt.Errorf("native document alias contradicts its selected host root role")
 }
 
-func nativeDocumentWriterGrant(grants map[output.RootRole]RootGrant, referent string, pinned *WriterPin) (RootGrant, rootedpath.RelativeDestination, error) {
+func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, referent string, pinned *WriterPin) (RootGrant, rootedpath.RelativeDestination, error) {
 	var selected RootGrant
 	var relative rootedpath.RelativeDestination
-	for _, role := range []output.RootRole{output.RootProject, output.RootPiAgent, output.RootCodexHome} {
-		grant, supplied := grants[role]
-		if !supplied {
-			continue
-		}
+	references := slices.Collect(maps.Keys(grants))
+	slices.SortFunc(references, output.RootReference.Compare)
+	for _, reference := range references {
+		grant := grants[reference]
 		if grant.selection.creation != nil && !nativeRootContains(grant.selection.creation.physical, referent) {
 			continue
 		}

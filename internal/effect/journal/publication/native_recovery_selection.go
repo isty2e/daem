@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func (captured CapturedNativeJournal) RequireAllocation(budget *physicalwork.Budget) error {
@@ -35,7 +36,14 @@ func (captured CapturedNativeJournal) RequireRecoverySelection(manifest *rootedp
 	if err != nil {
 		return err
 	}
-	wantProvenance := anchors[output.RootProject]
+	manifestReference, err := configuration.ProjectRootReference()
+	if err != nil {
+		return err
+	}
+	wantProvenance, supplied := anchors[manifestReference]
+	if !supplied {
+		return fmt.Errorf("captured native recovery requires its manifest binding")
+	}
 	if selectedProvenance != wantProvenance {
 		return fmt.Errorf("captured native recovery manifest differs from its publication")
 	}

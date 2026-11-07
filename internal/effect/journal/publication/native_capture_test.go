@@ -29,6 +29,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -108,10 +109,10 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	}
 	requireWholeGroupWrite(t, paths.StatefilePath, stateBytes, 0o600)
 	host := filepath.Join(rootPath, ".codex", "config.toml")
-	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, rootPath)}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, rootPath)})
 	if scope == target.ScopeGlobal {
-		roots.CodexHome = nativeNamespaceRoot(t, filepath.Join(rootPath, "codex-home"))
-		host = filepath.Join(roots.CodexHome.SelectedPath, filepath.FromSlash(destination.RelativePath()))
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, nativeNamespaceRoot(t, filepath.Join(rootPath, "codex-home")))
+		host = filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootCodexHome).SelectedPath, filepath.FromSlash(destination.RelativePath()))
 	}
 	if original.Exists() {
 		requireWholeGroupWrite(t, host, original.Content(), 0o644)
@@ -172,7 +173,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(roots.Manifest.Root, rootPath, filepath.Join(paths.RecoveryDir, fixture.journal.OperationID()), physicalwork.MaximumPhysicalPathDepth, budget)
+	entry, err := rootedpath.BindSelectedEntryAuthorityBounded(namespacetest.LegacyRoot(t, roots, output.RootProject).Root, rootPath, filepath.Join(paths.RecoveryDir, fixture.journal.OperationID()), physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	return nativeCaptureTestInput{
 		paths: paths, batch: batch, after: fixture.after,
 		edits:   selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{after.Contribution().Contract()}, []durable.ManagedAggregateState{after}),
-		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: roots.Manifest.Root, OperationAuthority: entry}},
+		options: NativeCaptureOptions{CaptureOptions: CaptureOptions{Filesystem: journalTestFilesystem(), StateCodec: fixture.codec, Codecs: fixture.read.Codecs, ManifestRoot: namespacetest.LegacyRoot(t, roots, output.RootProject).Root, OperationAuthority: entry}},
 		host:    host, registry: registryPath, original: original, stateBytes: stateBytes, registryBytes: registryBytes,
 	}
 }
@@ -209,6 +210,44 @@ func (input nativeCaptureTestInput) requireUnchanged(t *testing.T) {
 			t.Fatalf("capture changed durable state %q: %v", path, err)
 		}
 	}
+}
+
+func TestCaptureNativeJournalPublishesBeforeTheSelectedGlobalRootExists(t *testing.T) {
+	input := nativeCaptureInput(t, true, target.ScopeGlobal)
+	selected := namespacetest.LegacyRoot(t, input.batch.roots, output.RootCodexHome)
+	if err := selected.Root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(selected.SelectedPath); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := journalnamespace.CaptureRoot(t.Context(), selected.SelectedPath, input.batch.budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = missing.Root.Close() })
+	roots := namespacetest.WithLegacyRoot(t, input.batch.roots, output.RootCodexHome, missing)
+	reader, err := ownershipstore.NewRecoveryReader(input.registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
+		Owner: input.batch.owner, Before: input.batch.Evidence().BeforeState(),
+		Aliases: input.batch.Evidence().Namespaces()[0].Addresses(), Roots: roots,
+		Filesystem: input.options.Filesystem, Registry: reader,
+		Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := input.capture(t.Context())
+	if err != nil || captured.Validate() != nil {
+		t.Fatal("journal publication lost the missing-root selection", err)
+	}
+	if _, err := os.Lstat(selected.SelectedPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal("journal publication created the selected host root", err)
+	}
+	input.requireUnchanged(t)
 }
 
 func TestCaptureNativeJournalPublishesAndReloadsActualSelectedWork(t *testing.T) {
@@ -629,7 +668,7 @@ func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
 func TestCaptureNativeJournalRefusesHostReferentInsidePublicationTree(t *testing.T) {
 	input := nativeCaptureInput(t, true, target.ScopeGlobal)
 	roots := input.batch.roots
-	roots.CodexHome = nativeNamespaceRoot(t, input.paths.RecoveryDir)
+	roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, nativeNamespaceRoot(t, input.paths.RecoveryDir))
 	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "native-record-apply/document-000000/expected", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxTOML,
 	})

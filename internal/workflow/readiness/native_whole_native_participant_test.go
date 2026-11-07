@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -22,7 +25,7 @@ func TestNativeWholeProducerRetainsOtherNativeDeclarationAndAlias(t *testing.T) 
 			destination := old.Contribution().AggregateRoot()
 			if separateAlias {
 				destination = outputtest.Parse(t, "extension-settings/other.json")
-				path := filepath.Join(fixture.observation.Roots.Manifest.SelectedPath, destination.RelativePath())
+				path := filepath.Join(namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject).SelectedPath, destination.RelativePath())
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 					t.Fatal(err)
 				}

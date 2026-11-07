@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -66,7 +67,7 @@ func TestNativeDocumentAssessmentMixedSelectedValuesBlockAfterOnly(t *testing.T)
 func TestNativeDocumentAssessmentLateRefusalDiscardsEveryEarlierStage(t *testing.T) {
 	setup := newNativeAssessmentFixture(t)
 	fixture := &setup.fixture
-	otherPath := filepath.Join(setup.roots.PiAgent.SelectedPath, "other.json")
+	otherPath := filepath.Join(namespacetest.LegacyRoot(t, setup.roots, output.RootPiAgent).SelectedPath, "other.json")
 	invalid := []byte(`{"model":false,"outside":1}`)
 	if err := os.WriteFile(otherPath, invalid, 0o600); err != nil {
 		t.Fatal(err)
@@ -160,7 +161,7 @@ func TestNativeDocumentAssessmentProvisionalDebtDoesNotAuthorizeAfterState(t *te
 		t.Fatal(err)
 	}
 	group.bindings = []ownership.DocumentBindingIntent{binding}
-	setup.host = filepath.Join(setup.roots.PiAgent.SelectedPath, "Caf\u00e9.json")
+	setup.host = filepath.Join(namespacetest.LegacyRoot(t, setup.roots, output.RootPiAgent).SelectedPath, "Caf\u00e9.json")
 	host := []byte(`{"model":"fast"}`)
 	registry := ownership.EmptyRegistry()
 	setup.persist(t, fixture.before, registry, host)
@@ -194,7 +195,7 @@ func TestNativeDocumentAssessmentEqualSnapshotsKeepPiOnlyRollback(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	setup.roots = journalnamespace.Roots{Manifest: root}
+	setup.roots = namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: root})
 	setup.host = filepath.Join(root.SelectedPath, ".pi", "settings.json")
 	if err := os.WriteFile(setup.host, input.Document.Content(), 0o600); err != nil {
 		t.Fatal(err)

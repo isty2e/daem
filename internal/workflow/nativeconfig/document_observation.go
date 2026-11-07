@@ -179,18 +179,29 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, err
 	}
 	retained = append(retained, manifestRoot)
-	roots.Manifest = journalnamespace.RootSelection{SelectedPath: paths.ManifestRoot, Root: manifestRoot}
+	manifestReference, err := configuration.ProjectRootReference()
+	if err != nil {
+		return nil, err
+	}
+	roots, err = roots.With(manifestReference, journalnamespace.RootSelection{SelectedPath: paths.ManifestRoot, Root: manifestRoot})
+	if err != nil {
+		return nil, err
+	}
 	for _, alias := range addresses {
-		var selected *journalnamespace.RootSelection
+		reference, _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: alias.Target(), Scope: alias.Scope(), Destination: alias.AggregateRoot()})
+		if err != nil {
+			return nil, err
+		}
+		if _, supplied := roots.Selection(reference); supplied {
+			continue
+		}
 		var path string
 		switch alias.AggregateRoot().RootRole() {
 		case output.RootProject:
-			selected, path = &roots.Manifest, paths.ManifestRoot
+			path = paths.ManifestRoot
 		case output.RootPiAgent:
-			selected = &roots.PiAgent
 			path, err = pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: paths.ManifestRoot})
 		case output.RootCodexHome:
-			selected = &roots.CodexHome
 			path, err = codexhostpath.ResolveHomeRoot(paths.ManifestRoot)
 		default:
 			return nil, fmt.Errorf("native document has no selected host root")
@@ -198,16 +209,16 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		if err != nil {
 			return nil, err
 		}
-		if selected.Root != nil {
-			continue
-		}
 		path = filepath.Clean(path)
 		selection, err := journalnamespace.CaptureRoot(ctx, path, budget)
 		if err != nil {
 			return nil, fmt.Errorf("observe selected native root %q without creating it: %w", path, err)
 		}
 		retained = append(retained, selection.Root)
-		*selected = selection
+		roots, err = roots.With(reference, selection)
+		if err != nil {
+			return nil, err
+		}
 	}
 	stateAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(paths.StatefilePath, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {

@@ -6,10 +6,60 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestAliasRouteUsesItsAdmittedRootRelativeDestination(t *testing.T) {
+	selection := nativeNamespaceRoot(t, t.TempDir())
+	if err := os.Mkdir(filepath.Join(selection.SelectedPath, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"settings.json", ".claude/settings.json"} {
+		if err := os.WriteFile(filepath.Join(selection.SelectedPath, filepath.FromSlash(path)), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reference, err := output.NewRootReference("claude-preferences", "claude-preferences-location-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := (Roots{}).With(reference, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget := imageBudget(t)
+	qualified, err := roots.Qualify(t.Context(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := rootedpath.NewRelativeDestination("settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := Alias{
+		address: nativeNamespaceAddress(t, target.TargetClaudeCode, target.ScopeGlobal, "~/.claude/settings.json"),
+		root:    qualified.grants[reference], relative: relative,
+	}
+	observed, err := alias.ObserveRoute(t.Context(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := mutation.ObserveDirectoryEntryAuthorityBounded(filepath.Join(selection.SelectedPath, "settings.json"), physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil || !observed.Equal(expected) {
+		t.Fatalf("alias route followed its portable prefix instead of its binding: %v", err)
+	}
+	if err := selection.Root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if observed, err := alias.ObserveRoute(t.Context(), budget); err == nil || observed.Validate() == nil {
+		t.Fatal("a closed alias root supplied route evidence")
+	}
+}
 
 func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	root := nativeNamespaceRoot(t, t.TempDir())
@@ -17,7 +67,7 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/settings.json")
-	roots := Roots{Manifest: root}
+	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: root})
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
 	budget := imageBudget(t)
 	original, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
@@ -73,6 +123,9 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 
 func TestZeroCustodyValuesCannotAuthorizeWork(t *testing.T) {
 	budget := imageBudget(t)
+	if observed, err := (Alias{}).ObserveRoute(t.Context(), budget); err == nil || observed.Validate() == nil {
+		t.Fatal("zero alias supplied route evidence")
+	}
 	var namespace DocumentNamespace
 	if _, err := namespace.QualifyRoots(t.Context(), budget); err == nil {
 		t.Fatal("zero namespace supplied qualified roots")

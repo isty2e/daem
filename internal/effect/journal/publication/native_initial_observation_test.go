@@ -8,6 +8,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -163,7 +166,7 @@ func TestNativeInitialObservationRetainsActualFactsBeforeAfterState(t *testing.T
 						t.Fatal("initial observation leaked a namespace read capability")
 					}
 				}
-				if _, err := input.Roots.Manifest.Root.Authority(); err != nil {
+				if _, err := namespacetest.LegacyRoot(t, input.Roots, output.RootProject).Root.Authority(); err != nil {
 					t.Fatal("observation closed its borrowed root", err)
 				}
 				if action == "create" {

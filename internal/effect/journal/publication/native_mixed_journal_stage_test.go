@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -315,7 +317,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				authority, err := fixture.whole.roots.Manifest.Root.Authority()
+				authority, err := namespacetest.LegacyRoot(t, fixture.whole.roots, output.RootProject).Root.Authority()
 				if err != nil {
 					t.Fatal(err)
 				}

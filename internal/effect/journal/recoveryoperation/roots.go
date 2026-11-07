@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -14,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // Profile selects recovery readers and permitted root paths independently of
@@ -24,7 +27,7 @@ type Profile struct {
 	Limits       configdocument.Limits
 	Manifest     string
 	ManifestPath string
-	ResolveRoot  func(output.RootRole) (string, error)
+	ResolveRoot  func(output.RootReference) (string, error)
 	Budget       *physicalwork.Budget
 	StateReader  durable.SnapshotReader
 }
@@ -50,23 +53,20 @@ func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Nati
 	if err != nil {
 		return nil, err
 	}
-	for _, role := range []output.RootRole{output.RootProject, output.RootPiAgent, output.RootCodexHome} {
-		if _, needed := anchors[role]; !needed {
-			continue
-		}
-		var selected *journalnamespace.RootSelection
+	manifestReference, err := configuration.ProjectRootReference()
+	if err != nil {
+		return nil, err
+	}
+	references := slices.Collect(maps.Keys(anchors))
+	slices.SortFunc(references, output.RootReference.Compare)
+	for _, reference := range references {
 		var path string
-		switch role {
-		case output.RootProject:
-			selected, path = &owned.selection.Manifest, profile.Manifest
-		case output.RootPiAgent:
-			selected = &owned.selection.PiAgent
-		case output.RootCodexHome:
-			selected = &owned.selection.CodexHome
+		if reference == manifestReference {
+			path = profile.Manifest
 		}
 		if path == "" && profile.ResolveRoot != nil {
 			var err error
-			path, err = profile.ResolveRoot(role)
+			path, err = profile.ResolveRoot(reference)
 			if err != nil {
 				return nil, err
 			}
@@ -76,18 +76,21 @@ func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Nati
 		}
 		var selection journalnamespace.RootSelection
 		var err error
-		if role == output.RootProject {
+		if reference == manifestReference {
 			var root *rootedpath.CapturedRoot
 			root, err = rootedpath.CaptureCanonicalRootBounded(path, physicalwork.MaximumPhysicalPathDepth, profile.Budget)
 			selection = journalnamespace.RootSelection{SelectedPath: path, Root: root}
 		} else {
-			selection, err = journalnamespace.CaptureRecordedRoot(ctx, path, anchors[role], profile.Budget)
+			selection, err = journalnamespace.CaptureRecordedRoot(ctx, path, anchors[reference], profile.Budget)
 		}
 		if err != nil {
 			return nil, err
 		}
 		owned.retained = append(owned.retained, selection.Root)
-		*selected = selection
+		owned.selection, err = owned.selection.With(reference, selection)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return owned, ctx.Err()
 }

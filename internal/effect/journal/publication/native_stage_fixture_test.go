@@ -12,10 +12,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -105,10 +107,10 @@ func twoWholeGroupStageFixture(t *testing.T) (wholeGroupTestFixture, wholeGroupT
 	t.Helper()
 	first := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "replace", []byte("first before"), []byte("first after"))
 	second := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, "replace", []byte("second before"), []byte("second after"))
-	second.path = filepath.Join(first.roots.Manifest.SelectedPath, filepath.FromSlash(second.input.mutation.Destination().RelativePath()))
+	second.path = filepath.Join(namespacetest.LegacyRoot(t, first.roots, output.RootProject).SelectedPath, filepath.FromSlash(second.input.mutation.Destination().RelativePath()))
 	requireWholeGroupWrite(t, second.path, second.original.Content(), 0o644)
 	roots := second.roots
-	roots.Manifest = first.roots.Manifest
+	roots = namespacetest.WithLegacyRoot(t, roots, output.RootProject, namespacetest.LegacyRoot(t, first.roots, output.RootProject))
 	var err error
 	second.namespace, err = journalnamespace.Observe(t.Context(), second.namespace.Addresses(), roots, second.reader, second.input.Budget())
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
@@ -139,7 +140,7 @@ func TestNativeDocumentAssessmentRequiresCompleteClaimAndBindingPhases(t *testin
 			if test.binding == "after" {
 				bindings = append(bindings, binding)
 			} else if test.binding == "third" {
-				other := filepath.Join(setup.roots.PiAgent.SelectedPath, "foreign.json")
+				other := filepath.Join(namespacetest.LegacyRoot(t, setup.roots, output.RootPiAgent).SelectedPath, "foreign.json")
 				if err := os.WriteFile(other, []byte("foreign binding target"), 0o600); err != nil {
 					t.Fatal(err)
 				}

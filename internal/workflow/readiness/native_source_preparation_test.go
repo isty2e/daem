@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -167,7 +168,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Cleanup(func() { _ = captured.Close() })
 		return journalnamespace.RootSelection{SelectedPath: path, Root: captured}
 	}
-	roots := journalnamespace.Roots{Manifest: rootGrant(root), PiAgent: rootGrant(hostRoot)}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: rootGrant(root), output.RootPiAgent: rootGrant(hostRoot)})
 	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, storagecommit.Adapter{}, budget)
 	if err != nil {
 		t.Fatal(err)

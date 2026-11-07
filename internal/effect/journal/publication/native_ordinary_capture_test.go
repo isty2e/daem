@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+
 	"github.com/isty2e/daem/internal/desired/entity"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -87,7 +89,7 @@ func TestNativeCaptureWithObservedEmptyDocumentsPreservesUnselectedNativeState(t
 	if !captured.BeforeState().Equal(before) || !captured.AfterState().Equal(input.after) || len(entries) != 1 || len(documents) != 0 {
 		t.Fatal("capture lost complete state or invented a native document group")
 	}
-	if captured.budget != input.batch.budget || captured.publication.roots.Manifest.Root != input.batch.roots.Manifest.Root {
+	if captured.budget != input.batch.budget || namespacetest.LegacyRoot(t, captured.publication.roots, output.RootProject).Root != namespacetest.LegacyRoot(t, input.batch.roots, output.RootProject).Root {
 		t.Fatal("empty census lost the containing root or original allocation")
 	}
 	if _, err := os.Stat(filepath.Join(captured.CaptureResult().Directory, "documents")); !errors.Is(err, os.ErrNotExist) {

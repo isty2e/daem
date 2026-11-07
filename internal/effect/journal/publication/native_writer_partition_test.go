@@ -15,6 +15,8 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -26,7 +28,7 @@ import (
 func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
 	fixture := mixedStageFixture(t)
-	root := fixture.whole.roots.Manifest
+	root := namespacetest.LegacyRoot(t, fixture.whole.roots, output.RootProject)
 	ordinaryPath := filepath.Join(root.SelectedPath, "AGENTS.md")
 	before := fixture.comparison.BeforeDocument().Content()
 	requireWholeGroupWrite(t, ordinaryPath, before, 0o644)

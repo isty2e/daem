@@ -33,6 +33,67 @@ func assertDocumentContract(t *testing.T, spec configuration.DocumentSpec, want 
 			spec.Destination().String(), spec.RootReference().Identity(), spec.RootReference().LocatorPolicy(), spec.RootRelativePath(),
 			spec.PolicyID(), spec.Grammar(), spec.Class(), spec.ModePolicy(), spec.RequiredObservations())
 	}
+	reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()})
+	if err != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || relative != want.relative {
+		t.Fatalf("alias binding = %v/%s, %v; want %s/%s/%s", reference, relative, err, want.root, want.locator, want.relative)
+	}
+	if _, native := spec.NativePlacementPath(); native {
+		reference, err := configuration.RootReferenceForScope(spec.Target(), spec.Scope())
+		if err != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator {
+			t.Fatalf("selected layout root = %v, %v; want %s/%s", reference, err, want.root, want.locator)
+		}
+		if spec.Scope() == target.ScopeProject {
+			project, err := configuration.ProjectRootReference()
+			if err != nil || project != reference {
+				t.Fatalf("project binding differs from its layout: %v, %v", project, err)
+			}
+		}
+	}
+}
+
+func TestRootBindingRefusesUnrelatedPortableRootsAndHomePaths(t *testing.T) {
+	for _, test := range []struct {
+		selected target.Target
+		alias    string
+	}{
+		{target.TargetPi, "@codex-home/a.json"},
+		{target.TargetClaudeCode, "~/outside.json"},
+	} {
+		destination, err := output.Parse(test.alias)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: test.selected, Scope: target.ScopeGlobal, Destination: destination})
+		if !errors.Is(err, configuration.ErrDocumentPath) || reference != (output.RootReference{}) || relative != "" {
+			t.Fatalf("unrelated alias %s returned a binding: %v/%s, %v", test.alias, reference, relative, err)
+		}
+	}
+}
+
+func TestRootBindingDoesNotImposePlacementOrGrammarAdmission(t *testing.T) {
+	for _, test := range []struct {
+		selected target.Target
+		scope    target.Scope
+		alias    string
+		root     string
+		relative string
+	}{
+		{target.TargetPi, target.ScopeProject, "retained/document.bin", "project", "retained/document.bin"},
+		{target.TargetCodex, target.ScopeGlobal, "@codex-home/retained.bin", "codex-home", "retained.bin"},
+	} {
+		destination, err := output.Parse(test.alias)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := configuration.AliasInput{Target: test.selected, Scope: test.scope, Destination: destination, Syntax: hostconfig.Syntax("not-a-grammar")}
+		reference, relative, err := configuration.RootBindingForAlias(input)
+		if err != nil || reference.Identity() != test.root || relative != test.relative {
+			t.Fatalf("retained binding %s = %v/%s, %v", test.alias, reference, relative, err)
+		}
+		if _, err := configuration.DocumentSpecForAlias(input); err == nil {
+			t.Fatal("binding lookup was mistaken for placement admission")
+		}
+	}
 }
 
 func TestNativeDocumentSelectionAndInverseCoverRegisteredHosts(t *testing.T) {

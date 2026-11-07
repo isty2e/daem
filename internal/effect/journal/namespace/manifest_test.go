@@ -1,11 +1,37 @@
 package namespace
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/outputtest"
 )
+
+func TestManifestBindingCannotComeFromAContainingHostRoot(t *testing.T) {
+	host := nativeNamespaceRoot(t, t.TempDir())
+	manifest := nativeNamespaceRoot(t, filepath.Join(host.SelectedPath, "project"))
+	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: host})
+	qualified, err := roots.Qualify(t.Context(), imageBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, selected := roots.Manifest()
+	_, granted := qualified.Manifest()
+	if selected || granted {
+		t.Fatal("a containing host root substituted for the missing manifest binding")
+	}
+	roots = fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: host, output.RootProject: manifest})
+	qualified, err = roots.Qualify(t.Context(), imageBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, supplied := qualified.Manifest()
+	if !supplied || grant.SelectedPath() != manifest.SelectedPath {
+		t.Fatal("the explicit manifest binding was replaced by its containing host root")
+	}
+}
 
 func TestManifestAuthorityClosesOnlyItsOwnedRoot(t *testing.T) {
 	selected := nativeNamespaceRoot(t, t.TempDir())

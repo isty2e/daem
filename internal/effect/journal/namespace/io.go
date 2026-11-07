@@ -28,19 +28,34 @@ func (namespace DocumentNamespace) ObserveRemovalNamespace(ctx context.Context, 
 }
 
 func (grant RootGrant) ObserveRoute(ctx context.Context, destination output.Destination, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
-	capability, err := grant.acquireRoute(ctx, destination, budget)
+	selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	capability, err := grant.acquireRoute(ctx, selected, budget)
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
 	return ObserveWriterCapability(ctx, capability, budget)
 }
 
-func (grant RootGrant) acquireRoute(ctx context.Context, destination output.Destination, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
+func (alias Alias) ObserveRoute(ctx context.Context, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
+	capability, err := alias.root.acquireRoute(ctx, alias.relative, budget)
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	return ObserveWriterCapability(ctx, capability, budget)
+}
+
+func (grant RootGrant) acquireRoute(ctx context.Context, selected rootedpath.RelativeDestination, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if grant.selection.Root == nil {
 		return nil, fmt.Errorf("writer route requires its selected retained root")
+	}
+	if err := selected.Validate(); err != nil {
+		return nil, err
 	}
 
 	physical := grant.authority.PhysicalRoot()
@@ -51,10 +66,6 @@ func (grant RootGrant) acquireRoute(ctx context.Context, destination output.Dest
 			return nil, err
 		}
 	} else if err := grant.selection.Root.ValidateSelectionBounded(grant.selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
-		return nil, err
-	}
-	selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
-	if err != nil {
 		return nil, err
 	}
 	path, err := filepath.Rel(grant.authority.PhysicalRoot(), filepath.Join(physical, filepath.FromSlash(selected.Path())))

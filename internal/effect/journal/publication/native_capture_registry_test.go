@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -112,7 +113,7 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 	if !known {
 		// The binding is an existing baseline, so create the actual document and
 		// observe it again rather than fabricating exact authority.
-		destination := filepath.Join(fixture.roots.Manifest.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
+		destination := filepath.Join(namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 		requireWholeGroupWrite(t, destination, []byte("model=1\n"), 0o644)
 		input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
 		if err != nil {

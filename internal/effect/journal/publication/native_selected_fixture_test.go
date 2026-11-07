@@ -9,10 +9,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
@@ -32,7 +34,7 @@ type selectedGroupCaptureFixture struct {
 
 func (capture selectedGroupCaptureFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
 	t.Helper()
-	authority, err := capture.roots.Manifest.Root.Authority()
+	authority, err := namespacetest.LegacyRoot(t, capture.roots, output.RootProject).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,21 +61,21 @@ func (capture selectedGroupCaptureFixture) recordedGroup(t *testing.T, group jou
 func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *pipackage.OrderObservation, roots journalnamespace.Roots) selectedGroupCaptureFixture {
 	t.Helper()
 	alias := fixture.claims.alias
-	if roots.Manifest.Root == nil {
-		roots.Manifest = nativeNamespaceRoot(t, t.TempDir())
+	if namespacetest.LegacyRoot(t, roots, output.RootProject).Root == nil {
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootProject, nativeNamespaceRoot(t, t.TempDir()))
 	}
-	root := roots.Manifest
+	root := namespacetest.LegacyRoot(t, roots, output.RootProject)
 	if alias.Scope() == target.ScopeGlobal {
 		if alias.Target() == target.TargetPi {
-			if roots.PiAgent.Root == nil {
-				roots.PiAgent = nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
+			if namespacetest.LegacyRoot(t, roots, output.RootPiAgent).Root == nil {
+				roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi")))
 			}
-			root = roots.PiAgent
+			root = namespacetest.LegacyRoot(t, roots, output.RootPiAgent)
 		} else {
-			if roots.CodexHome.Root == nil {
-				roots.CodexHome = nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "codex"))
+			if namespacetest.LegacyRoot(t, roots, output.RootCodexHome).Root == nil {
+				roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "codex")))
 			}
-			root = roots.CodexHome
+			root = namespacetest.LegacyRoot(t, roots, output.RootCodexHome)
 		}
 	}
 	path := filepath.Join(root.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))

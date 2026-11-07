@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -36,7 +39,7 @@ func TestNativeInitialObservationDiscardsEarlierOriginalOnLaterReadFailure(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(input.Roots.Manifest.SelectedPath, filepath.FromSlash(second.AggregateRoot().RelativePath()))
+	path := filepath.Join(namespacetest.LegacyRoot(t, input.Roots, output.RootProject).SelectedPath, filepath.FromSlash(second.AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, path, []byte("second"), 0o644)
 	input.Aliases = append(input.Aliases, second)
 	sentinel := errors.New("later original read failed")

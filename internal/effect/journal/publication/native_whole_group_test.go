@@ -20,6 +20,7 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -77,7 +78,7 @@ func TestNativeWholeGroupPreservesEmptyFileAndActualPermission(t *testing.T) {
 func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 	roots := fixture.roots
-	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
+	if err := os.Symlink(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
@@ -95,7 +96,7 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	if err != nil || len(recorded.Aliases()) != 2 {
 		t.Fatal("actual alias grouping lost a recorded alias", err)
 	}
-	authority, err := roots.PiAgent.Root.Authority()
+	authority, err := namespacetest.LegacyRoot(t, roots, output.RootPiAgent).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +176,7 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 			f.input.mutation = other.input.mutation
 		}},
 		{"missing manifest grant", func(f *wholeGroupTestFixture) {
-			f.roots.Manifest = journalnamespace.RootSelection{}
+			f.roots = namespacetest.WithLegacyRoot(t, f.roots, output.RootProject, journalnamespace.RootSelection{})
 			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, f.reader, f.input.Budget())
 			if err != nil {
 				t.Fatal(err)
@@ -344,7 +345,7 @@ type wholeGroupTestFixture struct {
 
 func (fixture wholeGroupTestFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
 	t.Helper()
-	manifest, err := fixture.roots.Manifest.Root.Authority()
+	manifest, err := namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,11 +365,11 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	envelope := nativeJournalFixture(t)
 	manifest := nativeNamespaceRoot(t, t.TempDir())
 	host := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "global"))
-	roots := journalnamespace.Roots{Manifest: manifest}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest})
 	if selected == target.TargetPi {
-		roots.PiAgent = host
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, host)
 	} else {
-		roots.CodexHome = host
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, host)
 	}
 	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: "prompts/Caf\u00e9.md", Ownership: "document"})
 	if err != nil {

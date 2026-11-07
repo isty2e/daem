@@ -7,8 +7,10 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -30,7 +32,7 @@ func TestNativeInitialObservationRefusesMissingSelectionAndWrongPhase(t *testing
 			case "duplicate alias":
 				input.Aliases = append(input.Aliases, input.Aliases[0])
 			case "closed root":
-				if err := input.Roots.Manifest.Root.Close(); err != nil {
+				if err := namespacetest.LegacyRoot(t, input.Roots, output.RootProject).Root.Close(); err != nil {
 					t.Fatal(err)
 				}
 			case "canceled":
@@ -96,7 +98,7 @@ func TestNativeInitialContinuationRefusesOriginalAndLifetimeDrift(t *testing.T) 
 					err = os.WriteFile(fixture.path, fixture.original.Content(), 0o644)
 				}
 			case "closed root":
-				err = input.Roots.Manifest.Root.Close()
+				err = namespacetest.LegacyRoot(t, input.Roots, output.RootProject).Root.Close()
 			case "admitted":
 				err = input.Budget.AdmitRemovalDemands(recovery.RemovalDemandSet{})
 			case "canceled":

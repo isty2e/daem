@@ -1,7 +1,6 @@
 package configuration
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -41,9 +40,7 @@ func RequireProtectionRoots(roots []output.RootReference) (ProtectionRequirement
 		}
 	}
 
-	slices.SortFunc(selected, func(left, right output.RootReference) int {
-		return cmp.Or(cmp.Compare(left.Identity(), right.Identity()), cmp.Compare(left.LocatorPolicy(), right.LocatorPolicy()))
-	})
+	slices.SortFunc(selected, output.RootReference.Compare)
 	return ProtectionRequirements{known: true, roots: slices.Compact(selected)}, nil
 }
 

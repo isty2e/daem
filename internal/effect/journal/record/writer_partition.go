@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -92,7 +93,17 @@ func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Co
 			if err := alias.LogicalRoot.validate(address.Scope(), record.ManifestRootProvenance); err != nil {
 				return err
 			}
-			selected, err := documentRootedWriterPath(alias.LogicalRoot.Provenance, address.AggregateRoot().RelativePath())
+			_, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+			if err != nil {
+				return err
+			}
+			// A global provenance may identify an ancestor anchor, not the
+			// selected root. Its alias route is qualified live before effects;
+			// these bytes cannot reconstruct that missing prefix.
+			if address.Scope() != target.ScopeProject {
+				continue
+			}
+			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, relative)
 			if err != nil {
 				return err
 			}
