@@ -73,11 +73,12 @@ func ChargeDestinationPath(
 }
 
 type physicalTraversal struct {
-	maximumDepth   int
-	budget         PhysicalTraversalBudget
-	captureAliases bool
-	rejectAliases  bool
-	aliases        []layoutAlias
+	maximumDepth             int
+	budget                   PhysicalTraversalBudget
+	captureAliases           bool
+	rejectAliases            bool
+	allowMissingAliasTargets bool
+	aliases                  []layoutAlias
 }
 
 func newPhysicalTraversal(
@@ -405,6 +406,25 @@ func ResolveRootSelectorBounded(
 	if err != nil {
 		return "", err
 	}
+	return resolveSelectorWithTraversal(path, traversal)
+}
+
+// ResolveFutureReferentPathBounded resolves an absolute locator expression while
+// retaining missing alias-target suffixes as path data, never mutation authority.
+func ResolveFutureReferentPathBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (string, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	traversal.allowMissingAliasTargets = true
+	return resolveSelectorWithTraversal(path, traversal)
+}
+
+func resolveSelectorWithTraversal(path string, traversal *physicalTraversal) (string, error) {
 	if strings.ContainsRune(path, '\x00') || !filepath.IsAbs(path) {
 		return "", newFailure(FailureInvalidRoot, path, "root selector must be absolute and contain no NUL byte", nil)
 	}

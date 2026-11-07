@@ -57,6 +57,53 @@ func TestWindowsRootSelectorUsesAdmittedDOSNormalization(t *testing.T) {
 	}
 }
 
+func TestWindowsFutureReferentRevalidatesNestedFramesAndExistingPrefix(t *testing.T) {
+	for _, changeSource := range []bool{false, true} {
+		name := "existing-prefix"
+		if changeSource {
+			name = "outer-frame"
+		}
+		t.Run(name, func(t *testing.T) {
+			base := referentTestRoot(t)
+			vault := filepath.Join(base, "vault")
+			if err := os.Mkdir(vault, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			referentTestSymlink(t, filepath.FromSlash("vault/missing"), filepath.Join(base, "inner"))
+			alias := filepath.Join(base, "outer")
+			referentTestSymlink(t, "inner", alias)
+			_, components, err := prepareWindowsAbsolutePath(alias, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			budget := &referentFrameTestBudget{at: len(components) + 3, change: func() error {
+				if changeSource {
+					if err := os.Remove(alias); err != nil {
+						return err
+					}
+					return os.Symlink("other-missing", alias)
+				}
+				if err := os.Rename(vault, filepath.Join(base, "old-vault")); err != nil {
+					return err
+				}
+				return os.Mkdir(vault, 0o700)
+			}}
+			got, err := ResolveFutureReferentPathBounded(alias, 256, budget)
+			if budget.visits != budget.at || budget.err != nil {
+				t.Fatalf("retarget fixture did not reach missing target: visits=%d, err=%v", budget.visits, budget.err)
+			}
+			var failure *Failure
+			wantPath := vault
+			if changeSource {
+				wantPath = alias
+			}
+			if got != "" || !errors.Is(err, errWindowsReparseChanged) || !errors.As(err, &failure) || failure.Path() != wantPath {
+				t.Fatalf("changed future target returned %q, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestWindowsReferentLeafCompletesPendingReparseVerification(t *testing.T) {
 	base := referentTestRoot(t)
 	for _, name := range []string{"original", "other"} {

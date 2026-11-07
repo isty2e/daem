@@ -297,7 +297,8 @@ func resolveNativePathPlatform(
 					platform.directories = platform.directories[:last]
 				}
 			}
-			pending = append(nativePathComponents(targetNames, true), pending...)
+			required := traversal == nil || !traversal.allowMissingAliasTargets
+			pending = append(nativePathComponents(targetNames, required), pending...)
 			continue
 		}
 		if stat.Mode&unix.S_IFMT != unix.S_IFDIR {

@@ -200,6 +200,107 @@ func TestResolveReferentPathBoundedRefusesDanglingCyclesAndFileAncestors(t *test
 	}
 }
 
+func TestFutureReferentKeepsMissingAliasTargetsWithoutChangingStrictCalls(t *testing.T) {
+	base := referentTestRoot(t)
+	if err := os.Mkdir(filepath.Join(base, "vault"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	referentTestSymlink(t, filepath.FromSlash("future/leaf"), filepath.Join(base, "hop"))
+	for _, test := range []struct {
+		name   string
+		target string
+		suffix string
+		want   string
+	}{
+		{"leaf", filepath.FromSlash("vault/token"), "", filepath.Join(base, "vault", "token")},
+		{"ancestor", "future-root", filepath.Join("child", "config.json"), filepath.Join(base, "future-root", "child", "config.json")},
+		{"absolute", filepath.Join(base, "future-absolute", "leaf"), "", filepath.Join(base, "future-absolute", "leaf")},
+		{"nested", "hop", "", filepath.Join(base, "future", "leaf")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			alias := filepath.Join(base, test.name)
+			referentTestSymlink(t, test.target, alias)
+			selected := filepath.Join(alias, test.suffix)
+			budget := &referentTestBudget{limit: 10_000}
+			strict := []func(string, int, PhysicalTraversalBudget) (string, error){ResolveReferentPathBounded, ResolveRootSelectorBounded}
+			var kinds []FailureKind
+			for _, resolve := range strict {
+				got, err := resolve(selected, 256, budget)
+				var failure *Failure
+				if got != "" || !errors.As(err, &failure) {
+					t.Fatalf("strict call admitted dangling path: %q, %v", got, err)
+				}
+				kinds = append(kinds, failure.Kind())
+			}
+			got, err := ResolveFutureReferentPathBounded(selected, 256, budget)
+			if err != nil || got != test.want {
+				t.Fatalf("future referent = %q, %v; want %q", got, err, test.want)
+			}
+			if _, err := os.Lstat(test.want); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("future lookup created an endpoint: %v", err)
+			}
+			for index, resolve := range strict {
+				got, err := resolve(selected, 256, budget)
+				var failure *Failure
+				if got != "" || !errors.As(err, &failure) || failure.Kind() != kinds[index] {
+					t.Fatalf("future mode changed a later strict call: %q, %v", got, err)
+				}
+			}
+			if root, err := CaptureCanonicalRootBounded(alias, 256, budget); err == nil {
+				_ = root.Close()
+				t.Fatal("future path became captured root authority")
+			}
+		})
+	}
+}
+
+func TestFutureReferentRefusesUndefinedAliasTargets(t *testing.T) {
+	base := referentTestRoot(t)
+	if err := os.WriteFile(filepath.Join(base, "file"), []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ name, target string }{
+		{"missing-parent", filepath.FromSlash("missing/../outside")},
+		{"file-parent", filepath.FromSlash("file/child")},
+		{"directory-target", "file" + string(filepath.Separator)},
+		{"loop", "loop"},
+	} {
+		alias := filepath.Join(base, test.name)
+		referentTestSymlink(t, test.target, alias)
+		if got, err := ResolveFutureReferentPathBounded(alias, 256, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+			t.Errorf("undefined future target %s returned %q, %v", test.name, got, err)
+		}
+	}
+}
+
+func TestFutureReferentRequiresSelectorIngressAndTraversalLimits(t *testing.T) {
+	base := referentTestRoot(t)
+	selected := filepath.Join(base, "missing")
+	for _, invalid := range []string{"", "relative", base + string(filepath.Separator) + "nul\x00name"} {
+		budget := &referentTestBudget{limit: 10_000}
+		if got, err := ResolveFutureReferentPathBounded(invalid, 256, budget); err == nil || got != "" || budget.visits != 0 {
+			t.Errorf("invalid selector %q returned %q, %v after %d visits", invalid, got, err, budget.visits)
+		}
+	}
+	if got, err := ResolveFutureReferentPathBounded(selected, 256, nil); err == nil || got != "" {
+		t.Fatalf("missing budget returned %q, %v", got, err)
+	}
+	if got, err := ResolveFutureReferentPathBounded(selected, 0, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+		t.Fatalf("invalid depth returned %q, %v", got, err)
+	}
+	if got, err := ResolveFutureReferentPathBounded(selected, 1, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+		t.Fatalf("depth limit returned %q, %v", got, err)
+	}
+	if got, err := ResolveFutureReferentPathBounded(selected, 256, &referentTestBudget{}); !errors.Is(err, errReferentTestBudget) || got != "" {
+		t.Fatalf("exhausted budget returned %q, %v", got, err)
+	}
+	root := filepath.VolumeName(base) + string(filepath.Separator)
+	budget := &referentTestBudget{limit: 1}
+	if got, err := ResolveFutureReferentPathBounded(root, 256, budget); err != nil || got != root || budget.visits != 1 {
+		t.Fatalf("comparison root = %q, %v after %d visits", got, err, budget.visits)
+	}
+}
+
 func referentTestRoot(t *testing.T) string {
 	t.Helper()
 	base, err := filepath.EvalSymlinks(t.TempDir())
