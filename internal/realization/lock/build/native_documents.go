@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/nativefragment"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
@@ -106,7 +107,7 @@ func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInpu
 		if err != nil {
 			return nil, err
 		}
-	} else if document.placement.Grammar() != profile.HostConfigOpaque {
+	} else if document.placement.Grammar() != configuration.Opaque {
 		syntax, err := configdocument.ParseSyntax(string(document.placement.Grammar()))
 		if err != nil {
 			return nil, err

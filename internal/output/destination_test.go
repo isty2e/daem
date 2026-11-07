@@ -7,6 +7,35 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+func TestRootReferenceKeepsIdentityAndLocatorSeparateFromPortableRoots(t *testing.T) {
+	first, err := NewRootReference("preferences", "preferences-location-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewRootReference("account", "account-location-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || first.Identity() != "preferences" || first.LocatorPolicy() != "preferences-location-v1" || first.Validate() != nil {
+		t.Fatal("selected root identity was reduced to a portable root role")
+	}
+	revised, err := NewRootReference(first.Identity(), "preferences-location-v2")
+	if err != nil || revised == first {
+		t.Fatal("locator revision was lost")
+	}
+	for _, invalid := range []string{"", " untrimmed", "untrimmed ", "control\x00", "bidi\u202e", "\xff"} {
+		if _, err := NewRootReference(invalid, "locator-v1"); err == nil {
+			t.Errorf("invalid root identity %q admitted", invalid)
+		}
+		if _, err := NewRootReference("root", invalid); err == nil {
+			t.Errorf("invalid locator reference %q admitted", invalid)
+		}
+	}
+	if (RootReference{}).Validate() == nil {
+		t.Fatal("zero root reference admitted")
+	}
+}
+
 func TestDestinationValidationRejectsNonCanonicalAndScopeContradictoryValues(t *testing.T) {
 	t.Parallel()
 
@@ -86,6 +115,10 @@ func TestDestinationRoundTripsEveryRootRole(t *testing.T) {
 			destination, err := Parse(test.value)
 			if err != nil {
 				t.Fatal(err)
+			}
+			composed, err := NewDestination(test.root, test.relative)
+			if err != nil || composed != destination {
+				t.Fatalf("canonical composition differs from parsing: %v", err)
 			}
 			if destination.RootRole() != test.root || destination.RelativePath() != test.relative || destination.String() != test.value {
 				t.Fatalf("destination = root %q relative %q string %q", destination.RootRole(), destination.RelativePath(), destination.String())
@@ -215,12 +248,12 @@ func TestDestinationConstructorRejectsAmbiguousProjectSpelling(t *testing.T) {
 	t.Parallel()
 
 	for _, relative := range []string{"@data/asset", "@future/asset", "~/asset"} {
-		if _, err := newDestination(RootProject, relative); err == nil {
-			t.Fatalf("newDestination(project, %q) returned nil error", relative)
+		if _, err := NewDestination(RootProject, relative); err == nil {
+			t.Fatalf("NewDestination(project, %q) returned nil error", relative)
 		}
 	}
-	if _, err := newDestination(RootRole("cache"), "asset"); err == nil {
-		t.Fatal("newDestination admitted an unknown root role")
+	if _, err := NewDestination(RootRole("cache"), "asset"); err == nil {
+		t.Fatal("NewDestination admitted an unknown root role")
 	}
 }
 

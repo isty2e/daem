@@ -3,39 +3,15 @@ package profile
 import (
 	"errors"
 	"fmt"
-	"path"
-	"strings"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
-var (
-	ErrHostConfigReserved = errors.New("host configuration overlaps a reserved area")
-	ErrHostConfigGrammar  = errors.New("host configuration grammar is not admitted")
-)
-
-// HostConfigGrammar is selected from logical profile facts, before physical qualification.
-type HostConfigGrammar string
-
-const (
-	HostConfigOpaque           HostConfigGrammar = "opaque"
-	HostConfigJSON             HostConfigGrammar = "json"
-	HostConfigJSONC            HostConfigGrammar = "jsonc"
-	HostConfigJSONLineComments HostConfigGrammar = "json-line-comments"
-	HostConfigTOML             HostConfigGrammar = "toml"
-)
-
-type HostConfigObservation string
-
-const (
-	HostConfigObserveReferentAliases       HostConfigObservation = "referent_aliases"
-	HostConfigObserveInstalledClaims       HostConfigObservation = "installed_claims"
-	HostConfigObservePiLoader              HostConfigObservation = "pi_loader_entries"
-	HostConfigObserveCodexRuntimeLocations HostConfigObservation = "codex_runtime_locations"
-)
+var ErrHostConfigReserved = errors.New("host configuration overlaps a reserved area")
 
 type hostConfigFieldReservation struct {
 	key   string
@@ -57,10 +33,9 @@ type HostConfigPlacement struct {
 	scope           target.Scope
 	nativePath      string
 	ownership       desiredhostconfig.Ownership
-	grammar         HostConfigGrammar
 	requestedSyntax desiredhostconfig.Syntax
 	documentKind    hostConfigDocumentKind
-	destination     output.Destination
+	document        configuration.DocumentSpec
 }
 
 func ResolveHostConfigPlacement(input HostConfigPlacementInput) (HostConfigPlacement, error) {
@@ -87,37 +62,28 @@ func ResolveHostConfigPlacement(input HostConfigPlacementInput) (HostConfigPlace
 		return HostConfigPlacement{}, err
 	}
 
-	kind := hostConfigDocumentClass(selected, scope, input.Path)
 	if owner, reserved := hostConfigPathOwner(selected, scope, input.Path); reserved {
 		return HostConfigPlacement{}, fmt.Errorf("%w: %q belongs to %s", ErrHostConfigReserved, input.Path, owner)
 	}
-	if ownership == desiredhostconfig.OwnershipDocument && hostConfigSharedDocument(kind) {
+	document, err := configuration.NewDocumentSpec(configuration.DocumentInput{
+		Target: selected, Scope: scope, Path: input.Path, Syntax: syntax,
+	})
+	if err != nil {
+		if errors.Is(err, configuration.ErrDocumentPath) {
+			return HostConfigPlacement{}, fmt.Errorf("%w: %w", ErrHostConfigReserved, err)
+		}
+		return HostConfigPlacement{}, err
+	}
+	if ownership == desiredhostconfig.OwnershipDocument && document.Class() == configuration.SharedConfiguration {
 		return HostConfigPlacement{}, fmt.Errorf("%w: %q requires key ownership alongside its dedicated resources", ErrHostConfigReserved, input.Path)
 	}
-	grammar, err := hostConfigGrammar(kind, input.Path, ownership, syntax)
-	if err != nil {
-		return HostConfigPlacement{}, err
-	}
-
-	root := "@pi-agent/"
-	projectRoot := ".pi/"
-	if selected == target.TargetCodex {
-		root, projectRoot = "@codex-home/", ".codex/"
-	}
-	if scope == target.ScopeProject {
-		root = projectRoot
-	}
-	destination, err := output.Parse(root + input.Path)
-	if err != nil {
-		return HostConfigPlacement{}, err
-	}
-	if err := destination.ValidateScope(scope); err != nil {
-		return HostConfigPlacement{}, err
+	if ownership == desiredhostconfig.OwnershipKeys && document.Grammar() == configuration.Opaque {
+		return HostConfigPlacement{}, fmt.Errorf("%w: key ownership requires an explicit supported syntax for %q", configuration.ErrGrammar, input.Path)
 	}
 	return HostConfigPlacement{
 		target: selected, scope: scope, nativePath: input.Path,
-		ownership: ownership, grammar: grammar, requestedSyntax: syntax,
-		documentKind: kind, destination: destination,
+		ownership: ownership, requestedSyntax: syntax,
+		documentKind: hostConfigReservationKind(selected, document.Class()), document: document,
 	}, nil
 }
 
@@ -127,10 +93,16 @@ func (placement HostConfigPlacement) NativePath() string    { return placement.n
 func (placement HostConfigPlacement) Ownership() desiredhostconfig.Ownership {
 	return placement.ownership
 }
-func (placement HostConfigPlacement) Grammar() HostConfigGrammar { return placement.grammar }
-func (placement HostConfigPlacement) Destination() output.Destination {
-	return placement.destination
+
+func (placement HostConfigPlacement) Grammar() configuration.Grammar {
+	return placement.document.Grammar()
 }
+
+func (placement HostConfigPlacement) Destination() output.Destination {
+	return placement.document.Destination()
+}
+
+func (placement HostConfigPlacement) Document() configuration.DocumentSpec { return placement.document }
 
 func (placement HostConfigPlacement) RequestedSyntax() desiredhostconfig.Syntax {
 	return placement.requestedSyntax
@@ -189,68 +161,11 @@ func (placement HostConfigPlacement) ValidateStaticFootprint(footprint output.Fo
 	return nil
 }
 
-func (placement HostConfigPlacement) RequiredObservations() []HostConfigObservation {
+func (placement HostConfigPlacement) RequiredObservations() []configuration.Observation {
 	if placement.documentKind == 0 {
 		return nil
 	}
-	observations := []HostConfigObservation{HostConfigObserveReferentAliases, HostConfigObserveInstalledClaims}
-	if placement.target == target.TargetPi {
-		return append(observations, HostConfigObservePiLoader)
-	}
-	return append(observations, HostConfigObserveCodexRuntimeLocations)
-}
-
-func hostConfigGrammar(kind hostConfigDocumentKind, nativePath string, ownership desiredhostconfig.Ownership, requested desiredhostconfig.Syntax) (HostConfigGrammar, error) {
-	known := HostConfigGrammar("")
-	switch kind {
-	case hostConfigPiSettings:
-		known = HostConfigJSON
-	case hostConfigPiModels:
-		known = HostConfigJSONLineComments
-	case hostConfigCodexConfiguration:
-		known = HostConfigTOML
-	}
-	if known != "" {
-		if requested != desiredhostconfig.SyntaxDefault && HostConfigGrammar(requested) != known {
-			return "", fmt.Errorf("%w: %q requires %s", ErrHostConfigGrammar, nativePath, known)
-		}
-		return known, nil
-	}
-	if requested != desiredhostconfig.SyntaxDefault {
-		return HostConfigGrammar(requested), nil
-	}
-	switch strings.ToLower(path.Ext(nativePath)) {
-	case ".json":
-		return HostConfigJSON, nil
-	case ".jsonc":
-		return HostConfigJSONC, nil
-	case ".toml":
-		return HostConfigTOML, nil
-	}
-	if ownership == desiredhostconfig.OwnershipDocument {
-		return HostConfigOpaque, nil
-	}
-	return "", fmt.Errorf("%w: key ownership requires an explicit supported syntax for %q", ErrHostConfigGrammar, nativePath)
-}
-
-func hostConfigCodexDocument(scope target.Scope, nativePath string) bool {
-	if nativePath == "config.toml" {
-		return true
-	}
-	if scope != target.ScopeGlobal {
-		return false
-	}
-	name, profile := strings.CutSuffix(nativePath, ".config.toml")
-	if !profile || name == "" {
-		return false
-	}
-	return strings.IndexFunc(name, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
-	}) < 0
-}
-
-func hostConfigSharedDocument(kind hostConfigDocumentKind) bool {
-	return kind == hostConfigPiSettings || kind == hostConfigCodexConfiguration
+	return placement.document.RequiredObservations()
 }
 
 func hostConfigReservedFields(kind hostConfigDocumentKind) []hostConfigFieldReservation {
@@ -277,21 +192,17 @@ type hostConfigDocumentKind uint8
 const (
 	hostConfigOrdinaryDocument hostConfigDocumentKind = iota + 1
 	hostConfigPiSettings
-	hostConfigPiModels
 	hostConfigCodexConfiguration
 )
 
-func hostConfigDocumentClass(selected target.Target, scope target.Scope, nativePath string) hostConfigDocumentKind {
-	if selected == target.TargetPi {
-		if nativePath == "settings.json" {
+func hostConfigReservationKind(selected target.Target, class configuration.DocumentClass) hostConfigDocumentKind {
+	if class == configuration.SharedConfiguration {
+		if selected == target.TargetPi {
 			return hostConfigPiSettings
 		}
-		if scope == target.ScopeGlobal && nativePath == "models.json" {
-			return hostConfigPiModels
+		if selected == target.TargetCodex {
+			return hostConfigCodexConfiguration
 		}
-	}
-	if selected == target.TargetCodex && hostConfigCodexDocument(scope, nativePath) {
-		return hostConfigCodexConfiguration
 	}
 	return hostConfigOrdinaryDocument
 }

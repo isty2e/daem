@@ -30,6 +30,31 @@ const (
 	RootCodexHome RootRole = "codex_home"
 )
 
+// RootReference names a selected root and its versioned locator contract. It is
+// neither a portable root spelling nor evidence of filesystem authority.
+type RootReference struct {
+	identity      string
+	locatorPolicy string
+}
+
+func NewRootReference(identity, locatorPolicy string) (RootReference, error) {
+	if err := validateDestinationText("root identity", identity); err != nil {
+		return RootReference{}, err
+	}
+	if err := validateDestinationText("root locator policy", locatorPolicy); err != nil {
+		return RootReference{}, err
+	}
+	return RootReference{identity: identity, locatorPolicy: locatorPolicy}, nil
+}
+
+func (reference RootReference) Identity() string      { return reference.identity }
+func (reference RootReference) LocatorPolicy() string { return reference.locatorPolicy }
+
+func (reference RootReference) Validate() error {
+	_, err := NewRootReference(reference.identity, reference.locatorPolicy)
+	return err
+}
+
 // Destination is one canonical portable output root plus a slash-separated
 // relative path. Its zero value is invalid.
 type Destination struct {
@@ -64,7 +89,7 @@ func Parse(value string) (Destination, error) {
 		return Destination{}, fmt.Errorf("destination has unknown reserved root role")
 	}
 
-	destination, err := newDestination(root, relative)
+	destination, err := NewDestination(root, relative)
 	if err != nil {
 		return Destination{}, fmt.Errorf("destination: %w", err)
 	}
@@ -74,7 +99,9 @@ func Parse(value string) (Destination, error) {
 	return destination, nil
 }
 
-func newDestination(root RootRole, relative string) (Destination, error) {
+// NewDestination composes a canonical role and relative path without parsing
+// another package's copy of portable root spellings.
+func NewDestination(root RootRole, relative string) (Destination, error) {
 	if !root.valid() {
 		return Destination{}, fmt.Errorf("unsupported destination root role %q", root)
 	}
@@ -113,7 +140,7 @@ func (destination Destination) String() string {
 
 // Validate rejects a zero, forged, or non-canonical destination.
 func (destination Destination) Validate() error {
-	canonical, err := newDestination(destination.root, destination.relative)
+	canonical, err := NewDestination(destination.root, destination.relative)
 	if err != nil {
 		return err
 	}

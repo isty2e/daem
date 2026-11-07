@@ -2,6 +2,7 @@ package profile_test
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,9 +12,95 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestDocumentSpecsAdmitDedicatedMCPAliasesFromTheirOwner(t *testing.T) {
+	for _, placement := range aggregate.ImplementedMCPPlacements() {
+		spec, err := configuration.DocumentSpecForAlias(configuration.AliasInput{
+			Target: placement.Target(), Scope: placement.Scope(), Destination: placement.ConfigPath(),
+		})
+		if err != nil || spec.Validate() != nil || spec.Destination() != placement.ConfigPath() || spec.Class() != configuration.SharedConfiguration {
+			t.Fatalf("dedicated MCP document %s lost its contract: %v", placement.ID(), err)
+		}
+	}
+}
+
+func TestOrdinaryWritersMayUseANativeAliasSpelling(t *testing.T) {
+	claude, present := aggregate.HookPlacementFor(target.TargetClaudeCode, target.ScopeGlobal)
+	if !present {
+		t.Fatal("Claude's shared hook placement is required")
+	}
+	openCode, present := aggregate.ImplementedMCPPlacement(target.TargetOpenCode, target.ScopeGlobal)
+	if !present {
+		t.Fatal("OpenCode's shared MCP placement is required")
+	}
+	for _, input := range []configuration.AliasInput{
+		{Target: claude.Target(), Scope: claude.Scope(), Destination: claude.AggregateRoot()},
+		{Target: openCode.Target(), Scope: openCode.Scope(), Destination: openCode.ConfigPath()},
+	} {
+		spec, err := configuration.DocumentSpecForAlias(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nativePath, native := spec.NativePlacementPath()
+		if !native || spec.Destination().RootRole() != output.RootHome || spec.RootRelativePath() == spec.Destination().RelativePath() {
+			t.Fatal("an ordinary spelling was mistaken for a native-only resolution contract")
+		}
+		fromNative, err := configuration.NewDocumentSpec(configuration.DocumentInput{
+			Target: input.Target, Scope: input.Scope, Path: nativePath,
+		})
+		if err != nil || fromNative != spec {
+			t.Fatalf("the shared spelling lost its explicit native binding: %v", err)
+		}
+	}
+}
+
+func TestDocumentSpecsFollowOpenCodeCandidateSelection(t *testing.T) {
+	manifestRoot, homeRoot := t.TempDir(), t.TempDir()
+	globalRoot, err := opencodeconfig.DefaultGlobalConfigRoot("", homeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range target.SupportedScopes() {
+		directory, err := opencodeconfig.ConfigDirectory(manifestRoot, globalRoot, scope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		base, role := manifestRoot, output.RootProject
+		if scope == target.ScopeGlobal {
+			base, role = homeRoot, output.RootHome
+		}
+		relativeDirectory, err := filepath.Rel(base, directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, kind := range []opencodeconfig.ConfigKind{opencodeconfig.ConfigServer, opencodeconfig.ConfigTUI} {
+			names, err := opencodeconfig.CandidateNames(kind)
+			if err != nil || len(names) != 2 {
+				t.Fatalf("candidate family no longer has its paired contract: %v", err)
+			}
+			for index, name := range names {
+				alias, err := output.NewDestination(role, filepath.ToSlash(filepath.Join(relativeDirectory, name)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				spec, err := configuration.DocumentSpecForAlias(configuration.AliasInput{Target: target.TargetOpenCode, Scope: scope, Destination: alias})
+				if err != nil || spec.Class() != configuration.SharedConfiguration || spec.Grammar() != configuration.JSONC {
+					t.Fatalf("dedicated %s candidate lost native sharing: %v", kind, err)
+				}
+				alternate, found := spec.AlternateFile()
+				expected, err := output.NewDestination(role, filepath.ToSlash(filepath.Join(relativeDirectory, names[1-index])))
+				if err != nil || !found || alternate != expected {
+					t.Fatalf("dedicated candidate relation drifted: %v", err)
+				}
+			}
+		}
+	}
+}
 
 func nativeOperationSelection(t *testing.T, selected target.Target, scope target.Scope, path string, syntax hostconfig.Syntax, key string) aggregate.Selection {
 	t.Helper()
@@ -65,9 +152,9 @@ func TestNativeAggregateOperationBindsSelectedProfileAndCodec(t *testing.T) {
 				if err != nil || operation.ValidateSelection(selection) != nil || operation.Placement().Target() != test.target || operation.Placement().Scope() != scope {
 					t.Fatal("selected native profile was not retained", err)
 				}
-				expected := []profile.HostConfigObservation{profile.HostConfigObserveReferentAliases, profile.HostConfigObserveInstalledClaims, profile.HostConfigObservePiLoader}
+				expected := []configuration.Observation{configuration.ReferentAliases, configuration.InstalledClaims, configuration.PiLoader}
 				if test.target == target.TargetCodex {
-					expected[2] = profile.HostConfigObserveCodexRuntimeLocations
+					expected[2] = configuration.CodexRuntimeLocations
 				}
 				if !slices.Equal(operation.RequiredObservations(), expected) {
 					t.Fatal("static admission lost required physical observations")

@@ -72,10 +72,6 @@ func hostConfigPathOwner(selected target.Target, scope target.Scope, nativePath 
 	if hostConfigPathsOverlap(nativePath, ".git") {
 		return "repository metadata", true
 	}
-	parts := strings.Split(nativePath, "/")
-	if len(parts) > 1 && hostConfigDocumentClass(selected, scope, parts[0]) != hostConfigOrdinaryDocument {
-		return "the host configuration document", true
-	}
 	reservations := piHostConfigPathReservations
 	if selected == target.TargetCodex {
 		reservations = codexHostConfigPathReservations

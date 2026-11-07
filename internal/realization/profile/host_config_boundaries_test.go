@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -62,7 +63,13 @@ func TestHostConfigPlacementRetainsExplicitGrammarIntent(t *testing.T) {
 		t.Fatal("explicit intent was lost despite identical logical grammar")
 	}
 	forged := automatic
-	forged.grammar = HostConfigJSONC
+	var err error
+	forged.document, err = configuration.NewDocumentSpec(configuration.DocumentInput{
+		Target: input.Target, Scope: input.Scope, Path: input.Path, Syntax: desiredhostconfig.SyntaxJSONC,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := forged.Validate(); err == nil {
 		t.Fatal("grammar not implied by the retained intent was accepted")
 	}
@@ -80,7 +87,7 @@ func TestHostConfigCodexNamedProfileClassification(t *testing.T) {
 		input := hostConfigInput(target.TargetCodex, target.ScopeGlobal, nativePath)
 		input.Ownership = desiredhostconfig.OwnershipDocument
 		placement := mustHostConfigPlacement(t, input)
-		if placement.Grammar() != HostConfigTOML {
+		if placement.Grammar() != configuration.TOML {
 			t.Fatalf("ordinary TOML %q misclassified: %q", nativePath, placement.Grammar())
 		}
 	}

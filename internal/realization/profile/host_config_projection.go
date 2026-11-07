@@ -2,12 +2,11 @@ package profile
 
 import (
 	"fmt"
-	"strings"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // ProjectionContract admits one native key through the placement's logical
@@ -40,8 +39,14 @@ func HostConfigPlacementForContract(contract aggregate.ProjectionContract) (Host
 		return HostConfigPlacement{}, fmt.Errorf("native projection codec is unsupported")
 	}
 	address := contract.Address().Document()
-	nativePath, ok := hostConfigNativePath(address.Target(), address.Scope(), address.AggregateRoot())
-	if !ok {
+	document, err := configuration.DocumentSpecForAlias(configuration.AliasInput{
+		Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot(), Syntax: desiredhostconfig.Syntax(syntax),
+	})
+	if err != nil {
+		return HostConfigPlacement{}, err
+	}
+	nativePath, native := document.NativePlacementPath()
+	if !native {
 		return HostConfigPlacement{}, fmt.Errorf("native projection destination is outside its host root")
 	}
 	placement, err := ResolveHostConfigPlacement(HostConfigPlacementInput{
@@ -59,25 +64,4 @@ func HostConfigPlacementForContract(contract aggregate.ProjectionContract) (Host
 		return HostConfigPlacement{}, fmt.Errorf("native projection differs from its host profile")
 	}
 	return placement, nil
-}
-
-func hostConfigNativePath(selected target.Target, scope target.Scope, destination output.Destination) (string, bool) {
-	if selected != target.TargetPi && selected != target.TargetCodex {
-		return "", false
-	}
-	if scope == target.ScopeProject && destination.RootRole() == output.RootProject {
-		prefix := ".pi/"
-		if selected == target.TargetCodex {
-			prefix = ".codex/"
-		}
-		return strings.CutPrefix(destination.RelativePath(), prefix)
-	}
-	root := output.RootPiAgent
-	if selected == target.TargetCodex {
-		root = output.RootCodexHome
-	}
-	if scope == target.ScopeGlobal && destination.RootRole() == root {
-		return destination.RelativePath(), true
-	}
-	return "", false
 }

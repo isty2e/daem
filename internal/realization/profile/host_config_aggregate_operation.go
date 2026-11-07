@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // NativeAggregateOperationContract binds a selected native codec to one logical
@@ -90,7 +91,7 @@ func (operation NativeAggregateOperationContract) Placement() HostConfigPlacemen
 	return operation.placement
 }
 
-func (operation NativeAggregateOperationContract) RequiredObservations() []HostConfigObservation {
+func (operation NativeAggregateOperationContract) RequiredObservations() []configuration.Observation {
 	return operation.placement.RequiredObservations()
 }
 
