@@ -32,6 +32,7 @@ import (
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -64,7 +65,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if scope == target.ScopeGlobal {
 		nativePath = "extension-settings/preferences.toml"
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: target.TargetCodex, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: target.TargetCodex, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys})
 	if err != nil {
 		t.Fatal(err)
 	}

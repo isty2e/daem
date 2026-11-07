@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/nativefragment"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
@@ -24,7 +25,7 @@ import (
 type nativeDocumentObservationCandidate struct {
 	resource  hostconfig.Config
 	locked    lock.LockedSubjectContract
-	placement profile.HostConfigPlacement
+	placement configuration.Placement
 	limits    configdocument.Limits
 	keys      map[topology.SubjectID]lock.LockedSubjectContract
 }
@@ -93,7 +94,7 @@ func nativeDocumentLockObservationCandidates(ctx context.Context, resources []ho
 		if !selection.Includes(lockedPlacement.Target()) {
 			continue
 		}
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 			Target: resource.Target(), Scope: resource.Scope(), Path: resource.Path(), Ownership: resource.Ownership(), Syntax: resource.Syntax(),
 		})
 		if err != nil {

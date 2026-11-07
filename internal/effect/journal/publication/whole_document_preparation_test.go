@@ -19,6 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -235,7 +236,7 @@ func newWholePreparationFixture(t *testing.T, selected target.Target, scope targ
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: selected, Scope: scope, Path: "prompts/review.md", Ownership: "document"})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: "prompts/review.md", Ownership: "document"})
 	if err != nil {
 		t.Fatal(err)
 	}

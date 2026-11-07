@@ -7,13 +7,14 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // NewHostConfigKeySubjectContract binds one source-derived atomic contribution
 // to its declaration and static native placement. Source custody is separate.
-func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, contribution aggregate.ManagedContribution, placement profile.HostConfigPlacement) (LockedSubjectContract, error) {
+func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, contribution aggregate.ManagedContribution, placement configuration.Placement) (LockedSubjectContract, error) {
 	declared, key, native := topologyprojection.HostConfigKeyIdentity(subject)
 	if id.Kind() != entity.KindHostConfig || !native || declared != id {
 		return LockedSubjectContract{}, fmt.Errorf("native key subject does not match its declaration")
@@ -21,7 +22,7 @@ func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, c
 	if _, err := aggregate.NewSubjectContribution(subject, contribution); err != nil {
 		return LockedSubjectContract{}, err
 	}
-	expected, err := placement.ProjectionContract(contribution.Footprint())
+	expected, err := profile.HostConfigProjectionContract(placement, contribution.Footprint())
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
@@ -33,11 +34,11 @@ func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, c
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	write, err := placement.KeyOperationRoute(profile.OperationWrite)
+	write, err := profile.HostConfigOperationRoute(placement, profile.OperationWrite)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	remove, err := placement.KeyOperationRoute(profile.OperationRemove)
+	remove, err := profile.HostConfigOperationRoute(placement, profile.OperationRemove)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}

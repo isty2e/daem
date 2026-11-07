@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -160,7 +161,7 @@ func TestNativeSettingsPiBindingRetainsOperationAndAliasSemantics(t *testing.T) 
 	global, _ := pipackage.SettingsDocumentAddress(target.ScopeGlobal)
 	groups := [][]aggregate.DocumentAddress{{project, global}}
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
 		if err != nil {
 			t.Fatal(err)
 		}

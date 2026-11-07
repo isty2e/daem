@@ -129,11 +129,89 @@ func (facts DedicatedReservations) RequireUnreservedPath(nativePath string) erro
 		return err
 	}
 	for _, reserved := range facts.paths {
-		if nativePath == reserved || strings.HasPrefix(nativePath, reserved+"/") || strings.HasPrefix(reserved, nativePath+"/") {
+		if nativePathsOverlap(nativePath, reserved) {
 			return fmt.Errorf("%w: %q intersects %q; use its dedicated resource", ErrReservedPath, nativePath, reserved)
 		}
 	}
 	return nil
+}
+
+func nativePathsOverlap(left, right string) bool {
+	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+func requireNativePath(selected target.Target, scope target.Scope, nativePath string) error {
+	policy, known := nativePathPolicies[selected]
+	if !known {
+		return fmt.Errorf("host configuration target %q is unsupported until its native path policy is reviewed", selected)
+	}
+	if nativePathsOverlap(nativePath, ".git") {
+		return fmt.Errorf("%w: %q belongs to repository metadata", ErrReserved, nativePath)
+	}
+	for _, reservation := range policy.paths {
+		if reservation.globalOnly && scope != target.ScopeGlobal {
+			continue
+		}
+		if nativePathsOverlap(nativePath, reservation.path) {
+			return fmt.Errorf("%w: %q belongs to %s", ErrReserved, nativePath, reservation.owner)
+		}
+	}
+	if policy.moduleDirectory != "" && moduleEntrypointPath(nativePath, policy.moduleDirectory) {
+		return fmt.Errorf("%w: %q belongs to extension loading", ErrReserved, nativePath)
+	}
+	if policy.runtimeFiles && scope == target.ScopeGlobal && versionedRuntimePath(nativePath) {
+		return fmt.Errorf("%w: %q belongs to runtime state", ErrReserved, nativePath)
+	}
+	return nil
+}
+
+func moduleEntrypointPath(nativePath, directory string) bool {
+	parts := strings.Split(nativePath, "/")
+	if parts[0] != directory {
+		return false
+	}
+	if len(parts) == 1 {
+		return true
+	}
+	name := parts[1]
+	if name == "index.ts" || name == "index.js" || name == "package.json" ||
+		name == ".gitignore" || name == ".ignore" || name == ".fdignore" {
+		return true
+	}
+	if len(parts) == 2 {
+		return strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".js")
+	}
+	return parts[2] == "index.ts" || parts[2] == "index.js" || parts[2] == "package.json"
+}
+
+func versionedRuntimePath(nativePath string) bool {
+	parts := strings.Split(nativePath, "/")
+	name := parts[0]
+	if strings.HasSuffix(name, "-wal") {
+		name = strings.TrimSuffix(name, "-wal")
+	} else {
+		name = strings.TrimSuffix(name, "-shm")
+	}
+	for _, prefix := range []string{"state_", "logs_", "goals_", "memories_", "thread_history_"} {
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".sqlite") {
+			continue
+		}
+		version := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".sqlite")
+		if version != "" && strings.IndexFunc(version, func(r rune) bool { return r < '0' || r > '9' }) < 0 {
+			return true
+		}
+	}
+	if len(parts) < 2 || parts[0] != "app-server-daemon" {
+		return false
+	}
+	for _, stem := range []string{"app-server", "app-server-updater"} {
+		for _, suffix := range []string{".pid", ".pid.lock", ".pid.tmp", ".stderr.log"} {
+			if parts[1] == stem+suffix {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ValidateDocument checks coverage for a constructor-checked immutable document;

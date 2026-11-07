@@ -104,7 +104,7 @@ func TestDocumentSpecsFollowOpenCodeCandidateSelection(t *testing.T) {
 
 func nativeOperationSelection(t *testing.T, selected target.Target, scope target.Scope, path string, syntax hostconfig.Syntax, key string) aggregate.Selection {
 	t.Helper()
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: selected, Scope: scope, Path: path, Ownership: hostconfig.OwnershipKeys, Syntax: syntax})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: path, Ownership: hostconfig.OwnershipKeys, Syntax: syntax})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func nativeOperationSelection(t *testing.T, selected target.Target, scope target
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := placement.ProjectionContract(footprint)
+	contract, err := profile.HostConfigProjectionContract(placement, footprint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestNativeAggregateOperationBindsSelectedProfileAndCodec(t *testing.T) {
 					t.Fatal("caller mutation changed the static contract")
 				}
 				for _, kind := range []profile.Operation{profile.OperationWrite, profile.OperationRemove} {
-					if _, err := operation.OperationRoute(kind); err != nil {
+					if _, err := profile.HostConfigOperationRoute(operation.Placement(), kind); err != nil {
 						t.Fatal(err)
 					}
 				}

@@ -5,149 +5,33 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
-var ErrHostConfigReserved = errors.New("host configuration overlaps a reserved area")
-
-type HostConfigPlacementInput struct {
-	Target    target.Target
-	Scope     target.Scope
-	Path      string
-	Ownership desiredhostconfig.Ownership
-	Syntax    desiredhostconfig.Syntax
-}
-
-// HostConfigPlacement contains static facts only. It is not physical admission
-// or evidence that the required observations have completed.
-type HostConfigPlacement struct {
-	target          target.Target
-	scope           target.Scope
-	nativePath      string
-	ownership       desiredhostconfig.Ownership
-	requestedSyntax desiredhostconfig.Syntax
-	document        configuration.DocumentSpec
-}
-
-func ResolveHostConfigPlacement(input HostConfigPlacementInput) (HostConfigPlacement, error) {
-	selected, err := target.ParseTarget(string(input.Target))
+func ResolveHostConfigPlacement(input configuration.PlacementInput) (configuration.Placement, error) {
+	facts, err := nativeConfigurationReservationsFor(input.Target, input.Scope)
 	if err != nil {
-		return HostConfigPlacement{}, err
+		return configuration.Placement{}, err
 	}
-	if selected != target.TargetPi && selected != target.TargetCodex {
-		return HostConfigPlacement{}, fmt.Errorf("host configuration target %q is unsupported", selected)
-	}
-	scope, err := target.ParseScope(string(input.Scope))
-	if err != nil {
-		return HostConfigPlacement{}, err
-	}
-	if err := desiredhostconfig.ValidateRelativePath(input.Path); err != nil {
-		return HostConfigPlacement{}, err
-	}
-	ownership, err := desiredhostconfig.ParseOwnership(string(input.Ownership))
-	if err != nil {
-		return HostConfigPlacement{}, err
-	}
-	syntax, err := desiredhostconfig.ParseSyntax(string(input.Syntax))
-	if err != nil {
-		return HostConfigPlacement{}, err
-	}
-
-	facts, err := nativeConfigurationReservationsFor(selected, scope)
-	if err != nil {
-		return HostConfigPlacement{}, err
-	}
-	if owner, reserved := hostConfigPathOwner(selected, scope, input.Path); reserved {
-		return HostConfigPlacement{}, fmt.Errorf("%w: %q belongs to %s", ErrHostConfigReserved, input.Path, owner)
-	}
-	if err := facts.RequireUnreservedPath(input.Path); err != nil {
-		if errors.Is(err, configuration.ErrReservedPath) {
-			return HostConfigPlacement{}, fmt.Errorf("%w: %w", ErrHostConfigReserved, err)
-		}
-		return HostConfigPlacement{}, err
-	}
-	document, err := configuration.NewDocumentSpec(configuration.DocumentInput{
-		Target: selected, Scope: scope, Path: input.Path, Syntax: syntax,
-	})
-	if err != nil {
-		if errors.Is(err, configuration.ErrDocumentPath) {
-			return HostConfigPlacement{}, fmt.Errorf("%w: %w", ErrHostConfigReserved, err)
-		}
-		return HostConfigPlacement{}, err
-	}
-	if ownership == desiredhostconfig.OwnershipDocument && document.Class() == configuration.SharedConfiguration {
-		return HostConfigPlacement{}, fmt.Errorf("%w: %q requires key ownership alongside its dedicated resources", ErrHostConfigReserved, input.Path)
-	}
-	if ownership == desiredhostconfig.OwnershipKeys && document.Grammar() == configuration.Opaque {
-		return HostConfigPlacement{}, fmt.Errorf("%w: key ownership requires an explicit supported syntax for %q", configuration.ErrGrammar, input.Path)
-	}
-	if err := facts.ValidateDocument(document); err != nil {
-		return HostConfigPlacement{}, err
-	}
-	return HostConfigPlacement{
-		target: selected, scope: scope, nativePath: input.Path,
-		ownership: ownership, requestedSyntax: syntax,
-		document: document,
-	}, nil
+	return configuration.NewPlacement(input, facts)
 }
 
-func (placement HostConfigPlacement) Target() target.Target { return placement.target }
-func (placement HostConfigPlacement) Scope() target.Scope   { return placement.scope }
-func (placement HostConfigPlacement) NativePath() string    { return placement.nativePath }
-func (placement HostConfigPlacement) Ownership() desiredhostconfig.Ownership {
-	return placement.ownership
-}
-
-func (placement HostConfigPlacement) Grammar() configuration.Grammar {
-	return placement.document.Grammar()
-}
-
-func (placement HostConfigPlacement) Destination() output.Destination {
-	return placement.document.Destination()
-}
-
-func (placement HostConfigPlacement) Document() configuration.DocumentSpec { return placement.document }
-
-func (placement HostConfigPlacement) RequestedSyntax() desiredhostconfig.Syntax {
-	return placement.requestedSyntax
-}
-
-func (placement HostConfigPlacement) ID() string {
-	if placement.document.RootReference().Validate() != nil {
-		return ""
-	}
-	id, _ := aggregate.HostConfigPlacementID(placement.target, placement.scope)
-	return id
-}
-
-func (placement HostConfigPlacement) Validate() error {
-	canonical, err := ResolveHostConfigPlacement(HostConfigPlacementInput{
-		Target: placement.target, Scope: placement.scope, Path: placement.nativePath,
-		Ownership: placement.ownership, Syntax: placement.requestedSyntax,
-	})
-	if err != nil {
-		return err
-	}
-	if canonical != placement {
-		return fmt.Errorf("host configuration placement is not canonical")
-	}
-	return nil
-}
-
-// ValidateStaticFootprint checks logical ownership only, never current aliases,
-// installed resources or host loader state.
-func (placement HostConfigPlacement) ValidateStaticFootprint(footprint output.Footprint) error {
-	if placement.document.RootReference().Validate() != nil {
+// ValidateHostConfigFootprint joins declaration intent to current static owner
+// namespaces, not current aliases, claims or host loader state.
+func ValidateHostConfigFootprint(placement configuration.Placement, footprint output.Footprint) error {
+	if placement.Document().RootReference().Validate() != nil {
 		return fmt.Errorf("host configuration placement is required")
 	}
 	if err := footprint.Validate(); err != nil {
 		return err
 	}
-	if placement.ownership == desiredhostconfig.OwnershipDocument {
+	if placement.Ownership() == desiredhostconfig.OwnershipDocument {
 		if footprint.Kind() != output.FootprintPath {
 			return fmt.Errorf("document ownership requires a whole-path footprint")
 		}
@@ -157,22 +41,115 @@ func (placement HostConfigPlacement) ValidateStaticFootprint(footprint output.Fo
 	if !keyOwned {
 		return fmt.Errorf("key ownership requires a native key footprint")
 	}
-	facts, err := nativeConfigurationReservationsFor(placement.target, placement.scope)
+
+	facts, err := nativeConfigurationReservationsFor(placement.Target(), placement.Scope())
 	if err != nil {
 		return err
 	}
-	err = facts.RequireUnreservedKey(placement.document, key)
+	err = facts.RequireUnreservedKey(placement.Document(), key)
 	if errors.Is(err, configuration.ErrReservedKey) {
-		return fmt.Errorf("%w: %w; use its dedicated resource", ErrHostConfigReserved, err)
+		return fmt.Errorf("%w: %w; use its dedicated resource", configuration.ErrReserved, err)
 	}
 	return err
 }
 
-func (placement HostConfigPlacement) RequiredObservations() []configuration.Observation {
-	if placement.document.RootReference().Validate() != nil {
-		return nil
+func HostConfigProjectionContract(placement configuration.Placement, footprint output.Footprint) (aggregate.ProjectionContract, error) {
+	if err := placement.Validate(); err != nil {
+		return aggregate.ProjectionContract{}, err
 	}
-	return placement.document.RequiredObservations()
+	if placement.Ownership() != desiredhostconfig.OwnershipKeys {
+		return aggregate.ProjectionContract{}, fmt.Errorf("native projection requires key ownership")
+	}
+	if err := ValidateHostConfigFootprint(placement, footprint); err != nil {
+		return aggregate.ProjectionContract{}, err
+	}
+	codec, ok := aggregate.HostConfigCodecForSyntax(string(placement.Grammar()))
+	if !ok {
+		return aggregate.ProjectionContract{}, fmt.Errorf("native projection grammar is unsupported")
+	}
+	return aggregate.NewHostConfigProjectionContract(placement.Target(), placement.Scope(), placement.Destination(), footprint, codec)
+}
+
+// HostConfigPlacementForContract re-enters current static admission, never
+// treating decoded native shape as mutation authority.
+func HostConfigPlacementForContract(contract aggregate.ProjectionContract) (configuration.Placement, error) {
+	if err := contract.Validate(); err != nil {
+		return configuration.Placement{}, err
+	}
+	syntax, ok := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID())
+	if !ok {
+		return configuration.Placement{}, fmt.Errorf("native projection codec is unsupported")
+	}
+	address := contract.Address().Document()
+	document, err := configuration.DocumentSpecForAlias(configuration.AliasInput{
+		Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot(), Syntax: desiredhostconfig.Syntax(syntax),
+	})
+	if err != nil {
+		return configuration.Placement{}, err
+	}
+	nativePath, native := document.NativePlacementPath()
+	if !native {
+		return configuration.Placement{}, fmt.Errorf("native projection destination is outside its host root")
+	}
+	placement, err := ResolveHostConfigPlacement(configuration.PlacementInput{
+		Target: address.Target(), Scope: address.Scope(), Path: nativePath,
+		Ownership: desiredhostconfig.OwnershipKeys, Syntax: desiredhostconfig.Syntax(syntax),
+	})
+	if err != nil {
+		return configuration.Placement{}, err
+	}
+	expected, err := HostConfigProjectionContract(placement, contract.Address().Footprint())
+	if err != nil {
+		return configuration.Placement{}, err
+	}
+	if !expected.Equal(contract) {
+		return configuration.Placement{}, fmt.Errorf("native projection differs from its host profile")
+	}
+	return placement, nil
+}
+
+func HostConfigOperationRoute(placement configuration.Placement, operation Operation) (OperationRoute, error) {
+	if err := placement.Validate(); err != nil {
+		return OperationRoute{}, err
+	}
+	var suffix string
+	switch operation {
+	case OperationWrite:
+		suffix = ".write"
+	case OperationRemove:
+		suffix = ".remove"
+	default:
+		return OperationRoute{}, fmt.Errorf("unsupported native operation %q", operation)
+	}
+
+	if placement.Ownership() == desiredhostconfig.OwnershipDocument {
+		return NewOperationRoute(entity.KindHostConfig, operation, placement.ID(), "managed-host-config-document"+suffix, "native-document.v1")
+	}
+	codec, supported := aggregate.HostConfigCodecForSyntax(string(placement.Grammar()))
+	if !supported {
+		return OperationRoute{}, fmt.Errorf("native key route has no codec")
+	}
+	return NewOperationRoute(entity.KindHostConfig, operation, placement.ID(), "managed-host-config-key"+suffix, string(codec))
+}
+
+func HostConfigDocumentProjection(placement configuration.Placement) (realization.RealizationSpec, error) {
+	if placement.Ownership() != desiredhostconfig.OwnershipDocument {
+		return realization.RealizationSpec{}, fmt.Errorf("whole-document projection requires document ownership")
+	}
+	route, err := HostConfigOperationRoute(placement, OperationWrite)
+	if err != nil {
+		return realization.RealizationSpec{}, err
+	}
+	mode, err := realization.NewExactPathPermissionMode(0o600)
+	if err != nil {
+		return realization.RealizationSpec{}, err
+	}
+	return realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
+		PlacementID: placement.ID(), ConsumerTargets: []target.Target{placement.Target()}, Scope: placement.Scope(),
+		Destination: placement.Destination(), ContentKind: realization.PathProjectionFile,
+		PlacementMode: realization.PathProjectionCopy, PermissionPolicy: realization.PathPermissionsExact,
+		ExactPermissionMode: mode, AdapterContractVersion: route.AdapterContractVersion(),
+	})
 }
 
 type nativeConfigurationContext struct {
@@ -197,6 +174,12 @@ var nativeConfigurationReservationFacts = func() map[nativeConfigurationContext]
 func nativeConfigurationReservationsFor(selected target.Target, scope target.Scope) (configuration.DedicatedReservations, error) {
 	compile, known := nativeConfigurationReservationFacts[nativeConfigurationContext{selected, scope}]
 	if !known {
+		if _, err := target.ParseTarget(string(selected)); err != nil {
+			return configuration.DedicatedReservations{}, err
+		}
+		if _, err := target.ParseScope(string(scope)); err != nil {
+			return configuration.DedicatedReservations{}, err
+		}
 		return configuration.DedicatedReservations{}, fmt.Errorf("native reservation coverage is missing for %s/%s", selected, scope)
 	}
 	return compile()

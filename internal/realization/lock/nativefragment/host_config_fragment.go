@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -27,7 +28,7 @@ func HostConfigKeyContributions(ctx context.Context, config desiredhostconfig.Co
 	if config.Ownership() != desiredhostconfig.OwnershipKeys {
 		return nil, fmt.Errorf("native key refinement requires key ownership")
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: config.Target(), Scope: config.Scope(), Path: config.Path(),
 		Ownership: config.Ownership(), Syntax: config.Syntax(),
 	})
@@ -56,7 +57,7 @@ func HostConfigKeyContributions(ctx context.Context, config desiredhostconfig.Co
 		if err != nil {
 			return nil, err
 		}
-		contract, err := placement.ProjectionContract(footprint)
+		contract, err := profile.HostConfigProjectionContract(placement, footprint)
 		if err != nil {
 			return nil, err
 		}

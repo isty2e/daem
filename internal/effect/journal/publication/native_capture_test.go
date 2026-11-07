@@ -44,6 +44,7 @@ import (
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -76,7 +77,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if scope == target.ScopeGlobal {
 		nativePath = "extension-settings/preferences.toml"
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: target.TargetCodex, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: target.TargetCodex, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +630,7 @@ func TestCaptureNativeJournalRefusesHostReferentInsidePublicationTree(t *testing
 	input := nativeCaptureInput(t, true, target.ScopeGlobal)
 	roots := input.batch.roots
 	roots.CodexHome = nativeNamespaceRoot(t, input.paths.RecoveryDir)
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "native-record-apply/document-000000/expected", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxTOML,
 	})
 	if err != nil {

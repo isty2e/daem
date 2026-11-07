@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -308,7 +309,7 @@ func TestNativeDocumentCollectionRejectsMissingOrRetargetedMembers(t *testing.T)
 	}
 	resource, _ := file.Locked.ExactSupplySubject(config.ID())
 	placement, _ := resource.HostConfigPlacement()
-	retarget, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+	retarget, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: placement.Target(), Scope: placement.Scope(), Path: "prompts/other.md", Ownership: placement.Ownership(), Syntax: placement.RequestedSyntax(),
 	})
 	if err != nil {

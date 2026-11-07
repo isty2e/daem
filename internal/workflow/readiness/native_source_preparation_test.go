@@ -43,6 +43,7 @@ import (
 
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -99,7 +100,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: scope, Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: scope, Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +335,7 @@ func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}

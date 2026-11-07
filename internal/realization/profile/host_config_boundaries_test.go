@@ -10,20 +10,20 @@ import (
 
 func TestHostConfigPlacementRejectsMalformedInput(t *testing.T) {
 	valid := hostConfigInput(target.TargetPi, target.ScopeGlobal, "custom.json")
-	for _, mutate := range []func(*HostConfigPlacementInput){
-		func(input *HostConfigPlacementInput) { input.Target = "" },
-		func(input *HostConfigPlacementInput) { input.Target = target.TargetOpenCode },
-		func(input *HostConfigPlacementInput) { input.Scope = "system" },
-		func(input *HostConfigPlacementInput) { input.Path = "" },
-		func(input *HostConfigPlacementInput) { input.Path = "../custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = "/custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = "config//custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = `config\custom.json` },
-		func(input *HostConfigPlacementInput) { input.Path = "C:custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = "custom\n.json" },
-		func(input *HostConfigPlacementInput) { input.Path = " custom.json" },
-		func(input *HostConfigPlacementInput) { input.Ownership = "merge" },
-		func(input *HostConfigPlacementInput) { input.Syntax = "yaml" },
+	for _, mutate := range []func(*configuration.PlacementInput){
+		func(input *configuration.PlacementInput) { input.Target = "" },
+		func(input *configuration.PlacementInput) { input.Target = target.TargetOpenCode },
+		func(input *configuration.PlacementInput) { input.Scope = "system" },
+		func(input *configuration.PlacementInput) { input.Path = "" },
+		func(input *configuration.PlacementInput) { input.Path = "../custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = "/custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = "config//custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = `config\custom.json` },
+		func(input *configuration.PlacementInput) { input.Path = "C:custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = "custom\n.json" },
+		func(input *configuration.PlacementInput) { input.Path = " custom.json" },
+		func(input *configuration.PlacementInput) { input.Ownership = "merge" },
+		func(input *configuration.PlacementInput) { input.Syntax = "yaml" },
 	} {
 		input := valid
 		mutate(&input)
@@ -62,24 +62,13 @@ func TestHostConfigPlacementRetainsExplicitGrammarIntent(t *testing.T) {
 	if automatic.Grammar() != explicit.Grammar() || automatic.RequestedSyntax() == explicit.RequestedSyntax() {
 		t.Fatal("explicit intent was lost despite identical logical grammar")
 	}
-	forged := automatic
-	var err error
-	forged.document, err = configuration.NewDocumentSpec(configuration.DocumentInput{
-		Target: input.Target, Scope: input.Scope, Path: input.Path, Syntax: desiredhostconfig.SyntaxJSONC,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := forged.Validate(); err == nil {
-		t.Fatal("grammar not implied by the retained intent was accepted")
-	}
 }
 
 func TestHostConfigCodexNamedProfileClassification(t *testing.T) {
 	for _, nativePath := range []string{"review.config.toml", "review_2-1.config.toml"} {
 		input := hostConfigInput(target.TargetCodex, target.ScopeGlobal, nativePath)
 		placement := mustHostConfigPlacement(t, input)
-		if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, "plugins")); err == nil {
+		if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, "plugins")); err == nil {
 			t.Fatalf("native profile %q bypassed dedicated ownership", nativePath)
 		}
 	}

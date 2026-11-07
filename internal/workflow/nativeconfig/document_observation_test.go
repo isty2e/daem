@@ -10,6 +10,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func TestSelectedNativeObservationDoesNotReadOtherDeclaredDocuments(t *testing.T) {
@@ -44,7 +45,7 @@ source = "other-source.json"
 		t.Fatal(err)
 	}
 	config := environment.HostConfigs()[0]
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 	})
 	if err != nil {
@@ -81,7 +82,7 @@ source = "other-source.json"
 		t.Fatal("closed observation still lends native evidence")
 	}
 	blocked := environment.HostConfigs()[1]
-	blockedPlacement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: blocked.Target(), Scope: blocked.Scope(), Path: blocked.Path(), Ownership: blocked.Ownership(), Syntax: blocked.Syntax()})
+	blockedPlacement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: blocked.Target(), Scope: blocked.Scope(), Path: blocked.Path(), Ownership: blocked.Ownership(), Syntax: blocked.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}

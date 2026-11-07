@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -164,11 +165,11 @@ func TestNativeKeyCollectionRejectsOrphanRetargetAndOperationForgery(t *testing.
 	}
 	spec, _ := key.Realization()
 	contribution, _ := spec.ManagedAggregateContribution()
-	retarget, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: config.Scope(), Path: "other.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	retarget, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: "other.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherContract, err := retarget.ProjectionContract(contribution.Footprint())
+	otherContract, err := profile.HostConfigProjectionContract(retarget, contribution.Footprint())
 	if err != nil {
 		t.Fatal(err)
 	}

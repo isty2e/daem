@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -18,7 +19,7 @@ import (
 // QualifyCaptureOwnership checks selected read facts, not a host mutation or
 // complete same-document ownership transition. The caller retains the evidence.
 // The result identifies an admitted key/recorded-whole narrowing handoff.
-func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessmentInput, config hostconfig.Config, placement profile.HostConfigPlacement, selected []output.Footprint) (narrowingHandoff bool, err error) {
+func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessmentInput, config hostconfig.Config, placement configuration.Placement, selected []output.Footprint) (narrowingHandoff bool, err error) {
 	if ctx == nil || input.Documents == nil || len(input.Documents.Evidence().Namespaces()) != 1 {
 		return false, fmt.Errorf("capture requires one retained native document")
 	}
@@ -78,7 +79,7 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := placement.ValidateStaticFootprint(footprint); err != nil {
+		if err := profile.ValidateHostConfigFootprint(placement, footprint); err != nil {
 			return false, err
 		}
 		if comparison.IsZero() {

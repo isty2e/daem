@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -205,11 +206,11 @@ func optionalExactIdentityToDTO(identity artifact.ExactIdentity, present bool) *
 	return &dto
 }
 
-func hostConfigPlacementFromDTO(dto *hostConfigPlacementDTO) (*profile.HostConfigPlacement, error) {
+func hostConfigPlacementFromDTO(dto *hostConfigPlacementDTO) (*configuration.Placement, error) {
 	if dto == nil {
 		return nil, nil
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: target.Target(dto.Target), Scope: target.Scope(dto.Scope), Path: dto.Path,
 		Ownership: hostconfig.Ownership(dto.Ownership), Syntax: hostconfig.Syntax(dto.Syntax),
 	})
@@ -219,7 +220,7 @@ func hostConfigPlacementFromDTO(dto *hostConfigPlacementDTO) (*profile.HostConfi
 	return &placement, nil
 }
 
-func hostConfigPlacementToDTO(placement profile.HostConfigPlacement, present bool) *hostConfigPlacementDTO {
+func hostConfigPlacementToDTO(placement configuration.Placement, present bool) *hostConfigPlacementDTO {
 	if !present {
 		return nil
 	}

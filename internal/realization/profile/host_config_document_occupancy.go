@@ -3,12 +3,12 @@ package profile
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -45,15 +45,17 @@ func ValidateHostConfigDocumentOccupancy(
 	if err := destination.ValidateScope(scope); err != nil {
 		return err
 	}
-	nativePath := destination.RelativePath()
-	if scope == target.ScopeProject {
-		var found bool
-		nativePath, found = strings.CutPrefix(nativePath, "."+string(consumerTargets[0])+"/")
-		if !found {
-			return fmt.Errorf("native document is outside its selected project root")
-		}
+	document, err := configuration.DocumentSpecForAlias(configuration.AliasInput{
+		Target: consumerTargets[0], Scope: scope, Destination: destination,
+	})
+	if err != nil {
+		return err
 	}
-	placement, err := ResolveHostConfigPlacement(HostConfigPlacementInput{
+	nativePath, native := document.NativePlacementPath()
+	if !native {
+		return fmt.Errorf("native document is outside its selected native root")
+	}
+	placement, err := ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: consumerTargets[0], Scope: scope, Path: nativePath,
 		Ownership: desiredhostconfig.OwnershipDocument,
 	})

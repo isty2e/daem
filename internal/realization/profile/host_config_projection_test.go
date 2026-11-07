@@ -113,6 +113,41 @@ func TestNativeConfigurationKeysRefuseUnknownContexts(t *testing.T) {
 	}
 }
 
+func TestNativeOperationRoutesRetainPersistedTokens(t *testing.T) {
+	for _, test := range []struct {
+		selected  target.Target
+		scope     target.Scope
+		path      string
+		ownership desiredhostconfig.Ownership
+		syntax    desiredhostconfig.Syntax
+		prefix    string
+		version   string
+		identity  string
+	}{
+		{target.TargetPi, target.ScopeGlobal, "settings.json", desiredhostconfig.OwnershipKeys, "", "managed-host-config-key", "native-json-v1", "pi-host-config-global-v1"},
+		{target.TargetPi, target.ScopeGlobal, "settings.json", desiredhostconfig.OwnershipKeys, desiredhostconfig.SyntaxJSON, "managed-host-config-key", "native-json-v1", "pi-host-config-global-v1"},
+		{target.TargetPi, target.ScopeGlobal, "models.json", desiredhostconfig.OwnershipKeys, "", "managed-host-config-key", "native-json-line-comments-v1", "pi-host-config-global-v1"},
+		{target.TargetPi, target.ScopeProject, "models.json", desiredhostconfig.OwnershipKeys, "", "managed-host-config-key", "native-json-v1", "pi-host-config-project-v1"},
+		{target.TargetCodex, target.ScopeProject, "config.toml", desiredhostconfig.OwnershipKeys, "", "managed-host-config-key", "native-toml-v1", "codex-host-config-project-v1"},
+		{target.TargetCodex, target.ScopeGlobal, "prompts/review.md", desiredhostconfig.OwnershipDocument, "", "managed-host-config-document", "native-document.v1", "codex-host-config-global-v1"},
+	} {
+		placement := mustHostConfigPlacement(t, configuration.PlacementInput{
+			Target: test.selected, Scope: test.scope, Path: test.path, Ownership: test.ownership, Syntax: test.syntax,
+		})
+		for _, operation := range []Operation{OperationWrite, OperationRemove} {
+			route, err := HostConfigOperationRoute(placement, operation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if route.ResourceKind() != entity.KindHostConfig || route.Operation() != operation ||
+				route.CorrelationID() != test.identity || route.RouteID() != test.prefix+"."+string(operation) ||
+				route.AdapterContractVersion() != test.version {
+				t.Fatalf("%s/%s/%s changed persisted route tokens: %+v", test.selected, test.scope, test.path, route)
+			}
+		}
+	}
+}
+
 func TestHostConfigProjectionUsesStaticAdmissionInBothDirections(t *testing.T) {
 	id, err := entity.New(entity.KindHostConfig, "review")
 	if err != nil {
@@ -121,11 +156,11 @@ func TestHostConfigProjectionUsesStaticAdmissionInBothDirections(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		for _, scope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {
 			for _, syntax := range []desiredhostconfig.Syntax{desiredhostconfig.SyntaxJSON, desiredhostconfig.SyntaxJSONC, desiredhostconfig.SyntaxJSONLineComments, desiredhostconfig.SyntaxTOML} {
-				placement := mustHostConfigPlacement(t, HostConfigPlacementInput{
+				placement := mustHostConfigPlacement(t, configuration.PlacementInput{
 					Target: selected, Scope: scope, Path: "extensions/subagent/config.data", Syntax: syntax,
 				})
 				footprint := mustHostConfigKey(t, "providers", "a/b~c", "", "\x00\n")
-				contract, err := placement.ProjectionContract(footprint)
+				contract, err := HostConfigProjectionContract(placement, footprint)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -158,7 +193,7 @@ func TestHostConfigProjectionUsesStaticAdmissionInBothDirections(t *testing.T) {
 func TestHostConfigProjectionRefusesReservationsAndContractForgery(t *testing.T) {
 	placement := mustHostConfigPlacement(t, hostConfigInput(target.TargetCodex, target.ScopeGlobal, "config.toml"))
 	reserved := mustHostConfigKey(t, "mcp_servers", "example")
-	if _, err := placement.ProjectionContract(reserved); !errors.Is(err, ErrHostConfigReserved) {
+	if _, err := HostConfigProjectionContract(placement, reserved); !errors.Is(err, configuration.ErrReserved) {
 		t.Fatalf("authoring did not refuse reserved field: %v", err)
 	}
 	for _, tc := range []struct {
@@ -184,13 +219,13 @@ func TestHostConfigProjectionRefusesReservationsAndContractForgery(t *testing.T)
 			t.Fatalf("decoded contract bypassed admission for %s", tc.path)
 		}
 	}
-	if _, err := placement.ProjectionContract(output.WholePathFootprint()); err == nil {
+	if _, err := HostConfigProjectionContract(placement, output.WholePathFootprint()); err == nil {
 		t.Fatal("whole path became native key projection")
 	}
-	document := mustHostConfigPlacement(t, HostConfigPlacementInput{
+	document := mustHostConfigPlacement(t, configuration.PlacementInput{
 		Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "custom.json", Ownership: desiredhostconfig.OwnershipDocument,
 	})
-	if _, err := document.ProjectionContract(mustHostConfigKey(t, "key")); err == nil {
+	if _, err := HostConfigProjectionContract(document, mustHostConfigKey(t, "key")); err == nil {
 		t.Fatal("whole-document declaration became a key declaration")
 	}
 }
@@ -232,7 +267,7 @@ func TestHostConfigKeyIdentityIsIndependentOfGrammarAndDocument(t *testing.T) {
 	}
 	for _, nativePath := range []string{"a.json", "b.toml"} {
 		placement := mustHostConfigPlacement(t, hostConfigInput(target.TargetPi, target.ScopeGlobal, nativePath))
-		contract, err := placement.ProjectionContract(mustHostConfigKey(t, "theme"))
+		contract, err := HostConfigProjectionContract(placement, mustHostConfigKey(t, "theme"))
 		if err != nil {
 			t.Fatal(err)
 		}

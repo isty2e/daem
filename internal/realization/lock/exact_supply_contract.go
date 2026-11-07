@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/topology"
@@ -56,7 +56,7 @@ type ExactSupplySubjectInput struct {
 	SubjectID                 topology.SubjectID
 	ExactSupply               artifact.ExactIdentity
 	ExactFileUse              *ExactFileUse
-	HostConfigPlacement       *profile.HostConfigPlacement
+	HostConfigPlacement       *configuration.Placement
 	Derivation                DerivationContract
 	RepairRecipe              *skillrepair.Recipe
 	SkillSetMemberCorrelation *SkillSetMemberCorrelation

@@ -267,7 +267,7 @@ func TestNativeOperationDecisionRejectsMissingOrMismatchedContract(t *testing.T)
 	}
 	key, _ := output.NewKeyPath("other")
 	footprint, _ := output.NewKeyFootprint(key)
-	other, err := operation.Placement().ProjectionContract(footprint)
+	other, err := profile.HostConfigProjectionContract(operation.Placement(), footprint)
 	if err != nil {
 		t.Fatal(err)
 	}

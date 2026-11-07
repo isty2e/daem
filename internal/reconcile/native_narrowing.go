@@ -33,10 +33,10 @@ type NativeNarrowingAction struct {
 
 func NewNativeNarrowingAction(input NativeNarrowingActionInput) (NativeNarrowingAction, error) {
 	placement, present := input.Source.HostConfigPlacement()
-	if !present {
+	if !present || !placement.UsesKeyOwnership() {
 		return NativeNarrowingAction{}, fmt.Errorf("narrowing requires a native key-mode source")
 	}
-	if _, err := placement.KeyOperationRoute(profile.OperationWrite); err != nil {
+	if _, err := profile.HostConfigOperationRoute(placement, profile.OperationWrite); err != nil {
 		return NativeNarrowingAction{}, err
 	}
 	contracts := make([]lock.LockedSubjectContract, 1, len(input.Projections)+1)

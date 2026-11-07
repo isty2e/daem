@@ -214,6 +214,74 @@ func namedProfilePath(nativePath string) bool {
 	}) < 0
 }
 
+type nativePathReservation struct {
+	path       string
+	owner      string
+	globalOnly bool
+}
+
+type nativePathPolicy struct {
+	paths           []nativePathReservation
+	moduleDirectory string
+	runtimeFiles    bool
+}
+
+var nativePathPolicies = map[target.Target]nativePathPolicy{
+	target.TargetPi: {
+		moduleDirectory: "extensions",
+		paths: []nativePathReservation{
+			{"auth.json", "authentication", true},
+			{"auth.json.lock", "authentication locking", true},
+			{"settings.json.lock", "host settings locking", false},
+			{"models-store.json", "the refreshed model cache", true},
+			{"models-store.json.lock", "model cache locking", true},
+			{"sessions", "session state", true},
+			{"crashes.json", "crash diagnostics", true},
+			{"pi-debug.log", "runtime diagnostics", true},
+			{"npm", "package installation", false},
+			{"git", "package installation", false},
+			{"tmp", "temporary runtime artifacts", true},
+			{"bin", "installed helper code", true},
+			{"tools", "host tool artifacts", true},
+		},
+	},
+	target.TargetCodex: {
+		runtimeFiles: true,
+		paths: []nativePathReservation{
+			{"auth.json", "authentication", true},
+			{".credentials.json", "MCP authentication", true},
+			{"secrets", "encrypted credentials", true},
+			{"mcp-oauth-locks", "MCP authentication locking", true},
+			{"sessions", "session state", true},
+			{"archived_sessions", "session state", true},
+			{"history.jsonl", "message history", true},
+			{"session_index.jsonl", "the session index", true},
+			{"session_index.jsonl.tmp", "session index publication", true},
+			{"shell_snapshots", "runtime shell snapshots", true},
+			{"memories", "generated memory state", true},
+			{"installation_id", "runtime identity", true},
+			{"db-backups", "database recovery", true},
+			{"log", "runtime logs", true},
+			{"models_cache.json", "the model cache", true},
+			{"version.json", "update state", true},
+			{"cloud-config-bundle-cache.json", "the cloud configuration cache", true},
+			{"cache/remote_plugin_catalog", "the plugin catalog cache", true},
+			{"cache/codex_app_directory", "the connector directory cache", true},
+			{"plugins/cache", "installed plugin code", true},
+			{".tmp/marketplaces", "installed marketplaces", true},
+			{".tmp/plugin-share-local-paths-v1.json", "plugin sharing state", true},
+			{".tmp/rollout-compression.lock", "session compression locking", true},
+			{"tmp/arg0", "runtime helper code", true},
+			{"packages/standalone", "the standalone installation", true},
+			{"app-server-control", "app-server control", true},
+			{"app-server-daemon/daemon.lock", "daemon locking", true},
+			{".sandbox", "sandbox state", true},
+			{".sandbox-bin", "sandbox helper code", true},
+			{".sandbox-secrets", "sandbox credentials", true},
+		},
+	},
+}
+
 type observationSet uint8
 
 const (

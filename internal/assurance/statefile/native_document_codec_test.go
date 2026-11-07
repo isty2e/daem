@@ -97,6 +97,12 @@ func TestNativeDocumentCodecRefusesUncorrelatedAndReservedBaselines(t *testing.T
 		{"scope", func(row *managedPathDTO) { row.Scope = "project" }},
 		{"foreign root", func(row *managedPathDTO) { row.Destination = "@codex-home/configs/native.data" }},
 		{"ordinary root", func(row *managedPathDTO) { row.Destination = "~/configs/native.data" }},
+		{"project prefix", func(row *managedPathDTO) {
+			row.Scope, row.Subject.Namespace = "project", "pi-host-config-project-v1"
+			row.Destination = ".codex/configs/native.data"
+		}},
+		{"legacy native alias", func(row *managedPathDTO) { row.Destination = "~/.pi/agent/configs/native.data" }},
+		{"dedicated MCP alias", func(row *managedPathDTO) { row.Destination = "~/.pi/agent/mcp.json" }},
 		{"shared document", func(row *managedPathDTO) { row.Destination = "@pi-agent/settings.json" }},
 		{"reserved code", func(row *managedPathDTO) { row.Destination = "@pi-agent/extensions/native.ts" }},
 		{"reserved auth", func(row *managedPathDTO) { row.Destination = "@pi-agent/auth.json" }},
