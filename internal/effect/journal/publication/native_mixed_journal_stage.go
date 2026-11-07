@@ -36,7 +36,9 @@ type ordinaryCaptureSource struct {
 
 type nativeMixedStageOptions struct {
 	StageOptions
-	roots journalnamespace.Roots
+	expected   []journalnamespace.DocumentNamespace
+	roots      journalnamespace.Roots
+	protection journalnamespace.ReservationSelectors
 }
 
 // stageMixedDocumentJournal populates one unpublished tree. Capture options must
@@ -131,7 +133,7 @@ func stageWithOrdinarySource(journal journalrecord.Native, ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
-	if _, err := journalqualification.LoadNamespaces(journal, ctx, journalqualification.ReadOptions{Filesystem: ordinary.filesystem, Budget: options.Budget, OrdinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
+	if _, err := journalqualification.LoadNamespaces(journal, ctx, journalqualification.ReadOptions{Protection: options.protection, Rules: journalqualification.ForwardRuleExpectations(options.expected), Filesystem: ordinary.filesystem, Budget: options.Budget, OrdinaryCapabilities: ordinary.capabilities}, options.roots); err != nil {
 		return "", err
 	}
 	// Each traversal may enumerate one overflow entry when refusing source growth.

@@ -14,10 +14,11 @@ import (
 // NativeDocumentObservationBatch pairs evidence with the operation's borrowed
 // roots. Only observation and selection can construct a matching pair.
 type NativeDocumentObservationBatch struct {
-	evidence journalobservation.Batch
-	roots    journalnamespace.Roots
-	owner    stateauthority.Authority
-	budget   *physicalwork.Budget
+	evidence   journalobservation.Batch
+	roots      journalnamespace.Roots
+	protection journalnamespace.ReservationSelectors
+	owner      stateauthority.Authority
+	budget     *physicalwork.Budget
 }
 
 func ObserveNativeDocuments(ctx context.Context, input journalobservation.Input) (NativeDocumentObservationBatch, error) {
@@ -25,7 +26,7 @@ func ObserveNativeDocuments(ctx context.Context, input journalobservation.Input)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
-	return NativeDocumentObservationBatch{evidence: evidence, roots: input.Roots, owner: input.Owner, budget: input.Budget}, nil
+	return NativeDocumentObservationBatch{evidence: evidence, roots: input.Roots, protection: input.Protection, owner: input.Owner, budget: input.Budget}, nil
 }
 
 // Evidence returns observation facts, not the operation's retained root set.
@@ -40,7 +41,7 @@ func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapsho
 	if err != nil {
 		return NativeDocumentObservationBatch{}, nil, err
 	}
-	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, owner: batch.owner, budget: batch.budget}, members, nil
+	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, protection: batch.protection, owner: batch.owner, budget: batch.budget}, members, nil
 }
 
 func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, error) {
@@ -48,7 +49,7 @@ func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, 
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
-	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, owner: batch.owner, budget: batch.budget}, nil
+	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, protection: batch.protection, owner: batch.owner, budget: batch.budget}, nil
 }
 
 func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context, after durable.Snapshot, operationID string) ([]journalobservation.CaptureInput, error) {

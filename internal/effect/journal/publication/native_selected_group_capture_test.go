@@ -334,7 +334,7 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 			case "wrong alias":
 				other := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.json")
 				var err error
-				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, capture.reader, capture.input.Budget())
+				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, namespacetest.Reservations(t), capture.reader, capture.input.Budget())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -472,7 +472,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	observedAlias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/"+fixture.claims.alias.AggregateRoot().RelativePath())
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, namespacetest.Reservations(t), capture.reader, capture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}

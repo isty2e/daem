@@ -103,7 +103,7 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	alias := contribution.Contract().Address().Document()
-	input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
+	input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, namespacetest.Reservations(t), fixture.reader, input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 		// observe it again rather than fabricating exact authority.
 		destination := filepath.Join(namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 		requireWholeGroupWrite(t, destination, []byte("model=1\n"), 0o644)
-		input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
+		input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, namespacetest.Reservations(t), fixture.reader, input.budget)
 		if err != nil {
 			t.Fatal(err)
 		}

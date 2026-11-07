@@ -13,6 +13,22 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
+func TestObservedSharedDocumentRoleRetainsItsWholeAndKeyRestrictions(t *testing.T) {
+	document, err := configuration.NewDocumentSpec(configuration.DocumentInput{Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "settings.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePhysicalHostConfigFootprint(document, output.WholePathFootprint()); !errors.Is(err, configuration.ErrReserved) {
+		t.Fatal("physical shared settings admitted whole-document ownership", err)
+	}
+	if err := ValidatePhysicalHostConfigFootprint(document, mustHostConfigKey(t, "extensions")); !errors.Is(err, configuration.ErrReservedKey) {
+		t.Fatal("physical settings role lost its extension owner", err)
+	}
+	if err := ValidatePhysicalHostConfigFootprint(document, mustHostConfigKey(t, "theme")); err != nil {
+		t.Fatal("physical settings role rejected an ordinary key", err)
+	}
+}
+
 func TestComposedDedicatedKeysSelectOnlyTheDocumentsRoles(t *testing.T) {
 	for _, test := range []struct {
 		selected target.Target

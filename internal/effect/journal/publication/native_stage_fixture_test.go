@@ -112,7 +112,7 @@ func twoWholeGroupStageFixture(t *testing.T) (wholeGroupTestFixture, wholeGroupT
 	roots := second.roots
 	roots = namespacetest.WithLegacyRoot(t, roots, output.RootProject, namespacetest.LegacyRoot(t, first.roots, output.RootProject))
 	var err error
-	second.namespace, err = journalnamespace.Observe(t.Context(), second.namespace.Addresses(), roots, second.reader, second.input.Budget())
+	second.namespace, err = journalnamespace.Observe(t.Context(), second.namespace.Addresses(), roots, namespacetest.Reservations(t), second.reader, second.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,7 +100,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				if err := os.Remove(fixture.path); err != nil {
 					t.Fatal(err)
 				}
-				namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, fixture.input.Budget())
+				namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -118,6 +118,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				}
 				input := nativeCaptureOwnershipInput{
 					owner: owner, operationID: fixture.input.OperationID(), before: before, after: after,
+					protection: namespacetest.Reservations(t),
 					namespaces: []journalnamespace.DocumentNamespace{namespace}, registry: store,
 					roots: fixture.roots, limits: fixture.input.Limits(), budget: physicalwork.NewCaptureBudget(nil),
 				}
@@ -246,7 +247,7 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 	if err := os.Remove(fixture.path); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, fixture.reader, fixture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}

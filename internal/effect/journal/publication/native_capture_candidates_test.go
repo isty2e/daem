@@ -184,7 +184,7 @@ func TestNativeCaptureCandidatesDiscardPrefixAfterLaterNamespaceFailure(t *testi
 func prepareWholeCaptureCandidate(t *testing.T, fixture *wholeGroupTestFixture, budget *physicalwork.Budget) nativeDocumentCaptureCandidate {
 	t.Helper()
 	var err error
-	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, fixture.reader, budget)
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, namespacetest.Reservations(t), fixture.reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func prepareWholeCaptureCandidate(t *testing.T, fixture *wholeGroupTestFixture, 
 func prepareSelectedCaptureCandidate(t *testing.T, fixture *selectedGroupCaptureFixture, budget *physicalwork.Budget) nativeDocumentCaptureCandidate {
 	t.Helper()
 	var err error
-	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, fixture.reader, budget)
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, namespacetest.Reservations(t), fixture.reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

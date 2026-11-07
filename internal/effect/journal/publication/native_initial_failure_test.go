@@ -126,7 +126,7 @@ func TestNativeInitialObservationPreservesMissingExactHistory(t *testing.T) {
 			if err := os.Remove(fixture.path); err != nil {
 				t.Fatal(err)
 			}
-			namespace, err := journalnamespace.Observe(t.Context(), input.Aliases, input.Roots, input.Filesystem, input.Budget)
+			namespace, err := journalnamespace.Observe(t.Context(), input.Aliases, input.Roots, input.Protection, input.Filesystem, input.Budget)
 			if err != nil {
 				t.Fatal(err)
 			}

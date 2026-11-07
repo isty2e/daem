@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -266,6 +267,7 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 		Resolver: input.Resolver, Filesystem: filesystem, OwnershipRegistry: reader,
 		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
 		NativeDocuments: &journal.Profile{
+			Protection: namespacetest.Reservations(t),
 			StateCodec: input.StateCodec, Codecs: input.Codecs, StateReader: readState, Budget: budget,
 			Manifest: input.Paths.ManifestRoot, ManifestPath: input.Owner.ManifestPath(),
 			Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},

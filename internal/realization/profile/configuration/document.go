@@ -232,6 +232,22 @@ func (spec DocumentSpec) Class() DocumentClass                { return spec.clas
 func (spec DocumentSpec) ModePolicy() FileModePolicy          { return spec.mode }
 func (spec DocumentSpec) RequiredObservations() []Observation { return spec.observations.values() }
 
+// RequireWriterGrammar allows only a producer language accepted by the physical
+// document. Existing bytes still pass the selected producer's own parser.
+func (spec DocumentSpec) RequireWriterGrammar(writer Grammar) error {
+	compatible := writer != "" && writer != Opaque && writer == spec.grammar
+	switch spec.grammar {
+	case JSONC:
+		compatible = writer == JSON || writer == JSONLineComments || writer == JSONC
+	case JSONLineComments:
+		compatible = writer == JSON || writer == JSONLineComments
+	}
+	if !compatible {
+		return fmt.Errorf("%w: declared %s syntax cannot produce the %s syntax required by the physical document", ErrGrammar, writer, spec.grammar)
+	}
+	return nil
+}
+
 // NativePlacementPath inverts the generic native layout. It does not classify
 // ordinary writer semantics or waive that writer's physical-alias agreement.
 func (spec DocumentSpec) NativePlacementPath() (string, bool) {

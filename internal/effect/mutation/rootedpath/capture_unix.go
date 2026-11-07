@@ -312,8 +312,12 @@ func resolveNativePathPlatform(
 				}
 				return resolvedDirectoryPath(platform), platform, object, mount, suffix, nil
 			}
+			kind := FailureRootUnavailable
+			if traversal != nil && traversal.directoryObservation {
+				kind = FailureAncestorNotDirectory
+			}
 			return fail(newFailure(
-				FailureRootUnavailable,
+				kind,
 				candidatePath,
 				"destination ancestor is not a directory",
 				nil,

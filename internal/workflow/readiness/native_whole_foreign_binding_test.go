@@ -124,7 +124,7 @@ func nativeForeignProjectBinding(t *testing.T, fixture nativePlanningFixture, de
 			t.Fatal(err)
 		}
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{contract.Address().Document()}, fixture.observation.Roots, fixture.observation.Filesystem, fixture.observation.Budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{contract.Address().Document()}, fixture.observation.Roots, fixture.observation.Protection, fixture.observation.Filesystem, fixture.observation.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}

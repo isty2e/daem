@@ -115,6 +115,103 @@ func (provisional Provisional) CandidateWithin(exact Exact) bool {
 	return contains(exact.Key(), provisional.candidateKey)
 }
 
+// CouldEqual excludes incompatible promotion depth or stable ASCII components.
+// A true result retains uncertainty; it never certifies Unicode equivalence.
+func (provisional Provisional) CouldEqual(exact Exact) bool {
+	if provisional.AdmitsExact(exact) != nil {
+		return false
+	}
+	candidate, _ := filepath.Rel(provisional.namespace.Key(), provisional.candidateKey)
+	selected, _ := filepath.Rel(provisional.namespace.Key(), exact.Key())
+	candidateParts := strings.Split(candidate, string(filepath.Separator))
+	selectedParts := strings.Split(selected, string(filepath.Separator))
+	for index, component := range candidateParts {
+		other := selectedParts[index]
+		if !containsNonASCIIByte(component) && !containsNonASCIIByte(other) && component != other {
+			return false
+		}
+	}
+	return true
+}
+
+// ConfinedWithin proves region membership from an existing namespace or a
+// stable ASCII prefix. It does not establish the future entry's exact identity.
+func (provisional Provisional) ConfinedWithin(root Exact) bool {
+	if provisional.Validate() != nil || root.Validate() != nil {
+		return false
+	}
+	if root.Contains(provisional.namespace) {
+		return true
+	}
+	if !provisional.namespace.Contains(root) {
+		return false
+	}
+	selected, _ := filepath.Rel(provisional.namespace.Key(), root.Key())
+	candidate, _ := filepath.Rel(provisional.namespace.Key(), provisional.candidateKey)
+	selectedParts := strings.Split(selected, string(filepath.Separator))
+	candidateParts := strings.Split(candidate, string(filepath.Separator))
+	if len(selectedParts) > len(candidateParts) {
+		return false
+	}
+	for index, component := range selectedParts {
+		if containsNonASCIIByte(component) || component != candidateParts[index] {
+			return false
+		}
+	}
+	return true
+}
+
+// StableRelativePrefix retains observed components and the following ASCII
+// components, stopping before the first normalization-sensitive future name.
+func (provisional Provisional) StableRelativePrefix(root Exact) (string, bool) {
+	if !provisional.ConfinedWithin(root) {
+		return "", false
+	}
+	known := 0
+	if root.Contains(provisional.namespace) && root.Key() != provisional.namespace.Key() {
+		relative, _ := filepath.Rel(root.Key(), provisional.namespace.Key())
+		known = len(strings.Split(relative, string(filepath.Separator)))
+	}
+	relative, _ := filepath.Rel(root.Key(), provisional.candidateKey)
+	parts := strings.Split(relative, string(filepath.Separator))
+	end := 0
+	for index, component := range parts {
+		if index >= known && containsNonASCIIByte(component) {
+			break
+		}
+		end++
+	}
+	if end == 0 {
+		return "", false
+	}
+	return filepath.Join(parts[:end]...), true
+}
+
+// CouldOverlap excludes only regions separated by observed namespaces or stable
+// ASCII components. Unknown normalization remains possible overlap.
+func (provisional Provisional) CouldOverlap(exact Exact) bool {
+	if provisional.Validate() != nil || exact.Validate() != nil {
+		return true
+	}
+	if exact.Contains(provisional.namespace) {
+		return true
+	}
+	if !provisional.namespace.Contains(exact) {
+		return false
+	}
+	selected, _ := filepath.Rel(provisional.namespace.Key(), exact.Key())
+	candidate, _ := filepath.Rel(provisional.namespace.Key(), provisional.candidateKey)
+	selectedParts := strings.Split(selected, string(filepath.Separator))
+	candidateParts := strings.Split(candidate, string(filepath.Separator))
+	for index := range min(len(selectedParts), len(candidateParts)) {
+		left, right := selectedParts[index], candidateParts[index]
+		if !containsNonASCIIByte(left) && !containsNonASCIIByte(right) && left != right {
+			return false
+		}
+	}
+	return true
+}
+
 // MatchesMissingExact reports whether this missing candidate retains the exact
 // comparison key and filesystem-semantics witness observed before deletion. It
 // does not restore exact authority or prove entry identity.

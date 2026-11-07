@@ -47,7 +47,7 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, namespacetest.Reservations(t), journalTestFilesystem(), fixture.whole.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}

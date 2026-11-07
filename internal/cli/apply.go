@@ -488,6 +488,11 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 			if cause, ok := applyInputErrorCause(err, failure); ok {
 				return clipresent.FailureDiagnosticFromError(cause), failure.Reason()
 			}
+			if failure.Phase() == applyworkflow.FailurePhasePreflight && failure.Reason() == applyworkflow.FailureReasonApplyRefused {
+				if diagnostic, native := clipresent.NativePlanningFailureDiagnostic(err); native {
+					return diagnostic, failure.Reason()
+				}
+			}
 		}
 		return clipresent.NewFailureDiagnostic(failure.PrimaryDetail()), failure.Reason()
 	}

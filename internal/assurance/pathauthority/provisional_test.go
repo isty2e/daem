@@ -115,6 +115,31 @@ func TestProvisionalMatchesOnlyItsFormerExactCandidate(t *testing.T) {
 	}
 }
 
+func TestProvisionalEqualityKeepsUnknownUnicodeWithoutLosingStableComponents(t *testing.T) {
+	namespace := filepath.Join(string(filepath.Separator), "tmp", "daem")
+	for _, scenario := range []struct {
+		candidate string
+		selected  string
+		possible  bool
+	}{
+		{".pi/prompts/Café.md", ".claude/settings.json", false},
+		{".pi/Café.json", ".claude/settings.json", false},
+		{".pi/Café.json", ".pi/settings.json", true},
+		{".pi/ſettings.json", ".pi/settings.json", true},
+		{".pi/Café.json", ".pi/Café.json", true},
+	} {
+		candidate := filepath.Join(namespace, filepath.FromSlash(scenario.candidate))
+		selected := pathtest.DarwinCaseSensitive(filepath.Join(namespace, filepath.FromSlash(scenario.selected)))
+		provisional, err := pathauthority.NewProvisional(candidate, pathtest.DarwinCaseSensitive(candidate).Witness(), namespace, pathtest.DarwinCaseSensitive(namespace).Witness())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if provisional.CouldEqual(selected) != scenario.possible {
+			t.Fatal("provisional equality lost a stable component or inferred Unicode equivalence", scenario)
+		}
+	}
+}
+
 func darwinInsensitiveWitness(path string) string {
 	volume := filepath.VolumeName(path)
 	relative := strings.TrimPrefix(path, volume+string(filepath.Separator))
@@ -123,4 +148,31 @@ func darwinInsensitiveWitness(path string) string {
 		componentCount = len(strings.Split(relative, string(filepath.Separator)))
 	}
 	return "darwin-case-v1:" + strings.Repeat("i", componentCount)
+}
+
+func TestProvisionalRegionEvidenceRetainsStablePrefixesWithoutPromotion(t *testing.T) {
+	base := t.TempDir()
+	for _, scenario := range []struct {
+		namespace, candidate, root, prefix string
+		confined, overlap                  bool
+	}{
+		{"", "codex/extension-settings/Café.toml", "codex", "extension-settings", true, true},
+		{"codex", "codex/extension-settings/Café.toml", "codex/auth.json", "", false, false},
+		{"codex/knowné", "codex/knowné/Café.toml", "codex", "knowné", true, true},
+		{"codex", "codex/ſessions/x", "codex/sessions", "", false, true},
+		{"codex/sessions", "codex/sessions/Café", "codex/sessions", "", true, true},
+		{"", "codéx/extension-settings/Café", "codex", "", false, true},
+	} {
+		namespace := filepath.Join(base, filepath.FromSlash(scenario.namespace))
+		candidate := filepath.Join(base, filepath.FromSlash(scenario.candidate))
+		root := pathtest.DarwinCaseSensitive(filepath.Join(base, filepath.FromSlash(scenario.root)))
+		provisional, err := pathauthority.NewProvisional(candidate, pathtest.DarwinCaseSensitive(candidate).Witness(), namespace, pathtest.DarwinCaseSensitive(namespace).Witness())
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix, present := provisional.StableRelativePrefix(root)
+		if provisional.ConfinedWithin(root) != scenario.confined || provisional.CouldOverlap(root) != scenario.overlap || filepath.ToSlash(prefix) != scenario.prefix || present != (scenario.prefix != "") {
+			t.Fatal("provisional region evidence inferred normalization or lost a stable prefix", scenario, prefix, present)
+		}
+	}
 }

@@ -70,7 +70,7 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: root})
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
 	budget := imageBudget(t)
-	original, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
+	original, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, fixtureProtection(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := Reobserve(t.Context(), original.Addresses(), roots, reader, budget, pin)
+	current, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, pin)
 	if err != nil || !original.Observation().Equal(current.Observation()) {
 		t.Fatalf("canonical pin lost the selected namespace: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, err := Reobserve(t.Context(), original.Addresses(), roots, reader, budget, foreign); err == nil || value.Observation().Validate() == nil || len(value.Addresses()) != 0 {
+	if value, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, foreign); err == nil || value.Observation().Validate() == nil || len(value.Addresses()) != 0 {
 		t.Fatal("writer pin introduced a root not selected by the caller")
 	}
 }
@@ -149,7 +149,7 @@ func TestZeroCustodyValuesCannotAuthorizeWork(t *testing.T) {
 		t.Fatal("zero writer pin was admitted")
 	}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
-	if value, err := Reobserve(t.Context(), nil, Roots{}, reader, budget, WriterPin{}); err == nil || value.Observation().Validate() == nil || len(reader.capabilities) != 0 {
+	if value, err := Reobserve(t.Context(), nil, Roots{}, fixtureProtection(t), reader, budget, WriterPin{}); err == nil || value.Observation().Validate() == nil || len(reader.capabilities) != 0 {
 		t.Fatal("zero pin reached namespace observation")
 	}
 }

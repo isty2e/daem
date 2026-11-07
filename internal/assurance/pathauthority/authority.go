@@ -76,6 +76,19 @@ func (authority Exact) Contains(other Exact) bool {
 		(relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
+// ImmediateChildName projects a candidate spelling from canonical path keys.
+// It does not prove matching filesystem semantics or grant entry authority.
+func (authority Exact) ImmediateChildName(other Exact) (string, bool) {
+	if authority.Validate() != nil || other.Validate() != nil {
+		return "", false
+	}
+	relative, err := filepath.Rel(authority.key, other.key)
+	if err != nil || relative == "." || relative == ".." || filepath.Base(relative) != relative {
+		return "", false
+	}
+	return relative, true
+}
+
 // IsZero reports whether no exact authority was initialized.
 func (authority Exact) IsZero() bool {
 	return authority == (Exact{})

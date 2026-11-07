@@ -122,7 +122,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	var bindings []ownership.DocumentBinding
 	var claims []ownership.Claim
 	if original.Exists() {
-		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +158,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
+	batch, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

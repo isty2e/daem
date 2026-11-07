@@ -2,7 +2,6 @@ package recover
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -15,13 +14,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
-	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
-	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
@@ -41,26 +38,24 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 		return journal.PlanLoadOptions{}, err
 	}
 	budget, _ := physicalBudget.(*physicalwork.Budget)
-	piRoot, err := configuration.RootReferenceForScope(target.TargetPi, target.ScopeGlobal)
+	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
 	if err != nil {
 		return journal.PlanLoadOptions{}, err
 	}
-	codexRoot, err := configuration.RootReferenceForScope(target.TargetCodex, target.ScopeGlobal)
+	protection, err := nativeconfig.SelectProtectionRoots(locations)
 	if err != nil {
 		return journal.PlanLoadOptions{}, err
 	}
 	profile := &journal.Profile{
 		StateCodec: stateCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
 		Manifest: paths.ManifestRoot, ManifestPath: paths.ManifestPath, Budget: budget,
+		Protection: protection,
 		ResolveRoot: func(reference output.RootReference) (string, error) {
-			switch reference {
-			case piRoot:
-				return pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: paths.ManifestRoot})
-			case codexRoot:
-				return codexhostpath.ResolveHomeRoot(paths.ManifestRoot)
-			default:
-				return "", fmt.Errorf("native recovery root reference is not selected")
+			location, err := locations.Resolve(reference)
+			if err != nil {
+				return "", err
 			}
+			return location.Path(), nil
 		},
 		StateReader: func(ctx context.Context) (durable.Snapshot, error) {
 			return statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{Codec: stateCodec, PhysicalPathBudget: budget})

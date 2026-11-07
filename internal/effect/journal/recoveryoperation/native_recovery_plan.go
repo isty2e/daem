@@ -238,7 +238,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 	active := inventory.Active()
 	blocked := false
 	assessment, err := journalqualification.ReadNativeSourceAssessment(ctx, *active, journalqualification.NativeReadOptions{
-		Documents: journalqualification.ReadOptions{Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
+		Documents: journalqualification.ReadOptions{Protection: profile.Protection, Rules: journalqualification.RecordedRuleExpectations(), Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
 		Roots:     roots, State: profile.StateReader, Registry: options.OwnershipRegistry,
 		Resolver: options.Resolver,
 	})

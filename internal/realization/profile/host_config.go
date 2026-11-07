@@ -35,18 +35,39 @@ func ValidateHostConfigFootprint(placement configuration.Placement, footprint ou
 		if footprint.Kind() != output.FootprintPath {
 			return fmt.Errorf("document ownership requires a whole-path footprint")
 		}
+		return ValidatePhysicalHostConfigFootprint(placement.Document(), footprint)
+	}
+	_, keyOwned := footprint.Key()
+	if !keyOwned {
+		return fmt.Errorf("key ownership requires a native key footprint")
+	}
+	return ValidatePhysicalHostConfigFootprint(placement.Document(), footprint)
+}
+
+// ValidatePhysicalHostConfigFootprint applies the same dedicated owners to a
+// document's observed role, rather than trusting a declaration's path spelling.
+func ValidatePhysicalHostConfigFootprint(document configuration.DocumentSpec, footprint output.Footprint) error {
+	if err := document.RootReference().Validate(); err != nil {
+		return err
+	}
+	if err := footprint.Validate(); err != nil {
+		return err
+	}
+	if footprint.Kind() == output.FootprintPath {
+		if document.Class() == configuration.SharedConfiguration {
+			return fmt.Errorf("%w: shared native configuration cannot be owned as a whole document", configuration.ErrReserved)
+		}
 		return nil
 	}
 	key, keyOwned := footprint.Key()
 	if !keyOwned {
-		return fmt.Errorf("key ownership requires a native key footprint")
+		return fmt.Errorf("native configuration requires a whole-path or key footprint")
 	}
-
-	facts, err := nativeConfigurationReservationsFor(placement.Target(), placement.Scope())
+	facts, err := nativeConfigurationReservationsFor(document.Target(), document.Scope())
 	if err != nil {
 		return err
 	}
-	err = facts.RequireUnreservedKey(placement.Document(), key)
+	err = facts.RequireUnreservedKey(document, key)
 	if errors.Is(err, configuration.ErrReservedKey) {
 		return fmt.Errorf("%w: %w; use its dedicated resource", configuration.ErrReserved, err)
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // ReservationSelector retains an absolute expression selected by its locator
@@ -20,6 +19,8 @@ import (
 type ReservationSelector struct {
 	reference output.RootReference
 	path      string
+	source    string
+	failure   error
 }
 
 func NewReservationSelector(reference output.RootReference, selected string) (ReservationSelector, error) {
@@ -29,7 +30,24 @@ func NewReservationSelector(reference output.RootReference, selected string) (Re
 	if strings.ContainsRune(selected, '\x00') || !filepath.IsAbs(selected) {
 		return ReservationSelector{}, fmt.Errorf("reservation selector must be an absolute path without a NUL byte")
 	}
-	return ReservationSelector{reference: reference, path: selected}, nil
+	return ReservationSelector{reference: reference, path: selected, source: "selected location"}, nil
+}
+
+func UnavailableReservationSelector(reference output.RootReference, source string, cause error) (ReservationSelector, error) {
+	if err := reference.Validate(); err != nil {
+		return ReservationSelector{}, err
+	}
+	if cause == nil || source == "" {
+		return ReservationSelector{}, fmt.Errorf("unavailable reservation selector requires its source and cause")
+	}
+	return ReservationSelector{reference: reference, source: source, failure: cause}, nil
+}
+
+func (selector ReservationSelector) DescribedBy(source string) ReservationSelector {
+	if source != "" {
+		selector.source = source
+	}
+	return selector
 }
 
 func (selector ReservationSelector) Reference() output.RootReference { return selector.reference }
@@ -45,8 +63,17 @@ func NewReservationSelectors(selectors []ReservationSelector) (ReservationSelect
 		if err := selector.reference.Validate(); err != nil {
 			return ReservationSelectors{}, fmt.Errorf("reservation selector: %w", err)
 		}
-		if previous, present := selected[selector.reference]; present && previous != selector {
-			return ReservationSelectors{}, fmt.Errorf("conflicting selectors for reservation root %q (%s)", selector.reference.Identity(), selector.reference.LocatorPolicy())
+		if selector.failure == nil {
+			if _, err := NewReservationSelector(selector.reference, selector.path); err != nil {
+				return ReservationSelectors{}, err
+			}
+		} else if selector.path != "" || selector.source == "" {
+			return ReservationSelectors{}, fmt.Errorf("unavailable reservation selector has contradictory location data")
+		}
+		if previous, present := selected[selector.reference]; present {
+			if previous.path != selector.path || previous.source != selector.source || previous.failure != nil || selector.failure != nil {
+				return ReservationSelectors{}, fmt.Errorf("conflicting selectors for reservation root %q (%s)", selector.reference.Identity(), selector.reference.LocatorPolicy())
+			}
 		}
 		selected[selector.reference] = selector
 	}
@@ -54,27 +81,51 @@ func NewReservationSelectors(selectors []ReservationSelector) (ReservationSelect
 	return ReservationSelectors{selectors: selected}, nil
 }
 
-func (selectors ReservationSelectors) Select(requirements configuration.ProtectionRequirements) ([]ReservationSelector, error) {
-	references, err := requirements.References()
-	if err != nil {
-		return nil, err
-	}
-	selected := make([]ReservationSelector, 0, len(references))
-	for _, reference := range references {
-		selector, present := selectors.selectors[reference]
-		if !present {
-			return nil, fmt.Errorf("required reservation root %q (%s) has no selector", reference.Identity(), reference.LocatorPolicy())
-		}
-		selected = append(selected, selector)
-	}
-
-	return selected, nil
-}
-
 type nativeRootCreation struct {
 	selector   string
 	physical   string
 	provenance rootedpath.AuthorityProvenance
+}
+
+// CaptureRootSelector resolves the locator before any relative document Join,
+// while retaining that expression for fresh qualification of the captured root.
+func CaptureRootSelector(ctx context.Context, selector string, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
+	if ctx == nil || budget == nil {
+		return RootSelection{}, fmt.Errorf("native root locator requires context and original allocation")
+	}
+	if err := ctx.Err(); err != nil {
+		return RootSelection{}, err
+	}
+	physical, err := rootedpath.ResolveRootSelectorBounded(selector, physicalwork.MaximumPhysicalPathDepth, budget)
+	if canceled := ctx.Err(); canceled != nil {
+		return RootSelection{}, canceled
+	}
+	if err != nil {
+		return RootSelection{}, err
+	}
+	selection, err := CaptureRoot(ctx, physical, budget)
+	if err != nil {
+		return RootSelection{}, err
+	}
+	selection.literal = selector
+	return selection, nil
+}
+
+func (selection RootSelection) qualifyLocator(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) error {
+	if selection.literal == "" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	physical, err := rootedpath.ResolveRootSelectorBounded(selection.literal, physicalwork.MaximumPhysicalPathDepth, budget)
+	if canceled := ctx.Err(); canceled != nil {
+		return canceled
+	}
+	if err != nil || physical != selection.SelectedPath {
+		return errors.Join(fmt.Errorf("native root locator no longer identifies its captured document base"), err)
+	}
+	return ctx.Err()
 }
 
 // CaptureRoot retains an existing selected directory or confines
@@ -178,7 +229,7 @@ func CaptureRecordedRoot(ctx context.Context, selected string, expected rootedpa
 	if err := expected.Validate(); err != nil {
 		return RootSelection{}, err
 	}
-	current, err := CaptureRoot(ctx, selected, budget)
+	current, err := CaptureRootSelector(ctx, selected, budget)
 	if err != nil {
 		return RootSelection{}, err
 	}
@@ -193,7 +244,7 @@ func CaptureRecordedRoot(ctx context.Context, selected string, expected rootedpa
 	if provenance == expected {
 		return current, nil
 	}
-	physical, err := rootedpath.ResolveReferentPathBounded(selected, physicalwork.MaximumPhysicalPathDepth, budget)
+	physical, err := rootedpath.ResolveRootSelectorBounded(selected, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil || !nativeRootContains(expected.PhysicalRoot(), physical) {
 		return RootSelection{}, errors.Join(fmt.Errorf("recorded native anchor does not contain the independently selected root"), err, current.Root.Close())
 	}
@@ -211,9 +262,10 @@ func CaptureRecordedRoot(ctx context.Context, selected string, expected rootedpa
 	if err != nil || provenance != expected {
 		return RootSelection{}, errors.Join(fmt.Errorf("recorded native anchor incarnation changed"), err, root.Close())
 	}
-	result, err := nativeRootSelectionAt(ctx, selected, physical, root, budget)
+	result, err := nativeRootSelectionAt(ctx, physical, physical, root, budget)
 	if err != nil {
 		return RootSelection{}, errors.Join(err, root.Close())
 	}
+	result.literal = selected
 	return result, nil
 }

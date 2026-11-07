@@ -136,7 +136,7 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), aliases, namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi}), journalTestFilesystem(), budget)
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi}), namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}

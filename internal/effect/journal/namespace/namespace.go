@@ -22,12 +22,13 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// RootSelection borrows a caller-selected root and its lexical selector.
+// RootSelection borrows a caller-selected root and its canonical document base.
 // Persisted paths cannot create or enlarge this grant.
 type RootSelection struct {
 	SelectedPath string
 	Root         *rootedpath.CapturedRoot
 	creation     *nativeRootCreation
+	literal      string
 }
 
 func (selection RootSelection) validate() error {
@@ -143,6 +144,8 @@ func (pin WriterPin) Relative() rootedpath.RelativeDestination   { return pin.re
 // namespace evidence, not ownership, selected-value or operation authority.
 type DocumentNamespace struct {
 	roots       Roots
+	protection  ReservationSelectors
+	physical    physicalDocumentFacts
 	filesystem  mutationfs.RootedReader
 	aliases     []Alias
 	observation mutation.DirectoryEntryAuthorityObservation
@@ -151,15 +154,15 @@ type DocumentNamespace struct {
 	writerPin   WriterPin
 }
 
-func Observe(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget) (DocumentNamespace, error) {
-	return observeNativeDocumentNamespace(ctx, aliases, roots, filesystem, budget, nil)
+func Observe(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget) (DocumentNamespace, error) {
+	return observeNativeDocumentNamespace(ctx, aliases, roots, protection, filesystem, budget, nil)
 }
 
-func Reobserve(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pin WriterPin) (DocumentNamespace, error) {
+func Reobserve(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pin WriterPin) (DocumentNamespace, error) {
 	if _, err := NewWriterPin(pin.provenance, pin.relative); err != nil {
 		return DocumentNamespace{}, err
 	}
-	return observeNativeDocumentNamespace(ctx, aliases, roots, filesystem, budget, &pin)
+	return observeNativeDocumentNamespace(ctx, aliases, roots, protection, filesystem, budget, &pin)
 }
 
 func (namespace DocumentNamespace) Observation() mutation.DirectoryEntryAuthorityObservation {
@@ -190,11 +193,11 @@ func (namespace DocumentNamespace) QualifyRoots(ctx context.Context, budget root
 // AcquireReferent requalifies root selections and aliases before returning a
 // final-entry-no-follow capability. The caller closes or consumes the capability.
 func (namespace DocumentNamespace) AcquireReferent(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, error) {
-	current, err := observeNativeDocumentNamespace(ctx, namespace.Addresses(), namespace.roots, namespace.filesystem, budget, &namespace.writerPin)
+	current, err := observeNativeDocumentNamespace(ctx, namespace.Addresses(), namespace.roots, namespace.protection, namespace.filesystem, budget, &namespace.writerPin)
 	if err != nil {
 		return nil, err
 	}
-	if !namespace.observation.Equal(current.observation) {
+	if !namespace.observation.Equal(current.observation) || !namespace.physical.equal(current.physical) {
 		return nil, fmt.Errorf("native document namespace changed before referent acquisition")
 	}
 	capability, err := current.writerRoot.AcquireBounded(current.writer, physicalwork.MaximumPhysicalPathDepth, budget)
@@ -207,7 +210,7 @@ func (namespace DocumentNamespace) AcquireReferent(ctx context.Context, budget r
 	return capability, nil
 }
 
-func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.DocumentAddress, roots Roots, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pinned *WriterPin) (DocumentNamespace, error) {
+func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pinned *WriterPin) (DocumentNamespace, error) {
 	if ctx == nil || filesystem == nil || budget == nil {
 		return DocumentNamespace{}, fmt.Errorf("native namespace context, filesystem and shared traversal budget are required")
 	}
@@ -224,7 +227,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	aliases := slices.Clone(inputs)
 	slices.SortFunc(aliases, journaldocument.CompareAliases)
 	grants := qualified.grants
-	result := DocumentNamespace{roots: roots, filesystem: filesystem}
+	result := DocumentNamespace{roots: roots, protection: protection, filesystem: filesystem}
 	var referent string
 	for _, address := range aliases {
 		if err := ctx.Err(); err != nil {
@@ -261,6 +264,14 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 			return DocumentNamespace{}, fmt.Errorf("native document aliases do not identify one physical referent")
 		}
 		result.aliases = append(result.aliases, Alias{address: address, root: grant, relative: selectedRelative, observation: observation})
+	}
+	observer := newPhysicalObserver(protection, budget)
+	if err := observer.requireUnreserved(ctx, result.aliases); err != nil {
+		return DocumentNamespace{}, err
+	}
+	result.physical, err = observer.documents(ctx, result.aliases, qualified)
+	if err != nil {
+		return DocumentNamespace{}, err
 	}
 	writerGrant, relative, err := nativeDocumentWriterGrant(grants, referent, pinned)
 	if err != nil {
@@ -333,6 +344,9 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 		}
 		selection := roots.selected[reference]
 		if err := selection.validate(); err != nil {
+			return QualifiedRoots{}, err
+		}
+		if err := selection.qualifyLocator(ctx, budget); err != nil {
 			return QualifiedRoots{}, err
 		}
 		if selection.creation != nil {

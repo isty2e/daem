@@ -169,7 +169,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		return journalnamespace.RootSelection{SelectedPath: path, Root: captured}
 	}
 	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: rootGrant(root), output.RootPiAgent: rootGrant(hostRoot)})
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, storagecommit.Adapter{}, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), storagecommit.Adapter{}, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation := journalobservation.Input{Owner: owner, Before: loaded, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: storagecommit.Adapter{}, Registry: store, Limits: narrowingLimits, Budget: budget}
+	observation := journalobservation.Input{Owner: owner, Before: loaded, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Filesystem: storagecommit.Adapter{}, Registry: store, Limits: narrowingLimits, Budget: budget}
 	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), observation)
 	if err != nil {
 		t.Fatal(err)

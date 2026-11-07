@@ -80,6 +80,7 @@ type physicalTraversal struct {
 	captureAliases           bool
 	rejectAliases            bool
 	allowMissingAliasTargets bool
+	directoryObservation     bool
 	aliases                  []layoutAlias
 }
 
@@ -480,6 +481,7 @@ func ReadDirectoryNamesBounded(ctx context.Context, selector string, maximumPhys
 		return DirectoryNames{}, err
 	}
 	traversal.allowMissingAliasTargets = true
+	traversal.directoryObservation = true
 	physical, platform, _, _, missing, err := resolveNativePathPlatform(absolute, true, false, false, traversal)
 	if err != nil {
 		if canceled := ctx.Err(); canceled != nil {

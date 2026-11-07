@@ -157,7 +157,7 @@ func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTes
 	}
 	host := filepath.Join(selectedRoot.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, host, loaded.Document.Content(), 0o644)
-	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
+	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

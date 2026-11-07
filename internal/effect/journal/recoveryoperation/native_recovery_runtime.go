@@ -36,7 +36,7 @@ func (operation *NativeRecoveryOperation) Assess(ctx context.Context, options jo
 		return operation.captured.AssessRecovery(ctx, options)
 	}
 	return journalqualification.ReassessNativeSource(ctx, operation.plan.source, journalqualification.NativeReadOptions{
-		Documents: journalqualification.ReadOptions{Filesystem: options.Filesystem, Budget: operation.profile.Budget, Limits: operation.profile.Limits, Codecs: options.Codecs, OrdinaryCapabilities: operation.ordinaryCapabilities},
+		Documents: journalqualification.ReadOptions{Protection: operation.profile.Protection, Rules: journalqualification.RecordedRuleExpectations(), Filesystem: options.Filesystem, Budget: operation.profile.Budget, Limits: operation.profile.Limits, Codecs: options.Codecs, OrdinaryCapabilities: operation.ordinaryCapabilities},
 		Roots:     operation.roots, State: options.State, Registry: options.Registry, Resolver: operation.resolver,
 	}, options.OperationAuthority)
 }

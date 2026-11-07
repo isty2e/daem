@@ -1,6 +1,7 @@
 package clipresent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/recoverygate"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
@@ -28,7 +30,14 @@ func RecoverPlanningDiagnostic(err error, options HumanOptions) FailureDiagnosti
 	fileSetClear := state.FileSetKnown() && state.FileSet() == fileset.FileSetFenceClear
 	if !errors.Is(err, journal.ErrNoRecoverableJournal) ||
 		state.Observed() && !fileSetClear && !state.HasContinuingFileSetFence() {
-		return FailureDiagnosticFromError(err).WithPrefix("recover failed: ")
+		diagnostic := FailureDiagnosticFromError(err)
+		if (!state.Observed() || fileSetClear) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			var protection configuration.NativeProtectionFailure
+			if errors.As(err, &protection) {
+				diagnostic = diagnostic.WithGuidance(NativeProtectionRecoveryGuidance(protection))
+			}
+		}
+		return diagnostic.WithPrefix("recover failed: ")
 	}
 
 	diagnostic := NewFailureDiagnostic("recover failed: no recoverable journal operation").WithGuidance(

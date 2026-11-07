@@ -29,6 +29,7 @@ type Input struct {
 	Before     durable.Snapshot
 	Aliases    []aggregate.DocumentAddress
 	Roots      journalnamespace.Roots
+	Protection journalnamespace.ReservationSelectors
 	Filesystem mutationfs.RootedReader
 	Registry   ownershipmutation.RegistryReader
 	Limits     configdocument.Limits
@@ -142,7 +143,7 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 	var representatives []journalnamespace.DocumentNamespace
 	var groups [][]aggregate.DocumentAddress
 	for _, alias := range aliases {
-		namespace, err := journalnamespace.Observe(ctx, []aggregate.DocumentAddress{alias}, input.Roots, input.Filesystem, input.Budget)
+		namespace, err := journalnamespace.Observe(ctx, []aggregate.DocumentAddress{alias}, input.Roots, input.Protection, input.Filesystem, input.Budget)
 		if err != nil {
 			return nil, err
 		}
@@ -167,7 +168,7 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 	}
 	result := make([]journalnamespace.DocumentNamespace, 0, len(groups))
 	for index, aliases := range groups {
-		namespace, err := journalnamespace.Observe(ctx, aliases, input.Roots, input.Filesystem, input.Budget)
+		namespace, err := journalnamespace.Observe(ctx, aliases, input.Roots, input.Protection, input.Filesystem, input.Budget)
 		if err != nil {
 			return nil, err
 		}

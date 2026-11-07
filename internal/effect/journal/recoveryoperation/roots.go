@@ -28,6 +28,7 @@ type Profile struct {
 	Manifest     string
 	ManifestPath string
 	ResolveRoot  func(output.RootReference) (string, error)
+	Protection   journalnamespace.ReservationSelectors
 	Budget       *physicalwork.Budget
 	StateReader  durable.SnapshotReader
 }
@@ -71,8 +72,8 @@ func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Nati
 				return nil, err
 			}
 		}
-		if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-			return nil, fmt.Errorf("native recovery requires a canonical independently selected root")
+		if path == "" || !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("native recovery requires an absolute independently selected root")
 		}
 		var selection journalnamespace.RootSelection
 		var err error

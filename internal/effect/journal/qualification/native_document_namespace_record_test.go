@@ -113,7 +113,7 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	}
 	before := selectionState(t, fixture.before.ManagedAggregates()[0], other)
 	after := selectionState(t, fixture.after.ManagedAggregates()[0], other)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.Budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestNativeNamespaceReobservesRealCreationWithoutForgingExactAuthority(t *te
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/Caf\u00e9.json")
 	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: pi})
 	budget := imageBudget(t)
-	before, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	before, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func TestNativeNamespaceReobservesRealCreationWithoutForgingExactAuthority(t *te
 	if err := journalTestFilesystem().CreateRootedFile(t.Context(), capability, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	after, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	after, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestNativeMissingRootSelectionRetainsOriginalAnchorWithoutCreatingIt(t *tes
 	t.Cleanup(func() { _ = root.Root.Close() })
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/settings.json")
 	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: root})
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestNativeMissingRootSelectionRetainsOriginalAnchorWithoutCreatingIt(t *tes
 		t.Fatal(err)
 	}
 	defer reopened.Root.Close()
-	current, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: reopened}), journalTestFilesystem(), budget)
+	current, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: reopened}), namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}

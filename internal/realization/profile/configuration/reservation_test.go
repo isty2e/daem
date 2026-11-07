@@ -52,47 +52,31 @@ func TestProtectionRequirementsRetainIndependentRootsWithoutBorrowingInput(t *te
 }
 
 func TestExclusionRequirementsComeFromAuditedFacetFacts(t *testing.T) {
-	for _, test := range []struct {
-		target   target.Target
-		scope    target.Scope
-		path     string
-		identity string
-		locator  string
-	}{
-		{target.TargetPi, target.ScopeProject, "settings.json", "pi-agent", "pi-agent-location-v1"},
-		{target.TargetPi, target.ScopeGlobal, "settings.json", "pi-agent", "pi-agent-location-v1"},
-		{target.TargetCodex, target.ScopeProject, "settings.json", "codex-home", "codex-home-location-v1"},
-		{target.TargetCodex, target.ScopeGlobal, "config.toml", "codex-home", "codex-home-location-v1"},
-		{target.TargetClaudeCode, target.ScopeGlobal, "settings.json", "", ""},
-		{target.TargetOpenCode, target.ScopeGlobal, "opencode.json", "", ""},
-		{target.TargetAntigravityCLI, target.ScopeGlobal, "settings.json", "", ""},
-	} {
-		t.Run(string(test.target)+"/"+string(test.scope), func(t *testing.T) {
-			spec, err := configuration.NewDocumentSpec(configuration.DocumentInput{Target: test.target, Scope: test.scope, Path: test.path})
-			if err != nil {
-				t.Fatal(err)
-			}
-			requirements, err := configuration.ExclusionProtectionRequirements(spec)
-			if test.identity == "" {
-				if err == nil {
-					t.Fatal("unaudited exclusion facets became known-no-protection")
-				}
-				if _, err := requirements.References(); err == nil {
-					t.Fatal("an unaudited facet supplied partial known requirements")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			references, err := requirements.References()
-			if err != nil || len(references) != 1 || references[0].Identity() != test.identity || references[0].LocatorPolicy() != test.locator {
-				t.Fatalf("exclusion protection roots = %v, %v", references, err)
-			}
-		})
+	policies, err := configuration.NativeExclusionPolicies()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := configuration.ExclusionProtectionRequirements(configuration.DocumentSpec{}); err == nil {
-		t.Fatal("zero document supplied known protection requirements")
+	for _, policy := range policies {
+		facets, err := policy.Facets()
+		if policy.Coverage() == configuration.ExclusionUnknown {
+			if err == nil || facets != nil {
+				t.Fatal("unaudited exclusion facets supplied partial protection facts")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		needsObservation := false
+		for _, facet := range facets {
+			if err := facet.Reference().Validate(); err != nil {
+				t.Fatal("exclusion facet lost its locator contract", err)
+			}
+			needsObservation = needsObservation || facet.RequiresObservation()
+		}
+		if needsObservation == (policy.Coverage() == configuration.ExclusionKnownNone) {
+			t.Fatal("audited coverage disagrees with its complete facet facts")
+		}
 	}
 }
 

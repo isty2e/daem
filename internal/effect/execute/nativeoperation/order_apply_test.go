@@ -396,7 +396,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Registry: reader, Filesystem: testFilesystem(), Limits: limits, Budget: budget})
+	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Registry: reader, Filesystem: testFilesystem(), Limits: limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

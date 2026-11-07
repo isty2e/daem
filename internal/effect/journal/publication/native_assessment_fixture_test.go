@@ -63,7 +63,7 @@ func newNativeAssessmentFixture(t *testing.T) nativeAssessmentFixture {
 		t.Fatal(err)
 	}
 	value := membershipBindingValue(t, fixture.claims)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias}, roots, journalTestFilesystem(), nativeFixtureBudget(t))
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), nativeFixtureBudget(t))
 	if err != nil {
 		t.Fatal(err)
 	}

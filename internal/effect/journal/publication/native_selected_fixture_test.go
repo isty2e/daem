@@ -87,7 +87,7 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ func TestWriterBindingReobservesAliasesBeforeExposingBorrowedRoot(t *testing.T) 
 	}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
 	budget := imageBudget(t)
-	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: root}), reader, budget)
+	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: root}), fixtureProtection(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

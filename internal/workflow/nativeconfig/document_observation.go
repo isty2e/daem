@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -21,9 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
-	"github.com/isty2e/daem/internal/output"
-	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
-	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -149,6 +146,14 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 }
 
 func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses []aggregate.DocumentAddress, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
+	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
+	if err != nil {
+		return nil, err
+	}
+	protection, err := SelectProtectionRoots(locations)
+	if err != nil {
+		return nil, err
+	}
 	before, err := epoch.Snapshot()
 	if err != nil {
 		return nil, err
@@ -195,24 +200,13 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		if _, supplied := roots.Selection(reference); supplied {
 			continue
 		}
-		var path string
-		switch alias.AggregateRoot().RootRole() {
-		case output.RootProject:
-			path = paths.ManifestRoot
-		case output.RootPiAgent:
-			path, err = pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: paths.ManifestRoot})
-		case output.RootCodexHome:
-			path, err = codexhostpath.ResolveHomeRoot(paths.ManifestRoot)
-		default:
-			return nil, fmt.Errorf("native document has no selected host root")
-		}
+		location, err := locations.Resolve(reference)
 		if err != nil {
 			return nil, err
 		}
-		path = filepath.Clean(path)
-		selection, err := journalnamespace.CaptureRoot(ctx, path, budget)
+		selection, err := journalnamespace.CaptureRootSelector(ctx, location.Path(), budget)
 		if err != nil {
-			return nil, fmt.Errorf("observe selected native root %q without creating it: %w", path, err)
+			return nil, fmt.Errorf("observe selected native root %q without creating it: %w", reference.Identity(), err)
 		}
 		retained = append(retained, selection.Root)
 		roots, err = roots.With(reference, selection)
@@ -235,6 +229,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	registry := &observedRegistry{RegistryReader: reader}
 	documents, err := journal.ObserveNativeDocuments(ctx, journalobservation.Input{
 		Owner: owner, Before: before, Aliases: addresses, Roots: roots,
+		Protection: protection,
 		Filesystem: storagecommit.Adapter{}, Registry: registry, Limits: DocumentLimits(), Budget: budget,
 	})
 	if err != nil {
@@ -247,6 +242,45 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		operation.native = native
 	}
 	return native, nil
+}
+
+// SelectProtectionRoots supplies read-only selectors independently of the
+// documents and writer roots selected by this operation.
+func SelectProtectionRoots(locations nativehostpath.Locations) (journalnamespace.ReservationSelectors, error) {
+	policies, err := configuration.NativeExclusionPolicies()
+	if err != nil {
+		return journalnamespace.ReservationSelectors{}, err
+	}
+	var selected []journalnamespace.ReservationSelector
+	for _, policy := range policies {
+		if policy.Coverage() == configuration.ExclusionUnknown {
+			continue
+		}
+		facets, err := policy.Facets()
+		if err != nil {
+			return journalnamespace.ReservationSelectors{}, err
+		}
+		for _, facet := range facets {
+			if !facet.RequiresObservation() {
+				continue
+			}
+			location, err := locations.Resolve(facet.Reference())
+			if err != nil {
+				unavailable, selectionErr := journalnamespace.UnavailableReservationSelector(facet.Reference(), location.Source(), err)
+				if selectionErr != nil {
+					return journalnamespace.ReservationSelectors{}, selectionErr
+				}
+				selected = append(selected, unavailable)
+				continue
+			}
+			selector, err := journalnamespace.NewReservationSelector(facet.Reference(), location.Path())
+			if err != nil {
+				return journalnamespace.ReservationSelectors{}, err
+			}
+			selected = append(selected, selector.DescribedBy(location.Source()))
+		}
+	}
+	return journalnamespace.NewReservationSelectors(selected)
 }
 
 type observedRegistry struct {

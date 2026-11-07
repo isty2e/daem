@@ -56,7 +56,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		t.Fatal(err)
 	}
 	setupBudget := nativeFixtureBudget(t)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), setupBudget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), setupBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,5 +120,5 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	}
 	codec, codecs := statefile.Codec{}, aggregatecodec.Catalog()
 	decoded, artifacts := publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
-	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: roots, comparison: comparison}, input
+	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Protection: namespacetest.Reservations(t), Rules: journalqualification.RecordedRuleExpectations(), Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: roots, comparison: comparison}, input
 }

@@ -51,21 +51,6 @@ func (requirements ProtectionRequirements) References() ([]output.RootReference,
 	return slices.Clone(requirements.roots), nil
 }
 
-func ExclusionProtectionRequirements(spec DocumentSpec) (ProtectionRequirements, error) {
-	if err := spec.Validate(); err != nil {
-		return ProtectionRequirements{}, err
-	}
-	facets, known := nativePathPolicies[spec.Target()]
-	if !known {
-		return ProtectionRequirements{}, fmt.Errorf("physical native exclusion facets for %s have not been audited", spec.Target())
-	}
-	layout, err := selectLayout(spec.Target(), target.ScopeGlobal)
-	if err != nil {
-		return ProtectionRequirements{}, err
-	}
-	return facets.requirementsForRoot(layout.root)
-}
-
 func protectionForFacets(facets nativePathFacets) (ProtectionRequirements, error) {
 	if len(facets) == 0 {
 		return ProtectionRequirements{}, fmt.Errorf("native exclusion facets are unknown")
@@ -266,22 +251,36 @@ func (facet nativePathFacet) hasReservations() bool {
 }
 
 func (facet nativePathFacet) requirePath(scope target.Scope, nativePath string) error {
+	if reservation, reserved := facet.reservationAt(scope, nativePath); reserved {
+		return fmt.Errorf("%w: %q belongs to %s", ErrReserved, nativePath, reservation.owner)
+	}
+	return nil
+}
+
+func (facet nativePathFacet) reservationAt(scope target.Scope, nativePath string) (nativePathReservation, bool) {
 	for _, reservation := range facet.paths {
 		if reservation.globalOnly && scope != target.ScopeGlobal {
 			continue
 		}
 		if nativePathsOverlap(nativePath, reservation.path) {
-			return fmt.Errorf("%w: %q belongs to %s", ErrReserved, nativePath, reservation.owner)
+			return reservation, true
 		}
 	}
 	if facet.moduleDirectory != "" && moduleEntrypointPath(nativePath, facet.moduleDirectory) {
-		return fmt.Errorf("%w: %q belongs to extension loading", ErrReserved, nativePath)
+		return nativePathReservation{path: nativePath, owner: "extension loading"}, true
 	}
 	if facet.runtimeFiles && scope == target.ScopeGlobal && versionedRuntimePath(nativePath) {
-		return fmt.Errorf("%w: %q belongs to runtime state", ErrReserved, nativePath)
+		return nativePathReservation{path: nativePath, owner: "runtime state"}, true
 	}
-	return nil
+	return nativePathReservation{}, false
 }
+
+var (
+	moduleEntryNames      = [...]string{"index.ts", "index.js", "package.json"}
+	moduleIgnoreNames     = [...]string{".gitignore", ".ignore", ".fdignore"}
+	daemonRuntimeStems    = [...]string{"app-server", "app-server-updater"}
+	daemonRuntimeSuffixes = [...]string{".pid", ".pid.lock", ".pid.tmp", ".stderr.log"}
+)
 
 func moduleEntrypointPath(nativePath, directory string) bool {
 	parts := strings.Split(nativePath, "/")
@@ -292,14 +291,13 @@ func moduleEntrypointPath(nativePath, directory string) bool {
 		return true
 	}
 	name := parts[1]
-	if name == "index.ts" || name == "index.js" || name == "package.json" ||
-		name == ".gitignore" || name == ".ignore" || name == ".fdignore" {
+	if slices.Contains(moduleEntryNames[:], name) || slices.Contains(moduleIgnoreNames[:], name) {
 		return true
 	}
 	if len(parts) == 2 {
 		return strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".js")
 	}
-	return parts[2] == "index.ts" || parts[2] == "index.js" || parts[2] == "package.json"
+	return slices.Contains(moduleEntryNames[:], parts[2])
 }
 
 func versionedRuntimePath(nativePath string) bool {
@@ -322,8 +320,8 @@ func versionedRuntimePath(nativePath string) bool {
 	if len(parts) < 2 || parts[0] != "app-server-daemon" {
 		return false
 	}
-	for _, stem := range []string{"app-server", "app-server-updater"} {
-		for _, suffix := range []string{".pid", ".pid.lock", ".pid.tmp", ".stderr.log"} {
+	for _, stem := range daemonRuntimeStems {
+		for _, suffix := range daemonRuntimeSuffixes {
 			if parts[1] == stem+suffix {
 				return true
 			}

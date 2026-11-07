@@ -17,7 +17,7 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 	if err := captured.Validate(); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	observed, err := captured.AssessRecovery(ctx, options.NativeRecoveryOptions)
+	observed, err := captured.AssessForward(ctx, options.NativeRecoveryOptions)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}

@@ -44,6 +44,7 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 		t.Fatal(err)
 	}
 	fixture.groups = append(fixture.groups, group)
+	fixture.expected = append(fixture.expected, capture.namespace)
 	root := fixture.paths.ManifestRoot
 	directory := filepath.Join(root, ".agents", "skills", "directory")
 	requireWholeGroupWrite(t, filepath.Join(directory, "nested", "run"), []byte("executable directory backup\n"), 0o700)

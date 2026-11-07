@@ -133,7 +133,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	var bindings []ownership.DocumentBinding
 	var claims []ownership.Claim
 	if original.Exists() {
-		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -169,7 +169,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
+	batch, err := ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: actualBefore, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Filesystem: journalTestFilesystem(), Registry: reader, Limits: fixture.read.Limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,8 @@ func TestCaptureNativeJournalPublishesBeforeTheSelectedGlobalRootExists(t *testi
 	}
 	input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
 		Owner: input.batch.owner, Before: input.batch.Evidence().BeforeState(),
-		Aliases: input.batch.Evidence().Namespaces()[0].Addresses(), Roots: roots,
+		Protection: input.batch.protection,
+		Aliases:    input.batch.Evidence().Namespaces()[0].Addresses(), Roots: roots,
 		Filesystem: input.options.Filesystem, Registry: reader,
 		Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
 	})
@@ -248,6 +249,73 @@ func TestCaptureNativeJournalPublishesBeforeTheSelectedGlobalRootExists(t *testi
 		t.Fatal("journal publication created the selected host root", err)
 	}
 	input.requireUnchanged(t)
+}
+
+func TestCapturedForwardRulesSurviveReloadWithoutBecomingFrozenRecoveryAdmission(t *testing.T) {
+	for _, create := range []bool{false, true} {
+		t.Run(fmt.Sprint("create=", create), func(t *testing.T) {
+			input := nativeCaptureInput(t, create, target.ScopeProject)
+			pi := filepath.Join(input.paths.ManifestRoot, "pi-home")
+			if err := os.Mkdir(pi, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			var selectors []journalnamespace.ReservationSelector
+			for selected, path := range map[target.Target]string{target.TargetPi: pi, target.TargetCodex: filepath.Join(input.paths.ManifestRoot, "codex-unused")} {
+				reference, err := configuration.RootReferenceForScope(selected, target.ScopeGlobal)
+				if err != nil {
+					t.Fatal(err)
+				}
+				selector, err := journalnamespace.NewReservationSelector(reference, path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				selectors = append(selectors, selector)
+			}
+			protection, err := journalnamespace.NewReservationSelectors(selectors)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, err := ownershipstore.NewRecoveryReader(input.registry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
+				Owner: input.batch.owner, Before: input.batch.Evidence().BeforeState(), Aliases: input.batch.Evidence().Namespaces()[0].Addresses(),
+				Roots: input.batch.roots, Protection: protection, Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			captured, err := input.capture(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			qualification := journalqualification.ReadOptions{Protection: protection, Filesystem: input.options.Filesystem, Budget: input.batch.budget}
+			if _, err := journalqualification.LoadNamespaces(captured.journal, t.Context(), qualification, input.batch.roots); err == nil {
+				t.Fatal("omitted forward/recorded choice silently skipped rule qualification")
+			}
+			qualification.Rules = journalqualification.ForwardRuleExpectations(nil)
+			if _, err := journalqualification.LoadNamespaces(captured.journal, t.Context(), qualification, input.batch.roots); err == nil {
+				t.Fatal("a forward group qualified without its original rule observation")
+			}
+			qualification.Rules = journalqualification.ForwardRuleExpectations(input.batch.Evidence().Namespaces())
+			if _, err := journalqualification.LoadNamespaces(captured.journal, t.Context(), qualification, input.batch.roots); err != nil {
+				t.Fatal("original forward rule observations did not qualify", err)
+			}
+			if err := os.Symlink(input.host, filepath.Join(pi, "settings.json")); err != nil {
+				t.Skipf("symlinks are unavailable: %v", err)
+			}
+			capture := captured.CaptureResult()
+			_, err = reloadNativePublication(t.Context(), capture.Directory, capture.OperationID, capture.RecordFingerprint, captured.publication, input.after, input.options.CaptureOptions)
+			if !errors.Is(err, journalnamespace.ErrPhysicalRulesChanged) {
+				t.Fatal("forward reload forgot the original claim-rule observation", err)
+			}
+			if _, err := journalqualification.LoadNamespaces(captured.journal, t.Context(), journalqualification.ReadOptions{Protection: protection, Rules: journalqualification.RecordedRuleExpectations(), Filesystem: input.options.Filesystem, Budget: input.batch.budget}, input.batch.roots); err != nil {
+				t.Fatal("frozen recorded authority was subjected to new planning admission", err)
+			}
+			input.requireUnchanged(t)
+		})
+	}
 }
 
 func TestCaptureNativeJournalPublishesAndReloadsActualSelectedWork(t *testing.T) {
@@ -557,6 +625,7 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 			}
 			input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
 				Owner: input.batch.owner, Before: before, Aliases: input.batch.Evidence().Namespaces()[0].Addresses(), Roots: input.batch.roots,
+				Protection: input.batch.protection,
 				Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
 			})
 			if err != nil {
@@ -690,6 +759,7 @@ func TestCaptureNativeJournalRefusesHostReferentInsidePublicationTree(t *testing
 	}
 	input.batch, err = ObserveNativeDocuments(t.Context(), journalobservation.Input{
 		Owner: input.batch.owner, Before: input.batch.Evidence().BeforeState(), Aliases: []aggregate.DocumentAddress{alias}, Roots: roots,
+		Protection: input.batch.protection,
 		Filesystem: input.options.Filesystem, Registry: reader, Limits: input.batch.Evidence().DocumentLimits(), Budget: input.batch.budget,
 	})
 	if err != nil {

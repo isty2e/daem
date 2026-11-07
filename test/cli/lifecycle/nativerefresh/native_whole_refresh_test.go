@@ -284,7 +284,7 @@ func TestNativeWholeRefreshPreservesRetiringAndCrossScopeFiles(t *testing.T) {
 	}
 }
 
-func TestNativeWholeRefreshRefusesPhysicalRewriteAlias(t *testing.T) {
+func TestNativeWholeClaimRefusesPhysicalHostSettingsAliasBeforeRefresh(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			f := newNativePiRefreshFixture(t, scope, "")
@@ -306,15 +306,15 @@ func TestNativeWholeRefreshRefusesPhysicalRewriteAlias(t *testing.T) {
 			body := base + fmt.Sprintf("\n[[host_config]]\nid='whole'\nscope=%q\npath='alias/settings.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.jsonc"))
 			testkit.WriteFile(t, f.Workspace, "daem.toml", body)
 			f.Require(t, "lock")
-			f.Require(t, "apply", "--yes", "--manage-existing")
 			paths, err := daempaths.Resolve(f.Manifest)
 			if err != nil {
 				t.Fatal(err)
 			}
 			g := nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: f.Settings, Paths: paths, Kind: "whole-refresh"}
 			before := nativefixture.SnapshotRecoveryEvidence(t, g)
-			if code, _, _ := f.Run("refresh", "extension", "tools", "--yes"); code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g)) {
-				t.Fatal("whole physical rewrite alias was accepted or changed management evidence")
+			code, stdout, stderr := f.Run("apply", "--yes", "--manage-existing")
+			if code == 0 || !strings.Contains(stdout+stderr, "shared native configuration cannot be owned as a whole document") || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g)) {
+				t.Fatal("whole physical host-settings alias was admitted or changed management evidence", stdout, stderr)
 			}
 			testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
 		})

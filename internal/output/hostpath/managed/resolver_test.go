@@ -66,7 +66,7 @@ func TestResolverKeepsHostRootErrorsTargetSpecific(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	projectRoot := t.TempDir()
 
-	t.Setenv(pihostpath.AgentRootEnvironmentVariable, " relative ")
+	t.Setenv(pihostpath.AgentRootEnvironmentVariable, "file://%zz")
 	t.Setenv(codexhostpath.HomeEnvironmentVariable, codexRoot)
 	resolver := Resolver(daempaths.Paths{ManifestRoot: projectRoot, DataDir: filepath.Join(projectRoot, ".daem")})
 	if _, err := resolver.Resolve(mustDestination(t, "@codex-home/config.toml")); err != nil {

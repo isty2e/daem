@@ -235,7 +235,7 @@ func TestNativeCaptureOwnershipDiscardsEarlierGroupsOnFailureAndCancellation(t *
 	otherAliases := other.namespace.Addresses()
 	otherPath := filepath.Join(namespacetest.LegacyRoot(t, input.roots, output.RootProject).SelectedPath, filepath.FromSlash(otherAliases[0].AggregateRoot().RelativePath()))
 	requireWholeGroupWrite(t, otherPath, other.original.Content(), 0o600)
-	otherNamespace, err := journalnamespace.Observe(t.Context(), otherAliases, input.roots, journalTestFilesystem(), input.budget)
+	otherNamespace, err := journalnamespace.Observe(t.Context(), otherAliases, input.roots, namespacetest.Reservations(t), journalTestFilesystem(), input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,6 +264,7 @@ type nativeCaptureOwnershipInput struct {
 	namespaces    []journalnamespace.DocumentNamespace
 	registry      ownershipmutation.RegistryReader
 	roots         journalnamespace.Roots
+	protection    journalnamespace.ReservationSelectors
 	limits        configdocument.Limits
 	budget        *physicalwork.Budget
 }
@@ -275,6 +276,7 @@ func (input nativeCaptureOwnershipInput) prepare(ctx context.Context) ([]journal
 	}
 	batch, err := ObserveNativeDocuments(ctx, journalobservation.Input{
 		Owner: input.owner, Before: input.before, Aliases: aliases, Roots: input.roots,
+		Protection: input.protection,
 		Filesystem: journalTestFilesystem(), Registry: input.registry, Limits: input.limits, Budget: input.budget,
 	})
 	if err != nil {
@@ -302,7 +304,8 @@ func captureOwnershipFixture(t *testing.T, fixture wholeGroupTestFixture) (nativ
 	reader := &nativeCaptureRegistryReader{value: current}
 	return nativeCaptureOwnershipInput{
 		owner: fixture.input.Owner(), operationID: fixture.input.OperationID(),
-		before: fixture.envelope.before, after: fixture.envelope.after,
+		protection: namespacetest.Reservations(t),
+		before:     fixture.envelope.before, after: fixture.envelope.after,
 		namespaces: []journalnamespace.DocumentNamespace{fixture.namespace}, registry: reader, roots: fixture.roots,
 		limits: fixture.input.Limits(), budget: physicalwork.NewCaptureBudget(nil),
 	}, reader
@@ -354,7 +357,8 @@ func TestNativeCaptureOwnershipFeedsSelectedCapture(t *testing.T) {
 	reader := &nativeCaptureRegistryReader{value: current}
 	input := nativeCaptureOwnershipInput{
 		owner: capture.input.Owner(), operationID: capture.input.OperationID(),
-		before: fixture.before, after: fixture.after, registry: reader,
+		protection: namespacetest.Reservations(t),
+		before:     fixture.before, after: fixture.after, registry: reader,
 		namespaces: []journalnamespace.DocumentNamespace{capture.namespace}, roots: capture.roots, limits: capture.input.Limits(), budget: physicalwork.NewCaptureBudget(nil),
 	}
 	prepared, err := input.prepare(t.Context())

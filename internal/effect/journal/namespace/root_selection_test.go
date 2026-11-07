@@ -3,8 +3,10 @@ package namespace
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -130,24 +132,12 @@ func TestWriterRootIdentityCannotChangeLocatorContractInsideASelection(t *testin
 	}
 }
 
-func TestReservationSelectorsUseIndependentlyKnownRequirements(t *testing.T) {
-	var empty ReservationSelectors
-	if selected, err := empty.Select(configuration.ProtectionRequirements{}); err == nil || selected != nil {
-		t.Fatal("unknown requirements became an empty protection policy")
-	}
-	if selected, err := empty.Select(configuration.NoProtectionRequirements()); err != nil || len(selected) != 0 {
-		t.Fatalf("known-no-protection needs no selectors: %v, %v", selected, err)
-	}
-
+func TestReservationSelectorsKeepIndependentReferencesWithoutBorrowingInput(t *testing.T) {
 	configurationRoot, err := output.NewRootReference("opencode-configuration", "fixture-configuration-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	stateRoot, err := output.NewRootReference("opencode-state", "fixture-state-v1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	requirements, err := configuration.RequireProtectionRoots([]output.RootReference{configurationRoot, stateRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,8 +150,8 @@ func TestReservationSelectorsUseIndependentlyKnownRequirements(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selected, err := selectors.Select(requirements); err == nil || selected != nil {
-		t.Fatal("a later missing root returned partial protection")
+	if _, supplied := selectors.selectors[stateRoot]; supplied {
+		t.Fatal("root collection invented an unsupplied locator")
 	}
 	stateSelector, err := NewReservationSelector(stateRoot, filepath.Join(base, "state"))
 	if err != nil {
@@ -173,18 +163,11 @@ func TestReservationSelectorsUseIndependentlyKnownRequirements(t *testing.T) {
 		t.Fatal(err)
 	}
 	clear(input)
-	selected, err := selectors.Select(requirements)
-	if err != nil || len(selected) != 2 {
-		t.Fatalf("independent root selection = %v, %v", selected, err)
-	}
-	if selected, err := selectors.Select(configuration.NoProtectionRequirements()); err != nil || len(selected) != 0 {
-		t.Fatalf("unused selectors invented a protection requirement: %v, %v", selected, err)
-	}
 	expected := map[output.RootReference]string{
 		configurationRoot: filepath.Join(base, "configuration"),
 		stateRoot:         filepath.Join(base, "state"),
 	}
-	for _, selectedRoot := range selected {
+	for _, selectedRoot := range selectors.selectors {
 		path, present := expected[selectedRoot.Reference()]
 		if !present || selectedRoot.Path() != path {
 			t.Fatalf("selector lost its reference/path association: %v at %q", selectedRoot.Reference(), selectedRoot.Path())
@@ -193,10 +176,6 @@ func TestReservationSelectorsUseIndependentlyKnownRequirements(t *testing.T) {
 	}
 	if len(expected) != 0 {
 		t.Fatal("not every required root was selected")
-	}
-	clear(selected)
-	if selected, err := selectors.Select(requirements); err != nil || len(selected) != 2 {
-		t.Fatalf("mutating returned selectors changed selection: %v, %v", selected, err)
 	}
 	if _, err := os.Lstat(filepath.Join(base, "state")); !os.IsNotExist(err) {
 		t.Fatalf("a read-only selector touched the future root: %v", err)
@@ -231,12 +210,8 @@ func TestReservationSelectorsRejectConflictingOrUnmatchedLocatorContracts(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	requirements, err := configuration.RequireProtectionRoots([]output.RootReference{second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := selectors.Select(requirements); err == nil {
-		t.Fatal("root identity alone bypassed the required locator contract")
+	if _, supplied := selectors.selectors[second]; supplied {
+		t.Fatal("root identity alone supplied a different locator contract")
 	}
 	secondSelector, err := NewReservationSelector(second, filepath.Join(base, "second"))
 	if err != nil {
@@ -246,16 +221,11 @@ func TestReservationSelectorsRejectConflictingOrUnmatchedLocatorContracts(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	requirements, err = configuration.RequireProtectionRoots([]output.RootReference{first, second, first})
-	if err != nil {
-		t.Fatal(err)
-	}
-	selected, err := selectors.Select(requirements)
-	if err != nil || len(selected) != 2 {
-		t.Fatalf("distinct read-only locator contracts were lost: %v, %v", selected, err)
+	if len(selectors.selectors) != 2 {
+		t.Fatal("distinct read-only locator contracts were lost")
 	}
 	expected := map[output.RootReference]string{first: selector.Path(), second: secondSelector.Path()}
-	for _, current := range selected {
+	for _, current := range selectors.selectors {
 		path, present := expected[current.Reference()]
 		if !present || current.Path() != path {
 			t.Fatalf("locator contract lost its selected path: %v at %q", current.Reference(), current.Path())
@@ -334,7 +304,7 @@ func TestNativeMissingRootSelectionDoesNotGrantSiblingWriters(t *testing.T) {
 		t.Fatal(err)
 	}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/settings.json")
-	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: root}), journalTestFilesystem(), budget)
+	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: root}), fixtureProtection(t), journalTestFilesystem(), budget)
 	if err == nil || namespace.writerRoot != nil {
 		t.Fatal("a missing-root anchor granted an unselected sibling writer")
 	}
@@ -377,6 +347,114 @@ func TestNativeRecordedExistingRootCannotBecomeAnAncestorFallback(t *testing.T) 
 	if err == nil {
 		_ = current.Root.Close()
 		t.Fatal("an existing root incarnation change was disguised as first-root creation")
+	}
+}
+
+func TestNativeRootSelectorKeepsPhysicalParentsAndFreshLocatorBinding(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Win32 normalizes parent components before following reparse points")
+	}
+	for _, present := range []bool{false, true} {
+		t.Run(fmt.Sprintf("present=%t", present), func(t *testing.T) {
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, relative := range []string{"actual/inner", "other/inner", "host"} {
+				if err := os.MkdirAll(filepath.Join(base, relative), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			physical := filepath.Join(base, "actual", "host")
+			if present {
+				if err := os.Mkdir(physical, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			link := filepath.Join(base, "route")
+			if err := os.Symlink(filepath.Join(base, "actual", "inner"), link); err != nil {
+				t.Fatal(err)
+			}
+			literal := link + "/../host"
+			budget := imageBudget(t)
+			selection, err := CaptureRootSelector(t.Context(), literal, budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer selection.Root.Close()
+			if selection.SelectedPath != physical || selection.literal != literal {
+				t.Fatalf("locator lost its physical meaning: %+v", selection)
+			}
+			if !present {
+				if _, err := os.Stat(physical); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("selecting a future root created it", err)
+				}
+			}
+			reference, _ := configuration.RootReferenceForScope(target.TargetCodex, target.ScopeGlobal)
+			roots, err := (Roots{}).With(reference, selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			qualified, err := roots.Qualify(t.Context(), budget)
+			if err != nil || qualified.grants[reference].SelectedPath() != physical {
+				t.Fatal("fresh literal root did not qualify", err)
+			}
+			provenance := qualified.grants[reference].Provenance()
+			recorded, err := CaptureRecordedRoot(t.Context(), literal, provenance, budget)
+			if err != nil {
+				t.Fatal("recorded authority lost literal root semantics", err)
+			}
+			if err := recorded.Root.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(link); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(base, "other", "inner"), link); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := roots.Qualify(t.Context(), budget); err == nil {
+				t.Fatal("a changed locator qualified the old captured root")
+			}
+		})
+	}
+}
+
+func TestNativeRootSelectorRejectsOldLexicalJournalBinding(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Win32 parent components have lexical meaning")
+	}
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range []string{"actual/inner", "actual/host", "host"} {
+		if err := os.MkdirAll(filepath.Join(base, relative), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "route")
+	if err := os.Symlink(filepath.Join(base, "actual", "inner"), link); err != nil {
+		t.Fatal(err)
+	}
+	budget := imageBudget(t)
+	old, err := CaptureRoot(t.Context(), filepath.Join(base, "host"), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Root.Close()
+	qualified, err := old.Root.AuthorityBounded(budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := qualified.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := CaptureRecordedRoot(t.Context(), link+"/../host", provenance, budget)
+	if err == nil {
+		_ = selection.Root.Close()
+		t.Fatal("an old lexical journal was redirected into the host's physical root")
 	}
 }
 

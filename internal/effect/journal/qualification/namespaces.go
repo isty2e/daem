@@ -28,6 +28,10 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 	if err != nil {
 		return nil, err
 	}
+	expected, err := options.Rules.index()
+	if err != nil {
+		return nil, err
+	}
 	grants, err := roots.Qualify(ctx, options.Budget)
 	if err != nil {
 		return nil, err
@@ -53,9 +57,18 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		if err != nil {
 			return nil, err
 		}
-		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.Filesystem, options.Budget, pin)
+		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.Protection, options.Filesystem, options.Budget, pin)
 		if err != nil {
 			return nil, err
+		}
+		if options.Rules.mode == forwardNamespaceRules {
+			original, present := expected[aliases[0]]
+			if !present {
+				return nil, fmt.Errorf("native forward document has no original rule observation")
+			}
+			if err := namespace.RequirePhysicalRules(original); err != nil {
+				return nil, err
+			}
 		}
 		if err := record.RequireCapturedNamespace(namespace.Observation()); err != nil {
 			return nil, err

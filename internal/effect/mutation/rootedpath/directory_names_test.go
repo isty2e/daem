@@ -154,6 +154,9 @@ func TestReadDirectoryNamesRefusesFilesAndInvalidIngressWithoutEmptySuccess(t *t
 		if filepath.Dir(path) == path && !hasFailureKind(err, FailureInvalidRoot) {
 			t.Fatal("filesystem-root admission failed in an unrelated walker branch", err)
 		}
+		if (path == file || path == filepath.Join(file, "child")) && !hasFailureKind(err, FailureAncestorNotDirectory) {
+			t.Fatal("non-directory observation lost its typed cause", err)
+		}
 	}
 }
 

@@ -107,7 +107,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 		t.Fatal(err)
 	}
 	setupBudget := nativeFixtureBudget(t)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{claims.alias}, rootSet, journalTestFilesystem(), setupBudget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{claims.alias}, rootSet, namespacetest.Reservations(t), journalTestFilesystem(), setupBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 		t.Fatal(err)
 	}
 	decoded, artifacts := publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
-	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
+	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Protection: namespacetest.Reservations(t), Rules: journalqualification.RecordedRuleExpectations(), Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
 }
 
 func publishedNativeComparison(t *testing.T, before aggregate.Document, row durable.ManagedAggregateState, codecs aggregate.CodecCatalog, limits configdocument.Limits) journaldocument.Comparison {

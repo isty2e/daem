@@ -2,6 +2,7 @@
 package namespacetest
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -9,6 +10,30 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+// Reservations supplies an unrelated captured host context for lower namespace
+// fixtures. Protection scenarios supply their actual selectors explicitly.
+func Reservations(t testing.TB) namespace.ReservationSelectors {
+	t.Helper()
+	base := t.TempDir()
+	contracts, err := configuration.NativeRootContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selectors []namespace.ReservationSelector
+	for _, contract := range contracts {
+		selector, err := namespace.NewReservationSelector(contract.Reference(), filepath.Join(base, contract.Reference().Identity()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		selectors = append(selectors, selector)
+	}
+	result, err := namespace.NewReservationSelectors(selectors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
 
 func LegacyRoots(t testing.TB, selections map[output.RootRole]namespace.RootSelection) namespace.Roots {
 	t.Helper()

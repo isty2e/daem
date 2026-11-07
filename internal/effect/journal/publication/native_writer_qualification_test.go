@@ -41,7 +41,7 @@ func TestQualifiedWriterPartitionProtectsGlobalSymlinkRoutes(t *testing.T) {
 	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: root, output.RootPiAgent: root})
 	budget := imageBudget(t)
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/route.json")
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestQualifiedWriterPartitionKeepsMissingRootsAtOneAnchor(t *testing.T) {
 	}
 	var namespaces []journalnamespace.DocumentNamespace
 	for _, alias := range aliases {
-		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func TestQualifiedWriterPartitionKeepsMissingRootsAtOneAnchor(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = coincident.Root.Close() })
 	coincidentRoots := namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, coincident)
-	other, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{aliases[1]}, coincidentRoots, journalTestFilesystem(), budget)
+	other, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{aliases[1]}, coincidentRoots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, namespacetest.Reservations(t), journalTestFilesystem(), fixture.whole.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
-	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, fixture.reader, fixture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +380,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
-	qualified, err := journalqualification.LoadNamespaces(journal, t.Context(), journalqualification.ReadOptions{Filesystem: fixture.reader, Budget: imageBudget(t)}, roots)
+	qualified, err := journalqualification.LoadNamespaces(journal, t.Context(), journalqualification.ReadOptions{Protection: namespacetest.Reservations(t), Rules: journalqualification.RecordedRuleExpectations(), Filesystem: fixture.reader, Budget: imageBudget(t)}, roots)
 	if err != nil || len(qualified) != 1 || len(qualified[0].Aliases()) != 2 {
 		t.Fatalf("ordinary/native partition rejected a supported project symlink alias: %v", err)
 	}

@@ -83,7 +83,7 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
 	aliases := append(fixture.namespace.Addresses(), project)
-	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, fixture.reader, fixture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 		}},
 		{"missing manifest grant", func(f *wholeGroupTestFixture) {
 			f.roots = namespacetest.WithLegacyRoot(t, f.roots, output.RootProject, journalnamespace.RootSelection{})
-			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, f.reader, f.input.Budget())
+			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, namespacetest.Reservations(t), f.reader, f.input.Budget())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -321,7 +321,7 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 	ctx, cancel = context.WithCancel(t.Context())
 	defer cancel()
 	reader := &imageReader{RootedReader: journalTestFilesystem(), afterRead: cancel}
-	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, reader, fixture.input.Budget())
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, namespacetest.Reservations(t), reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, reader, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, namespacetest.Reservations(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,6 +54,11 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 		facts.sources = append(facts.sources, source)
 	}
 	if input.Native != nil && input.Native.Documents != nil {
+		if err := requireNativeSourcePermissions(facts.sources, input.Native.Documents, before); err != nil {
+			return nativeAssessmentSources{}, err
+		}
+	}
+	if input.Native != nil && input.Native.Documents != nil {
 		if input.PersistenceEpoch == nil {
 			return nativeAssessmentSources{}, fmt.Errorf("native assessment requires its selected persistence epoch")
 		}
@@ -111,6 +116,9 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 }
 
 func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, resolver liveDestinationResolver, managed managedPathPlanningInputs, aggregates managedAggregatePlanningInputs, before durable.Snapshot, selection targetselection.Selection, native *NativeAssessmentInput) (stateauthority.Authority, []observe.OwnershipObservation, error) {
+	if err := requireNativeAggregatePermissions(aggregates.desired, native.Documents); err != nil {
+		return stateauthority.Authority{}, nil, err
+	}
 	projection, err := native.Documents.Evidence().Ownership(ctx)
 	if err != nil {
 		return stateauthority.Authority{}, nil, err
