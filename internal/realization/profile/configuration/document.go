@@ -131,7 +131,7 @@ func buildDocument(input DocumentInput, root rootFact, relative string, destinat
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	reference, err := output.NewRootReference(root.identity, root.locator)
+	reference, err := root.reference()
 	if err != nil {
 		return DocumentSpec{}, err
 	}

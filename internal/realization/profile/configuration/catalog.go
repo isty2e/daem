@@ -20,6 +20,10 @@ type rootFact struct {
 	locator  string
 }
 
+func (fact rootFact) reference() (output.RootReference, error) {
+	return output.NewRootReference(fact.identity, fact.locator)
+}
+
 type nativeLayout struct {
 	root           rootFact
 	aliasRoot      output.RootRole
@@ -220,14 +224,18 @@ type nativePathReservation struct {
 	globalOnly bool
 }
 
-type nativePathPolicy struct {
+type nativePathFacet struct {
+	root            rootFact
 	paths           []nativePathReservation
 	moduleDirectory string
 	runtimeFiles    bool
 }
 
-var nativePathPolicies = map[target.Target]nativePathPolicy{
-	target.TargetPi: {
+type nativePathFacets []nativePathFacet
+
+var nativePathPolicies = map[target.Target]nativePathFacets{
+	target.TargetPi: {{
+		root:            piRoot,
 		moduleDirectory: "extensions",
 		paths: []nativePathReservation{
 			{"auth.json", "authentication", true},
@@ -244,8 +252,9 @@ var nativePathPolicies = map[target.Target]nativePathPolicy{
 			{"bin", "installed helper code", true},
 			{"tools", "host tool artifacts", true},
 		},
-	},
-	target.TargetCodex: {
+	}},
+	target.TargetCodex: {{
+		root:         codexRoot,
 		runtimeFiles: true,
 		paths: []nativePathReservation{
 			{"auth.json", "authentication", true},
@@ -279,7 +288,7 @@ var nativePathPolicies = map[target.Target]nativePathPolicy{
 			{".sandbox-bin", "sandbox helper code", true},
 			{".sandbox-secrets", "sandbox credentials", true},
 		},
-	},
+	}},
 }
 
 type observationSet uint8

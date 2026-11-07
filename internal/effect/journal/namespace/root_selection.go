@@ -6,10 +6,70 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
+
+// ReservationSelector retains an absolute expression selected by its locator
+// contract, without interpreting symlinks or parent components. It contains
+// neither a retained filesystem handle nor authority that can become a writer grant.
+type ReservationSelector struct {
+	reference output.RootReference
+	path      string
+}
+
+func NewReservationSelector(reference output.RootReference, selected string) (ReservationSelector, error) {
+	if err := reference.Validate(); err != nil {
+		return ReservationSelector{}, fmt.Errorf("reservation root reference: %w", err)
+	}
+	if strings.ContainsRune(selected, '\x00') || !filepath.IsAbs(selected) {
+		return ReservationSelector{}, fmt.Errorf("reservation selector must be an absolute path without a NUL byte")
+	}
+	return ReservationSelector{reference: reference, path: selected}, nil
+}
+
+func (selector ReservationSelector) Reference() output.RootReference { return selector.reference }
+func (selector ReservationSelector) Path() string                    { return selector.path }
+
+type ReservationSelectors struct {
+	selectors map[output.RootReference]ReservationSelector
+}
+
+func NewReservationSelectors(selectors []ReservationSelector) (ReservationSelectors, error) {
+	selected := make(map[output.RootReference]ReservationSelector, len(selectors))
+	for _, selector := range selectors {
+		if err := selector.reference.Validate(); err != nil {
+			return ReservationSelectors{}, fmt.Errorf("reservation selector: %w", err)
+		}
+		if previous, present := selected[selector.reference]; present && previous != selector {
+			return ReservationSelectors{}, fmt.Errorf("conflicting selectors for reservation root %q (%s)", selector.reference.Identity(), selector.reference.LocatorPolicy())
+		}
+		selected[selector.reference] = selector
+	}
+
+	return ReservationSelectors{selectors: selected}, nil
+}
+
+func (selectors ReservationSelectors) Select(requirements configuration.ProtectionRequirements) ([]ReservationSelector, error) {
+	references, err := requirements.References()
+	if err != nil {
+		return nil, err
+	}
+	selected := make([]ReservationSelector, 0, len(references))
+	for _, reference := range references {
+		selector, present := selectors.selectors[reference]
+		if !present {
+			return nil, fmt.Errorf("required reservation root %q (%s) has no selector", reference.Identity(), reference.LocatorPolicy())
+		}
+		selected = append(selected, selector)
+	}
+
+	return selected, nil
+}
 
 type nativeRootCreation struct {
 	selector   string

@@ -2,12 +2,118 @@ package configuration_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestProtectionRequirementsDoNotInferKnownNoneFromMissingFacts(t *testing.T) {
+	if _, err := (configuration.ProtectionRequirements{}).References(); err == nil {
+		t.Fatal("unknown requirements became known-no-protection")
+	}
+	for _, roots := range [][]output.RootReference{nil, {}, {{}}} {
+		if _, err := configuration.RequireProtectionRoots(roots); err == nil {
+			t.Fatal("missing or invalid required roots became known-no-protection")
+		}
+	}
+	references, err := configuration.NoProtectionRequirements().References()
+	if err != nil || len(references) != 0 {
+		t.Fatalf("explicit known-no-protection = %v, %v", references, err)
+	}
+}
+
+func TestProtectionRequirementsRetainIndependentRootsWithoutBorrowingInput(t *testing.T) {
+	data, err := output.NewRootReference("opencode-data", "fixture-data-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := output.NewRootReference("opencode-state", "fixture-state-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := []output.RootReference{state, data, state}
+	requirements, err := configuration.RequireProtectionRoots(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(input)
+	references, err := requirements.References()
+	if err != nil || len(references) != 2 || !slices.Contains(references, data) || !slices.Contains(references, state) {
+		t.Fatalf("independent root requirements = %v, %v", references, err)
+	}
+	clear(references)
+	references, err = requirements.References()
+	if err != nil || len(references) != 2 || !slices.Contains(references, data) || !slices.Contains(references, state) {
+		t.Fatalf("mutating returned references changed requirements = %v, %v", references, err)
+	}
+}
+
+func TestExclusionRequirementsComeFromAuditedFacetFacts(t *testing.T) {
+	for _, test := range []struct {
+		target   target.Target
+		scope    target.Scope
+		path     string
+		identity string
+		locator  string
+	}{
+		{target.TargetPi, target.ScopeProject, "settings.json", "pi-agent", "pi-agent-location-v1"},
+		{target.TargetPi, target.ScopeGlobal, "settings.json", "pi-agent", "pi-agent-location-v1"},
+		{target.TargetCodex, target.ScopeProject, "settings.json", "codex-home", "codex-home-location-v1"},
+		{target.TargetCodex, target.ScopeGlobal, "config.toml", "codex-home", "codex-home-location-v1"},
+		{target.TargetClaudeCode, target.ScopeGlobal, "settings.json", "", ""},
+		{target.TargetOpenCode, target.ScopeGlobal, "opencode.json", "", ""},
+		{target.TargetAntigravityCLI, target.ScopeGlobal, "settings.json", "", ""},
+	} {
+		t.Run(string(test.target)+"/"+string(test.scope), func(t *testing.T) {
+			spec, err := configuration.NewDocumentSpec(configuration.DocumentInput{Target: test.target, Scope: test.scope, Path: test.path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requirements, err := configuration.ExclusionProtectionRequirements(spec)
+			if test.identity == "" {
+				if err == nil {
+					t.Fatal("unaudited exclusion facets became known-no-protection")
+				}
+				if _, err := requirements.References(); err == nil {
+					t.Fatal("an unaudited facet supplied partial known requirements")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			references, err := requirements.References()
+			if err != nil || len(references) != 1 || references[0].Identity() != test.identity || references[0].LocatorPolicy() != test.locator {
+				t.Fatalf("exclusion protection roots = %v, %v", references, err)
+			}
+		})
+	}
+	if _, err := configuration.ExclusionProtectionRequirements(configuration.DocumentSpec{}); err == nil {
+		t.Fatal("zero document supplied known protection requirements")
+	}
+}
+
+func TestProtectionRequirementsPreserveDistinctLocatorContractsForOneIdentity(t *testing.T) {
+	first, err := output.NewRootReference("fixture-root", "fixture-root-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := output.NewRootReference("fixture-root", "fixture-root-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requirements, err := configuration.RequireProtectionRoots([]output.RootReference{first, second, first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	references, err := requirements.References()
+	if err != nil || len(references) != 2 || !slices.Contains(references, first) || !slices.Contains(references, second) {
+		t.Fatalf("distinct locator contracts = %v, %v", references, err)
+	}
+}
 
 func reservationKey(t *testing.T, segments ...string) output.KeyPath {
 	t.Helper()

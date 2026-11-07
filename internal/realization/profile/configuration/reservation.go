@@ -1,6 +1,7 @@
 package configuration
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -15,6 +16,80 @@ var (
 	ErrReservedKey  = errors.New("native key overlaps a dedicated resource")
 	ErrReservedPath = errors.New("native path overlaps a dedicated resource")
 )
+
+// ProtectionRequirements records which read-only root selectors a checked
+// reservation facet needs. Its zero value means the requirements are unknown.
+type ProtectionRequirements struct {
+	known bool
+	roots []output.RootReference
+}
+
+// NoProtectionRequirements is an explicit fact from a reservation facet, not an
+// inference from missing selectors or an empty lookup result.
+func NoProtectionRequirements() ProtectionRequirements {
+	return ProtectionRequirements{known: true}
+}
+
+func RequireProtectionRoots(roots []output.RootReference) (ProtectionRequirements, error) {
+	if len(roots) == 0 {
+		return ProtectionRequirements{}, fmt.Errorf("required protection roots must not be empty")
+	}
+	selected := slices.Clone(roots)
+	for _, reference := range selected {
+		if err := reference.Validate(); err != nil {
+			return ProtectionRequirements{}, fmt.Errorf("required protection root: %w", err)
+		}
+	}
+
+	slices.SortFunc(selected, func(left, right output.RootReference) int {
+		return cmp.Or(cmp.Compare(left.Identity(), right.Identity()), cmp.Compare(left.LocatorPolicy(), right.LocatorPolicy()))
+	})
+	return ProtectionRequirements{known: true, roots: slices.Compact(selected)}, nil
+}
+
+func (requirements ProtectionRequirements) References() ([]output.RootReference, error) {
+	if !requirements.known {
+		return nil, fmt.Errorf("physical reservation protection requirements are unknown")
+	}
+	return slices.Clone(requirements.roots), nil
+}
+
+func ExclusionProtectionRequirements(spec DocumentSpec) (ProtectionRequirements, error) {
+	if err := spec.Validate(); err != nil {
+		return ProtectionRequirements{}, err
+	}
+	facets, known := nativePathPolicies[spec.Target()]
+	if !known {
+		return ProtectionRequirements{}, fmt.Errorf("physical native exclusion facets for %s have not been audited", spec.Target())
+	}
+	layout, err := selectLayout(spec.Target(), target.ScopeGlobal)
+	if err != nil {
+		return ProtectionRequirements{}, err
+	}
+	return facets.requirementsForRoot(layout.root)
+}
+
+func protectionForFacets(facets nativePathFacets) (ProtectionRequirements, error) {
+	if len(facets) == 0 {
+		return ProtectionRequirements{}, fmt.Errorf("native exclusion facets are unknown")
+	}
+	references := make([]output.RootReference, 0, len(facets))
+	for _, facet := range facets {
+		reference, err := facet.root.reference()
+		if err != nil {
+			return ProtectionRequirements{}, fmt.Errorf("native exclusion facet root: %w", err)
+		}
+		if !facet.hasReservations() {
+			continue
+		}
+		references = append(references, reference)
+	}
+
+	if len(references) == 0 {
+		return NoProtectionRequirements(), nil
+	}
+	return RequireProtectionRoots(references)
+}
 
 type dedicatedSlotSet uint8
 
@@ -141,14 +216,60 @@ func nativePathsOverlap(left, right string) bool {
 }
 
 func requireNativePath(selected target.Target, scope target.Scope, nativePath string) error {
-	policy, known := nativePathPolicies[selected]
+	facets, known := nativePathPolicies[selected]
 	if !known {
 		return fmt.Errorf("host configuration target %q is unsupported until its native path policy is reviewed", selected)
 	}
 	if nativePathsOverlap(nativePath, ".git") {
 		return fmt.Errorf("%w: %q belongs to repository metadata", ErrReserved, nativePath)
 	}
-	for _, reservation := range policy.paths {
+	layout, err := selectLayout(selected, target.ScopeGlobal)
+	if err != nil {
+		return err
+	}
+	return requireNativeRootPath(facets, layout.root, scope, nativePath)
+}
+
+func (facets nativePathFacets) requireRoot(root rootFact) error {
+	if _, err := root.reference(); err != nil {
+		return err
+	}
+	for _, facet := range facets {
+		if facet.root == root {
+			return nil
+		}
+	}
+	return fmt.Errorf("native exclusion facet for root %q (%s) has not been audited", root.identity, root.locator)
+}
+
+func (facets nativePathFacets) requirementsForRoot(root rootFact) (ProtectionRequirements, error) {
+	if err := facets.requireRoot(root); err != nil {
+		return ProtectionRequirements{}, err
+	}
+	return protectionForFacets(facets)
+}
+
+func requireNativeRootPath(facets nativePathFacets, root rootFact, scope target.Scope, nativePath string) error {
+	if err := facets.requireRoot(root); err != nil {
+		return err
+	}
+	for _, facet := range facets {
+		if facet.root != root {
+			continue
+		}
+		if err := facet.requirePath(scope, nativePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (facet nativePathFacet) hasReservations() bool {
+	return len(facet.paths) != 0 || facet.moduleDirectory != "" || facet.runtimeFiles
+}
+
+func (facet nativePathFacet) requirePath(scope target.Scope, nativePath string) error {
+	for _, reservation := range facet.paths {
 		if reservation.globalOnly && scope != target.ScopeGlobal {
 			continue
 		}
@@ -156,10 +277,10 @@ func requireNativePath(selected target.Target, scope target.Scope, nativePath st
 			return fmt.Errorf("%w: %q belongs to %s", ErrReserved, nativePath, reservation.owner)
 		}
 	}
-	if policy.moduleDirectory != "" && moduleEntrypointPath(nativePath, policy.moduleDirectory) {
+	if facet.moduleDirectory != "" && moduleEntrypointPath(nativePath, facet.moduleDirectory) {
 		return fmt.Errorf("%w: %q belongs to extension loading", ErrReserved, nativePath)
 	}
-	if policy.runtimeFiles && scope == target.ScopeGlobal && versionedRuntimePath(nativePath) {
+	if facet.runtimeFiles && scope == target.ScopeGlobal && versionedRuntimePath(nativePath) {
 		return fmt.Errorf("%w: %q belongs to runtime state", ErrReserved, nativePath)
 	}
 	return nil
