@@ -243,8 +243,11 @@
           "items": {
             "type": "string",
             "enum": [
+              "codex",
+              "claude-code",
+              "opencode",
               "pi",
-              "codex"
+              "antigravity-cli"
             ]
           },
           "maxItems": 1,

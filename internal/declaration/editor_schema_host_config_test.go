@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/target"
 )
 
 func TestManifestEditorSchemaHostConfigBehavior(t *testing.T) {
@@ -40,6 +41,15 @@ ownership = ""
 syntax = ""
 `,
 	}
+	for _, selected := range target.SupportedTargets() {
+		valid = append(valid, fmt.Sprintf(`version = 1
+targets = [%q]
+[[host_config]]
+id = "registered-host"
+path = "settings.json"
+source = "/workbench/settings.json"
+`, selected))
+	}
 	for index, content := range valid {
 		t.Run(fmt.Sprintf("valid-%d", index+1), func(t *testing.T) {
 			if _, err := manifest.Decode([]byte(content)); err != nil {
@@ -56,12 +66,12 @@ syntax = ""
 		content string
 	}{
 		{
-			name: "unsupported host",
+			name: "unknown host",
 			content: `version = 1
 targets = ["pi"]
 [[host_config]]
-id = "claude-config"
-targets = ["claude-code"]
+id = "unknown-config"
+targets = ["unknown"]
 path = "settings.json"
 source = "/workbench/settings.json"
 `,

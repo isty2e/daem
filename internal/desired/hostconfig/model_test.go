@@ -28,7 +28,7 @@ func spec(t *testing.T) hostconfig.Spec {
 }
 
 func TestHostConfigKeepsCanonicalIntentWithoutHostPolicy(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
+	for _, selected := range target.SupportedTargets() {
 		input := spec(t)
 		input.Target = selected
 		value, err := hostconfig.New(input)
@@ -125,7 +125,6 @@ func TestHostConfigRefusesInvalidIdentityTargetAndScope(t *testing.T) {
 	for _, modify := range []func(*hostconfig.Spec){
 		func(input *hostconfig.Spec) { input.Name = "" },
 		func(input *hostconfig.Spec) { input.Name = "x\ny" },
-		func(input *hostconfig.Spec) { input.Target = target.TargetClaudeCode },
 		func(input *hostconfig.Spec) { input.Target = "invalid" },
 		func(input *hostconfig.Spec) { input.Scope = "invalid" },
 		func(input *hostconfig.Spec) { input.Source = source.Source{} },

@@ -44,8 +44,8 @@ func TestHostConfigKeyIdentityPreservesNativeNames(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-				for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+			for _, selected := range target.SupportedTargets() {
+				for _, scope := range target.SupportedScopes() {
 					subject, err := HostConfigKeySubject(id, selected, scope, key)
 					if err != nil {
 						t.Fatalf("name %d key %d: %v", nameIndex, keyIndex, err)
@@ -95,7 +95,7 @@ func TestHostConfigKeyIdentityRefusesForgedOrNoncanonicalSubjects(t *testing.T) 
 			t.Fatalf("accepted malformed case %d", index)
 		}
 	}
-	for _, namespace := range []string{"pi.global.other", "pi.invalid.host-config", "claude-code.global.host-config", "pi.global.host-config.extra"} {
+	for _, namespace := range []string{"pi.global.other", "pi.invalid.host-config", "unsupported.global.host-config", "pi.global.host-config.extra"} {
 		subject, err := topology.NewSubjectID(topology.SubjectProjection, namespace, valid)
 		if err != nil {
 			t.Fatal(err)
@@ -128,8 +128,8 @@ func TestHostConfigKeyConstructionRefusesRootAndWrongFamily(t *testing.T) {
 	if _, err := HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, output.KeyPath{}); err == nil {
 		t.Fatal("root selection became key ownership")
 	}
-	if _, err := HostConfigKeySubject(id, target.TargetClaudeCode, target.ScopeGlobal, key); err == nil {
-		t.Fatal("accepted unsupported host")
+	if _, err := HostConfigKeySubject(id, "unsupported", target.ScopeGlobal, key); err == nil {
+		t.Fatal("accepted unknown host")
 	}
 	if _, err := HostConfigKeySubject(id, target.TargetPi, "invalid", key); err == nil {
 		t.Fatal("accepted invalid scope")

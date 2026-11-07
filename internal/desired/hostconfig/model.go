@@ -87,9 +87,6 @@ func New(spec Spec) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if selected != target.TargetPi && selected != target.TargetCodex {
-		return Config{}, fmt.Errorf("host configuration does not support target %q", selected)
-	}
 	scope, err := target.ParseScope(string(spec.Scope))
 	if err != nil {
 		return Config{}, err

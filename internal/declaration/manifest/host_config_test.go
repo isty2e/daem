@@ -197,14 +197,14 @@ source = "/workbench/settings.json"
 			wantErr: "duplicate target",
 		},
 		{
-			name: "unsupported host",
+			name: "unknown host",
 			body: `[[host_config]]
 id = "unsupported-host"
-targets = ["claude-code"]
+targets = ["unknown"]
 path = "settings.json"
 source = "/workbench/settings.json"
 `,
-			wantErr: "does not support target",
+			wantErr: "unknown target",
 		},
 		{
 			name:            "inherited multiple hosts",

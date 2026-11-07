@@ -9,6 +9,47 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
+func TestHostConfigContractShapeDoesNotDecideNativePlacement(t *testing.T) {
+	id, err := entity.New(entity.KindHostConfig, "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := output.NewKeyPath("theme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	footprint, err := output.NewKeyFootprint(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, selected := range target.SupportedTargets() {
+		for _, scope := range target.SupportedScopes() {
+			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+				path := "not-a-native-surface/settings.json"
+				if scope == target.ScopeGlobal {
+					path = "~/" + path
+				}
+				root, err := output.Parse(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				contract, err := NewHostConfigProjectionContract(selected, scope, root, footprint, "native-json-v1")
+				if err != nil {
+					t.Fatalf("canonical target/scope shape was refused: %v", err)
+				}
+				subject, err := topologyprojection.HostConfigKeySubject(id, selected, scope, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := ValidateSubjectContract(subject, contract); err != nil {
+					t.Fatalf("canonical subject shape was refused: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestHostConfigSubjectContractRejectsIndependentAxisForgery(t *testing.T) {
 	id, err := entity.New(entity.KindHostConfig, "review")
 	if err != nil {

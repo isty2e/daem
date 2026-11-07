@@ -202,7 +202,6 @@ func (builder *editorSchemaBuilder) field(owner reflect.Type, field reflect.Stru
 			property.Description = "Omission or an empty array inherits the manifest target set."
 		}
 		if owner == reflect.TypeFor[HostConfig]() {
-			property.Items.Enum = editorSchemaStringEnum("pi", "codex")
 			property.MaxItems = 1
 		}
 	case (resource || owner == reflect.TypeFor[Defaults]()) && field.Name == "Scope":

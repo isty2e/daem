@@ -94,6 +94,31 @@ func TestHostConfigProjectionRefusesReservationsAndContractForgery(t *testing.T)
 	}
 }
 
+func TestHostConfigContractShapeDoesNotGrantAnUnboundDestination(t *testing.T) {
+	footprint := mustHostConfigKey(t, "theme")
+	for _, selected := range target.SupportedTargets() {
+		for _, scope := range target.SupportedScopes() {
+			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+				path := "not-a-native-surface/settings.json"
+				if scope == target.ScopeGlobal {
+					path = "~/" + path
+				}
+				root, err := output.Parse(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				contract, err := aggregate.NewHostConfigProjectionContract(selected, scope, root, footprint, "native-json-v1")
+				if err != nil {
+					t.Fatalf("shape refused before profile admission: %v", err)
+				}
+				if _, err := HostConfigPlacementForContract(contract); err == nil {
+					t.Fatal("shape construction granted an unbound destination")
+				}
+			})
+		}
+	}
+}
+
 func TestHostConfigKeyIdentityIsIndependentOfGrammarAndDocument(t *testing.T) {
 	id, err := entity.New(entity.KindHostConfig, "review")
 	if err != nil {
