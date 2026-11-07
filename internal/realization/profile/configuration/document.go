@@ -82,6 +82,7 @@ type DocumentSpec struct {
 	class               DocumentClass
 	mode                FileModePolicy
 	observations        observationSet
+	slots               dedicatedSlotSet
 	alternate           output.Destination
 	outsideNativeLayout bool
 }
@@ -149,7 +150,7 @@ func buildDocument(input DocumentInput, root rootFact, relative string, destinat
 		target: input.Target, scope: input.Scope, nativePath: input.Path,
 		root: reference, relative: relative, destination: destination, policy: policy,
 		grammar: grammar, class: rule.class, mode: PrivateCreation,
-		observations: observations | rule.observations, outsideNativeLayout: outsideNativeLayout,
+		observations: observations | rule.observations, slots: rule.slots, outsideNativeLayout: outsideNativeLayout,
 	}
 	if rule.alternate != "" {
 		layout, err := selectLayout(input.Target, input.Scope)

@@ -4,10 +4,43 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
+
+func TestNativeKeyPrefixKeepsLegacyPropertyMeaning(t *testing.T) {
+	root, err := output.Parse("~/native.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		prefix string
+		parts  []string
+	}{
+		{"/mcp", []string{"mcp"}},
+		{"/a/b", []string{"a", "b"}},
+	} {
+		spec, err := aggregate.NewMCPConfigAggregateSpec(aggregate.MCPConfigAggregateSpecInput{
+			Root: root, MergeUnit: aggregate.MCPMergeUnitServerEntry, ContentPathPrefix: aggregate.MCPContentPathPrefix(test.prefix), SiblingRetention: aggregate.MCPSiblingRetentionPreserveUnmanaged,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, err := spec.NativeKeyPrefix()
+		expected, expectedErr := output.NewKeyPath(test.parts...)
+		if err != nil || expectedErr != nil || key != expected {
+			t.Fatalf("legacy prefix %q changed native meaning: %v", test.prefix, err)
+		}
+	}
+	if _, err := (aggregate.MCPConfigAggregateSpec{}).NativeKeyPrefix(); err == nil {
+		t.Fatal("zero aggregate supplied native coverage")
+	}
+	if _, err := (aggregate.HookPlacement{}).NativeKeyPrefix(); err == nil {
+		t.Fatal("zero hook placement supplied native coverage")
+	}
+}
 
 func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 	cases := []struct {

@@ -3,6 +3,7 @@ package profile
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
@@ -12,11 +13,6 @@ import (
 )
 
 var ErrHostConfigReserved = errors.New("host configuration overlaps a reserved area")
-
-type hostConfigFieldReservation struct {
-	key   string
-	owner string
-}
 
 type HostConfigPlacementInput struct {
 	Target    target.Target
@@ -34,7 +30,6 @@ type HostConfigPlacement struct {
 	nativePath      string
 	ownership       desiredhostconfig.Ownership
 	requestedSyntax desiredhostconfig.Syntax
-	documentKind    hostConfigDocumentKind
 	document        configuration.DocumentSpec
 }
 
@@ -80,10 +75,17 @@ func ResolveHostConfigPlacement(input HostConfigPlacementInput) (HostConfigPlace
 	if ownership == desiredhostconfig.OwnershipKeys && document.Grammar() == configuration.Opaque {
 		return HostConfigPlacement{}, fmt.Errorf("%w: key ownership requires an explicit supported syntax for %q", configuration.ErrGrammar, input.Path)
 	}
+	facts, err := nativeConfigurationKeysFor(selected, scope)
+	if err != nil {
+		return HostConfigPlacement{}, err
+	}
+	if err := facts.ValidateDocument(document); err != nil {
+		return HostConfigPlacement{}, err
+	}
 	return HostConfigPlacement{
 		target: selected, scope: scope, nativePath: input.Path,
 		ownership: ownership, requestedSyntax: syntax,
-		documentKind: hostConfigReservationKind(selected, document.Class()), document: document,
+		document: document,
 	}, nil
 }
 
@@ -109,7 +111,7 @@ func (placement HostConfigPlacement) RequestedSyntax() desiredhostconfig.Syntax 
 }
 
 func (placement HostConfigPlacement) ID() string {
-	if placement.documentKind == 0 {
+	if placement.document.RootReference().Validate() != nil {
 		return ""
 	}
 	id, _ := aggregate.HostConfigPlacementID(placement.target, placement.scope)
@@ -133,7 +135,7 @@ func (placement HostConfigPlacement) Validate() error {
 // ValidateStaticFootprint checks logical ownership only, never current aliases,
 // installed resources or host loader state.
 func (placement HostConfigPlacement) ValidateStaticFootprint(footprint output.Footprint) error {
-	if placement.documentKind == 0 {
+	if placement.document.RootReference().Validate() != nil {
 		return fmt.Errorf("host configuration placement is required")
 	}
 	if err := footprint.Validate(); err != nil {
@@ -149,60 +151,76 @@ func (placement HostConfigPlacement) ValidateStaticFootprint(footprint output.Fo
 	if !keyOwned {
 		return fmt.Errorf("key ownership requires a native key footprint")
 	}
-	for _, field := range hostConfigReservedFields(placement.documentKind) {
-		reserved, err := output.NewKeyPath(field.key)
-		if err != nil {
-			return err
-		}
-		if reserved.Overlaps(key) {
-			return fmt.Errorf("%w: %q belongs to %s; use its dedicated resource", ErrHostConfigReserved, key.String(), field.owner)
-		}
+	facts, err := nativeConfigurationKeysFor(placement.target, placement.scope)
+	if err != nil {
+		return err
 	}
-	return nil
+	err = facts.RequireUnreservedKey(placement.document, key)
+	if errors.Is(err, configuration.ErrReservedKey) {
+		return fmt.Errorf("%w: %w; use its dedicated resource", ErrHostConfigReserved, err)
+	}
+	return err
 }
 
 func (placement HostConfigPlacement) RequiredObservations() []configuration.Observation {
-	if placement.documentKind == 0 {
+	if placement.document.RootReference().Validate() != nil {
 		return nil
 	}
 	return placement.document.RequiredObservations()
 }
 
-func hostConfigReservedFields(kind hostConfigDocumentKind) []hostConfigFieldReservation {
-	if kind == hostConfigPiSettings {
-		return []hostConfigFieldReservation{
-			{"packages", "extension packages"},
-			{"extensions", "extensions"},
-			{"skills", "skills"},
-		}
-	}
-	if kind == hostConfigCodexConfiguration {
-		return []hostConfigFieldReservation{
-			{"mcp_servers", "MCP servers"},
-			{"hooks", "hooks"},
-			{"plugins", "extensions"},
-			{"marketplaces", "extension marketplaces"},
-		}
-	}
-	return nil
+type nativeKeyContext struct {
+	target target.Target
+	scope  target.Scope
 }
 
-type hostConfigDocumentKind uint8
-
-const (
-	hostConfigOrdinaryDocument hostConfigDocumentKind = iota + 1
-	hostConfigPiSettings
-	hostConfigCodexConfiguration
-)
-
-func hostConfigReservationKind(selected target.Target, class configuration.DocumentClass) hostConfigDocumentKind {
-	if class == configuration.SharedConfiguration {
-		if selected == target.TargetPi {
-			return hostConfigPiSettings
-		}
-		if selected == target.TargetCodex {
-			return hostConfigCodexConfiguration
+// Catalog definitions are immutable for the process version. Each selected
+// context compiles once, with compilation errors confined to that context.
+var nativeConfigurationKeyFacts = func() map[nativeKeyContext]func() (configuration.DedicatedKeys, error) {
+	result := make(map[nativeKeyContext]func() (configuration.DedicatedKeys, error))
+	for _, selected := range target.SupportedTargets() {
+		for _, scope := range target.SupportedScopes() {
+			result[nativeKeyContext{selected, scope}] = sync.OnceValues(func() (configuration.DedicatedKeys, error) {
+				return composeNativeConfigurationKeys(selected, scope)
+			})
 		}
 	}
-	return hostConfigOrdinaryDocument
+	return result
+}()
+
+func nativeConfigurationKeysFor(selected target.Target, scope target.Scope) (configuration.DedicatedKeys, error) {
+	compile, known := nativeConfigurationKeyFacts[nativeKeyContext{selected, scope}]
+	if !known {
+		return configuration.DedicatedKeys{}, fmt.Errorf("native key coverage is missing for %s/%s", selected, scope)
+	}
+	return compile()
+}
+
+func composeNativeConfigurationKeys(selected target.Target, scope target.Scope) (configuration.DedicatedKeys, error) {
+	input := configuration.DedicatedKeysInput{Target: selected, Scope: scope}
+	for _, placement := range aggregate.MCPPlacementsForTarget(selected) {
+		if placement.Scope() != scope {
+			continue
+		}
+		key, err := placement.NativeKeyPrefix()
+		if err != nil {
+			return configuration.DedicatedKeys{}, err
+		}
+		input.MCP = append(input.MCP, key)
+	}
+	if placement, present := aggregate.HookPlacementFor(selected, scope); present {
+		key, err := placement.NativeKeyPrefix()
+		if err != nil {
+			return configuration.DedicatedKeys{}, err
+		}
+		input.Hooks = append(input.Hooks, key)
+	}
+	for _, route := range profileDelegatedRoutes(selected) {
+		keys, err := route.NativeMembershipKeys()
+		if err != nil {
+			return configuration.DedicatedKeys{}, err
+		}
+		input.Extensions = append(input.Extensions, keys...)
+	}
+	return configuration.NewDedicatedKeys(input)
 }

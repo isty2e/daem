@@ -198,6 +198,10 @@ func (placement MCPPlacement) ContentPathPrefix() MCPContentPathPrefix {
 	return placement.aggregateSpec.ContentPathPrefix()
 }
 
+func (placement MCPPlacement) NativeKeyPrefix() (output.KeyPath, error) {
+	return placement.aggregateSpec.NativeKeyPrefix()
+}
+
 // SiblingRetention returns the row-local unmanaged sibling policy for this placement.
 func (placement MCPPlacement) SiblingRetention() MCPSiblingRetentionPolicy {
 	return placement.aggregateSpec.SiblingRetention()

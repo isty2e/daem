@@ -8,9 +8,71 @@ import (
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
+
+func TestComposedDedicatedKeysSelectOnlyTheDocumentsRoles(t *testing.T) {
+	for _, test := range []struct {
+		selected target.Target
+		scope    target.Scope
+		path     string
+		reserved []string
+		free     []string
+	}{
+		{target.TargetPi, target.ScopeProject, "settings.json", []string{"packages", "extensions", "skills"}, []string{"prompts", "themes", "npmCommand"}},
+		{target.TargetCodex, target.ScopeProject, "config.toml", []string{"mcp_servers", "hooks", "plugins", "marketplaces"}, []string{"model", "features"}},
+		{target.TargetClaudeCode, target.ScopeGlobal, "settings.json", []string{"hooks", "enabledPlugins"}, []string{"mcpServers", "extraKnownMarketplaces", "model"}},
+		{target.TargetClaudeCode, target.ScopeProject, "settings.local.json", []string{"hooks", "enabledPlugins"}, []string{"mcpServers", "extraKnownMarketplaces", "model"}},
+		{target.TargetOpenCode, target.ScopeProject, ".opencode/tui.json", []string{"plugin"}, []string{"mcp", "hooks", "theme"}},
+		{target.TargetOpenCode, target.ScopeProject, ".opencode/opencode.json", []string{"mcp", "plugin"}, []string{"hooks", "model"}},
+		{target.TargetOpenCode, target.ScopeGlobal, "opencode.jsonc", []string{"mcp", "plugin"}, []string{"hooks", "model"}},
+		{target.TargetAntigravityCLI, target.ScopeGlobal, "settings.json", nil, []string{"mcpServers", "plugin", "model"}},
+	} {
+		t.Run(string(test.selected)+"/"+string(test.scope)+"/"+test.path, func(t *testing.T) {
+			t.Parallel()
+			facts, err := nativeConfigurationKeysFor(test.selected, test.scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec, err := configuration.NewDocumentSpec(configuration.DocumentInput{Target: test.selected, Scope: test.scope, Path: test.path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := facts.ValidateDocument(spec); err != nil {
+				t.Fatalf("selected document coverage is incomplete: %v", err)
+			}
+			for _, field := range test.reserved {
+				key, err := output.NewKeyPath(field, "child")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := facts.RequireUnreservedKey(spec, key); !errors.Is(err, configuration.ErrReservedKey) {
+					t.Fatalf("%s subtree lost its dedicated owner: %v", field, err)
+				}
+			}
+			for _, field := range test.free {
+				key, err := output.NewKeyPath(field, "child")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := facts.RequireUnreservedKey(spec, key); err != nil {
+					t.Fatalf("unrelated %s became reserved: %v", field, err)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeConfigurationKeysRefuseUnknownContexts(t *testing.T) {
+	if _, err := nativeConfigurationKeysFor("unknown", target.ScopeGlobal); err == nil {
+		t.Fatal("unknown target obtained native namespace facts")
+	}
+	if _, err := nativeConfigurationKeysFor(target.TargetPi, "system"); err == nil {
+		t.Fatal("unknown scope obtained native namespace facts")
+	}
+}
 
 func TestHostConfigProjectionUsesStaticAdmissionInBothDirections(t *testing.T) {
 	id, err := entity.New(entity.KindHostConfig, "review")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
@@ -59,6 +60,14 @@ var delegatedRelationVerifiedFields = []string{
 	"target",
 }
 
+var delegatedNativeMembershipFields = map[desiredextension.Carrier][]string{
+	desiredextension.CarrierClaudeCodePlugin:     {"enabledPlugins"},
+	desiredextension.CarrierCodexPlugin:          {"plugins", "marketplaces"},
+	desiredextension.CarrierOpenCodePlugin:       {"plugin"},
+	desiredextension.CarrierPiPackage:            {"packages", "extensions", "skills"},
+	desiredextension.CarrierAntigravityCLIPlugin: nil,
+}
+
 // DelegatedRouteProfile selects a carrier, target, admitted scopes, and a
 // closed operation-indexed route set. It owns no host attempt outcome.
 type DelegatedRouteProfile struct {
@@ -81,6 +90,27 @@ type DelegatedRelationProfileInput struct {
 
 func (profile DelegatedRouteProfile) Carrier() desiredextension.Carrier { return profile.carrier }
 func (profile DelegatedRouteProfile) Target() target.Target             { return profile.target }
+
+// NativeMembershipKeys describes native registration areas independently of
+// which scopes the delegated writer currently admits.
+func (profile DelegatedRouteProfile) NativeMembershipKeys() ([]output.KeyPath, error) {
+	if err := profile.validate(); err != nil {
+		return nil, err
+	}
+	fields, known := delegatedNativeMembershipFields[profile.carrier]
+	if !known {
+		return nil, fmt.Errorf("native membership coverage is missing for carrier %q", profile.carrier)
+	}
+	keys := make([]output.KeyPath, 0, len(fields))
+	for _, field := range fields {
+		key, err := output.NewKeyPath(field)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
 
 // AdmittedScopes returns the complete carrier scope set in canonical order.
 func (profile DelegatedRouteProfile) AdmittedScopes() []target.Scope {

@@ -178,3 +178,21 @@ func (placement HookPlacement) AggregateRoot() output.Destination {
 }
 
 func (placement HookPlacement) CodecContractID() CodecContractID { return placement.codecContractID }
+
+// NativeKeyPrefix uses the shared hook-set namespace, including the inline
+// alternative, rather than deriving a key from the document's placement.
+func (placement HookPlacement) NativeKeyPrefix() (output.KeyPath, error) {
+	if err := placement.Validate(); err != nil {
+		return output.KeyPath{}, err
+	}
+
+	footprint, err := output.FootprintFromLegacy(output.ContentPath(HooksContentPath))
+	if err != nil {
+		return output.KeyPath{}, err
+	}
+	key, keyed := footprint.Key()
+	if !keyed {
+		return output.KeyPath{}, fmt.Errorf("hook parent must be a native key, not the document root")
+	}
+	return key, nil
+}

@@ -129,26 +129,27 @@ type documentRule struct {
 	class         DocumentClass
 	alternate     string
 	observations  observationSet
+	slots         dedicatedSlotSet
 }
 
 var documentRules = []documentRule{
-	{target: target.TargetPi, path: "settings.json", grammar: JSON, class: SharedConfiguration},
+	{target: target.TargetPi, path: "settings.json", grammar: JSON, class: SharedConfiguration, slots: extensionMembership},
 	{target: target.TargetPi, scope: target.ScopeGlobal, path: "models.json", grammar: JSONLineComments, class: ModelCatalog},
 	{target: target.TargetPi, path: "mcp.json", grammar: JSON, class: SharedConfiguration},
-	{target: target.TargetCodex, path: "config.toml", grammar: TOML, class: SharedConfiguration},
-	{target: target.TargetCodex, scope: target.ScopeGlobal, namedProfile: true, grammar: TOML, class: SharedConfiguration},
-	{target: target.TargetClaudeCode, path: "settings.json", grammar: JSON, class: SharedConfiguration},
-	{target: target.TargetClaudeCode, scope: target.ScopeProject, path: "settings.local.json", grammar: JSON, class: SharedConfiguration},
+	{target: target.TargetCodex, path: "config.toml", grammar: TOML, class: SharedConfiguration, slots: mcpEntries | hookSets | extensionMembership},
+	{target: target.TargetCodex, scope: target.ScopeGlobal, namedProfile: true, grammar: TOML, class: SharedConfiguration, slots: mcpEntries | hookSets | extensionMembership},
+	{target: target.TargetClaudeCode, path: "settings.json", grammar: JSON, class: SharedConfiguration, slots: hookSets | extensionMembership},
+	{target: target.TargetClaudeCode, scope: target.ScopeProject, path: "settings.local.json", grammar: JSON, class: SharedConfiguration, slots: hookSets | extensionMembership},
 	{target: target.TargetClaudeCode, scope: target.ScopeGlobal, path: ".claude.json", dedicatedOnly: true, grammar: JSON, class: SharedConfiguration},
 	{target: target.TargetClaudeCode, scope: target.ScopeProject, path: ".mcp.json", dedicatedOnly: true, grammar: JSON, class: SharedConfiguration},
-	{target: target.TargetOpenCode, path: "opencode.json", grammar: JSONC, class: SharedConfiguration, alternate: "opencode.jsonc", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, path: "opencode.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: "opencode.json", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, path: "tui.json", grammar: JSONC, class: SharedConfiguration, alternate: "tui.jsonc", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, path: "tui.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: "tui.json", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/opencode.json", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/opencode.jsonc", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/opencode.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/opencode.json", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/tui.json", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/tui.jsonc", observations: openCodeCandidates},
-	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/tui.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/tui.json", observations: openCodeCandidates},
+	{target: target.TargetOpenCode, path: "opencode.json", grammar: JSONC, class: SharedConfiguration, alternate: "opencode.jsonc", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
+	{target: target.TargetOpenCode, path: "opencode.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: "opencode.json", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
+	{target: target.TargetOpenCode, path: "tui.json", grammar: JSONC, class: SharedConfiguration, alternate: "tui.jsonc", observations: openCodeCandidates, slots: extensionMembership},
+	{target: target.TargetOpenCode, path: "tui.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: "tui.json", observations: openCodeCandidates, slots: extensionMembership},
+	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/opencode.json", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/opencode.jsonc", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
+	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/opencode.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/opencode.json", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
+	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/tui.json", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/tui.jsonc", observations: openCodeCandidates, slots: extensionMembership},
+	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/tui.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/tui.json", observations: openCodeCandidates, slots: extensionMembership},
 	{target: target.TargetAntigravityCLI, path: "settings.json", grammar: JSON, class: Preferences},
 	{target: target.TargetAntigravityCLI, path: "keybindings.json", grammar: JSON, class: Preferences},
 	{target: target.TargetAntigravityCLI, scope: target.ScopeGlobal, path: "mcp_config.json", dedicatedOnly: true, grammar: JSON, class: SharedConfiguration},

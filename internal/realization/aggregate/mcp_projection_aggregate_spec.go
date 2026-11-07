@@ -69,6 +69,23 @@ func (spec MCPConfigAggregateSpec) ContentPathPrefix() MCPContentPathPrefix {
 	return spec.contentPathPrefix
 }
 
+func (spec MCPConfigAggregateSpec) NativeKeyPrefix() (output.KeyPath, error) {
+	if err := spec.Validate(); err != nil {
+		return output.KeyPath{}, err
+	}
+
+	// Project legacy segments rather than treating the prefix as one property.
+	footprint, err := output.FootprintFromLegacy(output.ContentPath(spec.contentPathPrefix))
+	if err != nil {
+		return output.KeyPath{}, err
+	}
+	key, keyed := footprint.Key()
+	if !keyed {
+		return output.KeyPath{}, fmt.Errorf("MCP entry parent must be a native key, not the document root")
+	}
+	return key, nil
+}
+
 // SiblingRetention returns the row-local unmanaged sibling policy.
 func (spec MCPConfigAggregateSpec) SiblingRetention() MCPSiblingRetentionPolicy {
 	return spec.siblingRetention
