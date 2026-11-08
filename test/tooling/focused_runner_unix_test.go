@@ -15,6 +15,26 @@ import (
 
 const focusedProbePackage = "./test/tooling/testdata/focusedprobe"
 
+func TestFocusedFixturesDoNotInheritTheInvokingGitRepository(t *testing.T) {
+	root := findRepoRoot(t)
+	outer := createFocusedFixtureRepository(t)
+	configPath := filepath.Join(outer, ".git", "config")
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_DIR", filepath.Join(outer, ".git"))
+	t.Setenv("GIT_COMMON_DIR", filepath.Join(outer, ".git"))
+	t.Setenv("GIT_WORK_TREE", outer)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(outer, ".git", "index"))
+	fixture := createFocusedFixtureRepository(t)
+	runFocusedFixture(t, root, fixture, "TMPDIR="+t.TempDir())
+	after, err := os.ReadFile(configPath)
+	if err != nil || string(after) != string(before) {
+		t.Fatal("an isolated fixture modified the invoking repository's configuration", err)
+	}
+}
+
 func TestFocusedRunnerCachesAndInvalidatesTrackedInputs(t *testing.T) {
 	root := findRepoRoot(t)
 	fixtureRoot := createFocusedFixtureRepository(t)
@@ -147,7 +167,7 @@ func TestFocusedRunnerPreservesFailureAndCleansRoot(t *testing.T) {
 	)
 	command.Dir = fixtureRoot
 	command.Env = append(
-		withoutEnvironment(os.Environ(), "GOENV", "GOFLAGS", "GOWORK", "TMPDIR"),
+		focusedFixtureEnvironment(),
 		"TMPDIR="+temporaryRoot,
 	)
 	output, err := command.CombinedOutput()
@@ -196,7 +216,7 @@ func runFocusedFixture(t *testing.T, root string, fixtureRoot string, environmen
 	)
 	command.Dir = fixtureRoot
 	command.Env = append(
-		withoutEnvironment(os.Environ(), "GOENV", "GOFLAGS", "GOWORK", "TMPDIR"),
+		focusedFixtureEnvironment(),
 		"GOENV="+filepath.Join(root, "internal", "archguard", "testdata", "hostile-go.env"),
 		"GOFLAGS=-run=^NoFocusedTestsShouldMatch$",
 		"GOWORK="+filepath.Join(root, "internal", "archguard", "testdata", "missing.work"),
@@ -218,13 +238,23 @@ func focusedProbeCommand(root string, environment ...string) *exec.Cmd {
 	)
 	command.Dir = root
 	command.Env = append(
-		withoutEnvironment(os.Environ(), "GOENV", "GOFLAGS", "GOWORK", "TMPDIR"),
+		focusedFixtureEnvironment(),
 		"GOENV="+filepath.Join(root, "internal", "archguard", "testdata", "hostile-go.env"),
 		"GOFLAGS=-run=^NoFocusedTestsShouldMatch$",
 		"GOWORK="+filepath.Join(root, "internal", "archguard", "testdata", "missing.work"),
 	)
 	command.Env = append(command.Env, environment...)
 	return command
+}
+
+func focusedFixtureEnvironment() []string {
+	var environment []string
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "GIT_") {
+			environment = append(environment, entry)
+		}
+	}
+	return withoutEnvironment(environment, "GOENV", "GOFLAGS", "GOWORK", "TMPDIR")
 }
 
 func createFocusedFixtureRepository(t *testing.T) string {
@@ -254,6 +284,7 @@ func createFocusedFixtureRepository(t *testing.T) string {
 	} {
 		command := exec.Command("git", arguments...)
 		command.Dir = root
+		command.Env = focusedFixtureEnvironment()
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v for focused fixture: %v\n%s", arguments, err, output)
 		}
