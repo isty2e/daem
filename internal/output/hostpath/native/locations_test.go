@@ -49,9 +49,15 @@ func TestNativeLocatorContractsKeepDistinctAnchorsAndLiteralParents(t *testing.T
 		t.Fatal(err)
 	}
 	for _, contract := range contracts {
-		location, err := locations.Resolve(contract.Reference())
+		location, err := locations.ResolveProtection(contract.Reference())
 		if err != nil {
 			t.Fatal(err)
+		}
+		if contract.Reference().Identity() == "opencode-additional-configuration" {
+			if !location.Absent() {
+				t.Fatal("unset additional configuration invented a directory", location)
+			}
+			continue
 		}
 		var want string
 		switch contract.Reference().Identity() {
@@ -65,6 +71,8 @@ func TestNativeLocatorContractsKeepDistinctAnchorsAndLiteralParents(t *testing.T
 			want = home
 		case "opencode-configuration":
 			want = filepath.Join(home, ".config", "opencode")
+		case "opencode-legacy-configuration":
+			want = filepath.Join(home, ".opencode")
 		case "antigravity-preferences":
 			want = filepath.Join(home, ".gemini", "antigravity-cli")
 		case "antigravity-shared":

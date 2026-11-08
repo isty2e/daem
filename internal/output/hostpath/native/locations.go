@@ -50,15 +50,17 @@ func NewLocations(workDir, home string, values map[string]string) (Locations, er
 	return Locations{workDir: workDir, home: home, values: maps.Clone(values)}, nil
 }
 
-// Location is a literal selector and a non-secret description of its source.
-// Source never contains the value of an environment variable.
+// Location is a literal selector or an explicitly absent optional location.
+// Its source description never contains an environment variable's value.
 type Location struct {
 	path   string
 	source string
+	absent bool
 }
 
 func (location Location) Path() string   { return location.path }
 func (location Location) Source() string { return location.source }
+func (location Location) Absent() bool   { return location.absent }
 
 func (locations Locations) Resolve(reference output.RootReference) (Location, error) {
 	if locations.workDir == "" || locations.home == "" {
@@ -70,11 +72,49 @@ func (locations Locations) Resolve(reference output.RootReference) (Location, er
 	}
 	known := false
 	for _, contract := range contracts {
-		known = known || contract.Reference() == reference
+		known = known || contract.Reference() == reference && contract.SupportsAliases()
 	}
 	if !known {
 		return Location{}, fmt.Errorf("native root reference has no supported locator contract")
 	}
+	if reference.LocatorPolicy() == "opencode-location-v1" {
+		base := locations.selected("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
+		if !filepath.IsAbs(base.path) {
+			return Location{source: base.source}, fmt.Errorf("OpenCode configuration writer requires an absolute XDG base")
+		}
+	}
+	location, err := locations.resolve(reference)
+	if err == nil && location.Absent() {
+		return location, fmt.Errorf("native alias root cannot be absent")
+	}
+	return location, err
+}
+
+// ResolveProtection includes read-only locations that have no native alias or
+// writable output role. Absence is explicit and valid only for optional selectors.
+func (locations Locations) ResolveProtection(reference output.RootReference) (Location, error) {
+	contracts, err := configuration.NativeProtectionLocations()
+	if err != nil {
+		return Location{}, err
+	}
+	for _, contract := range contracts {
+		if contract.Reference() != reference {
+			continue
+		}
+		location, err := locations.resolve(reference)
+		if err == nil && location.Absent() && !contract.Optional() {
+			return location, fmt.Errorf("required protection location cannot be absent")
+		}
+		return location, err
+	}
+	return Location{}, fmt.Errorf("protection reference has no supported locator contract")
+}
+
+func (locations Locations) resolve(reference output.RootReference) (Location, error) {
+	if locations.workDir == "" || locations.home == "" {
+		return Location{}, fmt.Errorf("native location context is not initialized")
+	}
+	var err error
 	var result Location
 	switch reference.LocatorPolicy() {
 	case "pi-agent-location-v1":
@@ -90,16 +130,52 @@ func (locations Locations) Resolve(reference output.RootReference) (Location, er
 		result = locations.selected("CLAUDE_CONFIG_DIR", locations.home)
 		result.path = locations.absolute(result.path)
 	case "opencode-location-v1":
-		if locations.values["OPENCODE_CONFIG_DIR"] != "" {
-			result = locations.selected("OPENCODE_CONFIG_DIR", "")
-			result.path = locations.absolute(result.path)
-			break
+		result, err = locations.openCodePath("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
+	case "opencode-additional-location-v1":
+		value, present := locations.values["OPENCODE_CONFIG_DIR"]
+		result = Location{source: "OPENCODE_CONFIG_DIR", absent: !present}
+		if present {
+			cleaned := filepath.Clean(value)
+			result.path = locations.workDir
+			if cleaned != "." {
+				result.path = locations.openCodeAbsolute(cleaned)
+			}
 		}
-		base := locations.selected("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
-		if !filepath.IsAbs(base.path) {
-			return Location{source: base.source}, fmt.Errorf("OpenCode configuration base must be absolute")
+	case "opencode-legacy-location-v1":
+		result = Location{path: filepath.Join(locations.home, ".opencode"), source: "default location"}
+	case "opencode-data-location-v1":
+		result, err = locations.openCodePath("XDG_DATA_HOME", filepath.Join(locations.home, ".local", "share"))
+	case "opencode-state-location-v1":
+		result, err = locations.openCodePath("XDG_STATE_HOME", filepath.Join(locations.home, ".local", "state"))
+	case "opencode-cache-location-v1":
+		result, err = locations.openCodePath("XDG_CACHE_HOME", filepath.Join(locations.home, ".cache"))
+	case "opencode-database-location-v1":
+		value := locations.values["OPENCODE_DB"]
+		result = Location{source: "OPENCODE_DB", absent: value == "" || value == ":memory:"}
+		if !result.absent {
+			result.path = value
+			if strings.ContainsRune(value, '\x00') {
+				return result, fmt.Errorf("database override must not contain a NUL byte")
+			}
+			if openCodeAbsolutePath(value) {
+				result.path = locations.openCodeAbsolute(value)
+			} else {
+				data, err := locations.openCodePath("XDG_DATA_HOME", filepath.Join(locations.home, ".local", "share"), value)
+				if err != nil {
+					return data, err
+				}
+				result.path = data.path
+			}
 		}
-		result = Location{path: filepath.Join(base.path, "opencode"), source: base.source}
+	case "opencode-plugin-metadata-location-v1":
+		value, present := locations.values["OPENCODE_PLUGIN_META_FILE"]
+		result = Location{source: "OPENCODE_PLUGIN_META_FILE", absent: !present}
+		if present {
+			if value == "" {
+				return result, fmt.Errorf("plugin metadata override must select a nonempty file path")
+			}
+			result.path = locations.openCodeAbsolute(value)
+		}
 	case "antigravity-preferences-location-v1":
 		result = Location{path: filepath.Join(locations.home, ".gemini", "antigravity-cli"), source: "default location"}
 	case "antigravity-shared-location-v1":
@@ -110,10 +186,38 @@ func (locations Locations) Resolve(reference output.RootReference) (Location, er
 	if err != nil {
 		return result, err
 	}
-	if result.path == "" || !filepath.IsAbs(result.path) || strings.ContainsRune(result.path, '\x00') {
-		return result, fmt.Errorf("native root selected by %s is not an admitted absolute locator", result.source)
+	return result, result.validate()
+}
+
+func (location Location) validate() error {
+	if location.absent && location.path == "" && location.source != "" {
+		return nil
 	}
-	return result, nil
+	if location.absent || location.source == "" || location.path == "" || !filepath.IsAbs(location.path) || strings.ContainsRune(location.path, '\x00') {
+		return fmt.Errorf("native root selected by %s is not an admitted absolute locator", location.source)
+	}
+	return nil
+}
+
+func (locations Locations) openCodePath(variable, fallback string, relative ...string) (Location, error) {
+	base := locations.selected(variable, fallback)
+	parts := append([]string{base.path, "opencode"}, relative...)
+	// Node joins the relative expression before lookup. Do not clean through
+	// the captured logical working-directory prefix.
+	location := Location{path: locations.openCodeAbsolute(filepath.Join(parts...)), source: base.source}
+	return location, location.validate()
+}
+
+func openCodeAbsolutePath(path string) bool {
+	return filepath.IsAbs(path) || runtime.GOOS == "windows" && len(path) != 0 && os.IsPathSeparator(path[0])
+}
+
+func (locations Locations) openCodeAbsolute(path string) string {
+	// Node accepts drive-less rooted Win32 paths; filepath.IsAbs does not.
+	if runtime.GOOS == "windows" && openCodeAbsolutePath(path) && filepath.VolumeName(path) == "" {
+		return filepath.VolumeName(locations.workDir) + path
+	}
+	return locations.absolute(path)
 }
 
 func (locations Locations) selected(variable, fallback string) Location {

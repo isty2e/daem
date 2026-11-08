@@ -57,6 +57,13 @@ var (
 	claudePreferences = rootFact{"claude-preferences", "claude-preferences-location-v1"}
 	claudeAccount     = rootFact{"claude-account", "claude-account-location-v1"}
 	openCodeRoot      = rootFact{"opencode-configuration", "opencode-location-v1"}
+	openCodeExtra     = rootFact{"opencode-additional-configuration", "opencode-additional-location-v1"}
+	openCodeLegacy    = rootFact{"opencode-legacy-configuration", "opencode-legacy-location-v1"}
+	openCodeData      = rootFact{"opencode-data", "opencode-data-location-v1"}
+	openCodeState     = rootFact{"opencode-state", "opencode-state-location-v1"}
+	openCodeCache     = rootFact{"opencode-cache", "opencode-cache-location-v1"}
+	openCodeDatabase  = rootFact{"opencode-database-override", "opencode-database-location-v1"}
+	openCodeMetadata  = rootFact{"opencode-plugin-metadata-override", "opencode-plugin-metadata-location-v1"}
 	antigravityRoot   = rootFact{"antigravity-preferences", "antigravity-preferences-location-v1"}
 	antigravityShared = rootFact{"antigravity-shared", "antigravity-shared-location-v1"}
 )

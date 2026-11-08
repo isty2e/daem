@@ -237,6 +237,9 @@ func (observer *physicalObserver) requireUnreserved(ctx context.Context, aliases
 }
 
 func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Alias, host target.Target, facet configuration.ExclusionFacet, selector ReservationSelector) error {
+	if selector.absent {
+		return ctx.Err()
+	}
 	budget := observer.budget
 	unverified := func(address aggregate.DocumentAddress, uncertainty ProtectionUncertainty, reservation configuration.PathReservation, cause error) error {
 		return &ProtectionError{kind: ProtectionUnverified, uncertainty: uncertainty, address: address, host: host, reference: facet.Reference(), source: selector.source, reservation: reservation, cause: cause}

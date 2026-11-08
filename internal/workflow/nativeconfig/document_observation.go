@@ -264,13 +264,21 @@ func SelectProtectionRoots(locations nativehostpath.Locations) (journalnamespace
 			if !facet.RequiresObservation() {
 				continue
 			}
-			location, err := locations.Resolve(facet.Reference())
+			location, err := locations.ResolveProtection(facet.Reference())
 			if err != nil {
 				unavailable, selectionErr := journalnamespace.UnavailableReservationSelector(facet.Reference(), location.Source(), err)
 				if selectionErr != nil {
 					return journalnamespace.ReservationSelectors{}, selectionErr
 				}
 				selected = append(selected, unavailable)
+				continue
+			}
+			if location.Absent() {
+				absent, err := journalnamespace.AbsentReservationSelector(facet.Reference(), location.Source())
+				if err != nil {
+					return journalnamespace.ReservationSelectors{}, err
+				}
+				selected = append(selected, absent)
 				continue
 			}
 			selector, err := journalnamespace.NewReservationSelector(facet.Reference(), location.Path())

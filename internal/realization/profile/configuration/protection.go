@@ -40,6 +40,8 @@ func NativeRootContracts() ([]NativeRootContract, error) {
 		{claudePreferences, target.TargetClaudeCode, NativeDirectory},
 		{claudeAccount, target.TargetClaudeCode, NativeEndpoints},
 		{openCodeRoot, target.TargetOpenCode, NativeDirectory},
+		{openCodeExtra, target.TargetOpenCode, NativeDirectory},
+		{openCodeLegacy, target.TargetOpenCode, NativeDirectory},
 		{antigravityRoot, target.TargetAntigravityCLI, NativeDirectory},
 		{antigravityShared, target.TargetAntigravityCLI, NativeEndpoints},
 	} {
@@ -71,6 +73,24 @@ func (contract NativeRootContract) Host() target.Target             { return con
 func (contract NativeRootContract) Envelope() NativeEnvelope        { return contract.envelope }
 func (contract NativeRootContract) Endpoints() []string             { return slices.Clone(contract.endpoints) }
 
+// SupportsAliases distinguishes admitted document placements from additional
+// configuration locations observed only for physical rules and protection.
+func (contract NativeRootContract) SupportsAliases() bool {
+	for _, layout := range nativeLayouts {
+		reference, err := layout.root.reference()
+		if err == nil && reference == contract.reference {
+			return true
+		}
+	}
+	for _, alias := range dedicatedDocumentAliases {
+		reference, err := alias.root.reference()
+		if err == nil && reference == contract.reference {
+			return true
+		}
+	}
+	return false
+}
+
 func NativeRootDescription(reference output.RootReference) string {
 	for _, entry := range []struct {
 		root rootFact
@@ -82,6 +102,13 @@ func NativeRootDescription(reference output.RootReference) string {
 		{claudePreferences, "claude preferences directory"},
 		{claudeAccount, "claude account location"},
 		{openCodeRoot, "opencode configuration directory"},
+		{openCodeExtra, "opencode additional configuration directory"},
+		{openCodeLegacy, "opencode home configuration directory"},
+		{openCodeData, "opencode data directory"},
+		{openCodeState, "opencode state directory"},
+		{openCodeCache, "opencode cache directory"},
+		{openCodeDatabase, "opencode database override"},
+		{openCodeMetadata, "opencode plugin metadata override"},
 		{antigravityRoot, "antigravity preferences directory"},
 		{antigravityShared, "antigravity shared configuration location"},
 	} {
@@ -267,6 +294,19 @@ func (facet ExclusionFacet) ModuleReservations(names, packages []string) []PathR
 // KnownRootDocuments projects the existing document rules, including named
 // profiles found by a bounded directory observation. It performs no I/O.
 func KnownRootDocuments(reference output.RootReference, names []string) ([]DocumentSpec, error) {
+	for _, root := range []rootFact{openCodeExtra, openCodeLegacy} {
+		selected, err := root.reference()
+		if err != nil {
+			return nil, err
+		}
+		if reference == selected {
+			reference, err = openCodeRoot.reference()
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
 	if err := reference.Validate(); err != nil {
 		return nil, err
 	}

@@ -11,16 +11,18 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
-// ReservationSelector retains an absolute expression selected by its locator
-// contract, without interpreting symlinks or parent components. It contains
-// neither a retained filesystem handle nor authority that can become a writer grant.
+// ReservationSelector retains a captured locator outcome without interpreting
+// symlinks or parent components. Optional absence and failure remain distinct;
+// neither a filesystem handle nor writer authority is retained.
 type ReservationSelector struct {
 	reference output.RootReference
 	path      string
 	source    string
 	failure   error
+	absent    bool
 }
 
 func NewReservationSelector(reference output.RootReference, selected string) (ReservationSelector, error) {
@@ -43,6 +45,19 @@ func UnavailableReservationSelector(reference output.RootReference, source strin
 	return ReservationSelector{reference: reference, source: source, failure: cause}, nil
 }
 
+func AbsentReservationSelector(reference output.RootReference, source string) (ReservationSelector, error) {
+	contracts, err := configuration.NativeProtectionLocations()
+	if err != nil {
+		return ReservationSelector{}, err
+	}
+	for _, contract := range contracts {
+		if contract.Reference() == reference && contract.Optional() && source != "" {
+			return ReservationSelector{reference: reference, source: source, absent: true}, nil
+		}
+	}
+	return ReservationSelector{}, fmt.Errorf("only a declared optional protection location may be absent")
+}
+
 func (selector ReservationSelector) DescribedBy(source string) ReservationSelector {
 	if source != "" {
 		selector.source = source
@@ -63,7 +78,14 @@ func NewReservationSelectors(selectors []ReservationSelector) (ReservationSelect
 		if err := selector.reference.Validate(); err != nil {
 			return ReservationSelectors{}, fmt.Errorf("reservation selector: %w", err)
 		}
-		if selector.failure == nil {
+		if selector.absent {
+			if selector.path != "" || selector.failure != nil {
+				return ReservationSelectors{}, fmt.Errorf("absent reservation selector has contradictory location data")
+			}
+			if _, err := AbsentReservationSelector(selector.reference, selector.source); err != nil {
+				return ReservationSelectors{}, err
+			}
+		} else if selector.failure == nil {
 			if _, err := NewReservationSelector(selector.reference, selector.path); err != nil {
 				return ReservationSelectors{}, err
 			}
@@ -71,7 +93,7 @@ func NewReservationSelectors(selectors []ReservationSelector) (ReservationSelect
 			return ReservationSelectors{}, fmt.Errorf("unavailable reservation selector has contradictory location data")
 		}
 		if previous, present := selected[selector.reference]; present {
-			if previous.path != selector.path || previous.source != selector.source || previous.failure != nil || selector.failure != nil {
+			if previous.path != selector.path || previous.source != selector.source || previous.absent != selector.absent || previous.failure != nil || selector.failure != nil {
 				return ReservationSelectors{}, fmt.Errorf("conflicting selectors for reservation root %q (%s)", selector.reference.Identity(), selector.reference.LocatorPolicy())
 			}
 		}

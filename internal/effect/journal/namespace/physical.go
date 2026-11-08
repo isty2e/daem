@@ -208,6 +208,9 @@ func (observer *physicalObserver) documents(ctx context.Context, aliases []Alias
 		if !supplied {
 			continue // Unknown host inventory is not admission or checked-empty coverage.
 		}
+		if selector.absent {
+			continue
+		}
 		facts, err := observer.rootDocuments(ctx, aliases, selector, contract.Host(), contract.Envelope())
 		if err := retain(facts, err); err != nil {
 			return physicalDocumentFacts{}, err
