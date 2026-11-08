@@ -39,6 +39,7 @@ func RootReferenceForScope(selected target.Target, scope target.Scope) (output.R
 }
 
 type nativeLayout struct {
+	authoring      bool
 	root           rootFact
 	aliasRoot      output.RootRole
 	aliasDirectory string
@@ -58,6 +59,8 @@ var (
 	claudeAccount     = rootFact{"claude-account", "claude-account-location-v1"}
 	openCodeRoot      = rootFact{"opencode-configuration", "opencode-location-v1"}
 	openCodeExtra     = rootFact{"opencode-additional-configuration", "opencode-additional-location-v1"}
+	openCodeSources   = rootFact{"opencode-additional-sources", "opencode-source-location-v1"}
+	openCodeInstall   = rootFact{"opencode-package-installation", "opencode-installation-location-v1"}
 	openCodeLegacy    = rootFact{"opencode-legacy-configuration", "opencode-legacy-location-v1"}
 	openCodeData      = rootFact{"opencode-data", "opencode-data-location-v1"}
 	openCodeState     = rootFact{"opencode-state", "opencode-state-location-v1"}
@@ -70,16 +73,20 @@ var (
 
 var nativeLayouts = map[scopeKey]nativeLayout{
 	{target.TargetPi, target.ScopeGlobal}: {
-		root: piRoot, aliasRoot: output.RootPiAgent, legacyHomeDir: ".pi/agent/", policy: "pi-native-v1", observations: piLoader,
+		authoring: true,
+		root:      piRoot, aliasRoot: output.RootPiAgent, legacyHomeDir: ".pi/agent/", policy: "pi-native-v1", observations: piLoader,
 	},
 	{target.TargetPi, target.ScopeProject}: {
-		root: projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".pi/", relativePrefix: ".pi/", policy: "pi-native-v1", observations: piLoader,
+		authoring: true,
+		root:      projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".pi/", relativePrefix: ".pi/", policy: "pi-native-v1", observations: piLoader,
 	},
 	{target.TargetCodex, target.ScopeGlobal}: {
-		root: codexRoot, aliasRoot: output.RootCodexHome, legacyHomeDir: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
+		authoring: true,
+		root:      codexRoot, aliasRoot: output.RootCodexHome, legacyHomeDir: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
 	},
 	{target.TargetCodex, target.ScopeProject}: {
-		root: projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".codex/", relativePrefix: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
+		authoring: true,
+		root:      projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".codex/", relativePrefix: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
 	},
 	{target.TargetClaudeCode, target.ScopeGlobal}: {
 		root: claudePreferences, aliasRoot: output.RootHome, aliasDirectory: ".claude/", policy: "claude-native-v1",
@@ -184,6 +191,7 @@ type documentRule struct {
 	path          string
 	namedProfile  bool
 	dedicatedOnly bool
+	primaryOnly   bool
 	grammar       Grammar
 	class         DocumentClass
 	alternate     string
@@ -203,6 +211,7 @@ var documentRules = []documentRule{
 	{target: target.TargetClaudeCode, scope: target.ScopeProject, path: ".mcp.json", dedicatedOnly: true, grammar: JSON, class: SharedConfiguration},
 	{target: target.TargetOpenCode, path: "opencode.json", grammar: JSONC, class: SharedConfiguration, alternate: "opencode.jsonc", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
 	{target: target.TargetOpenCode, path: "opencode.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: "opencode.json", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
+	{target: target.TargetOpenCode, scope: target.ScopeGlobal, path: "config.json", primaryOnly: true, grammar: JSONC, class: SharedConfiguration, slots: mcpEntries | extensionMembership},
 	{target: target.TargetOpenCode, path: "tui.json", grammar: JSONC, class: SharedConfiguration, alternate: "tui.jsonc", observations: openCodeCandidates, slots: extensionMembership},
 	{target: target.TargetOpenCode, path: "tui.jsonc", grammar: JSONC, class: SharedConfiguration, alternate: "tui.json", observations: openCodeCandidates, slots: extensionMembership},
 	{target: target.TargetOpenCode, scope: target.ScopeProject, path: ".opencode/opencode.json", grammar: JSONC, class: SharedConfiguration, alternate: ".opencode/opencode.jsonc", observations: openCodeCandidates, slots: mcpEntries | extensionMembership},
@@ -263,9 +272,26 @@ type nativePathReservation struct {
 
 type nativePathFacet struct {
 	root            rootFact
+	prefix          string
 	paths           []nativePathReservation
 	moduleDirectory string
 	runtimeFiles    bool
+	directory       *nativeDirectoryReservation
+	linkedEntries   []string
+	fileCompanions  []string
+	filePatterns    []nativeFilenameReservation
+}
+
+type nativeDirectoryReservation struct {
+	owner      string
+	exemptions []string
+}
+
+type nativeFilenameReservation struct {
+	directory  string
+	patterns   []string
+	owner      string
+	companions []string
 }
 
 type nativePathFacets []nativePathFacet
@@ -326,6 +352,56 @@ var nativePathPolicies = map[target.Target]nativePathFacets{
 			{".sandbox-secrets", "sandbox credentials", true},
 		},
 	}},
+	target.TargetOpenCode: {
+		npmConfigurationFacet(openCodeRoot),
+		npmConfigurationFacet(openCodeLegacy),
+		scriptConfigurationFacet(openCodeRoot),
+		scriptConfigurationFacet(openCodeSources),
+		scriptConfigurationFacet(openCodeLegacy),
+		{
+			root: openCodeData,
+			directory: &nativeDirectoryReservation{
+				owner: "authentication and runtime data", exemptions: []string{"worktree"},
+			},
+			filePatterns: []nativeFilenameReservation{
+				{directory: ".", patterns: []string{"opencode.db", "opencode-*.db"}, owner: "authentication database", companions: sqliteCompanions},
+			},
+		},
+		{root: openCodeState, directory: &nativeDirectoryReservation{owner: "runtime state"}},
+		{
+			root: openCodeCache, directory: &nativeDirectoryReservation{owner: "installed code and cache"},
+			linkedEntries: []string{"bin", "packages", "packages/@*", "skills"},
+		},
+		npmConfigurationFacet(openCodeInstall),
+		{
+			root: openCodeDatabase, paths: []nativePathReservation{{".", "authentication database", true}},
+			fileCompanions: sqliteCompanions,
+		},
+		{root: openCodeMetadata, paths: []nativePathReservation{{".", "plugin registration state", true}}},
+	},
+}
+
+func npmConfigurationFacet(root rootFact) nativePathFacet {
+	return nativePathFacet{
+		root: root,
+		paths: []nativePathReservation{
+			{".gitignore", "package installation metadata", false},
+			{"node_modules", "installed package code", false},
+			{"package.json", "package installation metadata", false},
+			{"package-lock.json", "package installation metadata", false},
+		},
+		linkedEntries: []string{"node_modules", "node_modules/@*", "node_modules/.bin"},
+	}
+}
+
+func scriptConfigurationFacet(root rootFact) nativePathFacet {
+	return nativePathFacet{
+		root: root,
+		filePatterns: []nativeFilenameReservation{
+			{directory: "plugin", patterns: []string{"*.ts", "*.js"}, owner: "plugin code"},
+			{directory: "plugins", patterns: []string{"*.ts", "*.js"}, owner: "plugin code"},
+		},
+	}
 }
 
 type observationSet uint8

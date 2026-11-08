@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/output"
 	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -251,7 +253,11 @@ func SelectProtectionRoots(locations nativehostpath.Locations) (journalnamespace
 	if err != nil {
 		return journalnamespace.ReservationSelectors{}, err
 	}
-	var selected []journalnamespace.ReservationSelector
+	contracts, err := configuration.NativeRootContracts()
+	if err != nil {
+		return journalnamespace.ReservationSelectors{}, err
+	}
+	references := make(map[output.RootReference]struct{})
 	for _, policy := range policies {
 		if policy.Coverage() == configuration.ExclusionUnknown {
 			continue
@@ -260,33 +266,43 @@ func SelectProtectionRoots(locations nativehostpath.Locations) (journalnamespace
 		if err != nil {
 			return journalnamespace.ReservationSelectors{}, err
 		}
+		for _, contract := range contracts {
+			if contract.Host() == policy.Target() {
+				references[contract.Reference()] = struct{}{}
+			}
+		}
 		for _, facet := range facets {
-			if !facet.RequiresObservation() {
-				continue
+			if facet.RequiresObservation() {
+				references[facet.Reference()] = struct{}{}
 			}
-			location, err := locations.ResolveProtection(facet.Reference())
-			if err != nil {
-				unavailable, selectionErr := journalnamespace.UnavailableReservationSelector(facet.Reference(), location.Source(), err)
-				if selectionErr != nil {
-					return journalnamespace.ReservationSelectors{}, selectionErr
-				}
-				selected = append(selected, unavailable)
-				continue
+		}
+	}
+	ordered := slices.Collect(maps.Keys(references))
+	slices.SortFunc(ordered, output.RootReference.Compare)
+	var selected []journalnamespace.ReservationSelector
+	for _, reference := range ordered {
+		location, err := locations.ResolveProtection(reference)
+		if err != nil {
+			unavailable, selectionErr := journalnamespace.UnavailableReservationSelector(reference, location.Source(), err)
+			if selectionErr != nil {
+				return journalnamespace.ReservationSelectors{}, selectionErr
 			}
-			if location.Absent() {
-				absent, err := journalnamespace.AbsentReservationSelector(facet.Reference(), location.Source())
-				if err != nil {
-					return journalnamespace.ReservationSelectors{}, err
-				}
-				selected = append(selected, absent)
-				continue
-			}
-			selector, err := journalnamespace.NewReservationSelector(facet.Reference(), location.Path())
+			selected = append(selected, unavailable)
+			continue
+		}
+		if location.Absent() {
+			absent, err := journalnamespace.AbsentReservationSelector(reference, location.Source())
 			if err != nil {
 				return journalnamespace.ReservationSelectors{}, err
 			}
-			selected = append(selected, selector.DescribedBy(location.Source()))
+			selected = append(selected, absent)
+			continue
 		}
+		selector, err := journalnamespace.NewReservationSelector(reference, location.Path())
+		if err != nil {
+			return journalnamespace.ReservationSelectors{}, err
+		}
+		selected = append(selected, selector.DescribedBy(location.Source()))
 	}
 	return journalnamespace.NewReservationSelectors(selected)
 }

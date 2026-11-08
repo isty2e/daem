@@ -117,6 +117,8 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 	var err error
 	var result Location
 	switch reference.LocatorPolicy() {
+	case "selected-project-v1":
+		result = Location{path: locations.workDir, source: "selected location"}
 	case "pi-agent-location-v1":
 		result = locations.selected("PI_CODING_AGENT_DIR", filepath.Join(locations.home, ".pi", "agent"))
 		result.path, err = PiAgentDirectory(locations.values["PI_CODING_AGENT_DIR"], locations.workDir, locations.home)
@@ -131,8 +133,11 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 		result.path = locations.absolute(result.path)
 	case "opencode-location-v1":
 		result, err = locations.openCodePath("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
-	case "opencode-additional-location-v1":
+	case "opencode-additional-location-v1", "opencode-installation-location-v1":
 		value, present := locations.values["OPENCODE_CONFIG_DIR"]
+		if reference.LocatorPolicy() == "opencode-installation-location-v1" && value == "" {
+			present = false
+		}
 		result = Location{source: "OPENCODE_CONFIG_DIR", absent: !present}
 		if present {
 			cleaned := filepath.Clean(value)
@@ -143,6 +148,13 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 		}
 	case "opencode-legacy-location-v1":
 		result = Location{path: filepath.Join(locations.home, ".opencode"), source: "default location"}
+	case "opencode-source-location-v1":
+		value, present := locations.values["OPENCODE_CONFIG_DIR"]
+		present = present && value != ""
+		result = Location{source: "OPENCODE_CONFIG_DIR", absent: !present}
+		if present {
+			result.path = locations.openCodeAbsolute(value)
+		}
 	case "opencode-data-location-v1":
 		result, err = locations.openCodePath("XDG_DATA_HOME", filepath.Join(locations.home, ".local", "share"))
 	case "opencode-state-location-v1":

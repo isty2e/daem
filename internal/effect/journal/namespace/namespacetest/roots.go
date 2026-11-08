@@ -16,7 +16,7 @@ import (
 func Reservations(t testing.TB) namespace.ReservationSelectors {
 	t.Helper()
 	base := t.TempDir()
-	contracts, err := configuration.NativeRootContracts()
+	contracts, err := configuration.NativeProtectionLocations()
 	if err != nil {
 		t.Fatal(err)
 	}

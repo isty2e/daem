@@ -173,10 +173,7 @@ func (observer *physicalObserver) root(selector ReservationSelector) physicalRoo
 	}
 	value := physicalRootObservation{err: selector.failure}
 	if value.err == nil {
-		value.path, value.err = rootedpath.ResolveFutureReferentPathBounded(selector.Path(), physicalwork.MaximumPhysicalPathDepth, observer.budget)
-	}
-	if value.err == nil {
-		value.observation, value.err = mutation.ObserveDirectoryEntryAuthorityBounded(value.path, physicalwork.MaximumPhysicalPathDepth, observer.budget)
+		value = observeProtectionLocation(selector.Path(), observer.budget)
 	}
 	observer.roots[selector.reference] = value
 	return value

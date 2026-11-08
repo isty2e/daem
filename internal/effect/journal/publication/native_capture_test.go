@@ -259,13 +259,26 @@ func TestCapturedForwardRulesSurviveReloadWithoutBecomingFrozenRecoveryAdmission
 			if err := os.Mkdir(pi, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			var selectors []journalnamespace.ReservationSelector
+			overrides := make(map[output.RootReference]string)
 			for selected, path := range map[target.Target]string{target.TargetPi: pi, target.TargetCodex: filepath.Join(input.paths.ManifestRoot, "codex-unused")} {
 				reference, err := configuration.RootReferenceForScope(selected, target.ScopeGlobal)
 				if err != nil {
 					t.Fatal(err)
 				}
-				selector, err := journalnamespace.NewReservationSelector(reference, path)
+				overrides[reference] = path
+			}
+			contracts, err := configuration.NativeProtectionLocations()
+			if err != nil {
+				t.Fatal(err)
+			}
+			unrelated := t.TempDir()
+			var selectors []journalnamespace.ReservationSelector
+			for _, contract := range contracts {
+				path := overrides[contract.Reference()]
+				if path == "" {
+					path = filepath.Join(unrelated, contract.Reference().Identity())
+				}
+				selector, err := journalnamespace.NewReservationSelector(contract.Reference(), path)
 				if err != nil {
 					t.Fatal(err)
 				}

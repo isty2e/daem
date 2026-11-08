@@ -25,9 +25,18 @@ func NativeProtectionLocations() ([]ProtectionLocation, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]ProtectionLocation, 0, len(contracts)+5)
+	sources, err := openCodeSources.reference()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ProtectionLocation, 0, len(contracts)+6)
+	project, err := ProjectRootReference()
+	if err != nil {
+		return nil, err
+	}
+	result = append(result, ProtectionLocation{reference: project})
 	for _, contract := range contracts {
-		result = append(result, ProtectionLocation{reference: contract.Reference(), optional: contract.Reference() == extra})
+		result = append(result, ProtectionLocation{reference: contract.Reference(), optional: contract.Reference() == extra || contract.Reference() == sources})
 	}
 	for _, entry := range []struct {
 		root     rootFact
@@ -38,6 +47,7 @@ func NativeProtectionLocations() ([]ProtectionLocation, error) {
 		{openCodeCache, false},
 		{openCodeDatabase, true},
 		{openCodeMetadata, true},
+		{openCodeInstall, true},
 	} {
 		reference, err := entry.root.reference()
 		if err != nil {

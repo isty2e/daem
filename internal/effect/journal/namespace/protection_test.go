@@ -581,7 +581,7 @@ func TestNativeProtectionRechecksEndpointLinksBeforeReferentAcquisition(t *testi
 
 func protectionRoots(t *testing.T, pi, codex string) ReservationSelectors {
 	t.Helper()
-	var selected []ReservationSelector
+	fixture := fixtureProtection(t)
 	for host, path := range map[target.Target]string{target.TargetPi: pi, target.TargetCodex: codex} {
 		reference, err := configuration.RootReferenceForScope(host, target.ScopeGlobal)
 		if err != nil {
@@ -591,19 +591,15 @@ func protectionRoots(t *testing.T, pi, codex string) ReservationSelectors {
 		if err != nil {
 			t.Fatal(err)
 		}
-		selected = append(selected, selector)
+		fixture.selectors[reference] = selector
 	}
-	result, err := NewReservationSelectors(selected)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
+	return fixture
 }
 
 func fixtureProtection(t *testing.T) ReservationSelectors {
 	t.Helper()
 	base := t.TempDir()
-	contracts, err := configuration.NativeRootContracts()
+	contracts, err := configuration.NativeProtectionLocations()
 	if err != nil {
 		t.Fatal(err)
 	}

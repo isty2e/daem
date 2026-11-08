@@ -53,9 +53,9 @@ func TestNativeLocatorContractsKeepDistinctAnchorsAndLiteralParents(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if contract.Reference().Identity() == "opencode-additional-configuration" {
-			if !location.Absent() {
-				t.Fatal("unset additional configuration invented a directory", location)
+		if location.Absent() {
+			if contract.SupportsAliases() {
+				t.Fatal("a writer root became an absent optional location", location)
 			}
 			continue
 		}

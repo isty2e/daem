@@ -94,12 +94,13 @@ func TestReservationDescendantPossibilityUsesTheEntireStablePrefix(t *testing.T)
 		}
 		for _, facet := range facets {
 			for _, prefix := range []string{"extension-settings", "extension-settings/user", "knowné"} {
-				if facet.CouldReserveBelow(prefix) {
+				_, reserved := facet.ReservationAt(prefix)
+				if !reserved && facet.CouldReserveBelow(prefix) {
 					t.Fatal("stable ordinary prefix became an unknown reservation", policy.Target(), prefix)
 				}
 			}
-			if policy.Target() == target.TargetPi {
-				if !facet.CouldReserveBelow("extensions/pkg") || facet.CouldReserveBelow("extensions/pkg/source") {
+			if directory := facet.ModuleDirectory(); directory != "" {
+				if !facet.CouldReserveBelow(directory+"/pkg") || facet.CouldReserveBelow(directory+"/pkg/source") {
 					t.Fatal("module entrypoint possibility lost its admitted depth")
 				}
 			} else if policy.Target() == target.TargetCodex {

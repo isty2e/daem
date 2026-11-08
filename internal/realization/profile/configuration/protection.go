@@ -3,6 +3,7 @@ package configuration
 import (
 	"cmp"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -41,6 +42,7 @@ func NativeRootContracts() ([]NativeRootContract, error) {
 		{claudeAccount, target.TargetClaudeCode, NativeEndpoints},
 		{openCodeRoot, target.TargetOpenCode, NativeDirectory},
 		{openCodeExtra, target.TargetOpenCode, NativeDirectory},
+		{openCodeSources, target.TargetOpenCode, NativeDirectory},
 		{openCodeLegacy, target.TargetOpenCode, NativeDirectory},
 		{antigravityRoot, target.TargetAntigravityCLI, NativeDirectory},
 		{antigravityShared, target.TargetAntigravityCLI, NativeEndpoints},
@@ -103,6 +105,8 @@ func NativeRootDescription(reference output.RootReference) string {
 		{claudeAccount, "claude account location"},
 		{openCodeRoot, "opencode configuration directory"},
 		{openCodeExtra, "opencode additional configuration directory"},
+		{openCodeSources, "opencode additional definition directory"},
+		{openCodeInstall, "opencode package-installation directory"},
 		{openCodeLegacy, "opencode home configuration directory"},
 		{openCodeData, "opencode data directory"},
 		{openCodeState, "opencode state directory"},
@@ -144,6 +148,29 @@ func NativeExclusionPolicies() ([]ExclusionPolicy, error) {
 			result = append(result, ExclusionPolicy{target: host})
 			continue
 		}
+		for _, facet := range facets {
+			companionGroups := [][]string{facet.fileCompanions}
+			for _, directory := range facet.linkedEntries {
+				if _, err := path.Match(directory, ""); err != nil {
+					return nil, fmt.Errorf("invalid native directory reservation: %w", err)
+				}
+			}
+			for _, rule := range facet.filePatterns {
+				companionGroups = append(companionGroups, rule.companions)
+				for _, pattern := range rule.patterns {
+					if _, err := path.Match(pattern, ""); err != nil {
+						return nil, fmt.Errorf("invalid native filename reservation: %w", err)
+					}
+				}
+			}
+			for _, companions := range companionGroups {
+				for _, suffix := range companions {
+					if suffix == "" || strings.ContainsAny(suffix, "/\\\x00") {
+						return nil, fmt.Errorf("related-file suffix is not an admitted filename suffix")
+					}
+				}
+			}
+		}
 		requirements, err := protectionForFacets(facets)
 		if err != nil {
 			return nil, fmt.Errorf("native exclusions for %s: %w", host, err)
@@ -175,6 +202,36 @@ func (policy ExclusionPolicy) Facets() ([]ExclusionFacet, error) {
 			return nil, err
 		}
 		result = append(result, ExclusionFacet{reference: reference, fact: facet})
+		global, globalPresent := nativeLayouts[scopeKey{policy.target, target.ScopeGlobal}]
+		project, projectPresent := nativeLayouts[scopeKey{policy.target, target.ScopeProject}]
+		if !globalPresent || !projectPresent || facet.root != global.root {
+			continue
+		}
+		prefix := strings.TrimSuffix(project.relativePrefix, "/")
+		if prefix == "" {
+			prefix = strings.TrimSuffix(project.subtree, "/")
+		}
+		if prefix == "" {
+			continue
+		}
+		projectFacet := facet
+		projectFacet.root, projectFacet.prefix = project.root, prefix
+		projectFacet.paths = nil
+		projectFacet.runtimeFiles = false
+		projectFacet.directory = nil
+		projectFacet.fileCompanions = nil
+		for _, reservation := range facet.paths {
+			if !reservation.globalOnly {
+				projectFacet.paths = append(projectFacet.paths, reservation)
+			}
+		}
+		if projectFacet.hasReservations() {
+			reference, err := project.root.reference()
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, ExclusionFacet{reference: reference, fact: projectFacet})
+		}
 	}
 	slices.SortFunc(result, func(left, right ExclusionFacet) int {
 		return left.reference.Compare(right.reference)
@@ -194,17 +251,24 @@ func (facet ExclusionFacet) Reference() output.RootReference { return facet.refe
 func (facet ExclusionFacet) RequiresObservation() bool { return facet.fact.hasReservations() }
 
 type PathReservation struct {
-	path  string
-	owner string
+	path       string
+	owner      string
+	companions []string
 }
 
 func (reservation PathReservation) Path() string  { return reservation.path }
 func (reservation PathReservation) Owner() string { return reservation.owner }
+func (reservation PathReservation) CompanionSuffixes() []string {
+	return slices.Clone(reservation.companions)
+}
 
 func (facet ExclusionFacet) FixedReservations() []PathReservation {
 	result := make([]PathReservation, 0, len(facet.fact.paths))
 	for _, reservation := range facet.fact.paths {
-		result = append(result, PathReservation{path: reservation.path, owner: reservation.owner})
+		selected, reserved := facet.ReservationAt(facet.boundPath(reservation.path))
+		if reserved {
+			result = append(result, selected)
+		}
 	}
 	if facet.fact.runtimeFiles {
 		for _, stem := range daemonRuntimeStems {
@@ -221,24 +285,82 @@ func (facet ExclusionFacet) FixedReservations() []PathReservation {
 // the spelling or scope of a document alias, determines these reservations.
 func (facet ExclusionFacet) ReservationAt(relative string) (PathReservation, bool) {
 	reservation, reserved := facet.fact.reservationAt(target.ScopeGlobal, relative)
-	return PathReservation{path: reservation.path, owner: reservation.owner}, reserved
+	result := PathReservation{path: reservation.path, owner: reservation.owner}
+	if reserved {
+		local, _ := facet.fact.localPath(relative)
+		result.path = facet.boundPath(reservation.path)
+		if rule, matched := facet.fact.filenameReservation(local); matched {
+			result.companions = slices.Clone(rule.companions)
+		} else if local == "." {
+			result.companions = slices.Clone(facet.fact.fileCompanions)
+		} else if facet.HasRuntimePatterns() && strings.HasSuffix(relative, ".sqlite") {
+			result.companions = slices.Clone(sqliteCompanions)
+		}
+	}
+	return result, reserved
 }
 
-func (facet ExclusionFacet) ModuleDirectory() string  { return facet.fact.moduleDirectory }
+func (facet ExclusionFacet) ModuleDirectory() string {
+	if facet.fact.moduleDirectory == "" {
+		return ""
+	}
+	return facet.boundPath(facet.fact.moduleDirectory)
+}
 func (facet ExclusionFacet) HasRuntimePatterns() bool { return facet.fact.runtimeFiles }
+
+func (facet ExclusionFacet) LinkedEntryDirectories() []string {
+	result := slices.Clone(facet.fact.linkedEntries)
+	for _, pattern := range facet.fact.filePatterns {
+		result = append(result, pattern.directory)
+	}
+	if facet.fact.directory != nil {
+		result = append(result, ".")
+	}
+	for index, directory := range result {
+		result[index] = facet.boundPath(directory)
+	}
+	slices.Sort(result)
+	return slices.Compact(result)
+}
 
 func (facet ExclusionFacet) CouldReserveBelow(prefix string) bool {
 	if prefix == "" {
 		return facet.RequiresObservation()
 	}
+	if facet.fact.prefix != "" {
+		if prefix == facet.fact.prefix || strings.HasPrefix(facet.fact.prefix, prefix+"/") {
+			return facet.RequiresObservation()
+		}
+		local, inside := facet.fact.localPath(prefix)
+		if !inside {
+			return false
+		}
+		facet.fact.prefix = ""
+		return facet.CouldReserveBelow(local)
+	}
 	if _, reserved := facet.ReservationAt(prefix); reserved {
 		return true
+	}
+	for _, pattern := range facet.fact.filePatterns {
+		if pattern.directory == prefix || strings.HasPrefix(pattern.directory, prefix+"/") {
+			return true
+		}
 	}
 	parts := strings.Split(prefix, "/")
 	if directory := facet.ModuleDirectory(); directory != "" && parts[0] == directory && len(parts) <= 2 {
 		return true
 	}
 	return facet.HasRuntimePatterns() && prefix == "app-server-daemon"
+}
+
+func (facet ExclusionFacet) boundPath(relative string) string {
+	if facet.fact.prefix == "" {
+		return relative
+	}
+	if relative == "." {
+		return facet.fact.prefix
+	}
+	return facet.fact.prefix + "/" + relative
 }
 
 func (facet ExclusionFacet) RuntimeReservations(names []string) []PathReservation {
@@ -294,12 +416,14 @@ func (facet ExclusionFacet) ModuleReservations(names, packages []string) []PathR
 // KnownRootDocuments projects the existing document rules, including named
 // profiles found by a bounded directory observation. It performs no I/O.
 func KnownRootDocuments(reference output.RootReference, names []string) ([]DocumentSpec, error) {
+	primary := true
 	for _, root := range []rootFact{openCodeExtra, openCodeLegacy} {
 		selected, err := root.reference()
 		if err != nil {
 			return nil, err
 		}
 		if reference == selected {
+			primary = false
 			reference, err = openCodeRoot.reference()
 			if err != nil {
 				return nil, err
@@ -321,6 +445,9 @@ func KnownRootDocuments(reference output.RootReference, names []string) ([]Docum
 		}
 		for _, rule := range documentRules {
 			if rule.target != context.target || rule.scope != "" && rule.scope != context.scope || rule.dedicatedOnly {
+				continue
+			}
+			if rule.primaryOnly && !primary {
 				continue
 			}
 			paths := []string{rule.path}

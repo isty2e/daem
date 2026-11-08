@@ -20,12 +20,24 @@ import (
 
 func nativePermissionLocations(t *testing.T, pi, codex string) journalnamespace.ReservationSelectors {
 	t.Helper()
+	contracts, err := configuration.NativeProtectionLocations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	paths := make(map[output.RootReference]string)
+	for _, contract := range contracts {
+		paths[contract.Reference()] = filepath.Join(base, contract.Reference().Identity())
+	}
 	var selectors []journalnamespace.ReservationSelector
 	for host, path := range map[target.Target]string{target.TargetPi: pi, target.TargetCodex: codex} {
 		reference, err := configuration.RootReferenceForScope(host, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
+		paths[reference] = path
+	}
+	for reference, path := range paths {
 		selector, err := journalnamespace.NewReservationSelector(reference, path)
 		if err != nil {
 			t.Fatal(err)

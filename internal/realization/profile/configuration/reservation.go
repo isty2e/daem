@@ -3,6 +3,7 @@ package configuration
 import (
 	"errors"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 
@@ -198,12 +199,25 @@ func nativePathsOverlap(left, right string) bool {
 }
 
 func requireNativePath(selected target.Target, scope target.Scope, nativePath string) error {
+	selectedLayout, err := selectLayout(selected, scope)
+	if err != nil {
+		return err
+	}
+	if !selectedLayout.authoring {
+		return fmt.Errorf("native host configuration authoring is not enabled for %s/%s", selected, scope)
+	}
+	if !selectedLayout.contains(nativePath) {
+		return fmt.Errorf("%w: %q is outside its native layout", ErrReserved, nativePath)
+	}
 	facets, known := nativePathPolicies[selected]
 	if !known {
 		return fmt.Errorf("host configuration target %q is unsupported until its native path policy is reviewed", selected)
 	}
 	if nativePathsOverlap(nativePath, ".git") {
 		return fmt.Errorf("%w: %q belongs to repository metadata", ErrReserved, nativePath)
+	}
+	if selectedLayout.subtree != "" {
+		nativePath = strings.TrimPrefix(nativePath, selectedLayout.subtree)
 	}
 	layout, err := selectLayout(selected, target.ScopeGlobal)
 	if err != nil {
@@ -247,7 +261,7 @@ func requireNativeRootPath(facets nativePathFacets, root rootFact, scope target.
 }
 
 func (facet nativePathFacet) hasReservations() bool {
-	return len(facet.paths) != 0 || facet.moduleDirectory != "" || facet.runtimeFiles
+	return len(facet.paths) != 0 || facet.moduleDirectory != "" || facet.runtimeFiles || facet.directory != nil || len(facet.filePatterns) != 0
 }
 
 func (facet nativePathFacet) requirePath(scope target.Scope, nativePath string) error {
@@ -258,6 +272,18 @@ func (facet nativePathFacet) requirePath(scope target.Scope, nativePath string) 
 }
 
 func (facet nativePathFacet) reservationAt(scope target.Scope, nativePath string) (nativePathReservation, bool) {
+	local, inside := facet.localPath(nativePath)
+	if !inside {
+		return nativePathReservation{}, false
+	}
+	nativePath = local
+	if facet.directory != nil {
+		for _, exemption := range facet.directory.exemptions {
+			if nativePath == exemption || strings.HasPrefix(nativePath, exemption+"/") {
+				return nativePathReservation{}, false
+			}
+		}
+	}
 	for _, reservation := range facet.paths {
 		if reservation.globalOnly && scope != target.ScopeGlobal {
 			continue
@@ -265,6 +291,12 @@ func (facet nativePathFacet) reservationAt(scope target.Scope, nativePath string
 		if nativePathsOverlap(nativePath, reservation.path) {
 			return reservation, true
 		}
+	}
+	if pattern, matched := facet.filenameReservation(nativePath); matched {
+		return nativePathReservation{path: nativePath, owner: pattern.owner}, true
+	}
+	if facet.directory != nil {
+		return nativePathReservation{path: nativePath, owner: facet.directory.owner}, true
 	}
 	if facet.moduleDirectory != "" && moduleEntrypointPath(nativePath, facet.moduleDirectory) {
 		return nativePathReservation{path: nativePath, owner: "extension loading"}, true
@@ -275,7 +307,40 @@ func (facet nativePathFacet) reservationAt(scope target.Scope, nativePath string
 	return nativePathReservation{}, false
 }
 
+func (facet nativePathFacet) localPath(nativePath string) (string, bool) {
+	if facet.prefix == "" {
+		return nativePath, true
+	}
+	if nativePath == facet.prefix {
+		return ".", true
+	}
+	return strings.CutPrefix(nativePath, facet.prefix+"/")
+}
+
+func (facet nativePathFacet) filenameReservation(nativePath string) (nativeFilenameReservation, bool) {
+	for _, rule := range facet.filePatterns {
+		name := nativePath
+		if rule.directory != "." {
+			var inside bool
+			name, inside = strings.CutPrefix(nativePath, rule.directory+"/")
+			if !inside {
+				continue
+			}
+		}
+		if strings.ContainsRune(name, '/') {
+			continue
+		}
+		for _, pattern := range rule.patterns {
+			if matched, _ := path.Match(pattern, name); matched {
+				return rule, true
+			}
+		}
+	}
+	return nativeFilenameReservation{}, false
+}
+
 var (
+	sqliteCompanions      = []string{"-journal", "-wal", "-shm"}
 	moduleEntryNames      = [...]string{"index.ts", "index.js", "package.json"}
 	moduleIgnoreNames     = [...]string{".gitignore", ".ignore", ".fdignore"}
 	daemonRuntimeStems    = [...]string{"app-server", "app-server-updater"}

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -67,6 +69,9 @@ func (failure *ProtectionError) Endpoint() string {
 	if failure.endpoint != "" {
 		return failure.endpoint
 	}
+	if failure.reservation.Path() == "." {
+		return "selected file"
+	}
 	return failure.reservation.Path()
 }
 
@@ -77,7 +82,7 @@ func (failure *ProtectionError) Unwrap() error { return failure.cause }
 
 func (failure *ProtectionError) Error() string {
 	if failure.kind == ProtectionReserved {
-		return fmt.Sprintf("native document %q reaches %s %q, which belongs to %s; daem does not read or manage it", failure.address.AggregateRoot().String(), failure.host, failure.reservation.Path(), failure.reservation.Owner())
+		return fmt.Sprintf("native document %q reaches %s %q, which belongs to %s; daem does not read or manage it", failure.address.AggregateRoot().String(), failure.host, failure.Endpoint(), failure.reservation.Owner())
 	}
 	location := "the " + configuration.NativeRootDescription(failure.reference)
 	if failure.source == "default location" {
@@ -161,11 +166,17 @@ func protectionPathRelation(left, right mutation.DirectoryEntryAuthorityObservat
 }
 
 func observeProtectionPath(path string, budget rootedpath.PhysicalTraversalBudget) (mutation.DirectoryEntryAuthorityObservation, error) {
-	resolved, err := rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return mutation.DirectoryEntryAuthorityObservation{}, err
+	value := observeProtectionLocation(path, budget)
+	return value.observation, value.err
+}
+
+func observeProtectionLocation(path string, budget rootedpath.PhysicalTraversalBudget) physicalRootObservation {
+	var value physicalRootObservation
+	value.path, value.err = rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if value.err == nil {
+		value.observation, value.err = mutation.ObserveDirectoryEntryAuthorityBounded(value.path, physicalwork.MaximumPhysicalPathDepth, budget)
 	}
-	return mutation.ObserveDirectoryEntryAuthorityBounded(resolved, physicalwork.MaximumPhysicalPathDepth, budget)
+	return value
 }
 
 // protectionFailures keeps every cause for bounded evidence while presenting
@@ -241,10 +252,10 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 		return ctx.Err()
 	}
 	budget := observer.budget
-	unverified := func(address aggregate.DocumentAddress, uncertainty ProtectionUncertainty, reservation configuration.PathReservation, cause error) error {
+	unverified := func(address aggregate.DocumentAddress, uncertainty ProtectionUncertainty, reservation configuration.PathReservation, cause error) *ProtectionError {
 		return &ProtectionError{kind: ProtectionUnverified, uncertainty: uncertainty, address: address, host: host, reference: facet.Reference(), source: selector.source, reservation: reservation, cause: cause}
 	}
-	indeterminate := func(address aggregate.DocumentAddress, selected mutation.DirectoryEntryAuthorityObservation, reservation configuration.PathReservation) error {
+	indeterminate := func(address aggregate.DocumentAddress, selected mutation.DirectoryEntryAuthorityObservation, reservation configuration.PathReservation) *ProtectionError {
 		uncertainty := ProtectionRegionIndeterminate
 		if _, exact := selected.Exact(); !exact {
 			uncertainty = ProtectionDocumentIndeterminate
@@ -300,34 +311,174 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 	if err := checkRegion(resolved.observation, ""); err != nil {
 		return err
 	}
+	checkObservation := func(endpoint mutation.DirectoryEntryAuthorityObservation, reservation configuration.PathReservation, label string) error {
+		for index, alias := range aliases {
+			for _, selected := range []mutation.DirectoryEntryAuthorityObservation{routes[index], alias.observation} {
+				if selected.Validate() != nil {
+					continue
+				}
+				switch protectionPathRelation(endpoint, selected) {
+				case protectionOverlap:
+					return &ProtectionError{kind: ProtectionReserved, address: alias.address, host: host, reference: facet.Reference(), reservation: reservation, endpoint: label, cause: configuration.ErrReserved}
+				case protectionIndeterminate:
+					failure := indeterminate(alias.address, selected, reservation)
+					failure.endpoint = label
+					incomplete.add(failure)
+				}
+			}
+		}
+		return nil
+	}
+	checkEndpoint := func(path string, reservation configuration.PathReservation) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		endpoint := observeProtectionLocation(path, budget)
+		if endpoint.err != nil {
+			incomplete.add(unverified(aliases[0].address, ProtectionEndpointUnavailable, reservation, endpoint.err))
+		} else if err := checkObservation(endpoint.observation, reservation, ""); err != nil {
+			return err
+		}
+		for _, suffix := range reservation.CompanionSuffixes() {
+			label := reservation.Path() + suffix
+			if reservation.Path() == "." {
+				label = "selected file" + suffix
+			}
+			anchors := []string{path}
+			if endpoint.err == nil && endpoint.path != path {
+				anchors = append(anchors, endpoint.path)
+			}
+			for _, anchor := range anchors {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				companion, err := observeProtectionPath(anchor+suffix, budget)
+				if err != nil {
+					failure := unverified(aliases[0].address, ProtectionEndpointUnavailable, reservation, err)
+					failure.endpoint = label
+					incomplete.add(failure)
+					continue
+				}
+				if err := checkObservation(companion, reservation, label); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
 	checkReservations := func(reservations []configuration.PathReservation) error {
 		for _, reservation := range reservations {
-			if err := ctx.Err(); err != nil {
+			path := filepath.Join(physical, filepath.FromSlash(reservation.Path()))
+			if reservation.Path() == "." {
+				path = selector.Path()
+			}
+			if err := checkEndpoint(path, reservation); err != nil {
 				return err
-			}
-			endpoint, err := observeProtectionPath(filepath.Join(physical, filepath.FromSlash(reservation.Path())), budget)
-			if err != nil {
-				incomplete.add(unverified(aliases[0].address, ProtectionEndpointUnavailable, reservation, err))
-				continue
-			}
-			for index, alias := range aliases {
-				for _, selected := range []mutation.DirectoryEntryAuthorityObservation{routes[index], alias.observation} {
-					if selected.Validate() != nil {
-						continue
-					}
-					switch protectionPathRelation(endpoint, selected) {
-					case protectionOverlap:
-						return &ProtectionError{kind: ProtectionReserved, address: alias.address, host: host, reference: facet.Reference(), reservation: reservation, cause: configuration.ErrReserved}
-					case protectionIndeterminate:
-						incomplete.add(indeterminate(alias.address, selected, reservation))
-					}
-				}
 			}
 		}
 		return nil
 	}
 	if err := checkReservations(facet.FixedReservations()); err != nil {
 		return err
+	}
+	linkedFailure := func(label string, cause error) {
+		reason := ProtectionEndpointUnavailable
+		if observer.budget.work == nil {
+			reason = ProtectionAllocationUnavailable
+		}
+		failure := unverified(aliases[0].address, reason, configuration.PathReservation{}, cause)
+		failure.endpoint = label
+		if label == "." {
+			failure.endpoint = "root directory"
+		}
+		incomplete.add(failure)
+	}
+	nonDirectories := make(map[string]struct{})
+	isNonDirectory := func(relative string) bool {
+		for candidate := relative; candidate != "."; candidate = path.Dir(candidate) {
+			if _, present := nonDirectories[candidate]; present {
+				return true
+			}
+		}
+		return false
+	}
+	directoryEntries := func(relative, label string) (rootedpath.DirectoryNames, bool) {
+		if isNonDirectory(relative) {
+			return rootedpath.DirectoryNames{}, false
+		}
+		candidate, err := rootedpath.ResolveFutureReferentPathBounded(filepath.Join(physical, filepath.FromSlash(relative)), physicalwork.MaximumPhysicalPathDepth, budget)
+		if err != nil {
+			linkedFailure(label, err)
+			return rootedpath.DirectoryNames{}, false
+		}
+		entries, err := observer.directory(ctx, candidate)
+		if relative != "." && nonDirectoryObservation(candidate, err) {
+			nonDirectories[relative] = struct{}{}
+			return rootedpath.DirectoryNames{}, false
+		}
+		if err != nil {
+			linkedFailure(label, err)
+			return rootedpath.DirectoryNames{}, false
+		}
+		return entries, entries.Present()
+	}
+	for _, pattern := range facet.LinkedEntryDirectories() {
+		directories := []string{pattern}
+		if namePattern := filepath.Base(pattern); strings.ContainsAny(namePattern, "*?[") {
+			parent := filepath.Dir(pattern)
+			entries, present := directoryEntries(parent, pattern)
+			if !present {
+				continue
+			}
+			directories = nil
+			for _, name := range entries.Names() {
+				if matched, _ := filepath.Match(namePattern, name); matched {
+					directories = append(directories, filepath.ToSlash(filepath.Join(parent, name)))
+				}
+			}
+		}
+		for _, directory := range directories {
+			entries, present := directoryEntries(directory, pattern)
+			if !present {
+				continue
+			}
+			root, err := observeProtectionPath(entries.PhysicalPath(), budget)
+			if err != nil {
+				linkedFailure(pattern, err)
+				continue
+			}
+			if err := checkRegion(root, directory); err != nil {
+				return err
+			}
+			key, exact := root.Exact()
+			if !exact {
+				incomplete.add(indeterminate(aliases[0].address, root, configuration.PathReservation{}))
+				continue
+			}
+			for _, name := range entries.Names() {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				path := filepath.Join(entries.PhysicalPath(), name)
+				route, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+				if err != nil {
+					linkedFailure(pattern, err)
+					continue
+				}
+				entry, exact := route.Exact()
+				canonical, immediate := key.ImmediateChildName(entry)
+				if !exact || !immediate {
+					incomplete.add(indeterminate(aliases[0].address, route, configuration.PathReservation{}))
+					continue
+				}
+				reservation, reserved := facet.ReservationAt(filepath.ToSlash(filepath.Join(directory, canonical)))
+				if reserved {
+					if err := checkEndpoint(path, reservation); err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 	observeNames := func(path string, reservation configuration.PathReservation) ([]string, bool) {
 		entries, err := observer.directory(ctx, path)
@@ -355,7 +506,8 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 		} else if err := checkRegion(module, directory); err != nil {
 			return err
 		}
-		names, observed := observeNames(filepath.Join(physical, directory), reservation)
+		entries, observed := directoryEntries(directory, directory)
+		names := entries.Names()
 		var packages []string
 		if observed {
 			for _, name := range names {
@@ -375,7 +527,9 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 				packages = append(packages, name)
 			}
 		}
-		patterns = append(patterns, facet.ModuleReservations(names, packages)...)
+		if !isNonDirectory(directory) {
+			patterns = append(patterns, facet.ModuleReservations(names, packages)...)
+		}
 	}
 	if err := checkReservations(patterns); err != nil {
 		return err
