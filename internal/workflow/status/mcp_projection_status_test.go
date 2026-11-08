@@ -658,7 +658,7 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("resolve ownership paths: %v", err)
 	}
-	physical, err := destinationResolver(paths).Resolve(destination)
+	physical, err := destinationResolver(paths).Resolve(destination, nil)
 	if err != nil {
 		t.Fatalf("resolve ownership destination: %v", err)
 	}

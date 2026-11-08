@@ -53,7 +53,7 @@ func testStateReader(path string) durable.SnapshotReader {
 func testPlanLoadOptions(paths Paths) journal.PlanLoadOptions {
 	return journal.PlanLoadOptions{
 		Filesystem:  testFilesystem(),
-		Resolver:    destinationResolver(paths),
+		Resolver:    journalDestinationResolver(paths),
 		Codecs:      testAggregateCodecs(),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(paths.StatefilePath),
@@ -80,7 +80,7 @@ func loadActivePlanWithTestCodecs(ctx context.Context, paths Paths) (recovery.Pl
 		paths.JournalPaths(),
 		journal.PlanLoadOptions{
 			Filesystem:        testFilesystem(),
-			Resolver:          destinationResolver(paths),
+			Resolver:          journalDestinationResolver(paths),
 			OwnershipRegistry: registry,
 			Codecs:            testAggregateCodecs(),
 			StateCodec:        testStateCodec(),

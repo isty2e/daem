@@ -37,7 +37,7 @@ func observeRefreshProtectionFence(ctx context.Context, paths daempaths.Paths, p
 		return refreshProtectionFence{}, err
 	}
 	var result refreshProtectionFence
-	opaque, err := profile.FencePaths(paths)
+	opaque, err := profile.FencePaths(paths, budget)
 	if err != nil {
 		return refreshProtectionFence{}, err
 	}

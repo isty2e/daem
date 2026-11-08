@@ -264,7 +264,7 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 		t.Fatal(err)
 	}
 	load := journal.PlanLoadOptions{
-		Resolver: input.Resolver, Filesystem: filesystem, OwnershipRegistry: reader,
+		Resolver: func(destination output.Destination) (string, error) { return input.Resolver(destination, budget) }, Filesystem: filesystem, OwnershipRegistry: reader,
 		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
 		NativeDocuments: &journal.Profile{
 			Protection: namespacetest.Reservations(t),
@@ -305,11 +305,11 @@ func nativeOrderWithOrdinaryMCP(t *testing.T, input NativeApplyInput) (NativeApp
 	ordinary := effects[0].DocumentAddress().AggregateRoot()
 	host := filepath.Join(input.Paths.ManifestRoot, ".mcp.json")
 	resolve := input.Resolver
-	input.Resolver = func(destination output.Destination) (string, error) {
+	input.Resolver = func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (string, error) {
 		if destination == ordinary {
 			return host, nil
 		}
-		return resolve(destination)
+		return resolve(destination, budget)
 	}
 	return input, host
 }

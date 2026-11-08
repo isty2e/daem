@@ -421,6 +421,7 @@ type commandContext struct {
 	Selection                    targetselection.Selection
 	SourceEpoch                  lockobserve.SourceEpoch
 	PersistenceEpoch             readiness.PersistenceEpoch
+	physicalBudget               *physicalwork.Budget
 	RelationObservationsExplicit bool
 	ManageUnmanagedMatches       bool
 	nativeReplacement            *topologyprojection.HostConfigKeySelection
@@ -621,6 +622,7 @@ func BuildDiffs(ctx context.Context, result DryRunPlan) (DryRunDiffCollection, e
 		result.planned.context.SourceEpoch,
 		result.planned.result.Reconciliation,
 		nil,
+		result.planned.context.physicalBudget,
 	)
 }
 
@@ -679,7 +681,7 @@ func planReadinessAtPathsWithAssessor(
 	planning, observation, err := assessor(ctx, readiness.Input{
 		Context:                 operationContext,
 		Paths:                   loaded.Paths,
-		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
+		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).ForBudget(loaded.physicalBudget).Resolve),
 		Environment:             loaded.RuntimeEnvironment,
 		Lockfile:                loaded.Lockfile,
 		Selection:               loaded.Selection,
@@ -882,6 +884,10 @@ func loadCommandInputsAtPaths(
 	if err != nil {
 		return commandContext{}, result, err
 	}
+	physicalBudget, err := persistenceEpoch.PhysicalBudget()
+	if err != nil {
+		return commandContext{}, result, err
+	}
 	globalCarrierClaims, err := persistenceEpoch.CarrierClaims()
 	if err != nil {
 		return commandContext{}, result, err
@@ -931,6 +937,7 @@ func loadCommandInputsAtPaths(
 		Selection:                    selection,
 		SourceEpoch:                  sourceEpoch,
 		PersistenceEpoch:             persistenceEpoch,
+		physicalBudget:               physicalBudget,
 		RelationObservationsExplicit: input.RelationObservations != nil,
 		ManageUnmanagedMatches:       input.ManageUnmanagedMatches,
 		nativeReplacement:            input.nativeReplacement,

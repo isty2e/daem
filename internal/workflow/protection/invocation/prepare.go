@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -13,7 +14,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/protection"
 	"github.com/isty2e/daem/internal/effect/protection/namespace"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -87,7 +87,7 @@ func PrepareInvocation(ctx context.Context, input InvocationInput, budget *physi
 		var target invocationDocument
 		for _, binding := range document.Bindings() {
 			paths := contexts[binding.Owner()]
-			path, err := managedhostpath.Resolver(paths).Resolve(binding.Destination())
+			path, err := physicalhostpath.NewResolver(paths).Resolve(binding.Destination(), budget)
 			if err != nil {
 				return InvocationInput{}, err
 			}

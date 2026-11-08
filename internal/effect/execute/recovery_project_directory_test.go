@@ -170,7 +170,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 			ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			RemovalDemands:       removalDemands,
-			Resolver:             destinationResolver(paths),
+			Resolver:             journalDestinationResolver(paths),
 			StateCodec:           testStateCodec(),
 		},
 	); err != nil {

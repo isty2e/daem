@@ -65,6 +65,7 @@ func BuildDryRunDiffs(
 	sourceEpoch lockobserve.SourceEpoch,
 	planResult reconcile.Result,
 	projectRoot *rootedpath.CapturedRoot,
+	physicalBudget rootedpath.PhysicalTraversalBudget,
 ) (result DryRunDiffCollection, resultErr error) {
 	managedPaths, uninspected, err := planResult.ManagedPathsUpTo(
 		maximumDryRunDiffDecisions,
@@ -97,7 +98,7 @@ func BuildDryRunDiffs(
 			resultErr = errors.Join(resultErr, projectRoot.Close())
 		}()
 	}
-	resolver := destinationResolver(paths).Resolve
+	resolver := destinationResolver(paths).ForBudget(physicalBudget).Resolve
 	budget := dryRunDiffCollectionBudget{remainingBytes: maximumDryRunDiffOperationBytes}
 
 	for _, decision := range decisions {

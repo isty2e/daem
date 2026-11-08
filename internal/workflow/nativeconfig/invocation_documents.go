@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
@@ -18,7 +19,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -99,7 +99,7 @@ func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, inpu
 	}
 	for _, namespace := range input.Documents.Evidence().Namespaces() {
 		aliases := namespace.Addresses()
-		path, err := managedhostpath.Resolver(paths).Resolve(aliases[0].AggregateRoot())
+		path, err := physicalhostpath.NewResolver(paths).Resolve(aliases[0].AggregateRoot(), input.Budget)
 		if err != nil {
 			return InvocationDocuments{}, err
 		}

@@ -105,7 +105,7 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 					if (err == nil) != (want == lock.ActuationDelegatedHostRoute) {
 						t.Fatal("direct removal gained an invocation rewrite", err)
 					}
-					rewrite, err := selected.RewritePaths(paths)
+					rewrite, err := selected.RewritePaths(paths, nil)
 					var expectedRewrite []string
 					switch row.carrier {
 					case desiredextension.CarrierPiPackage:
@@ -129,7 +129,7 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 						}
 					}
 					if operation == lock.OperationRefresh {
-						fence, err := selected.FencePaths(paths)
+						fence, err := selected.FencePaths(paths, nil)
 						if row.carrier == desiredextension.CarrierPiPackage {
 							count = 2
 						}

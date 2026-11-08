@@ -24,7 +24,9 @@ func namespaceForTest(t *testing.T, project string) Namespace {
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := New(hostpath.NewResolver(project).Resolve, phase)
+	namespace, err := New(func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
+		return hostpath.NewResolver(project).Resolve(destination)
+	}, phase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +89,49 @@ func TestGlobalSiblingsShareOneRetainedRoot(t *testing.T) {
 	}
 	if _, err := retained.Authority(); err == nil {
 		t.Fatal("Close retained the owned global root")
+	}
+}
+
+func TestGlobalBindingAndJournalFallbackUseTheNamespacePhase(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	budget, err := physicalwork.NewBudget(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phase, err := physicalwork.NewTraversalPhase(budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	resolve := func(destination output.Destination, supplied rootedpath.PhysicalTraversalBudget) (string, error) {
+		if supplied != phase {
+			t.Fatal("global expansion did not receive its actual traversal phase")
+		}
+		calls++
+		return hostpath.NewResolver(home).Resolve(destination)
+	}
+	namespace, err := New(resolve, phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := namespace.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	bound := outputtest.Parse(t, "~/.context/first.json")
+	if err := namespace.Bind(target.ScopeGlobal, bound); err != nil {
+		t.Fatal(err)
+	}
+	journal := namespace.JournalResolver(resolve)
+	if _, err := journal(bound); err != nil || calls != 1 {
+		t.Fatal("journal lookup ignored its retained global binding", calls, err)
+	}
+	unbound := outputtest.Parse(t, "~/.context/second.json")
+	if _, err := journal(unbound); err != nil || calls != 2 || namespace.IsGlobalBound(unbound) {
+		t.Fatal("journal fallback lost its allocation or created writer authority", calls, err)
 	}
 }
 

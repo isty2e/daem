@@ -120,7 +120,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		if err := checkPaths(paths, native, nativeSupportNamespace); err != nil {
 			return err
 		}
-		rewrite, err := profile.RewritePaths(planned.context.Paths)
+		rewrite, err := profile.RewritePaths(planned.context.Paths, planned.context.physicalBudget)
 		if err != nil {
 			return err
 		}

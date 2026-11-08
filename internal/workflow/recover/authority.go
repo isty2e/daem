@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
@@ -232,12 +233,13 @@ func buildRecoveryAuthorityEvidence(
 	selection journal.RecoverablePlan,
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (recoveryAuthorityEvidence, error) {
 	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
 		if !activeStateDir {
 			return recoveryAuthorityEvidence{}, fmt.Errorf("active native recovery StateDir authority is required")
 		}
-		return buildNativeRecoveryAuthorityEvidence(paths, native, stateDir)
+		return buildNativeRecoveryAuthorityEvidence(paths, native, stateDir, budget)
 	}
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
@@ -250,7 +252,7 @@ func buildRecoveryAuthorityEvidence(
 		if !activeStateDir {
 			return recoveryAuthorityEvidence{}, fmt.Errorf("active recovery StateDir authority is required")
 		}
-		return buildActiveRecoveryAuthorityEvidence(paths, plan, stateDir)
+		return buildActiveRecoveryAuthorityEvidence(paths, plan, stateDir, budget)
 	case journal.RecoveryAuthorityJournalCleanup:
 		plan, ok := journal.JournalCleanupPlan(selection)
 		if !ok {
@@ -271,11 +273,13 @@ func buildActiveRecoveryAuthorityEvidence(
 	paths daempaths.Paths,
 	plan recovery.Plan,
 	stateDir recoverygate.StateDirAuthority,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (recoveryAuthorityEvidence, error) {
 	resolvedDestinations, removalPaths, err := resolveRecoveryAuthorityPaths(
 		paths,
 		plan.GuardedActions(),
 		plan.RemovalIntents(),
+		budget,
 	)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
@@ -493,6 +497,7 @@ func resolveRecoveryAuthorityPaths(
 	paths daempaths.Paths,
 	actions []recovery.Action,
 	removalIntents []recovery.RemovalIntent,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (
 	map[recoveryDestinationKey]string,
 	map[recoveryDestinationKey]recoveryRemovalAuthorityPaths,
@@ -513,7 +518,7 @@ func resolveRecoveryAuthorityPaths(
 		path, present := resolved[key]
 		if !present {
 			var err error
-			path, err = resolver.Resolve(key.destination)
+			path, err = resolver.Resolve(key.destination, budget)
 			if err != nil {
 				return nil, nil, fmt.Errorf("resolve recovery destination %q: %w", action.Destination, err)
 			}
@@ -549,7 +554,7 @@ func resolveRecoveryAuthorityPaths(
 		path, present := resolved[key]
 		if !present {
 			var err error
-			path, err = resolver.Resolve(key.destination)
+			path, err = resolver.Resolve(key.destination, budget)
 			if err != nil {
 				return nil, nil, fmt.Errorf(
 					"resolve recovery removal destination %q: %w",

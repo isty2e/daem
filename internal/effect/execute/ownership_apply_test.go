@@ -95,7 +95,7 @@ func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.
 		input.Paths.JournalPaths(),
 		journal.PlanLoadOptions{
 			Filesystem:  testFilesystem(),
-			Resolver:    destinationResolver(input.Paths),
+			Resolver:    journalDestinationResolver(input.Paths),
 			Codecs:      testAggregateCodecs(),
 			StateCodec:  testStateCodec(),
 			StateReader: testStateReader(input.Paths.StatefilePath),

@@ -121,7 +121,7 @@ func TestResolveHomeRootRejectsInvalidDefaultHome(t *testing.T) {
 func TestDestinationOverrideMatchesOnlyCodexHomeRole(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "missing Codex home")
 	t.Setenv(HomeEnvironmentVariable, root)
-	override := DestinationOverride(t.TempDir())
+	override := DestinationOverride(t.TempDir(), nil)
 
 	codexDestination, err := output.Parse("@codex-home/config.toml")
 	if err != nil {

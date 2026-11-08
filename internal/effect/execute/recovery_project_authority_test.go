@@ -724,7 +724,7 @@ func newProjectPathRecoveryFixture(
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: mutations,
 			ManagedPathEvidence:  evidence,
-			Resolver:             destinationResolver(paths),
+			Resolver:             journalDestinationResolver(paths),
 			StateCodec:           testStateCodec(),
 		},
 	); err != nil {

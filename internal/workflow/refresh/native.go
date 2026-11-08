@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -18,7 +19,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/executionidentity"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -107,7 +107,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	inputs := nativeRefreshInputs{environment: nativeOnly}
 	for _, namespace := range input.Documents.Evidence().Namespaces() {
 		for _, alias := range namespace.Addresses() {
-			path, err := managedhostpath.Resolver(paths).Resolve(alias.AggregateRoot())
+			path, err := physicalhostpath.NewResolver(paths).Resolve(alias.AggregateRoot(), input.Budget)
 			if err != nil {
 				return nil, err
 			}
@@ -278,7 +278,7 @@ func (observed *nativeRefreshObservation) rewrites(ctx context.Context, paths da
 		}
 	}
 	if len(whole) != 0 {
-		rewrite, err := profile.RewritePaths(paths)
+		rewrite, err := profile.RewritePaths(paths, input.Budget)
 		if err != nil {
 			return relationhost.NativeSettingsRewrites{}, err
 		}

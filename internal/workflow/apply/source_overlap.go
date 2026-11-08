@@ -34,7 +34,7 @@ func rejectLocalSourceMutationOverlap(planned commandPlan) error {
 
 	resolveDestination := destinationResolver(planned.context.Paths).Resolve
 	for _, destination := range hostMutationDestinations(planned.assessment.Reconciliation) {
-		path, err := resolveDestination(destination)
+		path, err := resolveDestination(destination, planned.context.physicalBudget)
 		if err != nil {
 			return err
 		}

@@ -75,7 +75,7 @@ func PlanNativeReplacement(ctx context.Context, input NativeReplacementInput) (*
 		Result: cloneCommandResult(prepared.CommandResult),
 	}
 	for _, decision := range planned.assessment.Reconciliation.Aggregates() {
-		file, err := destinationResolver(planned.context.Paths).Resolve(decision.DocumentAddress().AggregateRoot())
+		file, err := destinationResolver(planned.context.Paths).Resolve(decision.DocumentAddress().AggregateRoot(), planned.context.physicalBudget)
 		if err != nil {
 			return nil, errors.Join(err, prepared.Close())
 		}

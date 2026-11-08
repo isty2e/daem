@@ -19,6 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -253,7 +254,10 @@ func TestNativeResultTransportLegacyFrontiersRefuseBeforeEffects(t *testing.T) {
 		calls := 0
 		input := execute.ApplyInput{
 			NativeNarrowings: result.NativeNarrowings(), Paths: execute.Paths{StatefilePath: filepath.Join(root, "state.json"), RecoveryDir: filepath.Join(root, "recovery")},
-			Resolver: func(output.Destination) (string, error) { calls++; return "", errors.New("unexpected resolution") },
+			Resolver: func(output.Destination, rootedpath.PhysicalTraversalBudget) (string, error) {
+				calls++
+				return "", errors.New("unexpected resolution")
+			},
 		}
 		if _, err := execute.MaximumForwardEffectValidationCount(input); !errors.Is(err, effectpreparation.ErrNativeOperationRequired) {
 			t.Fatal("native work became a zero-count ordinary plan", err)

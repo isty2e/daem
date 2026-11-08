@@ -62,7 +62,7 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 		},
 	}
 	return journal.PlanLoadOptions{
-		Filesystem: filesystem, PhysicalPathBudget: physicalBudget, Resolver: destinationResolver(paths).Resolve,
+		Filesystem: filesystem, PhysicalPathBudget: physicalBudget, Resolver: destinationResolver(paths).ForBudget(physicalBudget).Resolve,
 		OwnershipRegistry: registry, Codecs: aggregatecodec.Catalog(), StateCodec: statefile.Codec{}, StateReader: stateReaderForPath(paths.StatefilePath), NativeDocuments: profile,
 	}, nil
 }
@@ -87,7 +87,7 @@ func nativeRecoveryOperationFingerprint(paths daempaths.Paths, plan journal.Nati
 	return mutation.NewOperationFingerprint([]byte(paths.ManifestRoot + "\x00" + paths.StatefilePath + "\x00" + paths.RecoveryDir + "\x00" + plan.OperationID() + "\x00" + plan.ObservationFingerprint() + "\x00" + stateFingerprint)), nil
 }
 
-func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority) (recoveryAuthorityEvidence, error) {
+func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority, budget rootedpath.PhysicalTraversalBudget) (recoveryAuthorityEvidence, error) {
 	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
 	stateFingerprint, err := stateDir.IdentityFingerprint()
 	if err != nil {
@@ -125,7 +125,7 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 	}
 	for _, group := range aliases {
 		for _, alias := range group {
-			path, err := resolver.Resolve(alias.AggregateRoot())
+			path, err := resolver.Resolve(alias.AggregateRoot(), budget)
 			if err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
@@ -143,7 +143,7 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		if err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
-		path, err := resolver.Resolve(destination)
+		path, err := resolver.Resolve(destination, budget)
 		if err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}

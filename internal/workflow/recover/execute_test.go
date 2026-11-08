@@ -366,7 +366,7 @@ func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) 
 	var leasedRemovalPaths []string
 	var oneParentPath string
 	for _, intent := range intents {
-		destinationPath, err := resolver.Resolve(intent.Destination())
+		destinationPath, err := resolver.Resolve(intent.Destination(), prepared.lifecycle.planned.(recoveryPreparation).physicalPathBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -796,7 +796,7 @@ func TestResolveRecoveryGuardedDestinationsRejectsPhysicalAliases(t *testing.T) 
 			Scope:       target.ScopeGlobal,
 			Destination: "~/.agents/skills/review",
 		},
-	}, nil)
+	}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "aliases incompatible logical occupancies") {
 		t.Fatalf("resolveRecoveryAuthorityPaths error = %v, want physical occupancy rejection", err)
 	}
@@ -820,7 +820,7 @@ func TestResolveRecoveryGuardedDestinationsAllowsSharedAggregateDocument(t *test
 			Destination: destination,
 			ContentPath: "/hooks/PostToolUse",
 		},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

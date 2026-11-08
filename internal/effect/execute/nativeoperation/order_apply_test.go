@@ -404,7 +404,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		ApplyInput: execute.ApplyInput{
 			CurrentState: before, Owner: owner, Codecs: codecs, StateCodec: codec, Filesystem: testFilesystem(), ProjectRoot: manifest,
 			Paths: execute.Paths{ManifestRoot: root, StateDir: root, StatefilePath: statePath, RecoveryDir: filepath.Join(root, "recovery"), DataDir: filepath.Join(root, "data"), OwnershipRegistryPath: registryPath},
-			Resolver: func(destination output.Destination) (string, error) {
+			Resolver: func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
 				if destination != alias.AggregateRoot() {
 					return "", errors.New("order fixture has no selected destination")
 				}

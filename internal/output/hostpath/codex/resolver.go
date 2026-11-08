@@ -48,7 +48,7 @@ func ResolveHomeRoot(workDir string) (string, error) {
 
 // DestinationOverride maps only Codex-home destinations to Codex's selected
 // physical root; other root roles continue through their owning policies.
-func DestinationOverride(workDir string) hostpath.DestinationOverrideResolver {
+func DestinationOverride(workDir string, resolveRoot func(string) (string, error)) hostpath.DestinationOverrideResolver {
 	return func(destination output.Destination) (string, bool, error) {
 		if destination.RootRole() != output.RootCodexHome {
 			return "", false, nil
@@ -56,6 +56,19 @@ func DestinationOverride(workDir string) hostpath.DestinationOverrideResolver {
 		root, err := ResolveHomeRoot(workDir)
 		if err != nil {
 			return "", true, err
+		}
+		for _, component := range strings.Split(filepath.ToSlash(root), "/") {
+			if component != ".." {
+				continue
+			}
+			if resolveRoot == nil {
+				return "", true, fmt.Errorf("Codex home with parent components requires physical root resolution")
+			}
+			root, err = resolveRoot(root)
+			if err != nil {
+				return "", true, fmt.Errorf("resolve Codex home before expanding the destination: %w", err)
+			}
+			break
 		}
 		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), true, nil
 	}

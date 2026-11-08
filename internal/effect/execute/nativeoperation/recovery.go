@@ -77,7 +77,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	}
 	for _, group := range aliases {
 		for _, alias := range group {
-			path, err := options.Resolver(alias.AggregateRoot())
+			path, err := options.Resolver(alias.AggregateRoot(), budget)
 			if err != nil {
 				return err
 			}

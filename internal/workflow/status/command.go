@@ -73,11 +73,15 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 	if err != nil {
 		return result, err
 	}
+	budget, err := loaded.PersistenceEpoch.PhysicalBudget()
+	if err != nil {
+		return result, err
+	}
 
 	assessment, err := nativeconfig.Assess(ctx, readiness.Input{
 		Context:                 reconcile.ContextInspect,
 		Paths:                   loaded.Paths,
-		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).Resolve),
+		Resolver:                liveobserve.DestinationResolver(destinationResolver(loaded.Paths).ForBudget(budget).Resolve),
 		Environment:             loaded.RuntimeEnvironment,
 		Lockfile:                loaded.Lockfile,
 		Selection:               loaded.Selection,

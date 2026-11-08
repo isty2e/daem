@@ -121,7 +121,7 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	}
 	input := Input{
 		Context: reconcile.ContextInspect, Paths: fixture.paths,
-		Resolver:    liveobserve.DestinationResolver(managedhostpath.Resolver(fixture.paths).Resolve),
+		Resolver:    liveobserve.DestinationResolver(managedhostpath.Resolver(fixture.paths, nil).Resolve),
 		Environment: fixture.input.Environment, Lockfile: locked, Selection: fixture.input.Selection,
 		SourceEpoch: &fixture.input.SourceEpoch, PersistenceEpoch: &epoch, Codecs: codecs,
 		HookContributionEncoder: hookcodec.CanonicalHookContribution, MCPContributionEncoder: mcpcodec.CanonicalMCPBindingContribution,

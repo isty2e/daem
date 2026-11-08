@@ -15,7 +15,7 @@ import (
 )
 
 // Resolver expands one canonical portable destination at the boundary.
-type Resolver func(output.Destination) (string, error)
+type Resolver func(output.Destination, rootedpath.PhysicalTraversalBudget) (string, error)
 
 // Namespace copies share one binding and Close lifetime. The containing operation
 // owns its project root; the namespace owns only roots explicitly retained here.
@@ -196,7 +196,7 @@ func (namespace Namespace) bindGlobal(logical output.Destination) error {
 	if err := logical.ValidateScope(target.ScopeGlobal); err != nil {
 		return fmt.Errorf("global destination %q must be home-relative or data-root-relative", logical)
 	}
-	selected, err := state.resolver(logical)
+	selected, err := state.resolver(logical, state.phase)
 	if err != nil {
 		return err
 	}
@@ -286,15 +286,16 @@ func (namespace Namespace) AcquireBounded(destination Destination, budget rooted
 	return destination.root.AcquireBounded(destination.destination, physicalwork.MaximumPhysicalPathDepth, budget)
 }
 
-func (namespace Namespace) JournalResolver(fallback Resolver) Resolver {
-	if !namespace.available() || len(namespace.state.globals) == 0 {
-		return fallback
-	}
+func (namespace Namespace) JournalResolver(fallback Resolver) func(output.Destination) (string, error) {
 	return func(logical output.Destination) (string, error) {
-		if binding, present := namespace.state.globals[logical]; present {
-			return binding.hostPath, nil
+		var budget rootedpath.PhysicalTraversalBudget
+		if namespace.available() {
+			if binding, present := namespace.state.globals[logical]; present {
+				return binding.hostPath, nil
+			}
+			budget = namespace.state.phase
 		}
-		return fallback(logical)
+		return fallback(logical, budget)
 	}
 }
 

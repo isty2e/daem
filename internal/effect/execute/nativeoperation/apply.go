@@ -409,7 +409,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	input.Registry = actualRegistry
 	for _, namespace := range work.documents.Evidence().Namespaces() {
 		for _, alias := range namespace.Addresses() {
-			path, err := input.Resolver(alias.AggregateRoot())
+			path, err := input.Resolver(alias.AggregateRoot(), input.Budget)
 			if err != nil {
 				return ApplyResult{}, err
 			}

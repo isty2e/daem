@@ -200,7 +200,7 @@ func projectDestinationAuthorityPathFor(
 ) (string, error) {
 	switch scope {
 	case target.ScopeGlobal:
-		return destinationResolver(planned.context.Paths).Resolve(destinationValue)
+		return destinationResolver(planned.context.Paths).Resolve(destinationValue, planned.context.physicalBudget)
 	case target.ScopeProject:
 		// Continue with the retained project authority below.
 	default:

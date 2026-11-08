@@ -8,6 +8,7 @@ import (
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -18,7 +19,6 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -129,7 +129,7 @@ func (prepared *prospectiveInvocation) prepareDocument(ctx context.Context, memb
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
-		path, err := managedhostpath.Resolver(paths).Resolve(intent.Destination())
+		path, err := physicalhostpath.NewResolver(paths).Resolve(intent.Destination(), budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}

@@ -193,7 +193,7 @@ func finishRecoveryPreparation(
 		physicalPathBudget: physicalPathBudget,
 	}
 	if !plan.Blocked() && !plan.HasErrors() {
-		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir)
+		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir, physicalPathBudget)
 		if err != nil {
 			return recoveryPreparation{}, fmt.Errorf("derive recovery mutation authority: %w", err)
 		}
@@ -273,6 +273,7 @@ func Execute(
 		execution.plan,
 		execution.stateDirAuthority,
 		execution.activeStateDir,
+		execution.physicalPathBudget,
 	)
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)

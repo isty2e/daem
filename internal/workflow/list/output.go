@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"os"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/encoding/toml"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
@@ -62,7 +63,7 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 		}
 	}
 
-	resolver := managedhostpath.Resolver(paths)
+	resolver := physicalhostpath.NewResolver(paths).ForBudget(physicalwork.NewCaptureBudget(nil))
 	limits := configdocument.Limits{MaximumBytes: recovery.MaximumRecoveryBackupFileBytes, MaximumDepth: tomlsyntax.MaximumDepth}
 	codecs, err := aggregatecodec.ForOperation(ctx, aggregatecodec.ContractIDs(), limits, limits)
 	if err != nil {

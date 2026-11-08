@@ -198,7 +198,7 @@ func nativeKeyPlanningInput(t *testing.T, manifest string) readiness.Input {
 	}
 	return readiness.Input{
 		Context: reconcile.ContextInspect, Paths: paths, Environment: environment, Lockfile: locked,
-		Resolver:  liveobserve.DestinationResolver(managedhostpath.Resolver(paths).Resolve),
+		Resolver:  liveobserve.DestinationResolver(managedhostpath.Resolver(paths, nil).Resolve),
 		Selection: selection, SourceEpoch: &sourceEpoch, PersistenceEpoch: &epoch,
 		HookContributionEncoder: hookcodec.CanonicalHookContribution,
 		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
