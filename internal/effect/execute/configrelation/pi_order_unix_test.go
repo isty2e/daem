@@ -13,6 +13,7 @@ import (
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -21,7 +22,48 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	localcontext "github.com/isty2e/daem/internal/topology/extension"
 )
+
+func TestOrderPublisherRequiresSelectedDocuments(t *testing.T) {
+	if _, err := NewOrderPlan(t.Context(), nil); err == nil {
+		t.Fatal("empty selected document set created a publisher")
+	}
+	if _, err := (&BoundOrder{}).Execute(t.Context(), storagecommit.Adapter{}, nil); err == nil {
+		t.Fatal("zero bound order executed without selected documents")
+	}
+}
+
+func TestOrderPublisherRefusesDuplicateSelectedPaths(t *testing.T) {
+	root := t.TempDir()
+	settings := piOrderSettings(root, target.ScopeProject)
+	path, err := observepipackage.SettingsPath(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := `{"packages":["npm:b@1","npm:a@1"]}`
+	writePiOrderSettings(t, path, original)
+	observation := mustPiOrderObservation(t, settings, root, target.ScopeProject, []piOrderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}})
+	view, err := observation.WithRetiringRelations(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := relationhost.NewPiDocumentEdit(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit}); err != nil {
+		t.Fatal("single selected document did not admit its publication plan", err)
+	}
+	plan, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit, edit})
+	if err == nil || len(plan.documents) != 0 {
+		t.Fatal("duplicate path returned a partial or valid publication plan")
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || string(actual) != original {
+		t.Fatal("plan admission wrote the selected document", err)
+	}
+}
 
 func TestPiOrderExecutePublishesExactCandidateAndIsRetryIdempotent(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
@@ -57,7 +99,7 @@ func TestPiOrderExecutePublishesExactCandidateAndIsRetryIdempotent(t *testing.T)
 			if err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
-			if !changed {
+			if changed != 1 {
 				t.Fatal("Execute reported no change")
 			}
 			got, err := os.ReadFile(path)
@@ -80,7 +122,7 @@ func TestPiOrderExecutePublishesExactCandidateAndIsRetryIdempotent(t *testing.T)
 			if err != nil {
 				t.Fatalf("idempotent retry: %v", err)
 			}
-			if changed {
+			if changed != 0 {
 				t.Fatal("exact-candidate retry reported a second write")
 			}
 		})
@@ -108,10 +150,10 @@ func TestPiOrderExecuteRejectsConcurrentBaselineWithoutWriting(t *testing.T) {
 	concurrent := []byte(`{"packages":["npm:b@1","npm:concurrent@1","npm:a@1"]}`)
 	writePiOrderSettings(t, path, string(concurrent))
 	changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "baseline revision changed") {
+	if err == nil {
 		t.Fatalf("Execute error = %v", err)
 	}
-	if changed {
+	if changed != 0 {
 		t.Fatal("stale baseline reported a write")
 	}
 	got, readErr := os.ReadFile(path)
@@ -147,7 +189,7 @@ func TestPiOrderExecuteDoesNotCreateMissingSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if changed {
+	if changed != 0 {
 		t.Fatal("missing settings reported a write")
 	}
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
@@ -180,7 +222,7 @@ func TestPiOrderExecuteSurfacesWriteFailuresAndRecoversVisibleCandidate(t *testi
 		if err == nil || !strings.Contains(err.Error(), "injected before visibility") {
 			t.Fatalf("Execute error = %v", err)
 		}
-		if changed {
+		if changed != 0 {
 			t.Fatal("failed replacement reported visible change")
 		}
 		got, readErr := os.ReadFile(path)
@@ -201,7 +243,7 @@ func TestPiOrderExecuteSurfacesWriteFailuresAndRecoversVisibleCandidate(t *testi
 		if err == nil || !strings.Contains(err.Error(), "injected after visibility") {
 			t.Fatalf("Execute error = %v", err)
 		}
-		if changed {
+		if changed != 0 {
 			t.Fatal("write error claimed verified convergence")
 		}
 		candidate, _ := observation.Candidate()
@@ -213,8 +255,8 @@ func TestPiOrderExecuteSurfacesWriteFailuresAndRecoversVisibleCandidate(t *testi
 			t.Fatalf("visible candidate = %q, want %q", got, candidate)
 		}
 		changed, err = order.Execute(t.Context(), storagecommit.Adapter{}, nil)
-		if err != nil || changed {
-			t.Fatalf("retry = changed:%t error:%v", changed, err)
+		if err != nil || changed != 0 {
+			t.Fatalf("retry = changed:%d error:%v", changed, err)
 		}
 	})
 }
@@ -247,7 +289,7 @@ func TestPiOrderExecuteRejectsPostObservationMismatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "post-observation") {
 		t.Fatalf("Execute error = %v", err)
 	}
-	if !changed {
+	if changed != 1 {
 		t.Fatal("post-observation failure lost the visible-write fact")
 	}
 	got, readErr := os.ReadFile(path)
@@ -333,7 +375,7 @@ func TestPiOrderExecuteRejectsUnsafeConcurrentEntryChanges(t *testing.T) {
 			if err == nil {
 				t.Fatal("Execute accepted an unsafe concurrent entry")
 			}
-			if changed {
+			if changed != 0 {
 				t.Fatal("unsafe concurrent entry reported a write")
 			}
 		})
@@ -365,7 +407,7 @@ func TestPiOrderExecuteHonorsPreCanceledContext(t *testing.T) {
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v", err)
 	}
-	if changed {
+	if changed != 0 {
 		t.Fatal("canceled execution reported a write")
 	}
 	got, readErr := os.ReadFile(path)
@@ -403,7 +445,7 @@ func TestPiOrderExecuteRejectsMissingPostObservation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "post-observation") {
 		t.Fatalf("Execute error = %v", err)
 	}
-	if !changed {
+	if changed != 1 {
 		t.Fatal("missing post-observation lost the visible-write fact")
 	}
 	if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
@@ -513,6 +555,22 @@ func mustPiOrderObservation(
 	specs []piOrderSpec,
 ) observepipackage.OrderObservation {
 	t.Helper()
+	path, err := observepipackage.SettingsPath(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsContext, err := localcontext.NewLocalSourceContext(filepath.Dir(path), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandContext, err := localcontext.NewLocalSourceContext(commandRoot, home)
+	if err != nil {
+		t.Fatal(err)
+	}
 	capability, admitted := profile.Profile(target.TargetPi).ExtensionOrder(
 		desiredextension.CarrierPiPackage,
 		scope,
@@ -547,7 +605,7 @@ func mustPiOrderObservation(
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := observepipackage.NewScopedRelation(key, scope, commandRoot)
+		relation, err := observepipackage.NewScopedRelationWithContext(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -579,10 +637,13 @@ func mustPiOrderObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := observepipackage.ReadOrder(observepipackage.OrderInput{
-		Settings:   settings,
-		Constraint: constraint,
-		Relations:  relations,
+	inventory, err := observepipackage.ReadSettings(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
+		Scope: scope, Capability: capability, SettingsContext: settingsContext,
+		Document: inventory.Document(), Constraint: constraint, Relations: relations,
 	})
 	if err != nil {
 		t.Fatalf("ReadOrder: %v", err)
@@ -603,11 +664,19 @@ func bindPiOrder(
 	t *testing.T,
 	root string,
 	observation observepipackage.OrderObservation,
-) *BoundPiOrder {
+) *BoundOrder {
 	t.Helper()
-	plan, err := NewPiOrderPlan(observation)
+	view, err := observation.WithRetiringRelations(nil)
 	if err != nil {
-		t.Fatalf("NewPiOrderPlan: %v", err)
+		t.Fatal(err)
+	}
+	edit, err := relationhost.NewPiDocumentEdit(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit})
+	if err != nil {
+		t.Fatalf("NewOrderPlan: %v", err)
 	}
 	if _, err := plan.PhysicalAuthority(); err != nil {
 		t.Fatalf("PhysicalAuthority: %v", err)

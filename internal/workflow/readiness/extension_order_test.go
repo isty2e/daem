@@ -14,6 +14,15 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+func readinessOrderPaths(t testing.TB, root string) daempaths.Paths {
+	t.Helper()
+	paths, err := daempaths.Resolve(filepath.Join(root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
 func TestObserveExtensionOrdersPlansSelectedPiSequence(t *testing.T) {
 	root := t.TempDir()
 	writeReadinessFile(
@@ -28,7 +37,7 @@ func TestObserveExtensionOrdersPlansSelectedPiSequence(t *testing.T) {
 	}
 
 	decisions, err := observeExtensionOrders(
-		daempaths.Paths{ManifestRoot: root},
+		readinessOrderPaths(t, root),
 		locked,
 		selected,
 		nil,
@@ -56,7 +65,7 @@ func TestObserveExtensionOrdersTurnsUnreadableSequenceIntoTypedBlock(t *testing.
 	}
 
 	decisions, err := observeExtensionOrders(
-		daempaths.Paths{ManifestRoot: root},
+		readinessOrderPaths(t, root),
 		locked,
 		selected,
 		nil,
@@ -93,7 +102,7 @@ func TestObserveExtensionOrdersPlansOpenCodeDocumentsIndependently(t *testing.T)
 	}
 
 	decisions, err := observeExtensionOrders(
-		daempaths.Paths{ManifestRoot: root},
+		readinessOrderPaths(t, root),
 		locked,
 		selected,
 		nil,
@@ -129,7 +138,7 @@ func TestObserveExtensionOrdersProjectsOpenCodeOrderOntoTUIOnlyMembership(t *tes
 	}
 
 	decisions, err := observeExtensionOrders(
-		daempaths.Paths{ManifestRoot: root},
+		readinessOrderPaths(t, root),
 		locked,
 		selected,
 		nil,
@@ -155,7 +164,7 @@ func TestObserveExtensionOrdersSkipsUnselectedOrderClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisions, err := observeExtensionOrders(
-		daempaths.Paths{ManifestRoot: root},
+		readinessOrderPaths(t, root),
 		locked,
 		selected,
 		nil,
@@ -232,7 +241,7 @@ func readinessOrderLock(
 	constraints, err := lockrefine.ExtensionOrderConstraints(
 		extensions,
 		aggregatecodec.ExtensionOrderIdentityResolver(
-			daempaths.Paths{ManifestRoot: root},
+			readinessOrderPaths(t, root),
 		),
 	)
 	if err != nil {

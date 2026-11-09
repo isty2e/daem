@@ -34,7 +34,7 @@ func (candidate SelectedCandidate) Comparison() Comparison {
 // PrepareSelected combines semantic plans with validated positional edits.
 // Protocol normalizers must verify the completed image before publication.
 func PrepareSelected(ctx context.Context, input SelectedPreparationInput, edits []compose.ProjectionEdit, sequences []configdocument.JSONArrayEdit) (SelectedCandidate, error) {
-	expected, participants, err := PrepareSelectedImage(ctx, input.Before, input.Limits, edits, sequences)
+	expected, participants, err := compose.PrepareSelectedImage(ctx, input.Before, input.Limits, edits, sequences)
 	if err != nil {
 		return SelectedCandidate{}, err
 	}
@@ -42,40 +42,6 @@ func PrepareSelected(ctx context.Context, input SelectedPreparationInput, edits 
 		Before: input.Before, Expected: expected,
 		BeforeMode: input.BeforeMode, ExpectedMode: input.ExpectedMode, Limits: input.Limits,
 	}, participants, sequences)
-}
-
-func PrepareSelectedImage(ctx context.Context, before aggregate.Document, limits configdocument.Limits, edits []compose.ProjectionEdit, sequences []configdocument.JSONArrayEdit) (aggregate.Document, []compose.Participant, error) {
-	if err := ValidateImage(ctx, before, limits); err != nil {
-		return aggregate.Document{}, nil, err
-	}
-	participants := make([]compose.Participant, len(edits))
-	for index, edit := range edits {
-		participants[index] = edit.Participant()
-	}
-	retained, err := disjointSelectedSequences(participants, sequences)
-	if err != nil {
-		return aggregate.Document{}, nil, err
-	}
-	expected := before
-	if len(edits) != 0 {
-		candidate, err := compose.Render(ctx, before, limits, edits)
-		if err != nil {
-			return aggregate.Document{}, nil, err
-		}
-		expected = candidate.Document()
-	}
-	for _, sequence := range retained {
-		current, err := readArrayComparisonDocument(ctx, expected, limits, sequence.Syntax())
-		if err != nil {
-			return aggregate.Document{}, nil, err
-		}
-		applied, _, err := sequence.Apply(ctx, current)
-		if err != nil {
-			return aggregate.Document{}, nil, err
-		}
-		expected = aggregate.ExistingDocument(applied.Bytes())
-	}
-	return expected, participants, nil
 }
 
 // ReconstructSelected checks recorded images, selected footprints and positional

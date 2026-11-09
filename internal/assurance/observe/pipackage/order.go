@@ -288,12 +288,12 @@ func newOrderSelectionWithCapability(
 	}, nil
 }
 
-func observeOrder(
+func normalizedOrderRows(
 	selection orderSelection,
 	inventory Inventory,
-) (OrderObservation, error) {
+) ([]observerelation.ObservedRelationRow, error) {
 	if inventory.scope != selection.scope {
-		return OrderObservation{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"Pi package order inventory scope %q does not match %q",
 			inventory.scope,
 			selection.scope,
@@ -303,14 +303,14 @@ func observeOrder(
 	for index, relation := range selection.relations {
 		stored, err := expectedSettingsSource(relation, inventory.settingsBase)
 		if err != nil {
-			return OrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"derive Pi package order relation[%d] stored source: %w",
 				index,
 				err,
 			)
 		}
 		if previous, duplicate := exactSubjects[stored]; duplicate {
-			return OrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"Pi package order subjects %q and %q map to exact stored source %q",
 				previous,
 				relation.key.Subject(),
@@ -322,13 +322,13 @@ func observeOrder(
 
 	entries, err := inventory.Entries()
 	if err != nil {
-		return OrderObservation{}, err
+		return nil, err
 	}
 	rows := make([]observerelation.ObservedRelationRow, 0, len(entries))
 	for index, entry := range entries {
 		loadIdentity, err := hostrelation.NewHostLoadIdentity(entry.HostLoadIdentity())
 		if err != nil {
-			return OrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"normalize Pi package order row[%d] identity: %w",
 				index,
 				err,
@@ -342,11 +342,18 @@ func observeOrder(
 			row, err = observerelation.NewObservedRelationRow(loadIdentity)
 		}
 		if err != nil {
-			return OrderObservation{}, err
+			return nil, err
 		}
 		rows = append(rows, row)
 	}
+	return rows, nil
+}
 
+func observeOrder(selection orderSelection, inventory Inventory) (OrderObservation, error) {
+	rows, err := normalizedOrderRows(selection, inventory)
+	if err != nil {
+		return OrderObservation{}, err
+	}
 	sequence, err := newObservedOrderSequence(selection, rows, inventory.revision)
 	if err != nil {
 		return OrderObservation{}, err
@@ -401,7 +408,7 @@ func newObservedOrderSequence(
 		return observerelation.ObservedRelationSequence{}, err
 	}
 	return observerelation.NewObservedRelationSequence(
-		selection.constraint.ClassID(),
+		selection.capability.ClassID(),
 		sequenceIDs[0],
 		authority,
 		revision,

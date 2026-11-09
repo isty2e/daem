@@ -385,7 +385,11 @@ func runRelationOrderConvergence(
 		if !relationOrderMutationRequired(class.decisions) {
 			continue
 		}
-		plan, err := configrelation.NewOrderPlan(class.observation)
+		edits, err := class.observation.SelectedEdits(nil)
+		if err != nil {
+			return result, err
+		}
+		plan, err := configrelation.NewOrderPlan(ctx, edits)
 		if err != nil {
 			return result, err
 		}

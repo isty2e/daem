@@ -265,16 +265,16 @@ func validateOrderInventory(inventory Inventory) error {
 	return nil
 }
 
-func observeDocument(
+func normalizedDocumentRows(
 	selection orderSelection,
 	document Document,
-) (DocumentOrderObservation, error) {
+) ([]observerelation.ObservedRelationRow, error) {
 	exactCounts := make(map[string]int, len(selection.exactSubjects))
 	rows := make([]observerelation.ObservedRelationRow, 0, len(document.entries))
 	for index, entry := range document.entries {
 		loadIdentity, err := hostrelation.NewHostLoadIdentity(entry.hostLoadIdentity)
 		if err != nil {
-			return DocumentOrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"normalize OpenCode %s plugin row[%d] identity: %w",
 				document.kind,
 				index,
@@ -285,7 +285,7 @@ func observeDocument(
 		if exact {
 			exactCounts[entry.source]++
 			if exactCounts[entry.source] > 1 {
-				return DocumentOrderObservation{}, fmt.Errorf(
+				return nil, fmt.Errorf(
 					"OpenCode %s config contains %d exact plugin rows for source %q",
 					document.kind,
 					exactCounts[entry.source],
@@ -300,9 +300,17 @@ func observeDocument(
 			row, err = observerelation.NewObservedRelationRow(loadIdentity)
 		}
 		if err != nil {
-			return DocumentOrderObservation{}, err
+			return nil, err
 		}
 		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func observeDocument(selection orderSelection, document Document) (DocumentOrderObservation, error) {
+	rows, err := normalizedDocumentRows(selection, document)
+	if err != nil {
+		return DocumentOrderObservation{}, err
 	}
 	sequence, err := newObservedOrderSequence(selection, document, rows)
 	if err != nil {
@@ -377,7 +385,7 @@ func newObservedOrderSequence(
 		return observerelation.ObservedRelationSequence{}, err
 	}
 	return observerelation.NewObservedRelationSequence(
-		selection.constraint.ClassID(),
+		selection.capability.ClassID(),
 		sequenceID,
 		authority,
 		revision,

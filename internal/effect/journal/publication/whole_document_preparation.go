@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
@@ -27,7 +28,7 @@ type WholeDocumentPreparationInput struct {
 // PrepareWholeDocument derives expected images from capture mutations and exact
 // payloads. Loaded originals do not grant namespace or managed-state authority.
 func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInput, mutation journalrecord.ManagedPathMutation, payloads payload.PayloadSet) (journaldocument.Comparison, error) {
-	if err := journaldocument.ValidateImage(ctx, input.Before, input.Limits); err != nil {
+	if err := compose.ValidateImage(ctx, input.Before, input.Limits); err != nil {
 		return journaldocument.Comparison{}, err
 	}
 	facts, err := wholeDocumentMutationFacts(mutation)

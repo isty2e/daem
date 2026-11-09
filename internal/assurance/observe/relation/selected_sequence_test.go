@@ -152,6 +152,44 @@ func TestSelectedSequenceRemovalAdmitsOnlyRetiredCorrelatedSubjects(t *testing.T
 	}
 }
 
+func TestRetirementOnlySequenceKeepsForeignOrderAndHasNoDesiredConstraint(t *testing.T) {
+	capability := selectedCapability(t, target.TargetPi, desiredextension.CarrierPiPackage)
+	retired := mustObservedOrderMember(t, "retired", "retired")
+	foreignA, err := observerelation.NewObservedRelationRow(mustObservedLoadIdentity(t, "foreign-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignB, err := observerelation.NewObservedRelationRow(mustObservedLoadIdentity(t, "foreign-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []observerelation.ObservedRelationRow{foreignA, mustCorrelatedObservedRow(t, retired), foreignB}
+	original := selectedOriginal(t, capability, capability.NativeSequences()[0].SequenceID(), rows)
+	selected, err := observerelation.NewRetirementSequenceEdit(capability, original, []int{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ordered := selected.Constraint()
+	if ordered || !selected.Changed() || !slices.Equal(selected.SurvivorOrder(), []int{0, 1}) || !slices.Equal(selected.ExpectedRows(), []observerelation.ObservedRelationRow{foreignA, foreignB}) || !selected.Original().SameOrdering(original) {
+		t.Fatal("pure retirement invented a constraint or changed surviving foreign order")
+	}
+	for _, removed := range [][]int{nil, {0}, {-1}, {1, 1}, {3}} {
+		if rejected, err := observerelation.NewRetirementSequenceEdit(capability, original, removed); err == nil || rejected.Projection().Validate() == nil {
+			t.Fatal("retirement left a correlated survivor or removed an unadmitted slot", removed)
+		}
+	}
+	absent := selectedOriginal(t, capability, capability.NativeSequences()[0].SequenceID(), []observerelation.ObservedRelationRow{foreignA, foreignB})
+	unchanged, err := observerelation.NewRetirementSequenceEdit(capability, absent, nil)
+	if err != nil || unchanged.Changed() || !slices.Equal(unchanged.ExpectedRows(), absent.OrderedRows()) {
+		t.Fatal("already-absent pending removal was not a non-mutating selection", err)
+	}
+	active := mustObservedOrderMember(t, "active", "active")
+	order, err := observerelation.NewSelectedSequenceEdit(capability, absent, selectedConstraint(t, capability, active), nil)
+	if err != nil || order.SameIntent(unchanged) || order.SameMutation(unchanged) || (observerelation.SelectedSequenceEdit{}).SameIntent(unchanged) {
+		t.Fatal("ordered, retirement-only or invalid-zero intent was conflated", err)
+	}
+}
+
 func selectedCapability(t *testing.T, selected target.Target, carrier desiredextension.Carrier) profile.ExtensionOrderCapability {
 	t.Helper()
 	capability, present := hostsurfacecatalog.Product().ExtensionOrderCapability(selected, target.ScopeProject, carrier)

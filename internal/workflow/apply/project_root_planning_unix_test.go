@@ -42,7 +42,7 @@ func TestProjectRelationOrderRequiresRetainedProjectRoot(t *testing.T) {
 	)
 	reconciliation := relationOrderTestReconciliation(
 		t,
-		daempaths.Paths{ManifestRoot: root},
+		relationOrderTestPaths(t, root),
 		locked,
 		nil,
 	)
@@ -72,7 +72,7 @@ func TestGlobalRelationOrderRequiresRetainedSelectedRoot(t *testing.T) {
 	)
 	reconciliation := relationOrderTestReconciliation(
 		t,
-		daempaths.Paths{ManifestRoot: root},
+		relationOrderTestPaths(t, root),
 		locked,
 		nil,
 	)

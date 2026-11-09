@@ -116,11 +116,11 @@ func TestSelectedPreparationRejectsOverlapsAndAlreadyEditedBaselines(t *testing.
 		}
 	}
 	overlap := candidateNativeEdit(t, before, "left", `[2,0]`)
-	if rejected, _, err := document.PrepareSelectedImage(t.Context(), before, input.Limits, []compose.ProjectionEdit{overlap}, []configdocument.JSONArrayEdit{sequence}); err == nil || rejected.Exists() || rejected.ContentSize() != 0 {
+	if rejected, _, err := compose.PrepareSelectedImage(t.Context(), before, input.Limits, []compose.ProjectionEdit{overlap}, []configdocument.JSONArrayEdit{sequence}); err == nil || rejected.Exists() || rejected.ContentSize() != 0 {
 		t.Fatal("compose and sequence channels shared a rewrite footprint", err)
 	}
 	alreadyExpected := aggregate.ExistingDocument([]byte(`{"left":[2,0],"model":"before"}`))
-	if rejected, _, err := document.PrepareSelectedImage(t.Context(), alreadyExpected, input.Limits, nil, []configdocument.JSONArrayEdit{sequence}); err == nil || rejected.Exists() || rejected.ContentSize() != 0 {
+	if rejected, _, err := compose.PrepareSelectedImage(t.Context(), alreadyExpected, input.Limits, nil, []configdocument.JSONArrayEdit{sequence}); err == nil || rejected.Exists() || rejected.ContentSize() != 0 {
 		t.Fatal("new preparation accepted an already-edited array as its baseline", err)
 	}
 }

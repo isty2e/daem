@@ -13,7 +13,10 @@ import (
 // Source contexts and class-wide membership admission stay with the normalizer;
 // this value contains no parser, filesystem path or publication authority.
 type SelectedSequenceEdit struct {
+	kind             selectedSequenceKind
 	original         ObservedRelationSequence
+	constraint       hostrelation.RelationOrderConstraint
+	capability       profile.ExtensionOrderCapability
 	projection       profile.NativeSequenceProjection
 	identityContract string
 	removed          []int
@@ -21,12 +24,19 @@ type SelectedSequenceEdit struct {
 	changes          []PrecedenceChange
 }
 
+type selectedSequenceKind uint8
+
+const (
+	selectedSequenceOrdered selectedSequenceKind = iota + 1
+	selectedSequenceRetirementOnly
+)
+
 // NewSelectedSequenceEdit computes order and precedence after selected removals.
 // It does not require every logical class member in each physical sequence.
 // Removals admit only correlated subjects outside the desired constraint.
 // Moving still-desired members between documents is not supported by retirement.
 func NewSelectedSequenceEdit(capability profile.ExtensionOrderCapability, original ObservedRelationSequence, constraint hostrelation.RelationOrderConstraint, removed []int) (SelectedSequenceEdit, error) {
-	checked, err := NewObservedRelationSequence(original.classID, original.sequenceID, original.authority, original.revision, original.orderedRows)
+	selected, err := selectedSequenceOriginal(capability, original, removed)
 	if err != nil {
 		return SelectedSequenceEdit{}, err
 	}
@@ -36,9 +46,60 @@ func NewSelectedSequenceEdit(capability profile.ExtensionOrderCapability, origin
 	if err := constraint.Validate(); err != nil {
 		return SelectedSequenceEdit{}, err
 	}
-	if checked.classID != capability.ClassID() || constraint.ClassID() != checked.classID ||
+	if constraint.ClassID() != selected.original.classID ||
 		constraint.MemberIdentityContract() != capability.MemberIdentityContract() || constraint.RuntimeMeaning() != capability.RuntimeMeaning() {
 		return SelectedSequenceEdit{}, fmt.Errorf("selected sequence constraint does not match its profile class")
+	}
+	var desired map[topology.SubjectID]struct{}
+	if len(removed) != 0 {
+		desired = make(map[topology.SubjectID]struct{}, constraint.MemberCount())
+		for _, member := range constraint.Members() {
+			desired[member.Subject()] = struct{}{}
+		}
+	}
+	for _, index := range removed {
+		subject, _ := selected.original.orderedRows[index].CorrelatedSubject()
+		if _, retained := desired[subject]; retained {
+			return SelectedSequenceEdit{}, fmt.Errorf("selected sequence removal cannot retire a still-desired subject")
+		}
+	}
+	selected.kind, selected.constraint = selectedSequenceOrdered, constraint
+	selected.order, selected.changes, err = FixedSlotPermutation(constraint, selected.SurvivingRows())
+	if err != nil {
+		return SelectedSequenceEdit{}, err
+	}
+	return selected, nil
+}
+
+// NewRetirementSequenceEdit selects pure removal when no desired order class
+// remains. Correlated survivors would be an unfulfilled retirement obligation.
+func NewRetirementSequenceEdit(capability profile.ExtensionOrderCapability, original ObservedRelationSequence, removed []int) (SelectedSequenceEdit, error) {
+	selected, err := selectedSequenceOriginal(capability, original, removed)
+	if err != nil {
+		return SelectedSequenceEdit{}, err
+	}
+	selected.kind = selectedSequenceRetirementOnly
+	surviving := selected.SurvivingRows()
+	selected.order = make([]int, len(surviving))
+	for index, row := range surviving {
+		if _, correlated := row.CorrelatedSubject(); correlated {
+			return SelectedSequenceEdit{}, fmt.Errorf("retirement-only sequence cannot retain a correlated subject")
+		}
+		selected.order[index] = index
+	}
+	return selected, nil
+}
+
+func selectedSequenceOriginal(capability profile.ExtensionOrderCapability, original ObservedRelationSequence, removed []int) (SelectedSequenceEdit, error) {
+	checked, err := NewObservedRelationSequence(original.classID, original.sequenceID, original.authority, original.revision, original.orderedRows)
+	if err != nil {
+		return SelectedSequenceEdit{}, err
+	}
+	if err := capability.Validate(); err != nil {
+		return SelectedSequenceEdit{}, err
+	}
+	if checked.classID != capability.ClassID() {
+		return SelectedSequenceEdit{}, fmt.Errorf("selected sequence does not match its profile class")
 	}
 	projection, present := capability.NativeSequence(checked.sequenceID)
 	if !present {
@@ -47,40 +108,35 @@ func NewSelectedSequenceEdit(capability profile.ExtensionOrderCapability, origin
 	if err := projection.Validate(); err != nil {
 		return SelectedSequenceEdit{}, err
 	}
-
-	var desired map[topology.SubjectID]struct{}
-	if len(removed) != 0 {
-		desired = make(map[topology.SubjectID]struct{}, constraint.MemberCount())
-		for _, member := range constraint.Members() {
-			desired[member.Subject()] = struct{}{}
-		}
-	}
 	previous := -1
 	for _, index := range removed {
 		if index <= previous || index < 0 || index >= len(checked.orderedRows) {
 			return SelectedSequenceEdit{}, fmt.Errorf("selected original removal slots must be sorted, unique and in range")
 		}
-		subject, correlated := checked.orderedRows[index].CorrelatedSubject()
-		if !correlated {
+		if _, correlated := checked.orderedRows[index].CorrelatedSubject(); !correlated {
 			return SelectedSequenceEdit{}, fmt.Errorf("selected sequence removal cannot retire a foreign row")
-		}
-		if _, retained := desired[subject]; retained {
-			return SelectedSequenceEdit{}, fmt.Errorf("selected sequence removal cannot retire a still-desired subject")
 		}
 		previous = index
 	}
-	selected := SelectedSequenceEdit{
-		original: checked, projection: projection,
-		identityContract: capability.MemberIdentityContract(), removed: slices.Clone(removed),
-	}
-	selected.order, selected.changes, err = FixedSlotPermutation(constraint, selected.SurvivingRows())
-	if err != nil {
-		return SelectedSequenceEdit{}, err
-	}
-	return selected, nil
+	return SelectedSequenceEdit{original: checked, projection: projection, capability: capability, identityContract: capability.MemberIdentityContract(), removed: slices.Clone(removed)}, nil
 }
 
 func (selected SelectedSequenceEdit) Original() ObservedRelationSequence { return selected.original }
+
+func (selected SelectedSequenceEdit) Constraint() (hostrelation.RelationOrderConstraint, bool) {
+	return selected.constraint, selected.kind == selectedSequenceOrdered
+}
+
+func (selected SelectedSequenceEdit) SameIntent(other SelectedSequenceEdit) bool {
+	return selected.kind != 0 && selected.kind == other.kind && selected.original.ClassID() == other.original.ClassID() && selected.original.SequenceID() == other.original.SequenceID() &&
+		selected.original.Authority() == other.original.Authority() && selected.capability.Equal(other.capability) &&
+		(selected.kind == selectedSequenceRetirementOnly || selected.constraint.Equal(other.constraint))
+}
+
+func (selected SelectedSequenceEdit) SameMutation(other SelectedSequenceEdit) bool {
+	return selected.SameIntent(other) && selected.original.Revision() == other.original.Revision() && selected.original.SameOrdering(other.original) &&
+		slices.Equal(selected.removed, other.removed) && slices.Equal(selected.order, other.order)
+}
 
 func (selected SelectedSequenceEdit) Projection() profile.NativeSequenceProjection {
 	return selected.projection

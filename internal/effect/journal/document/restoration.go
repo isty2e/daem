@@ -79,7 +79,7 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 		}
 		candidate = restored.Document()
 	}
-	if err := ValidateImage(ctx, candidate, comparison.limits); err != nil {
+	if err := compose.ValidateImage(ctx, candidate, comparison.limits); err != nil {
 		return Restoration{}, err
 	}
 	for _, sequence := range comparison.sequences {

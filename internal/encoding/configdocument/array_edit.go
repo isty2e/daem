@@ -275,6 +275,27 @@ func (edit JSONArrayEdit) Equal(other JSONArrayEdit) bool {
 		bytes.Equal(edit.before, other.before) && bytes.Equal(edit.expected, other.expected)
 }
 
+// PrepareJSONArrayEdit derives a positional witness without exposing a second
+// whole-document candidate. Semantic row identity stays with the normalizer.
+func PrepareJSONArrayEdit(ctx context.Context, before Document, path output.KeyPath, removed, order []int) (JSONArrayEdit, error) {
+	if path.IsRoot() {
+		return JSONArrayEdit{}, fmt.Errorf("%w: selected array requires a non-root path", ErrInvalidValue)
+	}
+	source, err := before.jsonArraySource(ctx, path)
+	if err != nil {
+		return JSONArrayEdit{}, err
+	}
+	array, err := source.edit(ctx, before.content, removed, order)
+	if err != nil {
+		return JSONArrayEdit{}, err
+	}
+	expected, _, err := replaceCapturedArray(ctx, before, source, array)
+	if err != nil {
+		return JSONArrayEdit{}, err
+	}
+	return NewJSONArrayEdit(ctx, before, expected, path, removed, order)
+}
+
 func NewJSONArrayEdit(ctx context.Context, before, expected Document, path output.KeyPath, removed, order []int) (JSONArrayEdit, error) {
 	if ctx == nil {
 		return JSONArrayEdit{}, fmt.Errorf("array edit capture requires context")

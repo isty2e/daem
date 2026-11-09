@@ -3,8 +3,6 @@ package document
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -93,7 +91,7 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 	if len(sequences) == 0 {
 		return comparison, nil
 	}
-	retained, err := disjointSelectedSequences(comparison.participants, sequences)
+	retained, err := compose.DisjointSelectedSequences(comparison.participants, sequences)
 	if err != nil {
 		return Comparison{}, err
 	}
@@ -125,31 +123,9 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 	return comparison, nil
 }
 
-func disjointSelectedSequences(participants []compose.Participant, sequences []configdocument.JSONArrayEdit) ([]configdocument.JSONArrayEdit, error) {
-	retained := slices.Clone(sequences)
-	slices.SortFunc(retained, func(left, right configdocument.JSONArrayEdit) int {
-		return strings.Compare(left.ArrayPath().String(), right.ArrayPath().String())
-	})
-	for index, sequence := range retained {
-		for _, previous := range retained[:index] {
-			if sequence.ArrayPath().Overlaps(previous.ArrayPath()) {
-				return nil, fmt.Errorf("selected native array edits overlap")
-			}
-		}
-		for _, participant := range participants {
-			for _, area := range participant.RewriteAreas() {
-				if area.Overlaps(sequence.ArrayPath()) {
-					return nil, fmt.Errorf("selected aggregate area overlaps native array order")
-				}
-			}
-		}
-	}
-	return retained, nil
-}
-
 func newDocumentComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant) (Comparison, error) {
 	for _, document := range []aggregate.Document{input.Before, input.Expected} {
-		if err := ValidateImage(ctx, document, input.Limits); err != nil {
+		if err := compose.ValidateImage(ctx, document, input.Limits); err != nil {
 			return Comparison{}, err
 		}
 	}
@@ -175,7 +151,7 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	if err := comparison.Validate(); err != nil {
 		return ComparisonMatch{}, err
 	}
-	if err := ValidateImage(ctx, current, comparison.limits); err != nil {
+	if err := compose.ValidateImage(ctx, current, comparison.limits); err != nil {
 		return ComparisonMatch{}, err
 	}
 	observed, err := readComparisonState(ctx, current, mode, comparison.limits, comparison.participants)
@@ -221,25 +197,6 @@ func readArrayComparisonDocument(ctx context.Context, document aggregate.Documen
 		return configdocument.Document{}, fmt.Errorf("selected native array requires an existing document")
 	}
 	return configdocument.Parse(ctx, document.Content(), syntax, limits)
-}
-
-func ValidateImage(ctx context.Context, document aggregate.Document, limits configdocument.Limits) error {
-	if ctx == nil {
-		return fmt.Errorf("document comparison context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := limits.Validate(); err != nil {
-		return err
-	}
-	if err := document.Validate(); err != nil {
-		return err
-	}
-	if document.ContentSize() > limits.MaximumBytes {
-		return fmt.Errorf("document comparison exceeds the selected byte limit")
-	}
-	return nil
 }
 
 func readComparisonState(ctx context.Context, document aggregate.Document, mode *recovery.PermissionMode, limits configdocument.Limits, participants []compose.Participant) (recovery.PartialDocumentState, error) {

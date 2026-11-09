@@ -96,7 +96,7 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	paths := daempaths.Paths{ManifestRoot: root}
+	paths := relationOrderTestPaths(t, root)
 	locked := relationOrderTestLock(
 		t,
 		root,
@@ -237,7 +237,7 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	paths := daempaths.Paths{ManifestRoot: root}
+	paths := relationOrderTestPaths(t, root)
 	locked := relationOrderTestLock(
 		t,
 		root,
@@ -476,7 +476,7 @@ func relationOrderTestLockAtScope(
 	constraints, err := lockrefine.ExtensionOrderConstraints(
 		extensions,
 		aggregatecodec.ExtensionOrderIdentityResolver(
-			daempaths.Paths{ManifestRoot: root},
+			relationOrderTestPaths(t, root),
 		),
 	)
 	if err != nil {
@@ -487,6 +487,15 @@ func relationOrderTestLockAtScope(
 		t.Fatal(err)
 	}
 	return lock.File{Version: lock.CurrentVersion, Locked: section}
+}
+
+func relationOrderTestPaths(t testing.TB, root string) daempaths.Paths {
+	t.Helper()
+	paths, err := daempaths.Resolve(filepath.Join(root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
 }
 
 func relationOrderTestReconciliation(

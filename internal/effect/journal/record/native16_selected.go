@@ -14,7 +14,7 @@ import (
 // PrepareNative16SelectedImage retains native16's private Pi checks while lowering
 // its order to the shared positional editor. Context qualification stays separate.
 func PrepareNative16SelectedImage(ctx context.Context, before aggregate.Document, limits configdocument.Limits, edits []compose.ProjectionEdit, order *pipackage.OrderObservation) (aggregate.Document, []compose.Participant, error) {
-	if err := journaldocument.ValidateImage(ctx, before, limits); err != nil {
+	if err := compose.ValidateImage(ctx, before, limits); err != nil {
 		return aggregate.Document{}, nil, err
 	}
 	var sequences []configdocument.JSONArrayEdit
@@ -35,7 +35,7 @@ func PrepareNative16SelectedImage(ctx context.Context, before aggregate.Document
 			return aggregate.Document{}, nil, err
 		}
 	}
-	expected, participants, err := journaldocument.PrepareSelectedImage(ctx, before, preparationLimits, edits, sequences)
+	expected, participants, err := compose.PrepareSelectedImage(ctx, before, preparationLimits, edits, sequences)
 	if err != nil {
 		return aggregate.Document{}, nil, err
 	}
@@ -51,7 +51,7 @@ func PrepareNative16SelectedImage(ctx context.Context, before aggregate.Document
 // it to the same positional comparison used by other selected arrays.
 func ReconstructNative16Selected(ctx context.Context, input journaldocument.ComparisonInput, participants []compose.Participant, order *pipackage.OrderObservation) (journaldocument.SelectedCandidate, error) {
 	for _, image := range []aggregate.Document{input.Before, input.Expected} {
-		if err := journaldocument.ValidateImage(ctx, image, input.Limits); err != nil {
+		if err := compose.ValidateImage(ctx, image, input.Limits); err != nil {
 			return journaldocument.SelectedCandidate{}, err
 		}
 	}

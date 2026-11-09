@@ -200,7 +200,7 @@ func (document nativeDocumentRecord) piQualification() (PiQualification, bool, e
 
 func (witness nativeSequenceWitness) reconstruct(ctx context.Context, input journaldocument.ComparisonInput) (configdocument.JSONArrayEdit, error) {
 	for _, image := range []aggregate.Document{input.Before, input.Expected} {
-		if err := journaldocument.ValidateImage(ctx, image, input.Limits); err != nil {
+		if err := compose.ValidateImage(ctx, image, input.Limits); err != nil {
 			return configdocument.JSONArrayEdit{}, err
 		}
 	}

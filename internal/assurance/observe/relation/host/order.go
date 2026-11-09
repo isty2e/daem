@@ -172,16 +172,17 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		settings := observepipackage.SettingsInput{
 			WorkDir: input.Paths.ManifestRoot, ProjectRoot: input.Paths.ManifestRoot, Scope: capability.Scope(),
 		}
-		var observation observepipackage.OrderObservation
+		var document aggregate.Document
 		if input.PiDocument != nil {
-			observation, err = reconstructPiOrder(input, settings, relations, capability)
+			document = *input.PiDocument
 		} else {
-			observation, err = observepipackage.ReadOrder(observepipackage.OrderInput{
-				Settings:   settings,
-				Constraint: input.Constraint,
-				Relations:  relations,
-			})
+			inventory, err := observepipackage.ReadSettings(settings)
+			if err != nil {
+				return OrderObservation{}, err
+			}
+			document = inventory.Document()
 		}
+		observation, err := reconstructPiOrder(input, settings, relations, capability, document)
 		if err != nil {
 			return OrderObservation{}, err
 		}
@@ -230,7 +231,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	)
 }
 
-func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation, capability profile.ExtensionOrderCapability) (observepipackage.OrderObservation, error) {
+func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation, capability profile.ExtensionOrderCapability, document aggregate.Document) (observepipackage.OrderObservation, error) {
 	home, err := input.Paths.UserHomeDir()
 	if err != nil {
 		return observepipackage.OrderObservation{}, err
@@ -259,7 +260,7 @@ func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInpu
 
 	return observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
 		Scope: settings.Scope, Capability: capability, SettingsContext: settingsContext,
-		Document: *input.PiDocument, Constraint: input.Constraint, Relations: bound,
+		Document: document, Constraint: input.Constraint, Relations: bound,
 	})
 }
 
