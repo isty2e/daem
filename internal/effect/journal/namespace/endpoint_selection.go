@@ -9,46 +9,56 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
-// SelectEndpointBounded observes the preferred referent before selecting either
-// expression. The result is a current location fact, not filesystem authority.
-func SelectEndpointBounded(ctx context.Context, candidates [2]string, budget rootedpath.PhysicalTraversalBudget) (string, error) {
+// Presence is relevant only to a fresh choice. Recorded selections bypass this
+// chooser rather than turning a current choice into frozen evidence.
+func selectEndpointAlternative(ctx context.Context, candidates [2]string, budget rootedpath.PhysicalTraversalBudget) (string, configuration.PointAlternative, error) {
 	if ctx == nil || budget == nil {
-		return "", fmt.Errorf("endpoint selection requires context and original allocation")
+		return "", "", fmt.Errorf("endpoint selection requires context and original allocation")
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, candidate := range candidates {
-		if !filepath.IsAbs(candidate) || strings.ContainsRune(candidate, '\x00') {
-			return "", fmt.Errorf("endpoint candidate requires an absolute expression without a NUL byte")
+		if err := validateEndpointExpression(candidate); err != nil {
+			return "", "", err
 		}
 	}
 	if candidates[0] == candidates[1] {
-		return candidates[0], nil
+		return candidates[0], configuration.PointPreferred, nil
 	}
 	present, err := endpointReferentPresent(ctx, candidates[0], budget)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if present {
-		return candidates[0], nil
+		return candidates[0], configuration.PointPreferred, nil
 	}
-	return candidates[1], nil
+	return candidates[1], configuration.PointFallback, nil
 }
 
+type endpointSelectionBasis uint8
+
+const (
+	endpointFromChoice endpointSelectionBasis = iota + 1
+	endpointFromRecord
+)
+
 type retainedEndpoint struct {
-	candidates [2]string
-	selected   string
-	physical   string
-	witness    *rootedpath.CapturedRoot
+	basis       endpointSelectionBasis
+	candidates  [2]string
+	alternative configuration.PointAlternative
+	selected    string
+	physical    string
+	witness     *rootedpath.CapturedRoot
 }
 
 // CaptureEndpointRoot retains a witness for one source-selected file point.
 // Its parent descriptor is not an independent containing directory grant.
 func CaptureEndpointRoot(ctx context.Context, candidates [2]string, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
-	selected, err := SelectEndpointBounded(ctx, candidates, budget)
+	selected, alternative, err := selectEndpointAlternative(ctx, candidates, budget)
 	if err != nil {
 		return RootSelection{}, err
 	}
@@ -63,28 +73,125 @@ func CaptureEndpointRoot(ctx context.Context, candidates [2]string, budget roote
 	if err != nil {
 		return RootSelection{}, err
 	}
-	if selection.creation != nil {
-		if literalParent != selection.SelectedPath {
-			return RootSelection{}, errors.Join(ErrNoTrustedWriterRoot, selection.Root.Close())
-		}
+	return retainEndpointRoot(ctx, selection, retainedEndpoint{
+		basis: endpointFromChoice, candidates: candidates, alternative: alternative,
+		selected: selected, physical: physical,
+	}, literalParent)
+}
+
+// CaptureRecordedEndpointRoot accepts an independently resolved recorded
+// alternative. It never chooses a different alternative from current presence.
+func CaptureRecordedEndpointRoot(ctx context.Context, selected string, alternative configuration.PointAlternative, expected rootedpath.AuthorityProvenance, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
+	if ctx == nil || budget == nil {
+		return RootSelection{}, fmt.Errorf("recorded endpoint selection requires context and original allocation")
 	}
-	selection.endpoint = &retainedEndpoint{candidates: candidates, selected: selected, physical: physical, witness: selection.Root}
-	selection.Root = nil
 	if err := ctx.Err(); err != nil {
-		return RootSelection{}, errors.Join(err, selection.Close())
+		return RootSelection{}, err
 	}
-	return selection, nil
+	if err := alternative.Validate(); err != nil {
+		return RootSelection{}, err
+	}
+	if err := expected.Validate(); err != nil {
+		return RootSelection{}, err
+	}
+	if err := validateEndpointExpression(selected); err != nil {
+		return RootSelection{}, err
+	}
+	physical, literalParent, err := resolveSelectedEndpoint(ctx, selected, budget)
+	if canceled := ctx.Err(); canceled != nil {
+		return RootSelection{}, canceled
+	}
+	if err != nil {
+		return RootSelection{}, err
+	}
+	selection, err := CaptureRecordedRoot(ctx, filepath.Dir(physical), expected, budget)
+	if err != nil {
+		return RootSelection{}, err
+	}
+	return retainEndpointRoot(ctx, selection, retainedEndpoint{
+		basis: endpointFromRecord, alternative: alternative, selected: selected, physical: physical,
+	}, literalParent)
+}
+
+func retainEndpointRoot(ctx context.Context, parent RootSelection, endpoint retainedEndpoint, literalParent string) (RootSelection, error) {
+	if parent.creation != nil && literalParent != parent.SelectedPath {
+		return RootSelection{}, errors.Join(ErrNoTrustedWriterRoot, parent.Close())
+	}
+	endpoint.witness = parent.Root
+	parent.endpoint, parent.Root, parent.literal = &endpoint, nil, ""
+	if err := errors.Join(parent.validate(), ctx.Err()); err != nil {
+		return RootSelection{}, errors.Join(err, parent.Close())
+	}
+	return parent, nil
+}
+
+func validateEndpointExpression(selected string) error {
+	if !filepath.IsAbs(selected) || strings.ContainsRune(selected, '\x00') {
+		return fmt.Errorf("endpoint candidate requires an absolute expression without a NUL byte")
+	}
+	return nil
+}
+
+func (endpoint *retainedEndpoint) validate() error {
+	if endpoint == nil || endpoint.witness == nil {
+		return fmt.Errorf("endpoint selection requires its retained witness")
+	}
+	if err := endpoint.alternative.Validate(); err != nil {
+		return err
+	}
+	if err := validateEndpointExpression(endpoint.selected); err != nil {
+		return err
+	}
+	if err := validateEndpointExpression(endpoint.physical); err != nil {
+		return err
+	}
+	switch endpoint.basis {
+	case endpointFromChoice:
+		for _, candidate := range endpoint.candidates {
+			if err := validateEndpointExpression(candidate); err != nil {
+				return err
+			}
+		}
+		selected := endpoint.candidates[0]
+		if endpoint.alternative == configuration.PointFallback {
+			if endpoint.candidates[0] == endpoint.candidates[1] {
+				return fmt.Errorf("identical endpoint candidates have only the preferred role")
+			}
+			selected = endpoint.candidates[1]
+		}
+		if selected != endpoint.selected {
+			return fmt.Errorf("endpoint alternative differs from its selected candidate")
+		}
+	case endpointFromRecord:
+		if endpoint.candidates != ([2]string{}) {
+			return fmt.Errorf("recorded endpoint cannot retain a current chooser")
+		}
+	default:
+		return fmt.Errorf("endpoint selection basis is required")
+	}
+	return nil
 }
 
 func (endpoint *retainedEndpoint) qualify(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) error {
-	selected, err := SelectEndpointBounded(ctx, endpoint.candidates, budget)
-	if err != nil {
+	if ctx == nil || budget == nil {
+		return fmt.Errorf("endpoint qualification requires context and original allocation")
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if selected != endpoint.selected {
-		return fmt.Errorf("native endpoint selection changed")
+	if err := endpoint.validate(); err != nil {
+		return err
 	}
-	physical, _, err := resolveSelectedEndpoint(ctx, selected, budget)
+	if endpoint.basis == endpointFromChoice {
+		selected, alternative, err := selectEndpointAlternative(ctx, endpoint.candidates, budget)
+		if err != nil {
+			return err
+		}
+		if selected != endpoint.selected || alternative != endpoint.alternative {
+			return fmt.Errorf("native endpoint selection changed")
+		}
+	}
+	physical, _, err := resolveSelectedEndpoint(ctx, endpoint.selected, budget)
 	if canceled := ctx.Err(); canceled != nil {
 		return canceled
 	}

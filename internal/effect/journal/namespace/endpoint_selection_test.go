@@ -55,7 +55,7 @@ func TestEndpointSelectionUsesReferentPresenceWithoutChangingFiles(t *testing.T)
 				}
 				preferred = filepath.Join(parent, ".config.json")
 			}
-			selected, err := SelectEndpointBounded(t.Context(), [2]string{preferred, fallback}, imageBudget(t))
+			selected, _, err := selectEndpointAlternative(t.Context(), [2]string{preferred, fallback}, imageBudget(t))
 			if mode == "loop" || mode == "ancestor file" {
 				if err == nil || selected != "" {
 					t.Fatal("an unknown preferred location became a fallback", selected, err)
@@ -74,15 +74,15 @@ func TestEndpointSelectionKeepsUnknownAndCancellationOutOfFallback(t *testing.T)
 	preferred := filepath.Join(t.TempDir(), "missing", ".config.json")
 	candidates := [2]string{preferred, filepath.Join(t.TempDir(), ".claude.json")}
 	quota := errors.New("endpoint selector allowance exhausted")
-	if selected, err := SelectEndpointBounded(t.Context(), candidates, &refuseProtectionBudget{failure: quota}); !errors.Is(err, quota) || selected != "" {
+	if selected, _, err := selectEndpointAlternative(t.Context(), candidates, &refuseProtectionBudget{failure: quota}); !errors.Is(err, quota) || selected != "" {
 		t.Fatal("a failed observation selected a fallback", selected, err)
 	}
-	if selected, err := SelectEndpointBounded(t.Context(), [2]string{preferred, preferred}, &refuseProtectionBudget{failure: quota}); err != nil || selected != preferred {
+	if selected, _, err := selectEndpointAlternative(t.Context(), [2]string{preferred, preferred}, &refuseProtectionBudget{failure: quota}); err != nil || selected != preferred {
 		t.Fatal("identical candidates required irrelevant existence evidence", selected, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if selected, err := SelectEndpointBounded(ctx, candidates, imageBudget(t)); !errors.Is(err, context.Canceled) || selected != "" {
+	if selected, _, err := selectEndpointAlternative(ctx, candidates, imageBudget(t)); !errors.Is(err, context.Canceled) || selected != "" {
 		t.Fatal("cancellation became a fallback location", selected, err)
 	}
 }

@@ -41,7 +41,17 @@ func (selection RootSelection) validate() error {
 	if selection.endpoint != nil && (selection.Root != nil || filepath.Dir(selection.endpoint.physical) != selection.SelectedPath) {
 		return fmt.Errorf("selected endpoint witness differs from its parent")
 	}
+	if selection.endpoint != nil {
+		return selection.endpoint.validate()
+	}
 	return nil
+}
+
+func (selection RootSelection) pointAlternative() (configuration.PointAlternative, bool) {
+	if selection.endpoint == nil {
+		return "", false
+	}
+	return selection.endpoint.alternative, true
 }
 
 func (selection RootSelection) capturedRoot() *rootedpath.CapturedRoot {
@@ -126,6 +136,10 @@ func (roots QualifiedRoots) Manifest() (RootGrant, bool) {
 func (grant RootGrant) Provenance() rootedpath.AuthorityProvenance { return grant.provenance }
 func (grant RootGrant) SelectedPath() string                       { return grant.selection.SelectedPath }
 func (grant RootGrant) RootReference() output.RootReference        { return grant.reference }
+
+func (grant RootGrant) PointAlternative() (configuration.PointAlternative, bool) {
+	return grant.selection.pointAlternative()
+}
 
 func (grant RootGrant) ValidateSelection(selector string, budget rootedpath.PhysicalTraversalBudget) error {
 	if grant.selection.capturedRoot() == nil {
