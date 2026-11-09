@@ -35,8 +35,9 @@ func TestNative16BindingsRetainTheirRecordedVersionMeaning(t *testing.T) {
 			}
 			location, err := native16RootBindingForAlias(address)
 			reference := location.RootReference()
-			if err != nil || reference.Identity() != test.identity || reference.LocatorPolicy() != test.policy || location.RelativePath() != test.relative {
-				t.Fatal("historical binding changed", reference, location.RelativePath(), err)
+			child, directory := location.Coordinate().DirectoryChild()
+			if err != nil || reference.Identity() != test.identity || reference.LocatorPolicy() != test.policy || !directory || child != test.relative {
+				t.Fatal("historical binding changed", reference, child, err)
 			}
 		})
 	}

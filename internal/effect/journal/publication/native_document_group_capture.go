@@ -101,7 +101,7 @@ func nativeDocumentGroupMetadata(ctx context.Context, namespace journalnamespace
 		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(ctx, namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifest.Provenance())
+	draft, err = draft.WithNamespace(ctx, namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, manifest.Provenance())
 	if err != nil {
 		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, err
 	}

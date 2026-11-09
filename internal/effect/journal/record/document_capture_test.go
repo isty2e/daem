@@ -13,6 +13,7 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func TestDocumentGroupDraftFreezesInputsAndBranchesWithoutChangingEarlierRecords(t *testing.T) {
@@ -31,7 +32,14 @@ func TestDocumentGroupDraftFreezesInputsAndBranchesWithoutChangingEarlierRecords
 	}
 	bindings[0], *claims = ownership.DocumentBindingIntent{}, ownershipmutation.DocumentClaimTransition{}
 	aliases := []DocumentGroupAlias{NewDocumentGroupAlias(fixture.claims.alias, fixture.provenance, fixture.observation)}
-	draft, err = draft.WithNamespace(t.Context(), fixture.observation, fixture.provenance, fixture.relative, aliases, fixture.provenance)
+	coordinate, err := configuration.NewDirectoryChild(fixture.relative.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected, err := draft.WithNamespace(t.Context(), fixture.observation, fixture.provenance, configuration.PointSelf(), aliases, fixture.provenance); err == nil || rejected.phase != 0 {
+		t.Fatal("native16 serialized a point-self writer coordinate", err)
+	}
+	draft, err = draft.WithNamespace(t.Context(), fixture.observation, fixture.provenance, coordinate, aliases, fixture.provenance)
 	if err != nil {
 		t.Fatal("input mutation changed the draft", err)
 	}

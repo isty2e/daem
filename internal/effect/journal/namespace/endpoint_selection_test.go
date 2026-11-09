@@ -146,7 +146,11 @@ func TestCapturedEndpointWitnessCannotBecomeAParentDirectoryGrant(t *testing.T) 
 	if routeErr == nil || capability != nil {
 		t.Fatal("a point witness supplied a directory-relative route capability", routeErr)
 	}
-	alias := Alias{root: grant}
+	location, err := configuration.NewPointAliasLocation(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := Alias{root: grant, location: location}
 	route, err := alias.ObserveRoute(t.Context(), budget)
 	if err != nil {
 		t.Fatal("point metadata observation required a directory route", err)

@@ -273,7 +273,7 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 			aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 		}
 		pin := namespace.WriterPin()
-		draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, provenance)
+		draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, provenance)
 		if err != nil {
 			t.Fatal(err)
 		}

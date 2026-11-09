@@ -135,7 +135,8 @@ func CaptureRootSelector(ctx context.Context, selector string, budget rootedpath
 
 func (selection RootSelection) qualifyLocator(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) error {
 	if selection.endpoint != nil {
-		return selection.endpoint.qualify(ctx, budget)
+		_, err := selection.endpoint.qualify(ctx, budget)
+		return err
 	}
 	if selection.literal == "" {
 		return nil

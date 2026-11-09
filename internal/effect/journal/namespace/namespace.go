@@ -113,11 +113,12 @@ func (roots Roots) Manifest() (RootSelection, bool) {
 }
 
 type RootGrant struct {
-	reference  output.RootReference
-	selection  RootSelection
-	authority  rootedpath.Authority
-	provenance rootedpath.AuthorityProvenance
-	endpoint   mutation.DirectoryEntryAuthorityObservation
+	reference     output.RootReference
+	selection     RootSelection
+	authority     rootedpath.Authority
+	provenance    rootedpath.AuthorityProvenance
+	endpoint      mutation.DirectoryEntryAuthorityObservation
+	endpointRoute string
 }
 
 type QualifiedRoots struct {
@@ -154,6 +155,7 @@ type Alias struct {
 	binding     configuration.AliasBinding
 	root        RootGrant
 	relative    rootedpath.RelativeDestination
+	route       string
 	observation mutation.DirectoryEntryAuthorityObservation
 }
 
@@ -174,35 +176,60 @@ func (alias Alias) Binding() (configuration.AliasBinding, bool) {
 type WriterPin struct {
 	reference  output.RootReference
 	provenance rootedpath.AuthorityProvenance
-	relative   rootedpath.RelativeDestination
+	coordinate configuration.RootCoordinate
 }
 
 func NewWriterPin(provenance rootedpath.AuthorityProvenance, relative rootedpath.RelativeDestination) (WriterPin, error) {
-	if err := provenance.Validate(); err != nil {
-		return WriterPin{}, err
-	}
 	if err := relative.Validate(); err != nil {
 		return WriterPin{}, err
 	}
-	return WriterPin{provenance: provenance, relative: relative}, nil
-}
-
-func NewBoundWriterPin(reference output.RootReference, provenance rootedpath.AuthorityProvenance, relative rootedpath.RelativeDestination) (WriterPin, error) {
-	if err := reference.Validate(); err != nil {
-		return WriterPin{}, err
-	}
-	pin, err := NewWriterPin(provenance, relative)
+	coordinate, err := configuration.NewDirectoryChild(relative.Path())
 	if err != nil {
 		return WriterPin{}, err
 	}
-	pin.reference = reference
+	pin := WriterPin{provenance: provenance, coordinate: coordinate}
+	if err := pin.Validate(); err != nil {
+		return WriterPin{}, err
+	}
+	return pin, nil
+}
+
+func NewBoundWriterPin(reference output.RootReference, provenance rootedpath.AuthorityProvenance, coordinate configuration.RootCoordinate) (WriterPin, error) {
+	if err := reference.Validate(); err != nil {
+		return WriterPin{}, err
+	}
+	pin := WriterPin{reference: reference, provenance: provenance, coordinate: coordinate}
+	if err := pin.Validate(); err != nil {
+		return WriterPin{}, err
+	}
 	return pin, nil
 }
 
 func (pin WriterPin) Provenance() rootedpath.AuthorityProvenance { return pin.provenance }
-func (pin WriterPin) Relative() rootedpath.RelativeDestination   { return pin.relative }
+func (pin WriterPin) Coordinate() configuration.RootCoordinate   { return pin.coordinate }
 func (pin WriterPin) RootReference() (output.RootReference, bool) {
 	return pin.reference, pin.reference != (output.RootReference{})
+}
+
+func (pin WriterPin) Validate() error {
+	if err := pin.provenance.Validate(); err != nil {
+		return err
+	}
+	if err := pin.coordinate.Validate(); err != nil {
+		return err
+	}
+	if child, directory := pin.coordinate.DirectoryChild(); directory {
+		if _, err := rootedpath.NewRelativeDestination(child); err != nil {
+			return err
+		}
+	}
+	if reference, bound := pin.RootReference(); bound {
+		return reference.Validate()
+	}
+	if pin.coordinate.Kind() != configuration.CoordinateDirectoryChild {
+		return fmt.Errorf("unbound writer pin requires a directory-child coordinate")
+	}
+	return nil
 }
 
 // DocumentNamespace binds real aliases to one rooted referent. It is
@@ -250,13 +277,8 @@ func Observe(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roo
 }
 
 func Reobserve(ctx context.Context, aliases []RecordedAlias, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pin WriterPin) (DocumentNamespace, error) {
-	if _, err := NewWriterPin(pin.provenance, pin.relative); err != nil {
+	if err := pin.Validate(); err != nil {
 		return DocumentNamespace{}, err
-	}
-	if reference, bound := pin.RootReference(); bound {
-		if err := reference.Validate(); err != nil {
-			return DocumentNamespace{}, err
-		}
 	}
 	if ctx == nil || filesystem == nil || budget == nil {
 		return DocumentNamespace{}, fmt.Errorf("native namespace context, filesystem and shared traversal budget are required")
@@ -403,7 +425,14 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aliasInput, ro
 	if pinned != nil && pinned.reference == (output.RootReference{}) {
 		result.writerPin, err = NewWriterPin(writerGrant.provenance, relative)
 	} else {
-		result.writerPin, err = NewBoundWriterPin(writerGrant.reference, writerGrant.provenance, relative)
+		coordinate := configuration.PointSelf()
+		if writerGrant.selection.endpoint == nil {
+			coordinate, err = configuration.NewDirectoryChild(relative.Path())
+			if err != nil {
+				return DocumentNamespace{}, err
+			}
+		}
+		result.writerPin, err = NewBoundWriterPin(writerGrant.reference, writerGrant.provenance, coordinate)
 	}
 	if err != nil {
 		return DocumentNamespace{}, err
@@ -420,16 +449,28 @@ func observeNativeAlias(ctx context.Context, input aliasInput, grants map[output
 		return Alias{}, "", err
 	}
 	location := input.location()
-	selectedRelative, err := rootedpath.NewRelativeDestination(location.RelativePath())
-	if err != nil {
-		return Alias{}, "", err
-	}
 	grant, present := grants[location.RootReference()]
 	if !present {
 		return Alias{}, "", fmt.Errorf("native document alias has no independently selected root")
 	}
-	if grant.selection.endpoint != nil {
-		return Alias{}, "", fmt.Errorf("directory-relative alias cannot use a selected file-point witness")
+	coordinate := location.Coordinate()
+	point := coordinate.Kind() == configuration.CoordinatePointSelf
+	if point != (grant.selection.endpoint != nil) {
+		return Alias{}, "", fmt.Errorf("native alias coordinate and selected root kind differ")
+	}
+	if point {
+		return Alias{
+			address: address, location: location, binding: input.binding, root: grant,
+			route: grant.endpointRoute, observation: grant.endpoint,
+		}, grant.selection.endpoint.physical, nil
+	}
+	child, directory := coordinate.DirectoryChild()
+	if !directory {
+		return Alias{}, "", fmt.Errorf("native alias directory coordinate is required")
+	}
+	selectedRelative, err := rootedpath.NewRelativeDestination(child)
+	if err != nil {
+		return Alias{}, "", err
 	}
 
 	logical := filepath.Join(grant.selection.SelectedPath, filepath.FromSlash(selectedRelative.Path()))
@@ -444,7 +485,7 @@ func observeNativeAlias(ctx context.Context, input aliasInput, grants map[output
 	if err := ctx.Err(); err != nil {
 		return Alias{}, "", err
 	}
-	return Alias{address: address, location: location, binding: input.binding, root: grant, relative: selectedRelative, observation: observation}, physical, nil
+	return Alias{address: address, location: location, binding: input.binding, root: grant, relative: selectedRelative, route: logical, observation: observation}, physical, nil
 }
 
 func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (QualifiedRoots, error) {
@@ -468,7 +509,14 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 		if err := selection.validate(); err != nil {
 			return QualifiedRoots{}, err
 		}
-		if err := selection.qualifyLocator(ctx, budget); err != nil {
+		var endpointRoute string
+		var err error
+		if selection.endpoint != nil {
+			endpointRoute, err = selection.endpoint.qualify(ctx, budget)
+		} else {
+			err = selection.qualifyLocator(ctx, budget)
+		}
+		if err != nil {
 			return QualifiedRoots{}, err
 		}
 		if selection.creation != nil {
@@ -489,7 +537,7 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 		if err != nil {
 			return QualifiedRoots{}, err
 		}
-		grant := RootGrant{reference: reference, selection: selection, authority: authority, provenance: provenance}
+		grant := RootGrant{reference: reference, selection: selection, authority: authority, provenance: provenance, endpointRoute: endpointRoute}
 		if selection.endpoint != nil {
 			grant.endpoint, err = mutation.ObserveDirectoryEntryAuthorityBounded(selection.endpoint.physical, physicalwork.MaximumPhysicalPathDepth, budget)
 			if err != nil {
@@ -556,14 +604,14 @@ func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundR
 			continue
 		}
 		if pinned != nil {
-			if pinned.reference != (output.RootReference{}) && pinned.reference != reference {
+			matched, selected, err := pinned.matchGrant(grant, candidate)
+			if err != nil {
+				return RootGrant{}, rootedpath.RelativeDestination{}, err
+			}
+			if !matched {
 				continue
 			}
-			if grant.provenance != pinned.provenance {
-				continue
-			}
-			candidate = pinned.relative
-			return grant, candidate, nil
+			return grant, selected, nil
 		}
 		if selected.selection.capturedRoot() == nil || len(grant.authority.PhysicalRoot()) > len(selected.authority.PhysicalRoot()) {
 			selected, relative = grant, candidate
@@ -573,4 +621,21 @@ func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundR
 		return RootGrant{}, rootedpath.RelativeDestination{}, ErrNoTrustedWriterRoot
 	}
 	return selected, relative, nil
+}
+
+func (pin WriterPin) matchGrant(grant RootGrant, derived rootedpath.RelativeDestination) (bool, rootedpath.RelativeDestination, error) {
+	reference, bound := pin.RootReference()
+	if bound && reference != grant.reference || pin.provenance != grant.provenance {
+		return false, rootedpath.RelativeDestination{}, nil
+	}
+	point := grant.selection.endpoint != nil
+	if point != (pin.coordinate.Kind() == configuration.CoordinatePointSelf) || point && !bound {
+		return false, rootedpath.RelativeDestination{}, nil
+	}
+	if point {
+		return true, derived, nil
+	}
+	child, _ := pin.coordinate.DirectoryChild()
+	relative, err := rootedpath.NewRelativeDestination(child)
+	return err == nil, relative, err
 }

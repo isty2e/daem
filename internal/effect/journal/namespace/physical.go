@@ -250,7 +250,7 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 	var result physicalDocumentFacts
 	if envelope == configuration.NativeDirectory {
 		for _, alias := range aliases {
-			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(filepath.Join(alias.root.SelectedPath(), filepath.FromSlash(alias.relative.Path())), physicalwork.MaximumPhysicalPathDepth, observer.budget)
+			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(alias.route, physicalwork.MaximumPhysicalPathDepth, observer.budget)
 			if err != nil {
 				return result, failure(host, ProtectionDocumentUnavailable, "", err)
 			}

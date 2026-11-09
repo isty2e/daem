@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // ObserveRemovalNamespace checks fresh parent facts using the retained writer
@@ -40,7 +41,11 @@ func (grant RootGrant) ObserveRoute(ctx context.Context, destination output.Dest
 }
 
 func (alias Alias) ObserveRoute(ctx context.Context, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
-	if alias.root.selection.endpoint != nil {
+	point := alias.location.Coordinate().Kind() == configuration.CoordinatePointSelf
+	if point != (alias.root.selection.endpoint != nil) {
+		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native alias coordinate and selected root kind differ")
+	}
+	if point {
 		return alias.root.observeEndpointRoute(ctx, budget)
 	}
 	capability, err := alias.root.acquireRoute(ctx, alias.relative, budget)

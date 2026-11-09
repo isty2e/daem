@@ -9,6 +9,9 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
+	"github.com/isty2e/daem/internal/target"
 )
 
 func TestWriterReferenceDoesNotCollapseCoincidentDirectoryGrants(t *testing.T) {
@@ -59,7 +62,11 @@ func TestWriterReferenceDoesNotCollapseCoincidentDirectoryGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, err := NewBoundWriterPin(second, provenance, relative)
+	coordinate, err := configuration.NewDirectoryChild(relative.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := NewBoundWriterPin(second, provenance, coordinate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +82,7 @@ func TestWriterReferenceDoesNotCollapseCoincidentDirectoryGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	versioned, err := NewBoundWriterPin(newPolicy, provenance, relative)
+	versioned, err := NewBoundWriterPin(newPolicy, provenance, coordinate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +99,33 @@ func TestWriterReferenceDoesNotCollapseCoincidentDirectoryGrants(t *testing.T) {
 	if _, _, err := nativeDocumentWriterGrant(onlyFirst, nil, referent, observation, &legacy); err != nil {
 		t.Fatal("legacy provenance-only pin semantics changed", err)
 	}
-	if pin, err := NewBoundWriterPin(output.RootReference{}, provenance, relative); err == nil || pin != (WriterPin{}) {
+	if pin, err := NewBoundWriterPin(output.RootReference{}, provenance, coordinate); err == nil || pin != (WriterPin{}) {
 		t.Fatal("a referenced pin retained partial identity")
+	}
+}
+
+func TestDirectoryWriterPreservesItsPhysicalChildSpelling(t *testing.T) {
+	base := t.TempDir()
+	physical := filepath.Join(base, " target.json")
+	if err := os.WriteFile(physical, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(physical, filepath.Join(base, "point.json")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	selected := nativeNamespaceRoot(t, base)
+	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: selected})
+	address := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/point.json")
+	value, err := Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, fixtureProtection(t), journalTestFilesystem(), imageBudget(t))
+	if err != nil {
+		t.Fatal("a physical writer child was treated as portable declaration text", err)
+	}
+	child, directory := value.WriterPin().Coordinate().DirectoryChild()
+	if !directory || child != " target.json" {
+		t.Fatal("writer spelling was trimmed or replaced by its logical alias", child)
+	}
+	_, destination, err := value.WriterBinding(t.Context(), imageBudget(t))
+	if err != nil || destination.Relative().Path() != child {
+		t.Fatal("writer requalification changed the physical child spelling", err)
 	}
 }

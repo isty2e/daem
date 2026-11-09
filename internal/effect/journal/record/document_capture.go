@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -103,9 +104,17 @@ func BeginDocumentGroup(owner stateauthority.Authority, operationID string, bind
 	return DocumentGroupDraft{phase: documentGroupAwaitingNamespace, facts: facts}, nil
 }
 
-func (draft DocumentGroupDraft) WithNamespace(ctx context.Context, observed mutation.DirectoryEntryAuthorityObservation, writer rootedpath.AuthorityProvenance, relative rootedpath.RelativeDestination, aliases []DocumentGroupAlias, manifest rootedpath.AuthorityProvenance) (DocumentGroupDraft, error) {
+func (draft DocumentGroupDraft) WithNamespace(ctx context.Context, observed mutation.DirectoryEntryAuthorityObservation, writer rootedpath.AuthorityProvenance, coordinate configuration.RootCoordinate, aliases []DocumentGroupAlias, manifest rootedpath.AuthorityProvenance) (DocumentGroupDraft, error) {
 	if draft.phase != documentGroupAwaitingNamespace {
 		return DocumentGroupDraft{}, fmt.Errorf("document group draft is not awaiting namespace evidence")
+	}
+	child, directory := coordinate.DirectoryChild()
+	if !directory {
+		return DocumentGroupDraft{}, fmt.Errorf("native16 writer requires a directory-child coordinate")
+	}
+	relative, err := rootedpath.NewRelativeDestination(child)
+	if err != nil {
+		return DocumentGroupDraft{}, err
 	}
 
 	captured, err := persistedNativeObservation(observed)

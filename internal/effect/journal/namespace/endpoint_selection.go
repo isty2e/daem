@@ -62,21 +62,21 @@ func CaptureEndpointRoot(ctx context.Context, candidates [2]string, budget roote
 	if err != nil {
 		return RootSelection{}, err
 	}
-	physical, literalParent, err := resolveSelectedEndpoint(ctx, selected, budget)
+	resolved, err := resolveSelectedEndpoint(ctx, selected, budget)
 	if canceled := ctx.Err(); canceled != nil {
 		return RootSelection{}, canceled
 	}
 	if err != nil {
 		return RootSelection{}, err
 	}
-	selection, err := CaptureRoot(ctx, filepath.Dir(physical), budget)
+	selection, err := CaptureRoot(ctx, filepath.Dir(resolved.physical), budget)
 	if err != nil {
 		return RootSelection{}, err
 	}
 	return retainEndpointRoot(ctx, selection, retainedEndpoint{
 		basis: endpointFromChoice, candidates: candidates, alternative: alternative,
-		selected: selected, physical: physical,
-	}, literalParent)
+		selected: selected, physical: resolved.physical,
+	}, resolved.parent)
 }
 
 // CaptureRecordedEndpointRoot accepts an independently resolved recorded
@@ -97,20 +97,20 @@ func CaptureRecordedEndpointRoot(ctx context.Context, selected string, alternati
 	if err := validateEndpointExpression(selected); err != nil {
 		return RootSelection{}, err
 	}
-	physical, literalParent, err := resolveSelectedEndpoint(ctx, selected, budget)
+	resolved, err := resolveSelectedEndpoint(ctx, selected, budget)
 	if canceled := ctx.Err(); canceled != nil {
 		return RootSelection{}, canceled
 	}
 	if err != nil {
 		return RootSelection{}, err
 	}
-	selection, err := CaptureRecordedRoot(ctx, filepath.Dir(physical), expected, budget)
+	selection, err := CaptureRecordedRoot(ctx, filepath.Dir(resolved.physical), expected, budget)
 	if err != nil {
 		return RootSelection{}, err
 	}
 	return retainEndpointRoot(ctx, selection, retainedEndpoint{
-		basis: endpointFromRecord, alternative: alternative, selected: selected, physical: physical,
-	}, literalParent)
+		basis: endpointFromRecord, alternative: alternative, selected: selected, physical: resolved.physical,
+	}, resolved.parent)
 }
 
 func retainEndpointRoot(ctx context.Context, parent RootSelection, endpoint retainedEndpoint, literalParent string) (RootSelection, error) {
@@ -172,45 +172,54 @@ func (endpoint *retainedEndpoint) validate() error {
 	return nil
 }
 
-func (endpoint *retainedEndpoint) qualify(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) error {
+func (endpoint *retainedEndpoint) qualify(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (string, error) {
 	if ctx == nil || budget == nil {
-		return fmt.Errorf("endpoint qualification requires context and original allocation")
+		return "", fmt.Errorf("endpoint qualification requires context and original allocation")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return "", err
 	}
 	if err := endpoint.validate(); err != nil {
-		return err
+		return "", err
 	}
 	if endpoint.basis == endpointFromChoice {
 		selected, alternative, err := selectEndpointAlternative(ctx, endpoint.candidates, budget)
 		if err != nil {
-			return err
+			return "", err
 		}
 		if selected != endpoint.selected || alternative != endpoint.alternative {
-			return fmt.Errorf("native endpoint selection changed")
+			return "", fmt.Errorf("native endpoint selection changed")
 		}
 	}
-	physical, _, err := resolveSelectedEndpoint(ctx, endpoint.selected, budget)
+	resolved, err := resolveSelectedEndpoint(ctx, endpoint.selected, budget)
 	if canceled := ctx.Err(); canceled != nil {
-		return canceled
+		return "", canceled
 	}
-	if err != nil || physical != endpoint.physical {
-		return errors.Join(fmt.Errorf("native endpoint referent changed"), err)
+	if err != nil || resolved.physical != endpoint.physical {
+		return "", errors.Join(fmt.Errorf("native endpoint referent changed"), err)
 	}
-	return nil
+	return resolved.route, nil
 }
 
-func resolveSelectedEndpoint(ctx context.Context, selected string, budget rootedpath.PhysicalTraversalBudget) (string, string, error) {
+type endpointResolution struct {
+	physical string
+	parent   string
+	route    string
+}
+
+func resolveSelectedEndpoint(ctx context.Context, selected string, budget rootedpath.PhysicalTraversalBudget) (endpointResolution, error) {
 	route, parent, err := endpointRoutePath(ctx, selected, budget)
 	if err != nil {
-		return "", "", err
+		return endpointResolution{}, err
 	}
 	physical, err := rootedpath.ResolveReferentPathBounded(route, physicalwork.MaximumPhysicalPathDepth, budget)
 	if canceled := ctx.Err(); canceled != nil {
-		return "", "", canceled
+		return endpointResolution{}, canceled
 	}
-	return physical, parent, err
+	if err != nil {
+		return endpointResolution{}, err
+	}
+	return endpointResolution{physical: physical, parent: parent, route: route}, nil
 }
 
 func endpointRoutePath(ctx context.Context, selected string, budget rootedpath.PhysicalTraversalBudget) (string, string, error) {

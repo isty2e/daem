@@ -130,7 +130,8 @@ func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if value.WriterPin().Provenance() != provenance || value.WriterPin().Relative().Path() != writerRelative {
+					child, directory := value.WriterPin().Coordinate().DirectoryChild()
+					if value.WriterPin().Provenance() != provenance || !directory || child != writerRelative {
 						t.Fatal("a deeper unbound endpoint displaced the independently supplied directory", value.WriterPin())
 					}
 					image, _, _, err := value.ReadReferent(t.Context(), 1024, budget)
@@ -209,7 +210,15 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	if _, bound := pin.RootReference(); !bound {
 		t.Fatal("fresh observation did not retain its selected root reference")
 	}
-	pin, err = NewWriterPin(pin.Provenance(), pin.Relative())
+	child, directory := pin.Coordinate().DirectoryChild()
+	if !directory {
+		t.Fatal("directory fixture produced a point-self writer")
+	}
+	relative, err := rootedpath.NewRelativeDestination(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err = NewWriterPin(pin.Provenance(), relative)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +270,7 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, err := NewWriterPin(provenance, pin.Relative())
+	foreign, err := NewWriterPin(provenance, relative)
 	if err != nil {
 		t.Fatal(err)
 	}

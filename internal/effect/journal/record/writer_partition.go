@@ -102,7 +102,11 @@ func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Co
 			if address.Scope() != target.ScopeProject {
 				continue
 			}
-			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, location.RelativePath())
+			child, directory := location.Coordinate().DirectoryChild()
+			if !directory {
+				return fmt.Errorf("native16 alias requires a directory-child coordinate")
+			}
+			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, child)
 			if err != nil {
 				return err
 			}

@@ -96,8 +96,8 @@ func (binding AliasBinding) RootReference() output.RootReference {
 	return binding.location.RootReference()
 }
 
-func (binding AliasBinding) RelativePath() string { return binding.location.RelativePath() }
-func (binding AliasBinding) PolicyID() string     { return binding.policy }
+func (binding AliasBinding) Coordinate() RootCoordinate { return binding.location.Coordinate() }
+func (binding AliasBinding) PolicyID() string           { return binding.policy }
 
 func (binding AliasBinding) Validate() error {
 	if err := binding.location.Validate(); err != nil {
@@ -154,7 +154,7 @@ func RootBindingForAlias(input AliasInput) (AliasBinding, error) {
 
 // AdmitRecordedAliasBinding selects the recorded rule family, then checks its
 // exact static projection. Unknown revisions are not reinterpreted as current.
-func AdmitRecordedAliasBinding(input AliasInput, reference output.RootReference, relative, policy string) (AliasBinding, error) {
+func AdmitRecordedAliasBinding(input AliasInput, reference output.RootReference, coordinate RootCoordinate, policy string) (AliasBinding, error) {
 	if err := input.Destination.ValidateScope(input.Scope); err != nil {
 		return AliasBinding{}, err
 	}
@@ -180,7 +180,7 @@ func AdmitRecordedAliasBinding(input AliasInput, reference output.RootReference,
 	if err != nil {
 		return AliasBinding{}, err
 	}
-	if canonical == (AliasBinding{}) || canonical.RootReference() != reference || canonical.RelativePath() != relative || canonical.policy != policy {
+	if canonical == (AliasBinding{}) || canonical.RootReference() != reference || canonical.Coordinate() != coordinate || canonical.policy != policy {
 		return AliasBinding{}, fmt.Errorf("%w: recorded alias binding does not match its versioned contract", ErrDocumentPath)
 	}
 	return canonical, nil

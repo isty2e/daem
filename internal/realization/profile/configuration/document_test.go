@@ -35,10 +35,11 @@ func assertDocumentContract(t *testing.T, spec configuration.DocumentSpec, want 
 	}
 	binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()})
 	reference := binding.RootReference()
-	if err != nil || binding.Validate() != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || binding.RelativePath() != want.relative || binding.PolicyID() != want.policy {
-		t.Fatalf("alias binding = %v/%s/%s, %v; want %s/%s/%s/%s", reference, binding.RelativePath(), binding.PolicyID(), err, want.root, want.locator, want.relative, want.policy)
+	child, directory := binding.Coordinate().DirectoryChild()
+	if err != nil || binding.Validate() != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || !directory || child != want.relative || binding.PolicyID() != want.policy {
+		t.Fatalf("alias binding = %v/%s/%s, %v; want %s/%s/%s/%s", reference, child, binding.PolicyID(), err, want.root, want.locator, want.relative, want.policy)
 	}
-	retained, err := configuration.AdmitRecordedAliasBinding(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()}, reference, binding.RelativePath(), binding.PolicyID())
+	retained, err := configuration.AdmitRecordedAliasBinding(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()}, reference, binding.Coordinate(), binding.PolicyID())
 	if err != nil || retained != binding {
 		t.Fatal("recorded binding does not retain the selected rule family", retained, err)
 	}
@@ -92,7 +93,8 @@ func TestRootBindingDoesNotImposePlacementOrGrammarAdmission(t *testing.T) {
 		}
 		input := configuration.AliasInput{Target: test.selected, Scope: test.scope, Destination: destination, Syntax: hostconfig.Syntax("not-a-grammar")}
 		binding, err := configuration.RootBindingForAlias(input)
-		if err != nil || binding.RootReference().Identity() != test.root || binding.RelativePath() != test.relative || binding.PolicyID() == "" {
+		child, directory := binding.Coordinate().DirectoryChild()
+		if err != nil || binding.RootReference().Identity() != test.root || !directory || child != test.relative || binding.PolicyID() == "" {
 			t.Fatalf("retained binding %s = %v, %v", test.alias, binding, err)
 		}
 		if _, err := configuration.DocumentSpecForAlias(input); err == nil {
@@ -115,22 +117,27 @@ func TestRecordedBindingRefusesReferencePathAndPolicyReinterpretation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	sibling, err := configuration.NewDirectoryChild("sibling.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
-		reference output.RootReference
-		relative  string
-		policy    string
+		reference  output.RootReference
+		coordinate configuration.RootCoordinate
+		policy     string
 	}{
-		{wrongRoot, binding.RelativePath(), binding.PolicyID()},
-		{binding.RootReference(), "sibling.json", binding.PolicyID()},
-		{binding.RootReference(), binding.RelativePath(), "pi-mcp-carrier-v2"},
-		{binding.RootReference(), binding.RelativePath(), "pi-native-v1"},
+		{wrongRoot, binding.Coordinate(), binding.PolicyID()},
+		{binding.RootReference(), sibling, binding.PolicyID()},
+		{binding.RootReference(), configuration.PointSelf(), binding.PolicyID()},
+		{binding.RootReference(), binding.Coordinate(), "pi-mcp-carrier-v2"},
+		{binding.RootReference(), binding.Coordinate(), "pi-native-v1"},
 	} {
-		retained, err := configuration.AdmitRecordedAliasBinding(input, test.reference, test.relative, test.policy)
+		retained, err := configuration.AdmitRecordedAliasBinding(input, test.reference, test.coordinate, test.policy)
 		if !errors.Is(err, configuration.ErrDocumentPath) || retained != (configuration.AliasBinding{}) {
 			t.Fatal("recorded identity was reinterpreted through another rule family", retained, err)
 		}
 	}
-	if retained, err := configuration.AdmitRecordedAliasBinding(input, binding.RootReference(), binding.RelativePath(), binding.PolicyID()); err != nil || retained != binding {
+	if retained, err := configuration.AdmitRecordedAliasBinding(input, binding.RootReference(), binding.Coordinate(), binding.PolicyID()); err != nil || retained != binding {
 		t.Fatal("binding admission imposed a producer grammar", retained, err)
 	}
 }

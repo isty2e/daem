@@ -83,7 +83,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifestGrant.Provenance())
+	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, manifestGrant.Provenance())
 	if err != nil {
 		t.Fatal(err)
 	}

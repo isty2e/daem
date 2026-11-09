@@ -267,7 +267,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 	var incomplete protectionFailures
 	routes := make([]mutation.DirectoryEntryAuthorityObservation, len(aliases))
 	for index, alias := range aliases {
-		route, err := mutation.ObserveDirectoryEntryAuthorityBounded(filepath.Join(alias.root.selection.SelectedPath, filepath.FromSlash(alias.relative.Path())), physicalwork.MaximumPhysicalPathDepth, budget)
+		route, err := mutation.ObserveDirectoryEntryAuthorityBounded(alias.route, physicalwork.MaximumPhysicalPathDepth, budget)
 		if err != nil {
 			incomplete.add(unverified(alias.address, ProtectionDocumentUnavailable, configuration.PathReservation{}, err))
 			continue
