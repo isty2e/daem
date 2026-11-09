@@ -51,7 +51,7 @@ func TestNative16PiOrderReplayKeepsHistoricalProjectionAndCommonInverse(t *testi
 				t.Fatal("order replay lost its existing settings document")
 			}
 			mode := recovery.PermissionMode(0o600)
-			candidate, err := journaldocument.ReconstructSelected(t.Context(), journaldocument.ComparisonInput{
+			candidate, err := ReconstructNative16Selected(t.Context(), journaldocument.ComparisonInput{
 				Before: input.Document, Expected: aggregate.ExistingDocument(expected),
 				BeforeMode: &mode, ExpectedMode: &mode,
 				Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},

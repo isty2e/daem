@@ -145,7 +145,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 			comparison, err = journaldocument.NewWholeComparison(t.Context(), images)
 		} else {
 			var selected journaldocument.SelectedCandidate
-			selected, err = journaldocument.ReconstructSelected(t.Context(), images, participants, group.order)
+			selected, err = journalrecord.ReconstructNative16Selected(t.Context(), images, participants, group.order)
 			comparison = selected.Comparison()
 		}
 		if err != nil {

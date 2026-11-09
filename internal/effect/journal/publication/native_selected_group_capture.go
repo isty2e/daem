@@ -140,7 +140,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	expected, participants, err := journaldocument.PrepareSelectedImage(ctx, original, input.Limits(), input.edits, input.order)
+	expected, participants, err := journalrecord.PrepareNative16SelectedImage(ctx, original, input.Limits(), input.edits, input.order)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -157,7 +157,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 			}
 		}
 	}
-	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.Limits()}, participants, input.order)
+	candidate, err := journalrecord.ReconstructNative16Selected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.Limits()}, participants, input.order)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}

@@ -101,7 +101,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	}
 	mode := recovery.NewPermissionMode(0o640)
 	limits := configdocument.Limits{MaximumBytes: pipackage.MaximumSettingsBytes, MaximumDepth: 64}
-	selected, err := journaldocument.ReconstructSelected(t.Context(), journaldocument.ComparisonInput{Before: input.Document, Expected: aggregate.ExistingDocument(expectedBytes), BeforeMode: mode, ExpectedMode: mode, Limits: limits}, nil, &order)
+	selected, err := journalrecord.ReconstructNative16Selected(t.Context(), journaldocument.ComparisonInput{Before: input.Document, Expected: aggregate.ExistingDocument(expectedBytes), BeforeMode: mode, ExpectedMode: mode, Limits: limits}, nil, &order)
 	if err != nil {
 		t.Fatal(err)
 	}

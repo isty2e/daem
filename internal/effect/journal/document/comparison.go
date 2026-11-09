@@ -93,23 +93,11 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 	if len(sequences) == 0 {
 		return comparison, nil
 	}
-	retained := slices.Clone(sequences)
-	slices.SortFunc(retained, func(left, right configdocument.JSONArrayEdit) int {
-		return strings.Compare(left.ArrayPath().String(), right.ArrayPath().String())
-	})
-	for index, sequence := range retained {
-		for _, previous := range retained[:index] {
-			if sequence.ArrayPath().Overlaps(previous.ArrayPath()) {
-				return Comparison{}, fmt.Errorf("selected native array edits overlap")
-			}
-		}
-		for _, participant := range comparison.participants {
-			for _, area := range participant.RewriteAreas() {
-				if area.Overlaps(sequence.ArrayPath()) {
-					return Comparison{}, fmt.Errorf("selected aggregate area overlaps native array order")
-				}
-			}
-		}
+	retained, err := disjointSelectedSequences(comparison.participants, sequences)
+	if err != nil {
+		return Comparison{}, err
+	}
+	for _, sequence := range retained {
 		before, err := readArrayComparisonDocument(ctx, input.Before, input.Limits, sequence.Syntax())
 		if err != nil {
 			return Comparison{}, err
@@ -135,6 +123,28 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 	}
 	comparison.sequences = retained
 	return comparison, nil
+}
+
+func disjointSelectedSequences(participants []compose.Participant, sequences []configdocument.JSONArrayEdit) ([]configdocument.JSONArrayEdit, error) {
+	retained := slices.Clone(sequences)
+	slices.SortFunc(retained, func(left, right configdocument.JSONArrayEdit) int {
+		return strings.Compare(left.ArrayPath().String(), right.ArrayPath().String())
+	})
+	for index, sequence := range retained {
+		for _, previous := range retained[:index] {
+			if sequence.ArrayPath().Overlaps(previous.ArrayPath()) {
+				return nil, fmt.Errorf("selected native array edits overlap")
+			}
+		}
+		for _, participant := range participants {
+			for _, area := range participant.RewriteAreas() {
+				if area.Overlaps(sequence.ArrayPath()) {
+					return nil, fmt.Errorf("selected aggregate area overlaps native array order")
+				}
+			}
+		}
+	}
+	return retained, nil
 }
 
 func newDocumentComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant) (Comparison, error) {

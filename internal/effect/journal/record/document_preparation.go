@@ -83,7 +83,7 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 		}
 		order = &observed
 	}
-	candidate, err := journaldocument.ReconstructSelected(ctx, input, participants, order)
+	candidate, err := ReconstructNative16Selected(ctx, input, participants, order)
 	if err != nil {
 		return journaldocument.Comparison{}, err
 	}

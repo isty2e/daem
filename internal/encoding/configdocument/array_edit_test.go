@@ -12,6 +12,44 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 )
 
+func TestJSONArrayEditAppliesOnlyToCapturedBeforeAndRetainsOutsideBytes(t *testing.T) {
+	path := arrayKey(t, "rows")
+	before := arrayDocument(t, configdocument.JSON, `{"outside":1,"rows":[0,1,2,3]}`)
+	expected, err := configdocument.EditJSONArray(t.Context(), before, path, []int{1}, []int{2, 1, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := configdocument.NewJSONArrayEdit(t.Context(), before, expected, path, []int{1}, []int{2, 1, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := arrayDocument(t, configdocument.JSON, `{"outside":2,"rows":[0,1,2,3]}`)
+	applied, changed, err := edit.Apply(t.Context(), current)
+	if err != nil || !changed || string(applied.Bytes()) != `{"outside":2,"rows":[3,2,0]}` {
+		t.Fatal("application lost the original slot edit or outside bytes", changed, err)
+	}
+	for _, text := range []string{`{"rows":[3,2,0]}`, `{"rows":[0,2,3]}`, `{}`} {
+		if rejected, changed, err := edit.Apply(t.Context(), arrayDocument(t, configdocument.JSON, text)); !errors.Is(err, configdocument.ErrPathConflict) || changed || rejected.Bytes() != nil {
+			t.Fatal("expected, intermediate or missing array became a fresh baseline", text, err)
+		}
+	}
+	identity, err := configdocument.NewJSONArrayEdit(t.Context(), before, before, path, nil, []int{0, 1, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, changed, err := identity.Apply(t.Context(), current); err != nil || changed || !bytes.Equal(unchanged.Bytes(), current.Bytes()) {
+		t.Fatal("identity witness changed an original array", err)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if rejected, changed, err := edit.Apply(cancelled, before); !errors.Is(err, context.Canceled) || changed || rejected.Bytes() != nil {
+		t.Fatal("canceled application returned candidate bytes", err)
+	}
+	if rejected, changed, err := (configdocument.JSONArrayEdit{}).Apply(t.Context(), before); err == nil || changed || rejected.Bytes() != nil {
+		t.Fatal("zero edit returned candidate bytes", err)
+	}
+}
+
 func TestJSONArrayEditRemovesSlotsAndPermutesOnlySurvivingLiterals(t *testing.T) {
 	path := arrayKey(t, "rows")
 	for _, trailing := range []string{"", ","} {

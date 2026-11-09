@@ -346,6 +346,26 @@ func (edit JSONArrayEdit) MatchesExpected(ctx context.Context, document Document
 	return expected, err
 }
 
+// Apply requires the captured original array, even when the current array already
+// matches the expected state. Changes outside the selected array are retained.
+func (edit JSONArrayEdit) Apply(ctx context.Context, document Document) (Document, bool, error) {
+	source, present, err := edit.selected(ctx, document)
+	if err != nil {
+		return Document{}, false, err
+	}
+	if !present {
+		return Document{}, false, fmt.Errorf("%w: captured array is absent", ErrPathConflict)
+	}
+	current := document.content[source.array.start:source.array.end]
+	if !bytes.Equal(current, edit.before) {
+		return Document{}, false, fmt.Errorf("%w: array differs from captured original", ErrPathConflict)
+	}
+	if bytes.Equal(current, edit.expected) {
+		return document, false, nil
+	}
+	return replaceCapturedArray(ctx, document, source, edit.expected)
+}
+
 func (edit JSONArrayEdit) Restore(ctx context.Context, document Document) (Document, bool, error) {
 	source, present, err := edit.selected(ctx, document)
 	if err != nil {
@@ -361,9 +381,13 @@ func (edit JSONArrayEdit) Restore(ctx context.Context, document Document) (Docum
 	if !bytes.Equal(current, edit.expected) {
 		return Document{}, false, fmt.Errorf("%w: array differs from captured edit states", ErrPathConflict)
 	}
-	content := make([]byte, 0, len(document.content))
+	return replaceCapturedArray(ctx, document, source, edit.before)
+}
+
+func replaceCapturedArray(ctx context.Context, document Document, source jsonArraySource, replacement []byte) (Document, bool, error) {
+	content := make([]byte, 0, len(document.content)-(source.array.end-source.array.start)+len(replacement))
 	content = append(content, document.content[:source.array.start]...)
-	content = append(content, edit.before...)
+	content = append(content, replacement...)
 	content = append(content, document.content[source.array.end:]...)
 	restored, err := Parse(ctx, content, document.syntax, document.limits)
 	if err != nil {
