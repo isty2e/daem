@@ -3,6 +3,7 @@ package document_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -220,6 +221,44 @@ func TestSelectedCandidateRejectsPiExpectedLimitBeforeCopying(t *testing.T) {
 	}
 }
 
+func TestNative16PiSequenceRecoveryKeepsItsStrictJSONAndPortableAddress(t *testing.T) {
+	for _, test := range []struct {
+		scope       target.Scope
+		destination string
+	}{
+		{target.ScopeProject, ".pi/settings.json"},
+		{target.ScopeGlobal, "@pi-agent/settings.json"},
+	} {
+		t.Run(string(test.scope), func(t *testing.T) {
+			before := aggregate.ExistingDocument([]byte(`{"packages":["npm:b","npm:a"]}`))
+			order := candidateOrderForScope(t, before, test.scope)
+			address, err := pipackage.SettingsDocumentAddress(test.scope)
+			if err != nil || address.AggregateRoot().String() != test.destination {
+				t.Fatal("native16 Pi portable address changed", err)
+			}
+			projection, err := order.NativeProjection()
+			if err != nil || projection.Destination() != address.AggregateRoot() || projection.ArrayPath().String() != "/packages" {
+				t.Fatal("normalization and native16 recovery selected different Pi surfaces", err)
+			}
+			mode := recovery.PermissionMode(0o600)
+			prepared, err := document.PrepareSelected(t.Context(), document.SelectedPreparationInput{
+				Before: before, BeforeMode: &mode, ExpectedMode: &mode,
+				Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
+			}, nil, &order)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := aggregate.ExistingDocument(append([]byte("// not strict Pi JSON\n"), prepared.Document().Content()...))
+			if match, err := prepared.Comparison().Match(t.Context(), current, &mode); !errors.Is(err, configdocument.ErrInvalidDocument) || match.Recoverable() {
+				t.Fatal("current catalog grammar widened native16 Pi comparison", err)
+			}
+			if restored, err := prepared.Comparison().RestoreBefore(t.Context(), current, &mode); !errors.Is(err, configdocument.ErrInvalidDocument) || restored.Validate() == nil {
+				t.Fatal("native16 Pi recovery admitted a comment-bearing settings document", err)
+			}
+		})
+	}
+}
+
 func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired string) compose.ProjectionEdit {
 	t.Helper()
 	participant := comparisonParticipant(t, name)
@@ -270,6 +309,11 @@ func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired 
 
 func candidateOrder(t *testing.T, document aggregate.Document) pipackage.OrderObservation {
 	t.Helper()
+	return candidateOrderForScope(t, document, target.ScopeProject)
+}
+
+func candidateOrderForScope(t *testing.T, document aggregate.Document, scope target.Scope) pipackage.OrderObservation {
+	t.Helper()
 	root := t.TempDir()
 	local, err := extensiontopology.NewLocalSourceContext(root, filepath.Join(root, "home"))
 	if err != nil {
@@ -298,12 +342,12 @@ func candidateOrder(t *testing.T, document aggregate.Document) pipackage.OrderOb
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(key, target.ScopeProject, local)
+		relation, err := pipackage.NewScopedRelationWithContext(key, scope, local)
 		if err != nil {
 			t.Fatal(err)
 		}
 		relations = append(relations, relation)
-		identity, err := pipackage.HostLoadIdentityForContext("npm:"+name, target.ScopeProject, local)
+		identity, err := pipackage.HostLoadIdentityForContext("npm:"+name, scope, local)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +361,7 @@ func candidateOrder(t *testing.T, document aggregate.Document) pipackage.OrderOb
 		}
 		members = append(members, member)
 	}
-	capability, ok := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetPi, target.ScopeProject, desiredextension.CarrierPiPackage)
+	capability, ok := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetPi, scope, desiredextension.CarrierPiPackage)
 	if !ok {
 		t.Fatal("Pi order capability unavailable")
 	}
@@ -326,7 +370,7 @@ func candidateOrder(t *testing.T, document aggregate.Document) pipackage.OrderOb
 		t.Fatal(err)
 	}
 	observation, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
-		Scope: target.ScopeProject, SettingsContext: local, Document: document, Constraint: constraint, Relations: relations,
+		Scope: scope, SettingsContext: local, Document: document, Constraint: constraint, Relations: relations,
 	})
 	if err != nil {
 		t.Fatal(err)

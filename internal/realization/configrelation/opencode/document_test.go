@@ -3,8 +3,11 @@ package opencode
 import (
 	"bytes"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 )
 
 func TestParseAndRemoveExactSourcePreservesJSONC(t *testing.T) {
@@ -176,32 +179,32 @@ func TestRemoveExactSourcePreservesBytesOutsideSelectedElement(t *testing.T) {
 	tests := map[string]struct {
 		input    string
 		source   string
-		expected string
+		expected []string
 	}{
 		"first": {
 			input:    `{"plugin":[/* selected */"alpha", /* retained */ "beta",], "x": 1,}`,
 			source:   "alpha",
-			expected: `{"plugin":[ /* retained */ "beta",], "x": 1,}`,
+			expected: []string{"beta"},
 		},
 		"middle": {
 			input:    `{"plugin":["alpha", /* selected */ "beta", /* retained */ "gamma",],}`,
 			source:   "beta",
-			expected: `{"plugin":["alpha", /* retained */ "gamma",],}`,
+			expected: []string{"alpha", "gamma"},
 		},
 		"last without trailing comma": {
 			input:    `{"plugin":["alpha", /* selected */ "beta"],}`,
 			source:   "beta",
-			expected: `{"plugin":["alpha"],}`,
+			expected: []string{"alpha"},
 		},
 		"last with trailing comma": {
 			input:    `{"plugin":["alpha", /* selected */ "beta",],}`,
 			source:   "beta",
-			expected: `{"plugin":["alpha",],}`,
+			expected: []string{"alpha"},
 		},
 		"only": {
 			input:    `{"plugin":[ /* selected */ "alpha",],}`,
 			source:   "alpha",
-			expected: `{"plugin":[],}`,
+			expected: nil,
 		},
 	}
 	for name, test := range tests {
@@ -218,10 +221,47 @@ func TestRemoveExactSourcePreservesBytesOutsideSelectedElement(t *testing.T) {
 			if !changed {
 				t.Fatal("RemoveExactSource changed = false, want true")
 			}
-			if string(output) != test.expected {
-				t.Fatalf("output:\n got %q\nwant %q", output, test.expected)
+			candidate, err := Parse(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sources []string
+			for _, entry := range candidate.Entries() {
+				sources = append(sources, entry.Source())
+			}
+			if !slices.Equal(sources, test.expected) {
+				t.Fatalf("surviving sources = %q, want %q", sources, test.expected)
+			}
+			prefix, suffix := test.input[:strings.IndexByte(test.input, '[')+1], test.input[strings.LastIndexByte(test.input, ']'):]
+			if !bytes.HasPrefix(output, []byte(prefix)) || !bytes.HasSuffix(output, []byte(suffix)) {
+				t.Fatal("array removal changed outside bytes")
+			}
+			limits := configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 16}
+			before, err := configdocument.Parse(t.Context(), []byte(test.input), configdocument.JSONC, limits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := configdocument.Parse(t.Context(), output, configdocument.JSONC, limits)
+			if err != nil || !slices.Equal(before.Comments(), after.Comments()) {
+				t.Fatal("selected or surviving row comments were erased", err)
 			}
 		})
+	}
+}
+
+func TestSharedArrayEditingPreservesLegacyUnrelatedDuplicateFields(t *testing.T) {
+	input := []byte(`{"keep":1,"keep":2,"plugin":[["remove",{"option":/* preserve */true}],"beta","alpha"]}`)
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, changed, err := document.RemoveExactSource("remove")
+	if err != nil || !changed || !bytes.Contains(removed, []byte(`"keep":1,"keep":2`)) || !bytes.Contains(removed, []byte("/* preserve */")) {
+		t.Fatal("common removal narrowed legacy admission or erased nested comments", string(removed), err)
+	}
+	reordered, changed, err := document.PermutePluginRows([]int{0, 2, 1})
+	if err != nil || !changed || string(reordered) != `{"keep":1,"keep":2,"plugin":[["remove",{"option":/* preserve */true}],"alpha","beta"]}` {
+		t.Fatal("common permutation reserialized legacy fields or tuple options", string(reordered), err)
 	}
 }
 

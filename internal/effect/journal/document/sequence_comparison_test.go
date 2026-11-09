@@ -9,10 +9,11 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 )
 
-func sequencePermutation(t *testing.T, before, expected string, field string) configdocument.JSONArrayPermutation {
+func sequencePermutation(t *testing.T, before, expected string, field string) configdocument.JSONArrayEdit {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
 	left, err := configdocument.Parse(t.Context(), []byte(before), configdocument.JSONC, limits)
@@ -41,11 +42,11 @@ func TestNativeComparisonRetainsDisjointArraysInOnePhysicalDocument(t *testing.T
 	plugins := sequencePermutation(t, before, expected, "plugin")
 	mode := recovery.PermissionMode(0o600)
 	input := comparisonInput(before, expected, &mode, &mode)
-	comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{plugins, packages})
+	comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{plugins, packages})
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{packages, plugins})
+	canonical, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{packages, plugins})
 	if err != nil || comparison.RequireCanonicalRecoveryPolicy(t.Context(), canonical) != nil {
 		t.Fatal("sequence input order changed canonical comparison policy", err)
 	}
@@ -61,8 +62,15 @@ func TestNativeComparisonRetainsDisjointArraysInOnePhysicalDocument(t *testing.T
 			t.Fatal("array restoration overwrote another selection or outside bytes", err)
 		}
 	}
-	if _, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{plugins, plugins}); err == nil {
+	if _, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{plugins, plugins}); err == nil {
 		t.Fatal("duplicate array selections acquired independent recovery state")
+	}
+	third := aggregate.ExistingDocument([]byte(`{"outside":1,"packages":["a","b"],"plugin":["third","y"]}`))
+	if match, err := comparison.Match(t.Context(), third, &mode); err != nil || match.Recoverable() || match.MatchesBefore() || match.MatchesExpected() {
+		t.Fatal("an earlier valid array hid a later foreign array state", err)
+	}
+	if restored, err := comparison.RestoreBefore(t.Context(), third, &mode); err == nil || restored.Validate() == nil {
+		t.Fatal("partial array-set evidence allowed restoration over a foreign row")
 	}
 }
 
@@ -71,16 +79,73 @@ func TestCanonicalSequencePolicyIncludesTheSelectedNativeArray(t *testing.T) {
 	expected := `{"packages":["b","a"],"plugin":["b","a"]}`
 	mode := recovery.PermissionMode(0o600)
 	input := comparisonInput(before, expected, &mode, &mode)
-	left, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{sequencePermutation(t, before, expected, "packages")})
+	left, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{sequencePermutation(t, before, expected, "packages")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{sequencePermutation(t, before, expected, "plugin")})
+	right, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{sequencePermutation(t, before, expected, "plugin")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := left.RequireCanonicalRecoveryPolicy(t.Context(), right); err == nil {
 		t.Fatal("equal row bytes erased the native array's identity")
+	}
+}
+
+func TestNativeComparisonKeepsMembershipAndOrderInOneArrayPhase(t *testing.T) {
+	before := `{"model":"balanced","outside":1,"plugin":["beta","foreign","retired","alpha"]}`
+	expected := `{"model":"fast","outside":1,"plugin":["alpha","foreign","beta"]}`
+	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
+	left, err := configdocument.Parse(t.Context(), []byte(before), configdocument.JSONC, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := configdocument.Parse(t.Context(), []byte(expected), configdocument.JSONC, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := output.NewKeyPath("plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := configdocument.NewJSONArrayEdit(t.Context(), left, right, path, []int{2}, []int{2, 1, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := recovery.PermissionMode(0o600)
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayEdit{edit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, current := range []string{
+		`{"model":"balanced","outside":2,"plugin":["alpha","foreign","beta"]}`,
+		`{"model":"fast","outside":2,"plugin":["beta","foreign","retired","alpha"]}`,
+	} {
+		match, err := comparison.Match(t.Context(), aggregate.ExistingDocument([]byte(current)), &mode)
+		if err != nil || !match.Recoverable() {
+			t.Fatal("disjoint native and sequence phases no longer recover", err)
+		}
+		restored, err := comparison.RestoreBefore(t.Context(), aggregate.ExistingDocument([]byte(current)), &mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertRestorationValue(t, restored.Document(), "model", `"balanced"`)
+		assertRestorationValue(t, restored.Document(), "outside", "2")
+		loaded, err := configdocument.Parse(t.Context(), restored.Document().Content(), configdocument.JSONC, limits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if original, _, err := edit.Match(t.Context(), loaded); err != nil || !original {
+			t.Fatal("mixed-phase recovery lost the exact original array", err)
+		}
+	}
+	planning := aggregate.ExistingDocument([]byte(`{"model":"fast","outside":2,"plugin":["beta","foreign","alpha"]}`))
+	match, err := comparison.Match(t.Context(), planning, &mode)
+	if err != nil || match.Recoverable() {
+		t.Fatal("unpublished membership baseline became a third sequence phase", err)
+	}
+	if restored, err := comparison.RestoreBefore(t.Context(), planning, &mode); err == nil || restored.Validate() == nil {
+		t.Fatal("intermediate membership state was overwritten by recovery")
 	}
 }
 

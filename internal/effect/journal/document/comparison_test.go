@@ -61,12 +61,12 @@ func TestDocumentComparisonJoinsNativeAndDedicatedPiPhases(t *testing.T) {
 	input := comparisonInput(before, expected, &mode, &mode)
 	order := comparisonOrder(t, before, expected)
 	participants := []compose.Participant{comparisonParticipant(t, "model")}
-	comparison, err := document.NewSelectedComparison(t.Context(), input, participants, []configdocument.JSONArrayPermutation{order})
+	comparison, err := document.NewSelectedComparison(t.Context(), input, participants, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}
 	participants[0] = compose.Participant{}
-	order = configdocument.JSONArrayPermutation{}
+	order = configdocument.JSONArrayEdit{}
 	for _, test := range []struct {
 		name        string
 		content     string
@@ -182,11 +182,11 @@ func TestDocumentComparisonJoinsRealMCPAndNativeReaders(t *testing.T) {
 func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testing.T) {
 	mode := recovery.PermissionMode(0o600)
 	input := comparisonInput(`{"model":1,"packages":["npm:a","npm:b"]}`, `{"model":2,"packages":["npm:b","npm:a"]}`, &mode, &mode)
-	for _, order := range []configdocument.JSONArrayPermutation{
+	for _, order := range []configdocument.JSONArrayEdit{
 		{},
 		comparisonOrder(t, `{"packages":["npm:c","npm:d"]}`, `{"packages":["npm:d","npm:c"]}`),
 	} {
-		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{order})
+		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{order})
 		if err == nil {
 			t.Fatal("unbound package inverse was accepted")
 		}
@@ -195,7 +195,7 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 		}
 	}
 	order := comparisonOrder(t, string(input.Before.Content()), string(input.Expected.Content()))
-	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "packages")}, []configdocument.JSONArrayPermutation{order}); err == nil {
+	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "packages")}, []configdocument.JSONArrayEdit{order}); err == nil {
 		t.Fatal("generic package area overlapped the dedicated order owner")
 	}
 	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{{}}, nil); err == nil {
@@ -211,7 +211,7 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	if _, err := document.NewWholeComparison(t.Context(), invalid); err == nil {
 		t.Fatal("oversized witness was accepted")
 	}
-	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayPermutation{order})
+	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
 		input := comparisonInput(deepBefore, deepExpected, &mode, &mode)
 		input.Limits.MaximumDepth = 3
 		order := comparisonOrder(t, deepBefore, deepExpected)
-		if _, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{order}); err == nil {
+		if _, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{order}); err == nil {
 			t.Fatal("order-only witnesses bypassed the calling operation's depth limit")
 		}
 	})
@@ -260,7 +260,7 @@ func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
 		input := comparisonInput(before, expected, &mode, &mode)
 		input.Limits.MaximumDepth = 3
 		order := comparisonOrder(t, before, expected)
-		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayPermutation{order})
+		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{order})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -322,7 +322,7 @@ func comparisonNativeCodec(t *testing.T, syntax configdocument.Syntax) aggregate
 	return codec
 }
 
-func comparisonOrder(t *testing.T, before, expected string) configdocument.JSONArrayPermutation {
+func comparisonOrder(t *testing.T, before, expected string) configdocument.JSONArrayEdit {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
 	beforeDocument, err := configdocument.Parse(t.Context(), []byte(before), configdocument.JSON, limits)

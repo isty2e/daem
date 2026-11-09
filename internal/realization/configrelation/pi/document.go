@@ -4,12 +4,15 @@ package pi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/tailscale/hujson"
 )
 
@@ -120,36 +123,19 @@ func (document Document) PermutePackageRows(order []int) ([]byte, bool, error) {
 			len(document.spans),
 		)
 	}
-	seen := make([]bool, len(order))
-	for destination, source := range order {
-		if source < 0 || source >= len(order) {
-			return nil, false, fmt.Errorf(
-				"Pi package row permutation source[%d] %d is out of range",
-				destination,
-				source,
-			)
-		}
-		if seen[source] {
-			return nil, false, fmt.Errorf(
-				"Pi package row permutation source index %d appears more than once",
-				source,
-			)
-		}
-		seen[source] = true
+	if len(order) == 0 {
+		return bytes.Clone(document.content), false, nil
 	}
-
-	output := make([]byte, 0, len(document.content))
-	previousEnd := 0
-	for destination, source := range order {
-		destinationSpan := document.spans[destination]
-		sourceSpan := document.spans[source]
-		output = append(output, document.content[previousEnd:destinationSpan.start]...)
-		output = append(output, document.content[sourceSpan.start:sourceSpan.end]...)
-		previousEnd = destinationSpan.end
+	path, err := output.NewKeyPath("packages")
+	if err != nil {
+		return nil, false, err
 	}
-	output = append(output, document.content[previousEnd:]...)
-
-	candidate, err := Parse(output)
+	limits := configdocument.Limits{MaximumBytes: int64(len(document.content)), MaximumDepth: maximumSettingsDepth}
+	content, err := configdocument.EditJSONArraySource(context.Background(), document.content, configdocument.JSON, limits, path, nil, order)
+	if err != nil {
+		return nil, false, err
+	}
+	candidate, err := Parse(content)
 	if err != nil {
 		return nil, false, fmt.Errorf("validate reordered Pi settings: %w", err)
 	}
@@ -161,7 +147,7 @@ func (document Document) PermutePackageRows(order []int) ([]byte, bool, error) {
 			)
 		}
 	}
-	return output, !bytes.Equal(output, document.content), nil
+	return content, !bytes.Equal(content, document.content), nil
 }
 
 // ValidatePackageSource rejects source text Pi settings cannot safely carry.

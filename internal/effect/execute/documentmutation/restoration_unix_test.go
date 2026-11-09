@@ -369,7 +369,7 @@ func restorationPublicationComparison(t *testing.T, mode recovery.PermissionMode
 	comparison, err := journaldocument.NewSelectedComparison(t.Context(), journaldocument.ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(restorationBefore)), Expected: aggregate.ExistingDocument([]byte(restorationExpected)),
 		BeforeMode: &mode, ExpectedMode: &mode, Limits: limits,
-	}, []compose.Participant{participant}, []configdocument.JSONArrayPermutation{order})
+	}, []compose.Participant{participant}, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}

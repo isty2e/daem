@@ -2,33 +2,27 @@ package opencode
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"unicode"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/tailscale/hujson"
 )
 
-// Document is one parsed OpenCode config document. It owns only the syntax and
-// exact plugin-row semantics needed for passive observation, permutation, and
-// safe removal.
+// Document retains parsed OpenCode plugin semantics and unchanged source bytes.
 type Document struct {
 	content    []byte
 	sourcePath string
-	root       hujson.Value
 	entries    []Entry
-	spans      []rowSpan
 }
 
 // Entry is one supported OpenCode plugin row.
 type Entry struct {
 	source           string
 	hostLoadIdentity string
-}
-
-type rowSpan struct {
-	start int
-	end   int
 }
 
 // Parse validates one OpenCode JSONC document without normalizing its bytes.
@@ -44,16 +38,14 @@ func ParseAt(content []byte, sourcePath string) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("parse OpenCode config JSONC: %w", err)
 	}
-	entries, spans, err := pluginEntries(root, sourcePath, len(owned))
+	entries, err := pluginEntries(root, sourcePath)
 	if err != nil {
 		return Document{}, err
 	}
 	return Document{
 		content:    owned,
 		sourcePath: sourcePath,
-		root:       root,
 		entries:    entries,
-		spans:      spans,
 	}, nil
 }
 
@@ -85,42 +77,20 @@ func (document Document) ExactSourceCount(source string) int {
 // complete original row at order[i]. JSONC extras and separators remain
 // attached to destination slots, while tuple values move without reencoding.
 func (document Document) PermutePluginRows(order []int) ([]byte, bool, error) {
-	if len(order) != len(document.spans) {
+	if len(order) != len(document.entries) {
 		return nil, false, fmt.Errorf(
 			"OpenCode plugin row permutation has %d indexes for %d rows",
 			len(order),
-			len(document.spans),
+			len(document.entries),
 		)
 	}
-	seen := make([]bool, len(order))
-	for destination, source := range order {
-		if source < 0 || source >= len(order) {
-			return nil, false, fmt.Errorf(
-				"OpenCode plugin row permutation source[%d] %d is out of range",
-				destination,
-				source,
-			)
-		}
-		if seen[source] {
-			return nil, false, fmt.Errorf(
-				"OpenCode plugin row permutation source index %d appears more than once",
-				source,
-			)
-		}
-		seen[source] = true
+	if len(order) == 0 {
+		return bytes.Clone(document.content), false, nil
 	}
-
-	output := make([]byte, 0, len(document.content))
-	previousEnd := 0
-	for destination, source := range order {
-		destinationSpan := document.spans[destination]
-		sourceSpan := document.spans[source]
-		output = append(output, document.content[previousEnd:destinationSpan.start]...)
-		output = append(output, document.content[sourceSpan.start:sourceSpan.end]...)
-		previousEnd = destinationSpan.end
+	output, err := document.editRows(nil, order)
+	if err != nil {
+		return nil, false, err
 	}
-	output = append(output, document.content[previousEnd:]...)
-
 	candidate, err := ParseAt(output, document.sourcePath)
 	if err != nil {
 		return nil, false, fmt.Errorf("validate reordered OpenCode config: %w", err)
@@ -156,30 +126,19 @@ func (document Document) RemoveExactSource(source string) ([]byte, bool, error) 
 		)
 	}
 
-	object, ok := document.root.Value.(*hujson.Object)
-	if !ok {
-		return nil, false, fmt.Errorf("OpenCode config root must be an object")
-	}
-	pluginArray, err := uniquePluginArray(object)
-	if err != nil {
-		return nil, false, err
-	}
-	if pluginArray == nil {
-		return nil, false, fmt.Errorf("OpenCode plugin row disappeared from parsed document")
-	}
-	for index, value := range pluginArray.Elements {
-		entry, err := pluginEntry(value, document.sourcePath)
-		if err != nil {
-			return nil, false, err
-		}
+	for index, entry := range document.entries {
 		if entry.source != source {
 			continue
 		}
-		output, err := removeArrayElement(document.content, pluginArray, index)
+		order := make([]int, len(document.entries)-1)
+		for slot := range order {
+			order[slot] = slot
+		}
+		output, err := document.editRows([]int{index}, order)
 		if err != nil {
 			return nil, false, err
 		}
-		if _, err := Parse(output); err != nil {
+		if _, err := ParseAt(output, document.sourcePath); err != nil {
 			return nil, false, fmt.Errorf("validate edited OpenCode config: %w", err)
 		}
 		return output, true, nil
@@ -187,65 +146,38 @@ func (document Document) RemoveExactSource(source string) ([]byte, bool, error) 
 	return nil, false, fmt.Errorf("OpenCode plugin row disappeared from parsed document")
 }
 
-func removeArrayElement(content []byte, array *hujson.Array, index int) ([]byte, error) {
-	if index < 0 || index >= len(array.Elements) {
-		return nil, fmt.Errorf("OpenCode plugin row index %d is out of range", index)
+func (document Document) editRows(removed, order []int) ([]byte, error) {
+	path, err := output.NewKeyPath("plugin")
+	if err != nil {
+		return nil, err
 	}
-	element := array.Elements[index]
-	start := element.StartOffset - len(element.BeforeExtra)
-	end := element.EndOffset + len(element.AfterExtra)
-	if start < 0 || end < start || end > len(content) {
-		return nil, fmt.Errorf("OpenCode plugin row has invalid syntax offsets")
-	}
-
-	if end < len(content) && content[end] == ',' {
-		end++
-	} else if index > 0 {
-		previous := array.Elements[index-1]
-		separator := previous.EndOffset + len(previous.AfterExtra)
-		if separator < 0 || separator >= start || content[separator] != ',' {
-			return nil, fmt.Errorf("OpenCode plugin row has no correlated array separator")
-		}
-		start = separator
-	}
-
-	output := make([]byte, 0, len(content)-(end-start))
-	output = append(output, content[:start]...)
-	output = append(output, content[end:]...)
-	return output, nil
+	// Parsing already owns input admission. These ceilings preserve that input's
+	// envelope; removals and literal permutations cannot enlarge it.
+	limits := configdocument.Limits{MaximumBytes: int64(max(1, len(document.content))), MaximumDepth: max(1, len(document.content))}
+	return configdocument.EditJSONArraySource(context.Background(), document.content, configdocument.JSONC, limits, path, removed, order)
 }
 
 func pluginEntries(
 	root hujson.Value,
 	sourcePath string,
-	contentSize int,
-) ([]Entry, []rowSpan, error) {
+) ([]Entry, error) {
 	object, ok := root.Value.(*hujson.Object)
 	if !ok {
-		return nil, nil, fmt.Errorf("OpenCode config root must be an object")
+		return nil, fmt.Errorf("OpenCode config root must be an object")
 	}
 	pluginArray, err := uniquePluginArray(object)
 	if err != nil || pluginArray == nil {
-		return nil, nil, err
+		return nil, err
 	}
 	entries := make([]Entry, 0, len(pluginArray.Elements))
-	spans := make([]rowSpan, 0, len(pluginArray.Elements))
 	for index, value := range pluginArray.Elements {
-		start, end := value.StartOffset, value.EndOffset
-		if start < 0 || end < start || end > contentSize {
-			return nil, nil, fmt.Errorf(
-				"OpenCode plugin row[%d] has invalid syntax offsets",
-				index,
-			)
-		}
 		entry, err := pluginEntry(value, sourcePath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("OpenCode plugin row[%d]: %w", index, err)
+			return nil, fmt.Errorf("OpenCode plugin row[%d]: %w", index, err)
 		}
 		entries = append(entries, entry)
-		spans = append(spans, rowSpan{start: start, end: end})
 	}
-	return entries, spans, nil
+	return entries, nil
 }
 
 func uniquePluginArray(object *hujson.Object) (*hujson.Array, error) {

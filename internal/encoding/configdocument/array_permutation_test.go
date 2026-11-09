@@ -33,7 +33,7 @@ func TestJSONArrayPermutationPreservesSlotTriviaAndConcurrentOutsideBytes(t *tes
 	expectedText := "{\r\n \"keep\": 1, \"g/~\": { \"plugins\": [\r\n // first slot\r\n \"first\",\r\n /* foreign slot */ {\"id\":\"Café\",\"data\":[1,2]},\r\n // last slot\r\n \"second\",\r\n ] }, \"tail\":true\r\n}\r\n// eof"
 	path := arrayKey(t, "g/~", "plugins")
 	before := arrayDocument(t, configdocument.JSONC, beforeText)
-	expected, err := configdocument.PermuteJSONArray(t.Context(), before, path, []int{2, 1, 0})
+	expected, err := configdocument.EditJSONArray(t.Context(), before, path, nil, []int{2, 1, 0})
 	if err != nil || !bytes.Equal(expected.Bytes(), []byte(expectedText)) {
 		t.Fatal("permutation changed slot trivia or unrelated bytes", string(expected.Bytes()), err)
 	}
@@ -74,7 +74,7 @@ func TestJSONArrayPermutationRetainsEmptyAndDuplicateLiteralRows(t *testing.T) {
 			{`{"rows":[{"x":1}, "a", {"x":1}]}`, `{"rows":["a", {"x":1}, {"x":1}]}`, []int{1, 0, 2}},
 		} {
 			before := arrayDocument(t, syntax, test.before)
-			expected, err := configdocument.PermuteJSONArray(t.Context(), before, path, test.order)
+			expected, err := configdocument.EditJSONArray(t.Context(), before, path, nil, test.order)
 			if err != nil || string(expected.Bytes()) != test.expected {
 				t.Fatal("literal permutation lost multiplicity or empty-array state", err)
 			}
@@ -89,7 +89,7 @@ func TestJSONArrayPermutationRejectsMembershipSyntaxAndInvalidOrders(t *testing.
 	path := arrayKey(t, "rows")
 	before := arrayDocument(t, configdocument.JSON, `{"rows":[1, 2, 3]}`)
 	for _, order := range [][]int{{0, 1}, {0, 0, 2}, {0, 1, 3}, {-1, 1, 2}} {
-		if rejected, err := configdocument.PermuteJSONArray(t.Context(), before, path, order); !errors.Is(err, configdocument.ErrInvalidValue) || rejected.Bytes() != nil {
+		if rejected, err := configdocument.EditJSONArray(t.Context(), before, path, nil, order); !errors.Is(err, configdocument.ErrInvalidValue) || rejected.Bytes() != nil {
 			t.Fatal("invalid permutation produced partial document bytes", order, err)
 		}
 	}
@@ -99,7 +99,7 @@ func TestJSONArrayPermutationRejectsMembershipSyntaxAndInvalidOrders(t *testing.
 		}
 	}
 	for _, content := range []string{`{}`, `{"rows":1}`} {
-		if rejected, err := configdocument.PermuteJSONArray(t.Context(), arrayDocument(t, configdocument.JSON, content), path, nil); !errors.Is(err, configdocument.ErrPathConflict) || rejected.Bytes() != nil {
+		if rejected, err := configdocument.EditJSONArray(t.Context(), arrayDocument(t, configdocument.JSON, content), path, nil, nil); !errors.Is(err, configdocument.ErrPathConflict) || rejected.Bytes() != nil {
 			t.Fatal("absent or scalar property became an array", content, err)
 		}
 	}
@@ -115,7 +115,7 @@ func TestJSONArrayPermutationKeepsCancellationAndUninitializedValuesInvalid(t *t
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if rejected, err := configdocument.PermuteJSONArray(ctx, before, path, []int{1, 0}); !errors.Is(err, context.Canceled) || rejected.Bytes() != nil {
+	if rejected, err := configdocument.EditJSONArray(ctx, before, path, nil, []int{1, 0}); !errors.Is(err, context.Canceled) || rejected.Bytes() != nil {
 		t.Fatal("canceled permutation returned a candidate", err)
 	}
 	if _, err := configdocument.NewJSONArrayPermutation(ctx, before, expected, path); !errors.Is(err, context.Canceled) {
@@ -124,17 +124,17 @@ func TestJSONArrayPermutationKeepsCancellationAndUninitializedValuesInvalid(t *t
 	if rejected, changed, err := permutation.Restore(ctx, expected); !errors.Is(err, context.Canceled) || changed || rejected.Bytes() != nil {
 		t.Fatal("canceled permutation restore returned a candidate", changed, err)
 	}
-	if rejected, changed, err := (configdocument.JSONArrayPermutation{}).Restore(t.Context(), expected); err == nil || changed || rejected.Bytes() != nil {
+	if rejected, changed, err := (configdocument.JSONArrayEdit{}).Restore(t.Context(), expected); err == nil || changed || rejected.Bytes() != nil {
 		t.Fatal("zero permutation restored a document", err)
 	}
-	if rejected, err := configdocument.PermuteJSONArray(t.Context(), before, output.KeyPath{}, []int{1, 0}); err == nil || rejected.Bytes() != nil {
+	if rejected, err := configdocument.EditJSONArray(t.Context(), before, output.KeyPath{}, nil, []int{1, 0}); err == nil || rejected.Bytes() != nil {
 		t.Fatal("array operation silently selected the document root", err)
 	}
 	absent, err := configdocument.Absent(configdocument.JSON, configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 16})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rejected, err := configdocument.PermuteJSONArray(t.Context(), absent, path, nil); err == nil || rejected.Exists() {
+	if rejected, err := configdocument.EditJSONArray(t.Context(), absent, path, nil, nil); err == nil || rejected.Exists() {
 		t.Fatal("permutation created an absent document", err)
 	}
 }

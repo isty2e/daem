@@ -92,7 +92,7 @@ func ReconstructSelected(ctx context.Context, input ComparisonInput, participant
 		}
 	}
 	nativeExpected := input.Expected
-	var permutations []configdocument.JSONArrayPermutation
+	var permutations []configdocument.JSONArrayEdit
 	if order != nil {
 		if input.Expected.ContentSize() > pipackage.MaximumSettingsBytes {
 			return SelectedCandidate{}, fmt.Errorf("Pi expected image exceeds the settings byte limit")

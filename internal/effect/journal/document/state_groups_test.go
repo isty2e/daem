@@ -299,7 +299,7 @@ func TestDocumentStateGroupsKeepPiOrderSeparateFromNativeMembership(t *testing.T
 	comparison, err := NewSelectedComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument(beforeBytes), Expected: aggregate.ExistingDocument(afterBytes),
 		BeforeMode: mode, ExpectedMode: mode, Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
-	}, nil, []configdocument.JSONArrayPermutation{order})
+	}, nil, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}

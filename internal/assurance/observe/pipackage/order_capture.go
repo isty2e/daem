@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/output"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
@@ -16,15 +17,12 @@ func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, err
 	if scope != target.ScopeProject && scope != target.ScopeGlobal {
 		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings scope is invalid")
 	}
-	path := "@pi-agent/settings.json"
-	if scope == target.ScopeProject {
-		path = ".pi/settings.json"
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetPi, scope, desiredextension.CarrierPiPackage)
+	projections := capability.NativeSequences()
+	if !admitted || len(projections) != 1 {
+		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings requires one admitted native sequence projection")
 	}
-	destination, err := output.Parse(path)
-	if err != nil {
-		return aggregate.DocumentAddress{}, err
-	}
-	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
+	return aggregate.NewDocumentAddress(target.TargetPi, scope, projections[0].Destination())
 }
 
 func (observation OrderObservation) NativeProjection() (profile.NativeSequenceProjection, error) {

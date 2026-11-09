@@ -29,7 +29,7 @@ type Comparison struct {
 	expectedState recovery.PartialDocumentState
 	limits        configdocument.Limits
 	participants  []compose.Participant
-	sequences     []configdocument.JSONArrayPermutation
+	sequences     []configdocument.JSONArrayEdit
 	whole         bool
 	initialized   bool
 }
@@ -82,7 +82,7 @@ func NewWholeComparison(ctx context.Context, input ComparisonInput) (Comparison,
 
 // NewSelectedComparison keeps selected native array order separate from
 // aggregate selections. An empty selection compares only regular-root metadata.
-func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, sequences []configdocument.JSONArrayPermutation) (Comparison, error) {
+func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, sequences []configdocument.JSONArrayEdit) (Comparison, error) {
 	comparison, err := newDocumentComparison(ctx, input, participants)
 	if err != nil {
 		return Comparison{}, err
@@ -94,7 +94,7 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 		return comparison, nil
 	}
 	retained := slices.Clone(sequences)
-	slices.SortFunc(retained, func(left, right configdocument.JSONArrayPermutation) int {
+	slices.SortFunc(retained, func(left, right configdocument.JSONArrayEdit) int {
 		return strings.Compare(left.ArrayPath().String(), right.ArrayPath().String())
 	})
 	for index, sequence := range retained {

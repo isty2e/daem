@@ -20,7 +20,7 @@ func (comparison Comparison) RequireCanonicalRecoveryPolicy(ctx context.Context,
 	if err := canonical.Validate(); err != nil {
 		return err
 	}
-	if !slices.EqualFunc(comparison.sequences, canonical.sequences, func(left, right configdocument.JSONArrayPermutation) bool { return left.Equal(right) }) {
+	if !slices.EqualFunc(comparison.sequences, canonical.sequences, func(left, right configdocument.JSONArrayEdit) bool { return left.Equal(right) }) {
 		return fmt.Errorf("prepared native sequence edits differ from the recorded comparison")
 	}
 	participants := make(map[documentSelectionKey]compose.Participant, len(canonical.participants))
