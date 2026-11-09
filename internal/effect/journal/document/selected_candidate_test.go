@@ -236,7 +236,8 @@ func TestNative16PiSequenceRecoveryKeepsItsStrictJSONAndPortableAddress(t *testi
 			if err != nil || address.AggregateRoot().String() != test.destination {
 				t.Fatal("native16 Pi portable address changed", err)
 			}
-			projection, err := order.NativeProjection()
+			selected, err := order.SelectedSequenceEdit()
+			projection := selected.Projection()
 			if err != nil || projection.Destination() != address.AggregateRoot() || projection.ArrayPath().String() != "/packages" {
 				t.Fatal("normalization and native16 recovery selected different Pi surfaces", err)
 			}

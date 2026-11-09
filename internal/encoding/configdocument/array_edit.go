@@ -276,69 +276,24 @@ func (edit JSONArrayEdit) Equal(other JSONArrayEdit) bool {
 }
 
 func NewJSONArrayEdit(ctx context.Context, before, expected Document, path output.KeyPath, removed, order []int) (JSONArrayEdit, error) {
-	left, right, err := arrayEditSources(ctx, before, expected, path)
-	if err != nil {
-		return JSONArrayEdit{}, err
-	}
-	return captureJSONArrayEdit(ctx, before, expected, path, left, right, removed, order)
-}
-
-// NewJSONArrayPermutation lowers an order-only pair of loaded array witnesses.
-// Membership removal requires explicit original slots through NewJSONArrayEdit.
-func NewJSONArrayPermutation(ctx context.Context, before, expected Document, path output.KeyPath) (JSONArrayEdit, error) {
-	left, right, err := arrayEditSources(ctx, before, expected, path)
-	if err != nil {
-		return JSONArrayEdit{}, err
-	}
-	if len(left.rows) != len(right.rows) {
-		return JSONArrayEdit{}, fmt.Errorf("%w: array permutation changes membership", ErrInvalidValue)
-	}
-	positions := make(map[string][]int, len(left.rows))
-	for index, row := range left.rows {
-		if err := ctx.Err(); err != nil {
-			return JSONArrayEdit{}, err
-		}
-		literal := string(before.content[row.value.start:row.value.end])
-		positions[literal] = append(positions[literal], index)
-	}
-	order := make([]int, 0, len(right.rows))
-	for _, row := range right.rows {
-		if err := ctx.Err(); err != nil {
-			return JSONArrayEdit{}, err
-		}
-		literal := string(expected.content[row.value.start:row.value.end])
-		remaining := positions[literal]
-		if len(remaining) == 0 {
-			return JSONArrayEdit{}, fmt.Errorf("%w: array permutation changes a literal row", ErrInvalidValue)
-		}
-		order = append(order, remaining[0])
-		positions[literal] = remaining[1:]
-	}
-	return captureJSONArrayEdit(ctx, before, expected, path, left, right, nil, order)
-}
-
-func arrayEditSources(ctx context.Context, before, expected Document, path output.KeyPath) (jsonArraySource, jsonArraySource, error) {
 	if ctx == nil {
-		return jsonArraySource{}, jsonArraySource{}, fmt.Errorf("array edit capture requires context")
+		return JSONArrayEdit{}, fmt.Errorf("array edit capture requires context")
 	}
 	if err := ctx.Err(); err != nil {
-		return jsonArraySource{}, jsonArraySource{}, err
+		return JSONArrayEdit{}, err
 	}
 	if before.syntax != expected.syntax {
-		return jsonArraySource{}, jsonArraySource{}, fmt.Errorf("%w: array edit changes document grammar", ErrInvalidDocument)
+		return JSONArrayEdit{}, fmt.Errorf("%w: array edit changes document grammar", ErrInvalidDocument)
 	}
 	left, err := before.jsonArraySource(ctx, path)
 	if err != nil {
-		return jsonArraySource{}, jsonArraySource{}, err
+		return JSONArrayEdit{}, err
 	}
 	right, err := expected.jsonArraySource(ctx, path)
 	if err != nil {
-		return jsonArraySource{}, jsonArraySource{}, err
+		return JSONArrayEdit{}, err
 	}
-	return left, right, nil
-}
 
-func captureJSONArrayEdit(ctx context.Context, before, expected Document, path output.KeyPath, left, right jsonArraySource, removed, order []int) (JSONArrayEdit, error) {
 	edited, err := left.edit(ctx, before.content, removed, order)
 	if err != nil {
 		return JSONArrayEdit{}, err

@@ -13,7 +13,7 @@ import (
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 )
 
-func sequencePermutation(t *testing.T, before, expected string, field string) configdocument.JSONArrayEdit {
+func sequencePermutation(t *testing.T, before, expected string, field string, positions ...int) configdocument.JSONArrayEdit {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
 	left, err := configdocument.Parse(t.Context(), []byte(before), configdocument.JSONC, limits)
@@ -28,7 +28,7 @@ func sequencePermutation(t *testing.T, before, expected string, field string) co
 	if err != nil {
 		t.Fatal(err)
 	}
-	sequence, err := configdocument.NewJSONArrayPermutation(t.Context(), left, right, path)
+	sequence, err := configdocument.NewJSONArrayEdit(t.Context(), left, right, path, nil, positions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,8 +38,8 @@ func sequencePermutation(t *testing.T, before, expected string, field string) co
 func TestNativeComparisonRetainsDisjointArraysInOnePhysicalDocument(t *testing.T) {
 	before := "{\n // keep\n \"outside\":1,\"packages\":[\"a\",\"b\"],\"plugin\":[\"x\",\"y\"]\n}"
 	expected := "{\n // keep\n \"outside\":1,\"packages\":[\"b\",\"a\"],\"plugin\":[\"y\",\"x\"]\n}"
-	packages := sequencePermutation(t, before, expected, "packages")
-	plugins := sequencePermutation(t, before, expected, "plugin")
+	packages := sequencePermutation(t, before, expected, "packages", 1, 0)
+	plugins := sequencePermutation(t, before, expected, "plugin", 1, 0)
 	mode := recovery.PermissionMode(0o600)
 	input := comparisonInput(before, expected, &mode, &mode)
 	comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{plugins, packages})
@@ -79,11 +79,11 @@ func TestCanonicalSequencePolicyIncludesTheSelectedNativeArray(t *testing.T) {
 	expected := `{"packages":["b","a"],"plugin":["b","a"]}`
 	mode := recovery.PermissionMode(0o600)
 	input := comparisonInput(before, expected, &mode, &mode)
-	left, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{sequencePermutation(t, before, expected, "packages")})
+	left, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{sequencePermutation(t, before, expected, "packages", 1, 0)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{sequencePermutation(t, before, expected, "plugin")})
+	right, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{sequencePermutation(t, before, expected, "plugin", 1, 0)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestGenericArrayInverseRetainsLegacyPiPermutationEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	neutral := comparisonOrder(t, string(beforeBytes), string(expectedBytes))
+	neutral := comparisonOrder(t, string(beforeBytes), string(expectedBytes), 2, 1, 0)
 	currentBytes := bytes.Replace(expectedBytes, []byte(`"outside":1`), []byte(`"outside":2`), 1)
 	current, err := piconfig.Parse(currentBytes)
 	if err != nil {

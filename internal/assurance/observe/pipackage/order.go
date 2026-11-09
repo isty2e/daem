@@ -335,7 +335,7 @@ func observeOrder(
 	if err != nil {
 		return OrderObservation{}, err
 	}
-	order, changes, err := observerelation.FixedSlotPermutation(selection.constraint, rows)
+	selected, err := observerelation.NewSelectedSequenceEdit(selection.capability, sequence, selection.constraint, nil)
 	if err != nil {
 		return OrderObservation{}, err
 	}
@@ -343,18 +343,14 @@ func observeOrder(
 	candidate := bytes.Clone(inventory.content)
 	changed := false
 	if inventory.exists {
-		candidate, changed, err = inventory.document.PermutePackageRows(order)
+		candidate, changed, err = inventory.document.PermutePackageRows(selected.SurvivorOrder())
 		if err != nil {
 			return OrderObservation{}, err
 		}
 	}
-	expectedRows := make([]observerelation.ObservedRelationRow, len(rows))
-	for destination, source := range order {
-		expectedRows[destination] = rows[source]
-	}
 	expectedSequence, err := newObservedOrderSequence(
 		selection,
-		expectedRows,
+		selected.ExpectedRows(),
 		settingsRevision(candidate),
 	)
 	if err != nil {
@@ -368,7 +364,7 @@ func observeOrder(
 		expectedSequence:  expectedSequence,
 		candidate:         candidate,
 		changed:           changed,
-		precedenceChanges: changes,
+		precedenceChanges: selected.PrecedenceChanges(),
 	}, nil
 }
 

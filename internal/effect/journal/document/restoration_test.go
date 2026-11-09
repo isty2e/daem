@@ -18,7 +18,7 @@ func TestDocumentRestorationRollsBackBothMixedNativePiDirections(t *testing.T) {
 	mode := recovery.PermissionMode(0o600)
 	before := `{"model":"balanced","outside":"old","packages":["npm:a","npm:b"]}`
 	expected := `{"model":"fast","outside":"old","packages":["npm:b","npm:a"]}`
-	order := comparisonOrder(t, before, expected)
+	order := comparisonOrder(t, before, expected, 1, 0)
 	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestDocumentRestorationKeepsWholeAndSelectedExistenceSeparate(t *testing.T)
 func TestDocumentRestorationRefusesThirdStateWithoutUsableCandidate(t *testing.T) {
 	mode := recovery.PermissionMode(0o600)
 	before, expected := `{"model":1,"packages":["npm:a","npm:b"]}`, `{"model":2,"packages":["npm:b","npm:a"]}`
-	order := comparisonOrder(t, before, expected)
+	order := comparisonOrder(t, before, expected, 1, 0)
 	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)

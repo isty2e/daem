@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"slices"
 
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -25,12 +25,8 @@ func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, err
 	return aggregate.NewDocumentAddress(target.TargetPi, scope, projections[0].Destination())
 }
 
-func (observation OrderObservation) NativeProjection() (profile.NativeSequenceProjection, error) {
-	projection, present := observation.selection.capability.NativeSequence(observation.sequence.SequenceID())
-	if !present {
-		return profile.NativeSequenceProjection{}, fmt.Errorf("Pi sequence has no admitted native projection")
-	}
-	return projection, nil
+func (observation OrderObservation) SelectedSequenceEdit() (observerelation.SelectedSequenceEdit, error) {
+	return observerelation.NewSelectedSequenceEdit(observation.selection.capability, observation.sequence, observation.selection.constraint, nil)
 }
 
 // SameSelection compares replayable order intent, not observed bytes or candidates.

@@ -308,7 +308,7 @@ func observeDocument(
 	if err != nil {
 		return DocumentOrderObservation{}, err
 	}
-	order, changes, err := observerelation.FixedSlotPermutation(selection.constraint, rows)
+	selected, err := observerelation.NewSelectedSequenceEdit(selection.capability, sequence, selection.constraint, nil)
 	if err != nil {
 		return DocumentOrderObservation{}, fmt.Errorf(
 			"normalize OpenCode %s plugin order: %w",
@@ -320,21 +320,17 @@ func observeDocument(
 	candidate := bytes.Clone(document.content)
 	changed := false
 	if document.exists {
-		candidate, changed, err = document.parsed.PermutePluginRows(order)
+		candidate, changed, err = document.parsed.PermutePluginRows(selected.SurvivorOrder())
 		if err != nil {
 			return DocumentOrderObservation{}, err
 		}
-	}
-	expectedRows := make([]observerelation.ObservedRelationRow, len(rows))
-	for destination, source := range order {
-		expectedRows[destination] = rows[source]
 	}
 	expectedDocument := document
 	expectedDocument.revision = contentRevision(candidate)
 	expectedSequence, err := newObservedOrderSequence(
 		selection,
 		expectedDocument,
-		expectedRows,
+		selected.ExpectedRows(),
 	)
 	if err != nil {
 		return DocumentOrderObservation{}, err
@@ -346,7 +342,7 @@ func observeDocument(
 		expectedSequence:  expectedSequence,
 		candidate:         candidate,
 		changed:           changed,
-		precedenceChanges: changes,
+		precedenceChanges: selected.PrecedenceChanges(),
 	}, nil
 }
 

@@ -291,7 +291,7 @@ func TestDocumentStateGroupsKeepPiOrderSeparateFromNativeMembership(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	order, err := configdocument.NewJSONArrayPermutation(t.Context(), before, after, path)
+	order, err := configdocument.NewJSONArrayEdit(t.Context(), before, after, path, nil, []int{1, 0})
 	if err != nil {
 		t.Fatal(err)
 	}

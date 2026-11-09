@@ -108,10 +108,11 @@ func ReconstructSelected(ctx context.Context, input ComparisonInput, participant
 			return SelectedCandidate{}, err
 		}
 		if order.Changed() {
-			projection, err := order.NativeProjection()
+			selected, err := order.SelectedSequenceEdit()
 			if err != nil {
 				return SelectedCandidate{}, err
 			}
+			projection := selected.Projection()
 			syntax, err := configdocument.ParseSyntax(string(projection.Grammar()))
 			if err != nil {
 				return SelectedCandidate{}, err
@@ -124,7 +125,7 @@ func ReconstructSelected(ctx context.Context, input ComparisonInput, participant
 			if err != nil {
 				return SelectedCandidate{}, err
 			}
-			inverse, err := configdocument.NewJSONArrayPermutation(ctx, before, expected, projection.ArrayPath())
+			inverse, err := configdocument.NewJSONArrayEdit(ctx, before, expected, projection.ArrayPath(), selected.RemovedSlots(), selected.SurvivorOrder())
 			if err != nil {
 				return SelectedCandidate{}, err
 			}

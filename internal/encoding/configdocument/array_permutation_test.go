@@ -37,7 +37,7 @@ func TestJSONArrayPermutationPreservesSlotTriviaAndConcurrentOutsideBytes(t *tes
 	if err != nil || !bytes.Equal(expected.Bytes(), []byte(expectedText)) {
 		t.Fatal("permutation changed slot trivia or unrelated bytes", string(expected.Bytes()), err)
 	}
-	permutation, err := configdocument.NewJSONArrayPermutation(t.Context(), before, expected, path)
+	permutation, err := configdocument.NewJSONArrayEdit(t.Context(), before, expected, path, nil, []int{2, 1, 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestJSONArrayPermutationRetainsEmptyAndDuplicateLiteralRows(t *testing.T) {
 			if err != nil || string(expected.Bytes()) != test.expected {
 				t.Fatal("literal permutation lost multiplicity or empty-array state", err)
 			}
-			if _, err := configdocument.NewJSONArrayPermutation(t.Context(), before, expected, path); err != nil {
+			if _, err := configdocument.NewJSONArrayEdit(t.Context(), before, expected, path, nil, test.order); err != nil {
 				t.Fatal("valid literal permutation could not be captured", err)
 			}
 		}
@@ -93,10 +93,20 @@ func TestJSONArrayPermutationRejectsMembershipSyntaxAndInvalidOrders(t *testing.
 			t.Fatal("invalid permutation produced partial document bytes", order, err)
 		}
 	}
-	for _, content := range []string{`{"rows":[1, 2]}`, `{"rows":[1, 2, 4]}`, `{"rows":[3,2,1]}`} {
-		if _, err := configdocument.NewJSONArrayPermutation(t.Context(), before, arrayDocument(t, configdocument.JSON, content), path); !errors.Is(err, configdocument.ErrInvalidValue) {
-			t.Fatal("membership, literal or slot-syntax changes became a permutation", content, err)
-		}
+	for _, test := range []struct {
+		name    string
+		content string
+		order   []int
+	}{
+		{"membership", `{"rows":[1, 2]}`, []int{0, 1, 2}},
+		{"literal", `{"rows":[1, 2, 4]}`, []int{0, 1, 2}},
+		{"slot syntax", `{"rows":[3,2,1]}`, []int{2, 1, 0}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := configdocument.NewJSONArrayEdit(t.Context(), before, arrayDocument(t, configdocument.JSON, test.content), path, nil, test.order); !errors.Is(err, configdocument.ErrInvalidValue) {
+				t.Fatal("membership, literal or slot-syntax changes became a permutation", test.content, err)
+			}
+		})
 	}
 	for _, content := range []string{`{}`, `{"rows":1}`} {
 		if rejected, err := configdocument.EditJSONArray(t.Context(), arrayDocument(t, configdocument.JSON, content), path, nil, nil); !errors.Is(err, configdocument.ErrPathConflict) || rejected.Bytes() != nil {
@@ -109,7 +119,7 @@ func TestJSONArrayPermutationKeepsCancellationAndUninitializedValuesInvalid(t *t
 	path := arrayKey(t, "rows")
 	before := arrayDocument(t, configdocument.JSON, `{"rows":[1,2]}`)
 	expected := arrayDocument(t, configdocument.JSON, `{"rows":[2,1]}`)
-	permutation, err := configdocument.NewJSONArrayPermutation(t.Context(), before, expected, path)
+	permutation, err := configdocument.NewJSONArrayEdit(t.Context(), before, expected, path, nil, []int{1, 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +128,7 @@ func TestJSONArrayPermutationKeepsCancellationAndUninitializedValuesInvalid(t *t
 	if rejected, err := configdocument.EditJSONArray(ctx, before, path, nil, []int{1, 0}); !errors.Is(err, context.Canceled) || rejected.Bytes() != nil {
 		t.Fatal("canceled permutation returned a candidate", err)
 	}
-	if _, err := configdocument.NewJSONArrayPermutation(ctx, before, expected, path); !errors.Is(err, context.Canceled) {
+	if _, err := configdocument.NewJSONArrayEdit(ctx, before, expected, path, nil, []int{1, 0}); !errors.Is(err, context.Canceled) {
 		t.Fatal("canceled permutation capture continued", err)
 	}
 	if rejected, changed, err := permutation.Restore(ctx, expected); !errors.Is(err, context.Canceled) || changed || rejected.Bytes() != nil {
