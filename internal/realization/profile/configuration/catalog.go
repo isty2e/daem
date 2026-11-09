@@ -57,6 +57,8 @@ var (
 	codexRoot         = rootFact{"codex-home", "codex-home-location-v1"}
 	claudePreferences = rootFact{"claude-preferences", "claude-preferences-location-v1"}
 	claudeAccount     = rootFact{"claude-account", "claude-account-location-v1"}
+	claudeCredentials = rootFact{"claude-credentials", "claude-credentials-location-v1"}
+	claudePlugins     = rootFact{"claude-plugin-store", "claude-plugin-store-location-v1"}
 	openCodeRoot      = rootFact{"opencode-configuration", "opencode-location-v1"}
 	openCodeExtra     = rootFact{"opencode-additional-configuration", "opencode-additional-location-v1"}
 	openCodeSources   = rootFact{"opencode-additional-sources", "opencode-source-location-v1"}
@@ -69,6 +71,7 @@ var (
 	openCodeMetadata  = rootFact{"opencode-plugin-metadata-override", "opencode-plugin-metadata-location-v1"}
 	antigravityRoot   = rootFact{"antigravity-preferences", "antigravity-preferences-location-v1"}
 	antigravityShared = rootFact{"antigravity-shared", "antigravity-shared-location-v1"}
+	antigravityState  = rootFact{"antigravity-state", "antigravity-state-location-v1"}
 )
 
 var nativeLayouts = map[scopeKey]nativeLayout{
@@ -378,6 +381,115 @@ var nativePathPolicies = map[target.Target]nativePathFacets{
 			fileCompanions: sqliteCompanions,
 		},
 		{root: openCodeMetadata, paths: []nativePathReservation{{".", "plugin registration state", true}}},
+	},
+	target.TargetClaudeCode: {
+		{
+			root: claudePreferences,
+			paths: []nativePathReservation{
+				{".credentials.json", "authentication", true},
+				{".session_ingress_token", "session authentication", true},
+				{"projects", "session and generated memory state", true},
+				{"sessions", "session state", true},
+				{"storage-v2", "application storage", true},
+				{"state", "application state", true},
+				{"tasks", "task state", true},
+				{"teams", "agent team state", true},
+				{"jobs", "background job state", true},
+				{"daemon", "background runtime state", true},
+				{"agent-memory", "generated agent memory", true},
+				{"file-history", "file recovery snapshots", true},
+				{"plans", "generated session plans", true},
+				{"debug", "runtime diagnostics", true},
+				{"paste-cache", "session input cache", true},
+				{"image-cache", "session image cache", true},
+				{"uploads", "session attachments", true},
+				{"session-env", "session environment state", true},
+				{"shell-snapshots", "runtime shell snapshots", true},
+				{"backups", "account recovery copies", true},
+				{"feedback-bundles", "diagnostic archives", true},
+				{"feedback", "diagnostic drafts", true},
+				{"usage-data", "generated usage reports", true},
+				{"cache", "application cache", true},
+				{"scratch", "session scratch state", true},
+				{"mcp-discovery-cache", "MCP discovery cache", true},
+				{"mcp-skill-archives", "generated MCP artifacts", true},
+				{"ide", "IDE connection state", true},
+				{"todos", "legacy task state", true},
+				{"statsig", "legacy runtime cache", true},
+				{"logs", "legacy runtime diagnostics", true},
+				{"plugins", "installed plugin code and state", true},
+				{"cowork_plugins", "installed plugin code and state", true},
+				{"dev-mods", "generated runtime code", true},
+				{"skills/.trash", "retired synced skill code", true},
+				{"history.jsonl", "message history", true},
+				{"antproto.json", "runtime identity", true},
+				{"daemon.status.json", "daemon status", true},
+				{"active-time.json", "runtime accounting", true},
+				{".last-cleanup", "cleanup state", true},
+				{"gh-pr-status-cache.json", "runtime cache", true},
+				{"server-sessions.json", "session index", true},
+				{".deep-link-register-failed", "runtime registration state", true},
+				{".last-update-result.json", "update state", true},
+				{"daemon.scheduled.status.json", "scheduled runtime state", true},
+				{"computer-use.lock", "runtime locking", true},
+				{"daemon-auth-cooldown", "authentication state", true},
+				{"daemon-auth-status.json", "authentication state", true},
+				{"daemon.lock", "daemon locking", true},
+				{"daemon.log", "daemon diagnostics", true},
+				{"hfi-auth.json", "authentication", true},
+				{"mcp-needs-auth-cache.json", "MCP authentication state", true},
+				{".npm-cache-cleanup", "installation cleanup state", true},
+				{"policy-limits.json", "server policy cache", true},
+				{"policy-limits.json.stamp.json", "server policy cache identity", true},
+				{"remote-settings.json", "server settings cache", true},
+				{"remote-settings-consent.json", "server settings state", true},
+				{"remote-settings-helper-consent", "server settings state", true},
+				{"server.lock", "server locking", true},
+				{".session-log-cleanup", "session cleanup state", true},
+				{"stats-cache.json", "runtime counters", true},
+				{".update.lock", "update locking", true},
+				{".version-cleanup", "installation cleanup state", true},
+			},
+			linkedEntries: []string{"plugins", "plugins/cache", "plugins/cache/*", "plugins/cache/*/*", "plugins/marketplaces", "cowork_plugins", "cowork_plugins/cache", "cowork_plugins/cache/*", "cowork_plugins/cache/*/*", "cowork_plugins/marketplaces"},
+		},
+		{root: claudeAccount, paths: []nativePathReservation{{".claude.json.lock", "account configuration locking", true}, {".claude.json.backup", "legacy account recovery", true}}},
+		{root: claudeCredentials, paths: []nativePathReservation{{".credentials.json", "authentication", true}}},
+		{root: claudePlugins, directory: &nativeDirectoryReservation{owner: "installed plugin code and state"}, linkedEntries: []string{"cache", "cache/*", "cache/*/*", "marketplaces"}},
+	},
+	target.TargetAntigravityCLI: {
+		{
+			root: antigravityRoot,
+			paths: []nativePathReservation{
+				{"log", "runtime diagnostics", true},
+				{"cache", "runtime cache", true},
+				{"brain", "conversation state", true},
+				{"mcp", "generated MCP server state", true},
+				{"secplugins/grants", "trusted command grants", true},
+				{"builtin", "host-supplied code", true},
+				{"plugins", "installed plugin code", true},
+				{"import_manifest.json", "plugin installation state", true},
+				{"history.jsonl", "message history", true},
+				{"antigravity-oauth-token", "legacy authentication", true},
+			},
+			linkedEntries: []string{"plugins", "builtin/plugins", "builtin/skills"},
+		},
+		{
+			root: antigravityShared,
+			paths: []nativePathReservation{
+				{"plugins", "installed plugin code", true},
+				{"import_manifest.json", "plugin installation state", true},
+			},
+			linkedEntries: []string{"plugins"},
+		},
+		{
+			root: antigravityState,
+			paths: []nativePathReservation{
+				{"jetski-standalone-oauth-token", "authentication", true},
+				{"cache/antigravity-keyring-unavailable", "authentication fallback state", true},
+				{"memory", "generated memory state", true},
+				{"antigravity-ide/installation_id", "runtime installation identity", true},
+			},
+		},
 	},
 }
 

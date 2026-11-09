@@ -103,6 +103,8 @@ func NativeRootDescription(reference output.RootReference) string {
 		{codexRoot, "codex home"},
 		{claudePreferences, "claude preferences directory"},
 		{claudeAccount, "claude account location"},
+		{claudeCredentials, "claude credential directory"},
+		{claudePlugins, "claude plugin installation directory"},
 		{openCodeRoot, "opencode configuration directory"},
 		{openCodeExtra, "opencode additional configuration directory"},
 		{openCodeSources, "opencode additional definition directory"},
@@ -115,6 +117,7 @@ func NativeRootDescription(reference output.RootReference) string {
 		{openCodeMetadata, "opencode plugin metadata override"},
 		{antigravityRoot, "antigravity preferences directory"},
 		{antigravityShared, "antigravity shared configuration location"},
+		{antigravityState, "antigravity shared runtime directory"},
 	} {
 		selected, err := entry.root.reference()
 		if err == nil && selected == reference {
@@ -145,8 +148,7 @@ func NativeExclusionPolicies() ([]ExclusionPolicy, error) {
 	for _, host := range target.SupportedTargets() {
 		facets, present := nativePathPolicies[host]
 		if !present {
-			result = append(result, ExclusionPolicy{target: host})
-			continue
+			return nil, fmt.Errorf("native filesystem protection for %s has no audited inventory", host)
 		}
 		for _, facet := range facets {
 			companionGroups := [][]string{facet.fileCompanions}

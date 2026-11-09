@@ -147,6 +147,15 @@ func TestPhysicalExclusionProjectionUsesTheCanonicalGlobalRules(t *testing.T) {
 	}
 }
 
+func TestAnUnauditedInventoryCannotCompileIntoProtection(t *testing.T) {
+	original := nativePathPolicies[target.TargetClaudeCode]
+	delete(nativePathPolicies, target.TargetClaudeCode)
+	t.Cleanup(func() { nativePathPolicies[target.TargetClaudeCode] = original })
+	if policies, err := NativeExclusionPolicies(); err == nil || policies != nil {
+		t.Fatal("an unreviewed host became usable partial protection", len(policies), err)
+	}
+}
+
 func TestNativeEndpointAnchorsDoNotBecomeWholeDirectoryEnvelopes(t *testing.T) {
 	contracts, err := NativeRootContracts()
 	if err != nil {

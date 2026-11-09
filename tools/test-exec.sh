@@ -74,6 +74,7 @@ export XDG_STATE_HOME="${package_root}/xdg/state"
 export DAEM_TEST_PACKAGE_ROOT="${package_root}"
 
 unset CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
+unset CLAUDE_SECURESTORAGE_CONFIG_DIR CLAUDE_CODE_PLUGIN_CACHE_DIR
 
 # A dedicated process group lets cmd/go cancellation reach the test binary and
 # any subprocesses it started before the package root is removed.

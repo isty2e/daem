@@ -64,6 +64,7 @@ export XDG_STATE_HOME="${test_root}/coordinator/xdg/state"
 # host derive its default below the isolated HOME and avoids pinning nested
 # test fixtures to the harness root when they replace HOME themselves.
 unset CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
+unset CLAUDE_SECURESTORAGE_CONFIG_DIR CLAUDE_CODE_PLUGIN_CACHE_DIR
 unset OPENCODE_CONFIG_DIR OPENCODE_DB OPENCODE_PLUGIN_META_FILE
 
 export GOCACHE="${go_cache}"

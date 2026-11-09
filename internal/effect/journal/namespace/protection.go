@@ -208,11 +208,6 @@ func (observer *physicalObserver) requireUnreserved(ctx context.Context, aliases
 	}
 	var unverified protectionFailures
 	for _, policy := range policies {
-		// Unknown hosts remain explicit inventory work, not checked-empty facts.
-		// Final host admission requires their audited policies independently.
-		if policy.Coverage() == configuration.ExclusionUnknown {
-			continue
-		}
 		facets, err := policy.Facets()
 		if err != nil {
 			return err
@@ -422,62 +417,81 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 		}
 		return entries, entries.Present()
 	}
-	for _, pattern := range facet.LinkedEntryDirectories() {
-		directories := []string{pattern}
-		if namePattern := filepath.Base(pattern); strings.ContainsAny(namePattern, "*?[") {
-			parent := filepath.Dir(pattern)
-			entries, present := directoryEntries(parent, pattern)
-			if !present {
+	checkDirectory := func(directory, label string) error {
+		entries, present := directoryEntries(directory, label)
+		if !present {
+			return nil
+		}
+		root, err := observeProtectionPath(entries.PhysicalPath(), budget)
+		if err != nil {
+			linkedFailure(label, err)
+			return nil
+		}
+		if err := checkRegion(root, directory); err != nil {
+			return err
+		}
+		key, exact := root.Exact()
+		if !exact {
+			incomplete.add(indeterminate(aliases[0].address, root, configuration.PathReservation{}))
+			return nil
+		}
+		for _, name := range entries.Names() {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			entryPath := filepath.Join(entries.PhysicalPath(), name)
+			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(entryPath, physicalwork.MaximumPhysicalPathDepth, budget)
+			if err != nil {
+				linkedFailure(label, err)
 				continue
 			}
-			directories = nil
-			for _, name := range entries.Names() {
-				if matched, _ := filepath.Match(namePattern, name); matched {
-					directories = append(directories, filepath.ToSlash(filepath.Join(parent, name)))
+			entry, exact := route.Exact()
+			canonical, immediate := key.ImmediateChildName(entry)
+			if !exact || !immediate {
+				incomplete.add(indeterminate(aliases[0].address, route, configuration.PathReservation{}))
+				continue
+			}
+			reservation, reserved := facet.ReservationAt(path.Join(directory, canonical))
+			if reserved {
+				if err := checkEndpoint(entryPath, reservation); err != nil {
+					return err
 				}
 			}
 		}
-		for _, directory := range directories {
-			entries, present := directoryEntries(directory, pattern)
-			if !present {
-				continue
+		return nil
+	}
+	var checkDirectoryPattern func(string, []string, string) error
+	checkDirectoryPattern = func(directory string, remaining []string, label string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(remaining) == 0 {
+			return checkDirectory(directory, label)
+		}
+		component := remaining[0]
+		if !strings.ContainsAny(component, "*?[") {
+			return checkDirectoryPattern(path.Join(directory, component), remaining[1:], label)
+		}
+		entries, present := directoryEntries(directory, label)
+		if !present {
+			return nil
+		}
+		for _, name := range entries.Names() {
+			if err := observer.budget.AdmitPhysicalWork(0, 1, 0); err != nil {
+				linkedFailure(label, err)
+				return nil
 			}
-			root, err := observeProtectionPath(entries.PhysicalPath(), budget)
-			if err != nil {
-				linkedFailure(pattern, err)
-				continue
-			}
-			if err := checkRegion(root, directory); err != nil {
-				return err
-			}
-			key, exact := root.Exact()
-			if !exact {
-				incomplete.add(indeterminate(aliases[0].address, root, configuration.PathReservation{}))
-				continue
-			}
-			for _, name := range entries.Names() {
-				if err := ctx.Err(); err != nil {
+			if matched, _ := path.Match(component, name); matched {
+				if err := checkDirectoryPattern(path.Join(directory, name), remaining[1:], label); err != nil {
 					return err
 				}
-				path := filepath.Join(entries.PhysicalPath(), name)
-				route, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-				if err != nil {
-					linkedFailure(pattern, err)
-					continue
-				}
-				entry, exact := route.Exact()
-				canonical, immediate := key.ImmediateChildName(entry)
-				if !exact || !immediate {
-					incomplete.add(indeterminate(aliases[0].address, route, configuration.PathReservation{}))
-					continue
-				}
-				reservation, reserved := facet.ReservationAt(filepath.ToSlash(filepath.Join(directory, canonical)))
-				if reserved {
-					if err := checkEndpoint(path, reservation); err != nil {
-						return err
-					}
-				}
 			}
+		}
+		return nil
+	}
+	for _, pattern := range facet.LinkedEntryDirectories() {
+		if err := checkDirectoryPattern(".", strings.Split(pattern, "/"), pattern); err != nil {
+			return err
 		}
 	}
 	observeNames := func(path string, reservation configuration.PathReservation) ([]string, bool) {

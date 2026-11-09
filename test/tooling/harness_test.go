@@ -32,7 +32,7 @@ func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 	} {
 		assertHarnessPathInside(t, name, packageRoot)
 	}
-	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
+	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
 		if value, present := os.LookupEnv(name); present {
 			t.Errorf("%s = %q, want optional host override absent", name, value)
 		}

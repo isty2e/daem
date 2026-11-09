@@ -259,9 +259,6 @@ func SelectProtectionRoots(locations nativehostpath.Locations) (journalnamespace
 	}
 	references := make(map[output.RootReference]struct{})
 	for _, policy := range policies {
-		if policy.Coverage() == configuration.ExclusionUnknown {
-			continue
-		}
 		facets, err := policy.Facets()
 		if err != nil {
 			return journalnamespace.ReservationSelectors{}, err

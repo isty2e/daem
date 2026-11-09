@@ -48,6 +48,9 @@ func NativeProtectionLocations() ([]ProtectionLocation, error) {
 		{openCodeDatabase, true},
 		{openCodeMetadata, true},
 		{openCodeInstall, true},
+		{claudeCredentials, true},
+		{claudePlugins, true},
+		{antigravityState, false},
 	} {
 		reference, err := entry.root.reference()
 		if err != nil {

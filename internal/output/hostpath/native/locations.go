@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
@@ -19,6 +21,7 @@ var locationVariables = [...]string{
 	"PI_CODING_AGENT_DIR", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "OPENCODE_CONFIG_DIR",
 	"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
 	"OPENCODE_DB", "OPENCODE_PLUGIN_META_FILE",
+	"CLAUDE_SECURESTORAGE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR",
 }
 
 type Locations struct {
@@ -126,11 +129,28 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 		result = locations.selected("CODEX_HOME", filepath.Join(locations.home, ".codex"))
 		result.path, err = CodexHomeDirectory(locations.values["CODEX_HOME"], locations.workDir, locations.home)
 	case "claude-preferences-location-v1":
-		result = locations.selected("CLAUDE_CONFIG_DIR", filepath.Join(locations.home, ".claude"))
-		result.path = locations.absolute(result.path)
+		result = locations.claudeConfigurationDirectory()
 	case "claude-account-location-v1":
 		result = locations.selected("CLAUDE_CONFIG_DIR", locations.home)
-		result.path = locations.absolute(result.path)
+		result.path = locations.lexicalNodePath(result.path)
+	case "claude-credentials-location-v1":
+		value, present := locations.values["CLAUDE_SECURESTORAGE_CONFIG_DIR"]
+		result = Location{source: "CLAUDE_SECURESTORAGE_CONFIG_DIR", absent: !present}
+		if present {
+			if value == "" {
+				value = filepath.Join(locations.home, ".claude")
+			}
+			result.path = locations.lexicalNodePath(norm.NFC.String(value))
+		}
+	case "claude-plugin-store-location-v1":
+		value := locations.values["CLAUDE_CODE_PLUGIN_CACHE_DIR"]
+		result = Location{source: "CLAUDE_CODE_PLUGIN_CACHE_DIR", absent: value == ""}
+		if !result.absent {
+			if value == "~" || strings.HasPrefix(value, "~/") {
+				value = locations.home + strings.TrimPrefix(value, "~")
+			}
+			result.path = locations.lexicalNodePath(value)
+		}
 	case "opencode-location-v1":
 		result, err = locations.openCodePath("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
 	case "opencode-additional-location-v1", "opencode-installation-location-v1":
@@ -143,7 +163,7 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 			cleaned := filepath.Clean(value)
 			result.path = locations.workDir
 			if cleaned != "." {
-				result.path = locations.openCodeAbsolute(cleaned)
+				result.path = locations.nodeAbsolute(cleaned)
 			}
 		}
 	case "opencode-legacy-location-v1":
@@ -153,7 +173,7 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 		present = present && value != ""
 		result = Location{source: "OPENCODE_CONFIG_DIR", absent: !present}
 		if present {
-			result.path = locations.openCodeAbsolute(value)
+			result.path = locations.nodeAbsolute(value)
 		}
 	case "opencode-data-location-v1":
 		result, err = locations.openCodePath("XDG_DATA_HOME", filepath.Join(locations.home, ".local", "share"))
@@ -169,8 +189,8 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 			if strings.ContainsRune(value, '\x00') {
 				return result, fmt.Errorf("database override must not contain a NUL byte")
 			}
-			if openCodeAbsolutePath(value) {
-				result.path = locations.openCodeAbsolute(value)
+			if nodeAbsolutePath(value) {
+				result.path = locations.nodeAbsolute(value)
 			} else {
 				data, err := locations.openCodePath("XDG_DATA_HOME", filepath.Join(locations.home, ".local", "share"), value)
 				if err != nil {
@@ -186,12 +206,14 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 			if value == "" {
 				return result, fmt.Errorf("plugin metadata override must select a nonempty file path")
 			}
-			result.path = locations.openCodeAbsolute(value)
+			result.path = locations.nodeAbsolute(value)
 		}
 	case "antigravity-preferences-location-v1":
 		result = Location{path: filepath.Join(locations.home, ".gemini", "antigravity-cli"), source: "default location"}
 	case "antigravity-shared-location-v1":
 		result = Location{path: filepath.Join(locations.home, ".gemini", "config"), source: "default location"}
+	case "antigravity-state-location-v1":
+		result = Location{path: filepath.Join(locations.home, ".gemini"), source: "default location"}
 	default:
 		return Location{}, fmt.Errorf("native root locator contract is not implemented")
 	}
@@ -216,20 +238,37 @@ func (locations Locations) openCodePath(variable, fallback string, relative ...s
 	parts := append([]string{base.path, "opencode"}, relative...)
 	// Node joins the relative expression before lookup. Do not clean through
 	// the captured logical working-directory prefix.
-	location := Location{path: locations.openCodeAbsolute(filepath.Join(parts...)), source: base.source}
+	location := Location{path: locations.nodeAbsolute(filepath.Join(parts...)), source: base.source}
 	return location, location.validate()
 }
 
-func openCodeAbsolutePath(path string) bool {
+func nodeAbsolutePath(path string) bool {
 	return filepath.IsAbs(path) || runtime.GOOS == "windows" && len(path) != 0 && os.IsPathSeparator(path[0])
 }
 
-func (locations Locations) openCodeAbsolute(path string) string {
+func (locations Locations) nodeAbsolute(path string) string {
 	// Node accepts drive-less rooted Win32 paths; filepath.IsAbs does not.
-	if runtime.GOOS == "windows" && openCodeAbsolutePath(path) && filepath.VolumeName(path) == "" {
+	if runtime.GOOS == "windows" && nodeAbsolutePath(path) && filepath.VolumeName(path) == "" {
 		return filepath.VolumeName(locations.workDir) + path
 	}
 	return locations.absolute(path)
+}
+
+func (locations Locations) lexicalNodePath(expression string) string {
+	cleaned := filepath.Clean(expression)
+	if cleaned == "." {
+		return locations.workDir
+	}
+	return locations.nodeAbsolute(cleaned)
+}
+
+func (locations Locations) claudeConfigurationDirectory() Location {
+	value, present := locations.values["CLAUDE_CONFIG_DIR"]
+	source := "CLAUDE_CONFIG_DIR"
+	if !present {
+		value, source = filepath.Join(locations.home, ".claude"), "default location"
+	}
+	return Location{path: locations.lexicalNodePath(norm.NFC.String(value)), source: source}
 }
 
 func (locations Locations) selected(variable, fallback string) Location {
