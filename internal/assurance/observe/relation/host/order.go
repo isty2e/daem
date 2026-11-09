@@ -65,23 +65,6 @@ func (observation OrderObservation) Physical() []PhysicalOrderObservation {
 	return append([]PhysicalOrderObservation(nil), observation.physical...)
 }
 
-// Pi returns the host-native Pi observation when Pi owns this order class.
-func (observation OrderObservation) Pi() (observepipackage.OrderObservation, bool) {
-	if observation.pi == nil {
-		return observepipackage.OrderObservation{}, false
-	}
-	return *observation.pi, true
-}
-
-// OpenCode returns the host-native OpenCode observation when OpenCode owns this
-// order class.
-func (observation OrderObservation) OpenCode() (observeopencode.OrderObservation, bool) {
-	if observation.openCode == nil {
-		return observeopencode.OrderObservation{}, false
-	}
-	return *observation.openCode, true
-}
-
 // OrderAuthorityPaths returns the complete static path set whose selection may
 // change before post-carrier reobservation.
 func OrderAuthorityPaths(input OrderInput) ([]OrderAuthorityPath, error) {

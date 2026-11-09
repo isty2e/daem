@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/execute"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
@@ -91,8 +92,10 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := input.Preparation.PiOrders()[0].VerifyPostContent(actual, true); err != nil {
-				t.Fatal(err)
+			edit := input.Preparation.SequenceEdits()[0]
+			completed, err := relationhost.CompleteSelectedImage(t.Context(), edit.Original(), input.Documents.Evidence().DocumentLimits(), nil, []relationhost.SelectedDocumentEdit{edit})
+			if err != nil || !bytes.Equal(actual, completed.Expected().Content()) {
+				t.Fatal("order-only publication differs from its verified selected image", err)
 			}
 			info, err := os.Stat(host)
 			if err != nil || info.Mode().Perm() != 0o644 {
@@ -343,7 +346,15 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	before := durable.EmptySnapshot()
-	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, PiOrders: []pipackage.OrderObservation{order}, StateCodec: codec})
+	view, err := order.WithRetiringRelations(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := relationhost.NewPiDocumentEdit(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, SequenceEdits: []relationhost.SelectedDocumentEdit{edit}, StateCodec: codec})
 	if err != nil {
 		t.Fatal(err)
 	}

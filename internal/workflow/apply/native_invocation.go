@@ -93,7 +93,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 		return nil, err
 	}
 	operationID := hex.EncodeToString(random[:])
-	_, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), operationID, input.Preparation.PiOrders()...)
+	_, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), operationID, input.Preparation.SequenceEdits()...)
 	if err != nil {
 		return nil, err
 	}

@@ -1,11 +1,15 @@
 package ownership
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
+
+// ErrClaimMissing identifies prior managed state without its own active claim.
+var ErrClaimMissing = errors.New("managed state has no matching own active ownership claim")
 
 // Registry retains claims, document identity evidence and pending protection.
 // Claim exclusion and document-wide safety fences remain distinct.

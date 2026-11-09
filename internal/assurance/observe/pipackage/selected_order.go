@@ -165,6 +165,23 @@ func (view SelectedOrderView) OriginalDocument() aggregate.Document { return vie
 func (view SelectedOrderView) SettingsPath() string { return view.inventory.SettingsPath() }
 func (view SelectedOrderView) Scope() target.Scope  { return view.selection.scope }
 
+func (view SelectedOrderView) DefinitionRoots() []string {
+	seen := make(map[string]bool)
+	for _, relations := range [][]ScopedRelation{view.selection.relations, view.retiring} {
+		for _, relation := range relations {
+			if relation.sourceContext != nil {
+				seen[relation.sourceContext.BaseRoot()] = true
+			}
+		}
+	}
+	roots := make([]string, 0, len(seen))
+	for root := range seen {
+		roots = append(roots, root)
+	}
+	slices.Sort(roots)
+	return roots
+}
+
 func (view SelectedOrderView) SameSelection(other SelectedOrderView) bool {
 	if !view.selected.SameIntent(other.selected) || view.inventory.settingsPath != other.inventory.settingsPath ||
 		view.inventory.sourceContext == nil || other.inventory.sourceContext == nil || *view.inventory.sourceContext != *other.inventory.sourceContext {

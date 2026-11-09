@@ -19,7 +19,6 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -70,7 +69,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	if !input.Preparation.BeforeState().Equal(input.CurrentState) || !input.Documents.Evidence().BeforeState().Equal(input.CurrentState) || input.Budget == nil {
 		return nativeApplyWork{}, fmt.Errorf("native execution inputs differ from their complete observed Before")
 	}
-	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), journalpublication.PlanningOperationID(), input.Preparation.PiOrders()...)
+	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), journalpublication.PlanningOperationID(), input.Preparation.SequenceEdits()...)
 	if err != nil {
 		return nativeApplyWork{}, err
 	}
@@ -217,11 +216,8 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		work.changed = true
 	}
 	work.changed = work.changed || len(work.managed) != 0
-	for _, order := range input.Preparation.PiOrders() {
-		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
-		if err != nil {
-			return nativeApplyWork{}, err
-		}
+	for _, order := range input.Preparation.SequenceEdits() {
+		alias := order.DocumentAddress()
 		found := false
 		for index, namespace := range namespaces {
 			if slices.Contains(namespace.Addresses(), alias) {
@@ -465,7 +461,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
 			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
-		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
+		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), SequenceEdits: input.Preparation.SequenceEdits(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
 		if err != nil {
 			return err
 		}

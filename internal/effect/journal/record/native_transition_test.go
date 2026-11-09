@@ -90,7 +90,7 @@ func TestNativeOrdinaryPromotionKeepsFactsSeparateFromFamilyAdmission(t *testing
 	fixture := ordinaryPromotionRecordFixture(t)
 	ordinary := fixture.record
 	value := Native{record: nativeRuntimeRecord{
-		Version: NativeVersion, nativeRecordBody: nativeRecordBody{
+		Version: native16Version, nativeRecordBody: nativeRecordBody{
 			OperationID: ordinary.OperationID(),
 			Entries:     ordinary.record.Entries, ClaimTransitions: ordinary.record.ClaimTransitions, ProvisionalAcquires: ordinary.record.ProvisionalAcquires,
 		},

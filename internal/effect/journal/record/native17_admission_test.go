@@ -178,7 +178,7 @@ func TestNative17PromotionEncodesOnlyTheCurrentBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group.ExclusiveClaims, err = persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.claims.alias, intent)})
+	group.ExclusiveClaims, err = persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.claims.alias, intent)}, journaldocument.NativeClaims)
 	if err != nil {
 		t.Fatal(err)
 	}

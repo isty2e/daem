@@ -7,7 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -26,7 +26,7 @@ type NativeApplyStateInput struct {
 	WholeSources             []lock.LockedSubjectContract
 	StateCodec               durable.SnapshotCodec
 	ConfirmedRelationActions []reconcile.RelationAction
-	PiOrders                 []pipackage.OrderObservation
+	SequenceEdits            []relationhost.SelectedDocumentEdit
 }
 
 // NativeWholeAdoption binds an actual matching whole Record to state-only key
@@ -60,7 +60,7 @@ type NativeApplyStatePreparation struct {
 	narrowings         []reconcile.NativeNarrowingAction
 	adoptions          []NativeWholeAdoption
 	projectCompletions []durablecarrier.ManagedCarrierClaim
-	orders             []pipackage.OrderObservation
+	orders             []relationhost.SelectedDocumentEdit
 	initialized        bool
 }
 
@@ -93,8 +93,8 @@ func (preparation NativeApplyStatePreparation) AggregateEffects() []AggregateEff
 	return append([]AggregateEffect(nil), preparation.aggregates...)
 }
 
-func (preparation NativeApplyStatePreparation) PiOrders() []pipackage.OrderObservation {
-	return append([]pipackage.OrderObservation(nil), preparation.orders...)
+func (preparation NativeApplyStatePreparation) SequenceEdits() []relationhost.SelectedDocumentEdit {
+	return append([]relationhost.SelectedDocumentEdit(nil), preparation.orders...)
 }
 
 func (preparation NativeApplyStatePreparation) ActionCount() int {
@@ -141,20 +141,17 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 		return NativeApplyStatePreparation{}, err
 	}
 
-	orders := make([]pipackage.OrderObservation, 0, len(input.PiOrders))
-	for _, order := range input.PiOrders {
+	orders := make([]relationhost.SelectedDocumentEdit, 0, len(input.SequenceEdits))
+	for _, order := range input.SequenceEdits {
 		if err := order.Validate(); err != nil {
 			return NativeApplyStatePreparation{}, err
 		}
 		if !order.Changed() {
 			continue
 		}
-		if _, err := order.CaptureInput(); err != nil {
-			return NativeApplyStatePreparation{}, err
-		}
 		for _, previous := range orders {
 			if previous.Sequence().SequenceID() == order.Sequence().SequenceID() {
-				return NativeApplyStatePreparation{}, fmt.Errorf("native Pi order sequence is duplicated")
+				return NativeApplyStatePreparation{}, fmt.Errorf("native selected sequence is duplicated")
 			}
 		}
 		orders = append(orders, order)

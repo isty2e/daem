@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
@@ -34,15 +35,8 @@ type selectedGroupCaptureFixture struct {
 
 func (capture selectedGroupCaptureFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
 	t.Helper()
-	authority, err := namespacetest.LegacyRoot(t, capture.roots, output.RootProject).Root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provenance, err := authority.Provenance()
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, err := journalrecord.NewNativeCapture(capture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), capture.input.Owner(), provenance, capture.fixture.before, capture.fixture.after, groups)
+	manifest, roots := native17FixtureRoots(t, capture.roots, capture.input.Budget())
+	journal, err := journalrecord.NewNative17Capture(t.Context(), capture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), capture.input.Owner(), manifest, roots, capture.fixture.before, capture.fixture.after, groups, capture.fixture.codec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,8 +89,11 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if !known {
 		t.Fatal("fixture path requires normalization-stable exact authority")
 	}
-	input := selectedDocumentCaptureInput{edits: edits, order: order, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.Limits, Budget: budget})}
-	indexes, err := journaldocument.IndexSnapshots(t.Context(), fixture.before, fixture.after)
+	input := selectedDocumentCaptureInput{edits: edits, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.Limits, Budget: budget})}
+	if order != nil {
+		input.sequences = []relationhost.SelectedDocumentEdit{selectedPiDocument(t, *order)}
+	}
+	indexes, err := journaldocument.IndexSnapshotsForClaims(t.Context(), fixture.before, fixture.after, journaldocument.NativeClaims)
 	if err != nil {
 		t.Fatal(err)
 	}

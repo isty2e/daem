@@ -68,7 +68,7 @@ func TestNativeWholeProducerRetainsSameOwnerMCPPhysicalParticipant(t *testing.T)
 		t.Fatal(err)
 	}
 	fragment, err := projection.Document(t.Context(), fixture.observation.Aliases[0])
-	if err != nil || len(fragment.Aliases()) != 2 || len(fragment.BeforeSubjects()) != 2 || len(fragment.CurrentClaims()) != 0 {
+	if err != nil || len(fragment.Aliases()) != 2 || len(fragment.BeforeSubjects()) != 2 || len(fragment.CurrentClaims()) != 1 || len(fragment.BeforeClaims()) != 1 {
 		t.Fatal("physical alias projection lost logical members or claims", err)
 	}
 }

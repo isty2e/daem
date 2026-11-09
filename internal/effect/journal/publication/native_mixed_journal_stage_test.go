@@ -327,7 +327,14 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 					t.Fatal(err)
 				}
 				operationID, created, before, after := basis.OperationID(), basis.CreatedAt(), basis.Before(), basis.After()
-				groups := fixture.groups
+				groups := []journalrecord.SealedDocumentGroup(nil)
+				control, err := journalrecord.NewNativeCapture(operationID, created, fixture.whole.input.Owner(), manifest, before, after, groups)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := control.WithOrdinaryEvidence(source.record); err != nil {
+					t.Fatal("frozen header-only control did not admit matching ordinary evidence", err)
+				}
 				switch change {
 				case "operation":
 					operationID = "other"
@@ -335,7 +342,6 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 					created = created.Add(time.Second)
 				case "provenance":
 					// Isolate the header join from contradictory project-alias facts.
-					groups = nil
 					other := nativeNamespaceRoot(t, t.TempDir())
 					otherAuthority, err := other.Root.Authority()
 					if err != nil {

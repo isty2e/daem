@@ -157,7 +157,7 @@ func (draft DocumentGroupDraft) WithNamespace(ctx context.Context, observed muta
 		addresses = append(addresses, alias.address)
 	}
 
-	group.ExclusiveClaims, err = draft.facts.documentClaims(observed, addresses)
+	group.ExclusiveClaims, err = draft.facts.documentClaims(observed, addresses, journaldocument.LegacyGlobalClaims)
 	if err != nil {
 		return DocumentGroupDraft{}, err
 	}
@@ -237,7 +237,7 @@ func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed
 		namespace.aliases = append(namespace.aliases, documentAliasFacts{address: alias.address, location: binding.Location(), binding: binding, root: alias.root, selected: selected, before: captured})
 		addresses = append(addresses, alias.address)
 	}
-	body.ExclusiveClaims, err = draft.facts.documentClaims(observed, addresses)
+	body.ExclusiveClaims, err = draft.facts.documentClaims(observed, addresses, journaldocument.NativeClaims)
 	if err != nil {
 		return DocumentGroupDraft{}, err
 	}
@@ -258,7 +258,7 @@ func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed
 	return draft, nil
 }
 
-func (facts documentGroupCaptureFacts) documentClaims(observation mutation.DirectoryEntryAuthorityObservation, aliases []aggregate.DocumentAddress) (recoveryDocumentClaimSet, error) {
+func (facts documentGroupCaptureFacts) documentClaims(observation mutation.DirectoryEntryAuthorityObservation, aliases []aggregate.DocumentAddress, selection journaldocument.ClaimSelection) (recoveryDocumentClaimSet, error) {
 	if facts.claims != nil {
 		if len(facts.provisional) != 0 {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("native document capture cannot mix exact and provisional claims")
@@ -281,11 +281,11 @@ func (facts documentGroupCaptureFacts) documentClaims(observation mutation.Direc
 		if !pending {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("provisional document claims require a provisional captured namespace")
 		}
-		record, err := persistedDocumentProvisionalClaims(facts.provisional)
+		record, err := persistedDocumentProvisionalClaims(facts.provisional, selection)
 		if err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		if _, err := record.canonicalProvisional(aliases, facts.owner, facts.operationID, provisional); err != nil {
+		if _, err := record.canonicalProvisional(aliases, facts.owner, facts.operationID, provisional, selection); err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
 		return record, nil

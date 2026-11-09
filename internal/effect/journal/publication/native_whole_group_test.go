@@ -106,8 +106,9 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	}
 	writer, err := recorded.WriterPin()
 	child, directory := writer.Coordinate().DirectoryChild()
-	_, bound := writer.RootReference()
-	if err != nil || bound || writer.Provenance() != provenance || !directory || child != "prompts/Caf\u00e9.md" {
+	reference, bound := writer.RootReference()
+	selectedReference, _ := namespace.WriterPin().RootReference()
+	if err != nil || !bound || reference != selectedReference || writer.Provenance() != provenance || !directory || child != "prompts/Caf\u00e9.md" {
 		t.Fatal("logical project alias replaced the independently selected physical writer", err)
 	}
 	if err := recorded.RequireCapturedNamespace(namespace.Observation()); err != nil {
@@ -347,19 +348,17 @@ type wholeGroupTestFixture struct {
 
 func (fixture wholeGroupTestFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
 	t.Helper()
-	manifest, err := namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).Root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provenance, err := manifest.Provenance()
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, err := journalrecord.NewNativeCapture(fixture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), fixture.input.Owner(), provenance, fixture.envelope.before, fixture.envelope.after, groups)
+	journal, err := fixture.tryRecordForGroups(t, groups)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return journal
+}
+
+func (fixture wholeGroupTestFixture) tryRecordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) (journalrecord.Native, error) {
+	t.Helper()
+	manifest, roots := native17FixtureRoots(t, fixture.roots, fixture.input.Budget())
+	return journalrecord.NewNative17Capture(t.Context(), fixture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), fixture.input.Owner(), manifest, roots, fixture.envelope.before, fixture.envelope.after, groups, fixture.envelope.codec)
 }
 
 func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope, action string, original, desired []byte) wholeGroupTestFixture {
@@ -484,36 +483,32 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 		if err != nil {
 			t.Fatal(err)
 		}
-		if scope == target.ScopeGlobal {
-			claim := documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, output.WholePathFootprint())
-			var beforeClaims, afterClaims []ownership.Claim
-			if action != "create" {
-				beforeClaims = []ownership.Claim{claim}
-			}
-			if action != "remove" {
-				afterClaims = []ownership.Claim{claim}
-			}
-			transition, err := ownershipmutation.NewDocumentClaimTransition(beforeClaims, afterClaims, input.OperationID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
+		claim := documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, output.WholePathFootprint())
+		var beforeClaims, afterClaims []ownership.Claim
+		if action != "create" {
+			beforeClaims = []ownership.Claim{claim}
 		}
+		if action != "remove" {
+			afterClaims = []ownership.Claim{claim}
+		}
+		transition, err := ownershipmutation.NewDocumentClaimTransition(beforeClaims, afterClaims, input.OperationID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
 	} else {
 		pending, _ := namespace.Observation().Provisional()
 		binding, err = ownership.NewProvisionalDocumentBindingIntent(input.Owner(), placement.Destination(), pending)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if scope == target.ScopeGlobal {
-			intent, err := ownership.NewProvisionalAcquireIntent(placement.Destination(), output.WholePathFootprint(), pending, input.Owner(), input.OperationID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
-				spec.Provisional = []journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(address, intent)}
-			})
+		intent, err := ownership.NewProvisionalAcquireIntent(placement.Destination(), output.WholePathFootprint(), pending, input.Owner(), input.OperationID())
+		if err != nil {
+			t.Fatal(err)
 		}
+		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+			spec.Provisional = []journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(address, intent)}
+		})
 	}
 	input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
 		spec.Bindings = []ownership.DocumentBindingIntent{binding}

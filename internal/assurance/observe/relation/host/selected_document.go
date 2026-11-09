@@ -30,6 +30,7 @@ type SelectedDocumentEdit struct {
 type selectedDocumentOrigin interface {
 	same(selectedDocumentOrigin) bool
 	verify(observerelation.SelectedSequenceEdit, aggregate.Document) error
+	definitionRoots() []string
 }
 
 type (
@@ -48,6 +49,10 @@ func (origin piSelectedOrigin) verify(edit observerelation.SelectedSequenceEdit,
 	return origin.observation.VerifySelectedExpected(edit, expected)
 }
 
+func (origin piSelectedOrigin) definitionRoots() []string {
+	return origin.observation.DefinitionRoots()
+}
+
 func (origin openCodeSelectedOrigin) same(other selectedDocumentOrigin) bool {
 	value, same := other.(openCodeSelectedOrigin)
 	return same && origin.observation.SameSelection(value.observation)
@@ -56,6 +61,8 @@ func (origin openCodeSelectedOrigin) same(other selectedDocumentOrigin) bool {
 func (origin openCodeSelectedOrigin) verify(edit observerelation.SelectedSequenceEdit, expected aggregate.Document) error {
 	return origin.observation.VerifySelectedExpected(edit, expected)
 }
+
+func (origin openCodeSelectedOrigin) definitionRoots() []string { return nil }
 
 func (edit SelectedDocumentEdit) Sequence() observerelation.ObservedRelationSequence {
 	return edit.selected.Original()
@@ -70,6 +77,13 @@ func (edit SelectedDocumentEdit) Scope() target.Scope          { return edit.doc
 func (edit SelectedDocumentEdit) Changed() bool { return edit.selected.Changed() }
 
 func (edit SelectedDocumentEdit) MaximumBytes() int64 { return edit.maximumBytes }
+
+func (edit SelectedDocumentEdit) DefinitionRoots() []string {
+	if edit.origin == nil {
+		return nil
+	}
+	return edit.origin.definitionRoots()
+}
 
 func (edit SelectedDocumentEdit) Validate() error {
 	if edit.origin == nil || edit.maximumBytes <= 0 || edit.path == "" {

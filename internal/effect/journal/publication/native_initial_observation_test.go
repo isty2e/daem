@@ -158,8 +158,15 @@ func TestNativeInitialObservationRetainsActualFactsBeforeAfterState(t *testing.T
 				if input.Budget.RemainingBytes() != remaining-int64(len(fixture.original.Content())) || input.Budget.RequireCapturePending() != nil || input.Budget.AdmitObservation() == nil {
 					t.Fatal("continuation reset work or opened removal admission")
 				}
-				if scope == target.ScopeProject && prepared[0].Claims() != nil || len(prepared[0].Bindings()) != 1 {
-					t.Fatal("project binding was lost or treated as an exclusive claim")
+				if len(prepared[0].Bindings()) != 1 {
+					t.Fatal("native document lost its binding")
+				}
+				if _, pending := fixture.namespace.Observation().Provisional(); pending {
+					if prepared[0].Claims() != nil || len(prepared[0].Provisional()) != 1 {
+						t.Fatal("new native document lost its provisional acquisition")
+					}
+				} else if prepared[0].Claims() == nil || len(prepared[0].Provisional()) != 0 {
+					t.Fatal("exact native document lost its claim transition")
 				}
 				fixture.requireUnchangedHost(t)
 				for _, capability := range fixture.reader.capabilities {

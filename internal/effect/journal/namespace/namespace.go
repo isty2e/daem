@@ -125,6 +125,11 @@ type QualifiedRoots struct {
 	grants map[output.RootReference]RootGrant
 }
 
+func (roots QualifiedRoots) Selection(reference output.RootReference) (RootGrant, bool) {
+	grant, present := roots.grants[reference]
+	return grant, present
+}
+
 func (roots QualifiedRoots) Manifest() (RootGrant, bool) {
 	for reference, grant := range roots.grants {
 		if reference.Identity() == configuration.ProjectRootIdentity {

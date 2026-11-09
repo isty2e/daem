@@ -12,7 +12,6 @@ import (
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -44,7 +43,7 @@ type nativePlanInputs struct {
 	opaque         bool
 	prefix         effectpreparation.NativeApplyStatePreparation
 	suffix         []effectpreparation.AggregateEffect
-	orders         []pipackage.OrderObservation
+	orders         []relationhost.SelectedDocumentEdit
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -164,12 +163,9 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	var nativeOrders []pipackage.OrderObservation
-	for _, order := range assessment.PiOrders {
-		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
-		if err != nil {
-			return err
-		}
+	var nativeOrders []relationhost.SelectedDocumentEdit
+	for _, order := range assessment.SequenceEdits {
+		alias := order.DocumentAddress()
 		for _, evidence := range assessment.NativeApproval {
 			member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())
 			if err != nil {
@@ -191,7 +187,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			if order.Sequence().SequenceID() != decision.SequenceID() || !order.Changed() {
 				continue
 			}
-			stateInput.PiOrders = append(stateInput.PiOrders, order)
+			stateInput.SequenceEdits = append(stateInput.SequenceEdits, order)
 			found = true
 		}
 		if !found {
@@ -222,7 +218,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			}
 		}
 	}
-	if len(stateInput.PiOrders) != 0 {
+	if len(stateInput.SequenceEdits) != 0 {
 		state, err = effectpreparation.PrepareNativeApplyState(ctx, stateInput)
 		if err != nil {
 			return err

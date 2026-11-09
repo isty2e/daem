@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 )
@@ -49,8 +50,16 @@ func RequireLifecycleMetadataForScope(t *testing.T, manifest string, managed boo
 	wantBindings, wantClaims := 0, 0
 	if managed {
 		wantBindings = 1
-		if scope == target.ScopeGlobal {
-			wantClaims = len(state.ManagedAggregates())
+	}
+	for _, row := range state.ManagedAggregates() {
+		_, native := aggregate.HostConfigSyntaxForCodec(row.Contribution().CodecContractID())
+		if native || row.Contribution().Contract().Address().Document().Scope() == target.ScopeGlobal {
+			wantClaims++
+		}
+	}
+	for _, row := range state.ManagedPaths() {
+		if aggregate.IsHostConfigDocumentSubject(row.Subject()) || row.Scope() == target.ScopeGlobal {
+			wantClaims++
 		}
 	}
 	if len(registry.DocumentBindings()) != wantBindings || len(registry.Claims()) != wantClaims {
@@ -58,7 +67,7 @@ func RequireLifecycleMetadataForScope(t *testing.T, manifest string, managed boo
 	}
 	for _, claim := range registry.Claims() {
 		if claim.State() != ownership.ClaimActive || claim.OperationID() != "" {
-			t.Fatal("settled global claim retains reservation debt")
+			t.Fatal("settled ownership claim retains reservation debt")
 		}
 	}
 }

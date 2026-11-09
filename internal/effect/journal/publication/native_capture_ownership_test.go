@@ -41,8 +41,12 @@ func TestNativeCaptureOwnershipFeedsWholeCaptureFromOneRegistryRead(t *testing.T
 				if !reader.value.Equal(initial) || len(prepared[0].Bindings()) != 1 {
 					t.Fatal("preparation published registry state or omitted project/global binding work")
 				}
-				if scope == target.ScopeProject && (prepared[0].Claims() != nil || len(prepared[0].Provisional()) != 0) {
-					t.Fatal("project-only capture invented exclusive claims")
+				if _, pending := fixture.namespace.Observation().Provisional(); pending {
+					if prepared[0].Claims() != nil || len(prepared[0].Provisional()) != 1 {
+						t.Fatal("new native document lost its provisional acquisition")
+					}
+				} else if prepared[0].Claims() == nil || len(prepared[0].Provisional()) != 0 {
+					t.Fatal("exact native document lost its claim transition")
 				}
 				fixture.input.CaptureInput = prepared[0]
 				candidate, err := prepareWholeDocumentCandidate(t.Context(), fixture.namespace, fixture.input)
@@ -119,6 +123,10 @@ func TestNativeCaptureOwnershipRetainsStoredProvenanceAndUnchangedSibling(t *tes
 	input.before, input.after = selectionState(t, selected, unchanged), selectionState(t, unchanged)
 	stored := reader.value.DocumentBindings()[0]
 	var err error
+	reader.value, err = ownership.NewRegistry(native17FixtureClaims(t, input.owner, fixture.namespace, input.before), reader.value.DocumentBindings()...)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input.owner, err = stateauthority.New(input.owner.StatefileAuthority(), filepath.Join(t.TempDir(), "diagnostic-alias.toml"))
 	if err != nil {
 		t.Fatal(err)

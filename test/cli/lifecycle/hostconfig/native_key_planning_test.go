@@ -272,7 +272,19 @@ ownership = "keys"
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := ownership.NewRegistry(nil, binding)
+	var claims []ownership.Claim
+	for _, row := range prepared.AfterState().ManagedAggregates() {
+		address, err := ownership.NewManagedAddress(exact, row.Contribution().Contract().Address().Footprint())
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim, err := ownership.NewActiveClaim(address, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims = append(claims, claim)
+	}
+	registry, err := ownership.NewRegistry(claims, binding)
 	if err != nil {
 		t.Fatal(err)
 	}

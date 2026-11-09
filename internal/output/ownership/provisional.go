@@ -6,10 +6,9 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/target"
 )
 
-// ProvisionalAcquireIntent records one future global ownership acquisition
+// ProvisionalAcquireIntent records one future ownership acquisition
 // without granting exact path authority or reserving a durable claim.
 type ProvisionalAcquireIntent struct {
 	destination output.Destination
@@ -44,9 +43,6 @@ func NewProvisionalAcquireIntent(
 // Validate rejects incomplete intent or any exact-authority substitute.
 func (intent ProvisionalAcquireIntent) Validate() error {
 	if err := intent.destination.Validate(); err != nil {
-		return fmt.Errorf("provisional acquisition destination: %w", err)
-	}
-	if err := intent.destination.ValidateScope(target.ScopeGlobal); err != nil {
 		return fmt.Errorf("provisional acquisition destination: %w", err)
 	}
 	if err := intent.footprint.Validate(); err != nil {

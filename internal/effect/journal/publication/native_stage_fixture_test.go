@@ -16,6 +16,7 @@ import (
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -133,8 +134,14 @@ func twoWholeGroupStageFixture(t *testing.T) (wholeGroupTestFixture, wholeGroupT
 	if err != nil {
 		t.Fatal(err)
 	}
+	claim := documentActiveClaim(t, documentClaimFixture{owner: first.input.Owner(), exact: exact}, output.WholePathFootprint())
+	transition, err := ownershipmutation.NewDocumentClaimTransition([]ownership.Claim{claim}, []ownership.Claim{claim}, first.input.OperationID())
+	if err != nil {
+		t.Fatal(err)
+	}
 	second.input.CaptureInput = reviseCaptureInput(second.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
 		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+		spec.Claims = &transition
 	})
 	first.input.CaptureInput = reviseCaptureInput(first.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.GroupIndex = 0 })
 	second.input.CaptureInput = reviseCaptureInput(second.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.GroupIndex = 1 })

@@ -143,17 +143,15 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 			t.Fatal(err)
 		}
 		bindings = append(bindings, binding)
-		if scope == target.ScopeGlobal {
-			address, err := ownership.NewManagedAddress(exact, before.Contribution().Contract().Address().Footprint())
-			if err != nil {
-				t.Fatal(err)
-			}
-			claim, err := ownership.NewActiveClaim(address, owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			claims = append(claims, claim)
+		address, err := ownership.NewManagedAddress(exact, before.Contribution().Contract().Address().Footprint())
+		if err != nil {
+			t.Fatal(err)
 		}
+		claim, err := ownership.NewActiveClaim(address, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims = append(claims, claim)
 	}
 	registry, err := ownership.NewRegistry(claims, bindings...)
 	if err != nil {
@@ -363,11 +361,16 @@ func TestCaptureNativeJournalPublishesAndReloadsActualSelectedWork(t *testing.T)
 				t.Fatal("capture lost actual images or host mode policy")
 			}
 			bindings := document.BindingIntents()
-			if len(bindings) != 1 || len(document.ProvisionalAcquires()) != 0 {
-				t.Fatal("project capture lost binding or invented exclusive claims")
+			if len(bindings) != 1 {
+				t.Fatal("project capture lost its binding")
 			}
-			if _, exact := document.Claims(); exact {
-				t.Fatal("project capture invented an exclusive claim")
+			claims, exact := document.Claims()
+			if _, pending := document.Namespace().Observation().Provisional(); pending {
+				if exact || len(document.ProvisionalAcquires()) != 1 || document.ProvisionalAcquires()[0].Alias() != document.Namespace().Addresses()[0] {
+					t.Fatal("new project document lost its alias-correlated provisional acquisition")
+				}
+			} else if !exact || len(document.ProvisionalAcquires()) != 0 || len(claims.After()) != 1 || len(claims.Before()) != len(input.batch.Evidence().BeforeState().ManagedAggregates()) {
+				t.Fatal("project capture lost complete native claim membership")
 			}
 			if subjects, err := document.SelectedSubjects(t.Context()); err != nil || len(subjects) != 1 {
 				t.Fatal("capture lost actual selected subjects", err)
@@ -701,7 +704,7 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 }
 
 func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
-	for _, existing := range []string{"finalized15", "active15", "malformed15", "malformed16", "unknown"} {
+	for _, existing := range []string{"finalized15", "active15", "malformed15", "malformed16", "malformed17", "unknown"} {
 		t.Run(existing, func(t *testing.T) {
 			input := nativeCaptureInput(t, true, target.ScopeProject)
 			if existing == "finalized15" || existing == "active15" {
@@ -714,6 +717,8 @@ func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
 			} else {
 				version := journalrecord.OrdinaryVersion
 				if existing == "malformed16" {
+					version = 16
+				} else if existing == "malformed17" {
 					version = journalrecord.NativeVersion
 				} else if existing == "unknown" {
 					version = journalrecord.NativeVersion + 1
@@ -729,7 +734,7 @@ func TestCaptureNativeJournalInventoryFamilyAdmission(t *testing.T) {
 					t.Fatalf("inert legacy residue prevented native publication/reload: %v", err)
 				}
 				if err := journalinventory.RequireClear(t.Context(), input.paths.RecoveryDir, journalinventory.Options{Filesystem: filesystem, StateCodec: input.options.StateCodec, PhysicalPathBudget: input.batch.budget, Decoder: decodeNativeCaptureInventoryJournal}); !errors.Is(err, journalinventory.ErrInterruptedApply) {
-					t.Fatalf("published native16 was not recognized as active: %v", err)
+					t.Fatalf("published native journal was not recognized as active: %v", err)
 				}
 			} else {
 				if err == nil || captured.Validate() == nil || filesystem.prepareCalls != 0 {
@@ -812,7 +817,7 @@ func TestCaptureNativeJournalRefusesUnjoinedAndExhaustedWork(t *testing.T) {
 				}
 			case "changed-order":
 				_, order := piEvidenceFixture(t, target.ScopeProject)
-				input.options.OrderObservations = append(input.options.OrderObservations, order)
+				input.options.SequenceEdits = append(input.options.SequenceEdits, selectedPiDocument(t, order))
 			case "canceled":
 				cancel()
 			}

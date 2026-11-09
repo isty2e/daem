@@ -1,6 +1,7 @@
 package publication
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/isty2e/daem/internal/output"
@@ -11,9 +12,6 @@ import (
 func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		for _, change := range []string{"none", "missing binding", "wrong binding", "missing claim", "scoped claims", "reserved claim"} {
-			if scope == target.ScopeProject && (change == "missing claim" || change == "scoped claims" || change == "reserved claim") {
-				continue
-			}
 			t.Run(string(scope)+"/"+change, func(t *testing.T) {
 				fixture, input, reader, _ := nativeInitialFixture(t, scope, "record")
 				batch, err := ObserveNativeDocuments(t.Context(), input)
@@ -78,6 +76,11 @@ func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *test
 					}
 				} else if qualification == nil || continuation == nil || len(prepared) != 0 {
 					t.Fatal("before qualifier and capture disagree on invalid history", qualification, continuation)
+				}
+				if change == "missing claim" || change == "scoped claims" || change == "reserved claim" {
+					if !errors.Is(qualification, ownership.ErrClaimMissing) || !errors.Is(continuation, ownership.ErrClaimMissing) {
+						t.Fatal("missing active own claim lost its refusal classification", qualification, continuation)
+					}
 				}
 				if reader.loads != 1 || input.Budget.RequireCapturePending() != nil || input.Budget.RemainingBytes() != remaining-int64(len(fixture.original.Content())) {
 					t.Fatal("before validation reread Registry, read an image or changed budget admission")

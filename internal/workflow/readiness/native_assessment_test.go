@@ -2,6 +2,9 @@ package readiness
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
@@ -40,6 +43,18 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestNativeAssessmentProjectsMissingClaimReasonWithoutLosingItsCause(t *testing.T) {
+	cause := fmt.Errorf("native baseline: %w", ownership.ErrClaimMissing)
+	classified := nativeAssessmentError(cause)
+	if !errors.Is(classified, ownership.ErrClaimMissing) || !strings.HasPrefix(classified.Error(), string(reconcile.ReasonOwnershipClaimMissing)+":") {
+		t.Fatal("native claim refusal lost its reason or typed cause", classified)
+	}
+	other := errors.New("changed namespace")
+	if nativeAssessmentError(other) != other {
+		t.Fatal("unrelated observation failure was classified as missing ownership")
+	}
+}
 
 type assessmentRegistryReader struct {
 	ownershipmutation.RegistryReader

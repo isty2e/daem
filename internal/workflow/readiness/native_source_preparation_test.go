@@ -182,17 +182,15 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Fatal(err)
 	}
 	var claims []ownership.Claim
-	if scope == target.ScopeGlobal {
-		address, err := ownership.NewManagedAddress(exact, output.WholePathFootprint())
-		if err != nil {
-			t.Fatal(err)
-		}
-		claim, err := ownership.NewActiveClaim(address, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		claims = append(claims, claim)
+	address, err := ownership.NewManagedAddress(exact, output.WholePathFootprint())
+	if err != nil {
+		t.Fatal(err)
 	}
+	claim, err := ownership.NewActiveClaim(address, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims = append(claims, claim)
 	registry, err := ownership.NewRegistry(claims, binding)
 	if err != nil {
 		t.Fatal(err)

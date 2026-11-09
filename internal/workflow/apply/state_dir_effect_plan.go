@@ -342,7 +342,7 @@ func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) 
 		}
 		native := false
 		if current.nativePlan != nil {
-			for _, order := range current.nativePlan.state.PiOrders() {
+			for _, order := range current.nativePlan.state.SequenceEdits() {
 				native = native || order.Sequence().ClassID() == constraint.ClassID()
 			}
 			for _, order := range current.nativePlan.orders {

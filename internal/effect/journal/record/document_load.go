@@ -166,7 +166,7 @@ func (journal Native) documentClaims(ctx context.Context, indexes journaldocumen
 	}
 	if len(before) == 0 && len(after) == 0 {
 		if record.ExclusiveClaims.Kind != "absent" {
-			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("document without global membership carries exclusive claims")
+			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("document without claim membership carries exclusive claims")
 		}
 		return ownershipmutation.DocumentClaimTransition{}, nil, nil
 	}
@@ -177,7 +177,7 @@ func (journal Native) documentClaims(ctx context.Context, indexes journaldocumen
 			return ownershipmutation.DocumentClaimTransition{}, nil, err
 		}
 		if !journaldocument.SameClaimFootprints(before, claims.Before()) || !journaldocument.SameClaimFootprints(after, claims.After()) {
-			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("document claims do not cover full global Snapshot membership")
+			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("document claims do not cover full Snapshot claim membership")
 		}
 		return claims, nil, nil
 	case "provisional":
@@ -185,7 +185,7 @@ func (journal Native) documentClaims(ctx context.Context, indexes journaldocumen
 		if err != nil || len(before) != 0 {
 			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional document claims require a newly acquired namespace")
 		}
-		acquires, err := record.ExclusiveClaims.canonicalProvisional(aliases, journal.owner, journal.record.OperationID, provisional)
+		acquires, err := record.ExclusiveClaims.canonicalProvisional(aliases, journal.owner, journal.record.OperationID, provisional, journal.namespace.claims)
 		if err != nil {
 			return ownershipmutation.DocumentClaimTransition{}, nil, err
 		}
@@ -194,16 +194,16 @@ func (journal Native) documentClaims(ctx context.Context, indexes journaldocumen
 			footprints[acquire.Intent().Footprint()] = struct{}{}
 		}
 		if len(footprints) != len(after) {
-			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional claims omit global Snapshot membership")
+			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional claims omit Snapshot claim membership")
 		}
 		for footprint := range after {
 			if _, found := footprints[footprint]; !found {
-				return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional claim footprint differs from global Snapshot membership")
+				return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional claim footprint differs from Snapshot claim membership")
 			}
 		}
 		return ownershipmutation.DocumentClaimTransition{}, acquires, nil
 	default:
-		return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("global document membership requires exact or provisional claims")
+		return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("document claim membership requires exact or provisional claims")
 	}
 }
 

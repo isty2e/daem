@@ -20,7 +20,6 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -46,7 +45,7 @@ type Assessment struct {
 	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
-	PiOrders               []pipackage.OrderObservation
+	SequenceEdits          []relationhost.SelectedDocumentEdit
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
@@ -130,7 +129,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 
 	native, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch)
 	if err != nil {
-		return Assessment{}, err
+		return Assessment{}, nativeAssessmentError(err)
 	}
 	assessment, err := buildAssessment(
 		ctx,
@@ -155,7 +154,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 		return Assessment{}, err
 	}
 	if _, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch); err != nil {
-		return Assessment{}, err
+		return Assessment{}, nativeAssessmentError(err)
 	}
 	return assessment, nil
 }
@@ -315,14 +314,18 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
+	var retiring []durablecarrier.ManagedCarrierClaim
 	if len(native) != 0 && native[0].input != nil {
 		assessment.nativeRegistry = native[0].input.Registry
+		retiring = assessment.Reconciliation.CarrierRetirementClaims()
 	}
 	for _, fact := range extensionOrderFacts {
 		if fact.observeErr == nil {
-			if order, pi := fact.observation.Pi(); pi {
-				assessment.PiOrders = append(assessment.PiOrders, order)
+			edits, err := fact.observation.SelectedEdits(retiring)
+			if err != nil {
+				return Assessment{}, err
 			}
+			assessment.SequenceEdits = append(assessment.SequenceEdits, edits...)
 		}
 	}
 	return assessment, nil

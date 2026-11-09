@@ -18,7 +18,7 @@ import (
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -32,7 +32,7 @@ import (
 
 type NativeCaptureOptions struct {
 	CaptureOptions
-	OrderObservations         []pipackage.OrderObservation
+	SequenceEdits             []relationhost.SelectedDocumentEdit
 	ProjectCarrierCompletions []durablecarrier.ManagedCarrierClaim
 	WholeDocuments            []journalrecord.ManagedPathMutation
 	Payloads                  payload.PayloadSet
@@ -94,7 +94,7 @@ func CaptureNativeJournalWithOptions(
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	for _, order := range options.OrderObservations {
+	for _, order := range options.SequenceEdits {
 		if err := order.Validate(); err != nil {
 			return CapturedNativeJournal{}, err
 		}
@@ -137,14 +137,14 @@ func CaptureNativeJournalWithOptions(
 	if err := journalqualification.RequireOperationDestination(capability, directory); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	members, err := batch.captureMembers(ctx, after, options.OrderObservations...)
+	members, err := batch.captureMembers(ctx, after, options.SequenceEdits...)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
 	if err := validateNativePublicationPartition(ctx, directory, members, mutations, options.Resolver); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.OrderObservations, options.RemovalDemands, options.WholeDocuments, options.Payloads)
+	journal, comparisons, err := prepareNativeCapture(ctx, operationID, createdAt, members, after, edits, options.SequenceEdits, options.RemovalDemands, options.WholeDocuments, options.Payloads, options.StateCodec)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -202,7 +202,7 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []pipackage.OrderObservation, ordinary recovery.RemovalDemandSet, whole []journalrecord.ManagedPathMutation, payloads payload.PayloadSet) (journalrecord.Native, []journaldocument.Comparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []relationhost.SelectedDocumentEdit, ordinary recovery.RemovalDemandSet, whole []journalrecord.ManagedPathMutation, payloads payload.PayloadSet, stateCodec durable.SnapshotCodec) (journalrecord.Native, []journaldocument.Comparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
 		return journalrecord.Native{}, nil, err
@@ -212,7 +212,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return journalrecord.Native{}, nil, err
 	}
-	afterIndex, err := journaldocument.IndexSnapshot(ctx, after)
+	afterIndex, err := journaldocument.IndexSnapshotForClaims(ctx, after, journaldocument.NativeClaims)
 	if err != nil {
 		return journalrecord.Native{}, nil, err
 	}
@@ -232,7 +232,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		}
 	}
 	candidates := make([]nativeDocumentCaptureCandidate, 0, len(inputs))
-	groupOrders := make([]*pipackage.OrderObservation, len(inputs))
+	groupOrders := make([][]relationhost.SelectedDocumentEdit, len(inputs))
 	groupWhole := make([]*journalrecord.ManagedPathMutation, len(inputs))
 	for index, mutation := range whole {
 		facts, err := wholeDocumentMutationFacts(mutation)
@@ -264,22 +264,21 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		if !order.Changed() {
 			continue
 		}
-		alias, err := journalrecord.PiOrderDocumentAlias(order.Scope())
-		if err != nil {
-			return journalrecord.Native{}, nil, err
-		}
+		alias := order.DocumentAddress()
 		found := false
 		for index, namespace := range namespaces {
 			if !slices.Contains(namespace.Addresses(), alias) {
 				continue
 			}
-			if groupOrders[index] != nil {
-				return journalrecord.Native{}, nil, fmt.Errorf("selected document has duplicate Pi order actors")
+			if slices.ContainsFunc(groupOrders[index], func(previous relationhost.SelectedDocumentEdit) bool {
+				return previous.Sequence().SequenceID() == order.Sequence().SequenceID()
+			}) {
+				return journalrecord.Native{}, nil, fmt.Errorf("selected document has duplicate sequence actors")
 			}
-			groupOrders[index], found = &order, true
+			groupOrders[index], found = append(groupOrders[index], order), true
 		}
 		if !found {
-			return journalrecord.Native{}, nil, fmt.Errorf("Pi order has no selected native settings group")
+			return journalrecord.Native{}, nil, fmt.Errorf("selected sequence has no native document group")
 		}
 	}
 	work := !batch.Evidence().BeforeState().Equal(after)
@@ -299,14 +298,14 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			}
 		}
 		if groupWhole[index] != nil {
-			if len(groupEdits[index]) != 0 || groupOrders[index] != nil {
+			if len(groupEdits[index]) != 0 || len(groupOrders[index]) != 0 {
 				return journalrecord.Native{}, nil, fmt.Errorf("whole writer overlaps selected document work")
 			}
 			candidate, err = prepareWholeDocumentCandidate(ctx, namespaces[index], wholeDocumentCaptureInput{CaptureInput: input, mutation: *groupWhole[index], payloads: payloads})
-		} else if wholeAfter && len(groupEdits[index]) == 0 && groupOrders[index] == nil {
+		} else if wholeAfter && len(groupEdits[index]) == 0 && len(groupOrders[index]) == 0 {
 			candidate, err = prepareRetainedWholeDocumentCandidate(ctx, namespaces[index], input)
 		} else {
-			candidate, err = prepareSelectedDocumentCandidate(ctx, namespaces[index], selectedDocumentCaptureInput{CaptureInput: input, edits: groupEdits[index], order: groupOrders[index]}, subjects)
+			candidate, err = prepareSelectedDocumentCandidate(ctx, namespaces[index], selectedDocumentCaptureInput{CaptureInput: input, edits: groupEdits[index], sequences: groupOrders[index]}, subjects)
 		}
 		if err != nil {
 			return journalrecord.Native{}, nil, err
@@ -329,11 +328,11 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 	if err != nil {
 		return journalrecord.Native{}, nil, err
 	}
-	grant, err := batch.manifest(ctx)
+	manifest, roots, err := nativeCaptureRootFacts(ctx, batch)
 	if err != nil {
 		return journalrecord.Native{}, nil, err
 	}
-	journal, err := journalrecord.NewNativeCapture(operationID, createdAt, batch.owner, grant.Provenance(), batch.Evidence().BeforeState(), after, groups)
+	journal, err := journalrecord.NewNative17Capture(ctx, operationID, createdAt, batch.owner, manifest, roots, batch.Evidence().BeforeState(), after, groups, stateCodec)
 	if err != nil {
 		return journalrecord.Native{}, nil, err
 	}

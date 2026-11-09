@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -15,6 +16,19 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
+
+func selectedPiDocument(t *testing.T, observation pipackage.OrderObservation) relationhost.SelectedDocumentEdit {
+	t.Helper()
+	view, err := observation.WithRetiringRelations(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := relationhost.NewPiDocumentEdit(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return edit
+}
 
 func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderInput, pipackage.OrderObservation) {
 	t.Helper()

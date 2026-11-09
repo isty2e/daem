@@ -71,10 +71,8 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					t.Fatal(err)
 				}
 				var claims []ownership.Claim
-				if scope == target.ScopeGlobal {
-					for _, row := range before.ManagedAggregates() {
-						claims = append(claims, documentActiveClaim(t, documentClaimFixture{owner: owner, exact: exact}, row.Contribution().Contract().Address().Footprint()))
-					}
+				for _, row := range before.ManagedAggregates() {
+					claims = append(claims, documentActiveClaim(t, documentClaimFixture{owner: owner, exact: exact}, row.Contribution().Contract().Address().Footprint()))
 				}
 				current, err := ownership.NewRegistry(claims, binding)
 				if err != nil {
@@ -111,10 +109,8 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				if !pending.MatchesMissingExact(exact) {
 					t.Fatal("current missing observation does not match the actual historical namespace")
 				}
-				if scope == target.ScopeGlobal {
-					if _, err := store.Load(t.Context()); err == nil {
-						t.Fatal("default registry read was widened to historical missing claims")
-					}
+				if _, err := store.Load(t.Context()); err == nil {
+					t.Fatal("default registry read was widened to historical missing claims")
 				}
 				input := nativeCaptureOwnershipInput{
 					owner: owner, operationID: fixture.input.OperationID(), before: before, after: after,
@@ -131,7 +127,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				if !ready || hasBinding != retained || retained && !settledBinding.Equal(binding) {
 					t.Fatal("historical binding retirement/retention needs invented promotion")
 				}
-				if scope == target.ScopeGlobal && (prepared[0].Claims() == nil || len(prepared[0].Claims().Before()) != 2 || len(prepared[0].Claims().After()) != len(after.ManagedAggregates())) {
+				if prepared[0].Claims() == nil || len(prepared[0].Claims().Before()) != 2 || len(prepared[0].Claims().After()) != len(after.ManagedAggregates()) {
 					t.Fatal("missing historical claim fragment was lost or promoted")
 				}
 
@@ -170,9 +166,6 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					state, want := before, recovery.ClassificationCleanBefore
 					if committed {
 						state, want = after, recovery.ClassificationNeedsFinalize
-						if retained && scope == target.ScopeProject {
-							want = recovery.ClassificationCleanAfter
-						}
 					}
 					stateBytes, err := fixture.envelope.codec.Encode(state)
 					if err != nil {
@@ -289,7 +282,15 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		return fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+		basis, err := fixture.envelope.journal.OrdinaryCaptureBasis()
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal, err := journalrecord.NewNativeCapture(fixture.input.OperationID(), basis.CreatedAt(), fixture.input.Owner(), provenance, fixture.envelope.before, fixture.envelope.after, []journalrecord.SealedDocumentGroup{group})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return journal
 	}
 	journal := build(fixture.input.Claims(), fixture.input.Bindings())
 	recorded, err := journal.DocumentAt(0)

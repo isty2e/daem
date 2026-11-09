@@ -128,7 +128,7 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader.value, err = ownership.NewRegistry(nil, binding)
+	reader.value, err = ownership.NewRegistry(native17FixtureClaims(t, input.owner, input.namespaces[0], input.before), binding)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -184,8 +185,13 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	claims, err := ownershipmutation.NewDocumentClaimTransition(native17FixtureClaims(t, fixture.whole.input.Owner(), namespace, fixture.whole.envelope.before), native17FixtureClaims(t, fixture.whole.input.Owner(), namespace, fixture.whole.envelope.after), fixture.whole.input.OperationID())
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture.whole.input.CaptureInput = reviseCaptureInput(fixture.whole.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
 		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+		spec.Claims = &claims
 	})
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.whole.input)
 	if err != nil {

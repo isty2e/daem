@@ -293,7 +293,7 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 func nativeOrderWithOrdinaryMCP(t *testing.T, input NativeApplyInput) (NativeApplyInput, string) {
 	t.Helper()
 	decisions := aggregatefixture.ClaudeProjectMCP(t, aggregate.AbsentDocument(), []aggregatefixture.MCPEntry{{ServerID: "mixed", Command: "mixed-server"}})
-	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: input.CurrentState, Aggregates: decisions, PiOrders: input.Preparation.PiOrders(), StateCodec: input.StateCodec})
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: input.CurrentState, Aggregates: decisions, SequenceEdits: input.Preparation.SequenceEdits(), StateCodec: input.StateCodec})
 	if err != nil {
 		t.Fatal(err)
 	}

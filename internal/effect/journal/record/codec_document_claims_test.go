@@ -91,12 +91,12 @@ func TestDocumentProvisionalClaimsKeepTypedKeysAndPromoteWithoutEntries(t *testi
 		inputs = append(inputs, journaldocument.NewProvisionalAcquire(fixture.alias, intent))
 	}
 	inputSnapshot := slices.Clone(inputs)
-	record, err := persistedDocumentProvisionalClaims(inputs)
+	record, err := persistedDocumentProvisionalClaims(inputs, journaldocument.LegacyGlobalClaims)
 	if err != nil {
 		t.Fatal(err)
 	}
 	decoded := documentClaimRoundtrip(t, record)
-	actual, err := decoded.canonicalProvisional([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional)
+	actual, err := decoded.canonicalProvisional([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional, journaldocument.LegacyGlobalClaims)
 	if err != nil || len(actual) != len(inputs) {
 		t.Fatalf("typed provisional evidence failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestDocumentProvisionalClaimsKeepTypedKeysAndPromoteWithoutEntries(t *testi
 
 	shuffled := slices.Clone(inputs)
 	slices.Reverse(shuffled)
-	reordered, err := persistedDocumentProvisionalClaims(shuffled)
+	reordered, err := persistedDocumentProvisionalClaims(shuffled, journaldocument.LegacyGlobalClaims)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestDocumentProvisionalClaimsKeepTypedKeysAndPromoteWithoutEntries(t *testi
 	}) {
 		t.Fatal("persisted identity depends on order or writer mutated its input")
 	}
-	promoted, err := decoded.promoted([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional, fixture.exact)
+	promoted, err := decoded.promoted([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional, fixture.exact, journaldocument.LegacyGlobalClaims)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestDocumentClaimEvidenceRefusesWrongBindingAndOverlaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.alias, intent)})
+	record, err := persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.alias, intent)}, journaldocument.LegacyGlobalClaims)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,19 +166,19 @@ func TestDocumentClaimEvidenceRefusesWrongBindingAndOverlaps(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			invalid := documentClaimRoundtrip(t, record)
 			test.modify(&invalid)
-			if claims, err := invalid.canonicalProvisional([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional); err == nil || len(claims) != 0 {
+			if claims, err := invalid.canonicalProvisional([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional, journaldocument.LegacyGlobalClaims); err == nil || len(claims) != 0 {
 				t.Fatal("mismatched evidence returned usable provisional acquires")
 			}
 		})
 	}
-	if candidate, err := record.promoted([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional, other.exact); err == nil || candidate.Kind != "" {
+	if candidate, err := record.promoted([]aggregate.DocumentAddress{fixture.alias}, fixture.owner, "first-document", fixture.provisional, other.exact, journaldocument.LegacyGlobalClaims); err == nil || candidate.Kind != "" {
 		t.Fatal("promotion admitted a different physical document")
 	}
 	child, err := ownership.NewProvisionalAcquireIntent(fixture.alias.AggregateRoot(), documentKeyFootprint(t, "parent", "child"), fixture.provisional, fixture.owner, "first-document")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if candidate, err := persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.alias, intent), journaldocument.NewProvisionalAcquire(fixture.alias, child)}); err == nil || candidate.Kind != "" {
+	if candidate, err := persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.alias, intent), journaldocument.NewProvisionalAcquire(fixture.alias, child)}, journaldocument.LegacyGlobalClaims); err == nil || candidate.Kind != "" {
 		t.Fatal("overlapping native acquires returned a usable record")
 	}
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
@@ -121,9 +120,7 @@ func BuildNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionInpu
 		if !present || !key || owner != input.Source.EntityID() || row.Contribution().Contract().Address().Document() != document {
 			return block(reconcile.ReasonOwnershipStateConflict, "native whole adoption would consume another declaration or document participant")
 		}
-		if document.Scope() == target.ScopeGlobal {
-			footprints[row.Contribution().Footprint()] = struct{}{}
-		}
+		footprints[row.Contribution().Footprint()] = struct{}{}
 	}
 	for _, binding := range input.Ownership.CurrentBindings() {
 		if !binding.Owner().Equal(input.Ownership.Owner()) || binding.Destination() != document.AggregateRoot() {

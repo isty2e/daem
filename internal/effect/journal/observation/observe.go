@@ -82,7 +82,7 @@ func Observe(ctx context.Context, input Input) (Batch, error) {
 			return Batch{}, err
 		}
 	}
-	before, err := journaldocument.IndexSnapshot(ctx, input.Before)
+	before, err := journaldocument.IndexSnapshotForClaims(ctx, input.Before, journaldocument.NativeClaims)
 	if err != nil {
 		return Batch{}, err
 	}

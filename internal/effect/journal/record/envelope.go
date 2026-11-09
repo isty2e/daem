@@ -15,7 +15,7 @@ const (
 	// Journal versions bind the canonical state encoding used by authority hashes.
 	OrdinaryVersion = 15
 	native16Version = 16
-	NativeVersion   = native16Version
+	NativeVersion   = native17Version
 )
 
 func SupportsNativeVersion(version int) bool {

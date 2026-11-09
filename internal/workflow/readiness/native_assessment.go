@@ -2,6 +2,7 @@ package readiness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -18,6 +19,7 @@ import (
 
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -36,6 +38,13 @@ type nativeAssessmentSources struct {
 	input       *NativeAssessmentInput
 	sources     []lockobserve.NativeSourceObservation
 	preparation *NativeSourcePreparation
+}
+
+func nativeAssessmentError(err error) error {
+	if errors.Is(err, ownership.ErrClaimMissing) {
+		return fmt.Errorf("%s: %w", reconcile.ReasonOwnershipClaimMissing, err)
+	}
+	return err
 }
 
 func prepareNativeAssessmentSources(ctx context.Context, input Input, before durable.Snapshot, epoch lockobserve.SourceEpoch) (nativeAssessmentSources, error) {

@@ -242,7 +242,7 @@ func (journal Native) PromoteDocument(ctx context.Context, index int, aliases []
 
 	changed := false
 	if group.ExclusiveClaims.Kind == "provisional" {
-		group.ExclusiveClaims, err = group.ExclusiveClaims.promoted(aliases, journal.Owner(), journal.OperationID(), pending, exact)
+		group.ExclusiveClaims, err = group.ExclusiveClaims.promoted(aliases, journal.Owner(), journal.OperationID(), pending, exact, journal.namespace.claims)
 		if err != nil {
 			return Native{}, false, err
 		}

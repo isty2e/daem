@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -80,11 +81,11 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 			case "wrong state":
 				invalid := whole
 				invalid.envelope.after = invalid.envelope.before
-				journal = invalid.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+				journal, err = invalid.tryRecordForGroups(t, []journalrecord.SealedDocumentGroup{group})
 			case "invalid envelope":
 				invalid := whole
 				invalid.input.CaptureInput = reviseCaptureInput(invalid.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.OperationID = "../unsafe" })
-				journal = invalid.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+				journal, err = invalid.tryRecordForGroups(t, []journalrecord.SealedDocumentGroup{group})
 			case "ordinary entries":
 				mixed := mixedStageFixture(t)
 				source, _ := mixed.source(t, imageBudget(t))
@@ -95,7 +96,7 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 				comparisons = []journaldocument.Comparison{mixed.comparison}
 				options = documentStageOptions(mixed.whole.envelope, imageBudget(t))
 			case "overlapping later writer":
-				journal = whole.recordForGroups(t, []journalrecord.SealedDocumentGroup{group, group})
+				journal, err = whole.tryRecordForGroups(t, []journalrecord.SealedDocumentGroup{group, group})
 				comparisons = append(comparisons, comparison)
 			case "invalid later comparison":
 				first, _, groups, validComparisons := twoWholeGroupStageFixture(t)
@@ -116,6 +117,16 @@ func TestNativeDocumentJournalStageRejectsAllInvalidMetadataBeforeWrites(t *test
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
+			}
+			if err != nil {
+				if change != "wrong state" && change != "invalid envelope" && change != "overlapping later writer" {
+					t.Fatal(err)
+				}
+				if !reflect.ValueOf(journal).IsZero() {
+					t.Fatal("constructor refusal returned partial native facts")
+				}
+				whole.requireUnchangedHost(t)
+				return
 			}
 			writer := &imageStageWriter{}
 			fingerprint, err := StageDocuments(journal, ctx, comparisons, writer, options)

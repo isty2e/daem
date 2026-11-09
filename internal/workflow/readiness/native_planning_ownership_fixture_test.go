@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -88,11 +89,16 @@ func (fixture *nativePlanningFixture) persistBefore(t *testing.T, before durable
 		t.Fatal("fixture persistence requires an existing exact document")
 	}
 	claims := append([]ownership.Claim(nil), extra...)
-	for _, row := range before.ManagedAggregates() {
-		if row.Contribution().Scope() != target.ScopeGlobal {
-			continue
-		}
-		address, err := ownership.NewManagedAddress(exact, row.Contribution().Footprint())
+	index, err := journaldocument.IndexSnapshotForClaims(t.Context(), before, journaldocument.NativeClaims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	footprints, err := index.Footprints(t.Context(), fixture.observation.Aliases)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for footprint := range footprints {
+		address, err := ownership.NewManagedAddress(exact, footprint)
 		if err != nil {
 			t.Fatal(err)
 		}

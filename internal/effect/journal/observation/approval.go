@@ -46,7 +46,7 @@ func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
 // HasMembers identifies documents retained by the complete Before/After state.
 // An empty declaration alone is not a document actor.
 func (evidence ApprovalEvidence) HasMembers(ctx context.Context, before, after durable.Snapshot) (bool, error) {
-	indexes, err := journaldocument.IndexSnapshots(ctx, before, after)
+	indexes, err := journaldocument.IndexSnapshotsForClaims(ctx, before, after, journaldocument.NativeClaims)
 	if err != nil {
 		return false, err
 	}

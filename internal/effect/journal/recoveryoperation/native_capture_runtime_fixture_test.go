@@ -132,17 +132,15 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 			t.Fatal(err)
 		}
 		bindings = append(bindings, binding)
-		if scope == target.ScopeGlobal {
-			address, err := ownership.NewManagedAddress(exact, before.Contribution().Contract().Address().Footprint())
-			if err != nil {
-				t.Fatal(err)
-			}
-			claim, err := ownership.NewActiveClaim(address, owner)
-			if err != nil {
-				t.Fatal(err)
-			}
-			claims = append(claims, claim)
+		address, err := ownership.NewManagedAddress(exact, before.Contribution().Contract().Address().Footprint())
+		if err != nil {
+			t.Fatal(err)
 		}
+		claim, err := ownership.NewActiveClaim(address, owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims = append(claims, claim)
 	}
 	registry, err := ownership.NewRegistry(claims, bindings...)
 	if err != nil {

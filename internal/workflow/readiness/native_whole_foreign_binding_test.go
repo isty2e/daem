@@ -27,8 +27,8 @@ func TestNativeWholeAdoptionRefusesForeignProjectBindingWithoutClaim(t *testing.
 	fixture := newNativePlanningFixture(t, target.ScopeProject, "extension-settings/test.json")
 	binding := nativeForeignProjectBinding(t, fixture, outputtest.Parse(t, "shared/peer.json"), fixture.hostPath)
 	registry, err := fixture.observation.Registry.Load(t.Context())
-	if err != nil || len(registry.Claims()) != 0 {
-		t.Fatal("project fixture unexpectedly depends on an exclusive claim", err)
+	if err != nil || len(registry.Claims()) != 1 || !registry.Claims()[0].OwnedBy(fixture.observation.Owner) {
+		t.Fatal("project fixture lost its complete own native claim", err)
 	}
 	registry, err = ownership.NewRegistry(registry.Claims(), append(registry.DocumentBindings(), binding)...)
 	if err != nil {

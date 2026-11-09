@@ -75,7 +75,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 	observation := recoveryDocumentObservation{Kind: "exact", Authority: persistedPathAuthority(claims.exact)}
 	fixture := nativeRecordFixture{
 		record: nativeJournalRecord{
-			Version: NativeVersion, Operation: OperationApply, OperationID: "native-record-apply", CreatedAt: "2026-01-01T00:00:00Z",
+			Version: native16Version, Operation: OperationApply, OperationID: "native-record-apply", CreatedAt: "2026-01-01T00:00:00Z",
 			StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(claims.owner.StatefileAuthority()), ManifestPath: claims.owner.ManifestPath()},
 			ManifestRootProvenance: root, Entries: []recoveryEntry{}, ClaimTransitions: []recoveryClaimTransition{}, ProvisionalAcquires: []recoveryProvisionalAcquireIntent{}, RemovalIntents: []recoveryRemovalIntent{},
 			DocumentGroups: []recoveryDocumentGroup{{

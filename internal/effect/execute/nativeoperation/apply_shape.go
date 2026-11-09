@@ -6,7 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -23,10 +23,10 @@ type NativeManagedSuffixShape struct {
 	aggregates  []effectpreparation.AggregateEffect
 	narrowings  []reconcile.NativeNarrowingAction
 	adoptions   []effectpreparation.NativeWholeAdoption
-	orders      []pipackage.OrderObservation
+	orders      []relationhost.SelectedDocumentEdit
 }
 
-func ProjectNativeManagedSuffix(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
+func ProjectNativeManagedSuffix(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []relationhost.SelectedDocumentEdit) (NativeManagedSuffixShape, error) {
 	remaining, err := input.Preparation.ManagedRemainder(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -62,7 +62,7 @@ func (input NativeApplyInput) DelegatePrerequisites() (NativeApplyInput, error) 
 
 // ProjectNativeDelegateSuffixes partitions an admitted suffix without inventing
 // live intermediate observations. Both shapes require fresh input when bound.
-func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
+func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []relationhost.SelectedDocumentEdit) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
 	prerequisiteState, lateState, err := input.Preparation.DelegatePhases(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
@@ -109,16 +109,13 @@ func suppressNativePrefixPromotions(work *nativeApplyWork, prefix nativeApplyWor
 	}
 }
 
-func projectNativeSuffixWork(input NativeApplyInput, work nativeApplyWork, orders []pipackage.OrderObservation) (NativeManagedSuffixShape, error) {
+func projectNativeSuffixWork(input NativeApplyInput, work nativeApplyWork, orders []relationhost.SelectedDocumentEdit) (NativeManagedSuffixShape, error) {
 	groups := make([]int, 0, len(orders))
 	for _, order := range orders {
-		if _, err := order.CaptureInput(); err != nil {
+		if err := order.Validate(); err != nil {
 			return NativeManagedSuffixShape{}, err
 		}
-		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
-		if err != nil {
-			return NativeManagedSuffixShape{}, err
-		}
+		alias := order.DocumentAddress()
 		found := false
 		for index, namespace := range work.documents.Evidence().Namespaces() {
 			if slices.Contains(namespace.Addresses(), alias) {
@@ -191,8 +188,8 @@ func (shape NativeManagedSuffixShape) Bind(input NativeApplyInput) (applyprogram
 		!slices.EqualFunc(shape.aggregates, input.Preparation.AggregateEffects(), effectpreparation.AggregateEffect.SameMutation) {
 		return applyprogram.Plan{}, fmt.Errorf("native suffix actors changed")
 	}
-	for _, order := range input.Preparation.PiOrders() {
-		if !slices.ContainsFunc(shape.orders, order.SameSelection) {
+	for _, order := range input.Preparation.SequenceEdits() {
+		if !slices.ContainsFunc(shape.orders, order.SameIntent) {
 			return applyprogram.Plan{}, fmt.Errorf("native suffix order selection changed")
 		}
 	}

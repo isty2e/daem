@@ -177,8 +177,8 @@ func RequireRecoveryJournalState(t *testing.T, fixture RecoveryFixture, boundary
 		StatefileBefore json.RawMessage   `json:"statefile_before"`
 		StatefileAfter  json.RawMessage   `json:"statefile_after"`
 	}
-	if err := json.Unmarshal(content, &record); err != nil || record.Version != 16 || len(record.DocumentGroups) != 1 || len(record.Entries) != 0 {
-		t.Fatalf("producer did not capture a native-only v16 document journal: %s; %v", content, err)
+	if err := json.Unmarshal(content, &record); err != nil || record.Version != 17 || len(record.DocumentGroups) != 1 || len(record.Entries) != 0 {
+		t.Fatalf("producer did not capture a native-only v17 document journal: version=%d documents=%d entries=%d: %v", record.Version, len(record.DocumentGroups), len(record.Entries), err)
 	}
 	codecs, err := nativeconfig.Codecs(t.Context())
 	if err != nil {
@@ -207,7 +207,7 @@ func RequireRecoveryJournalState(t *testing.T, fixture RecoveryFixture, boundary
 	if !current.Equal(want) {
 		t.Fatalf("%s interruption has the wrong persisted state generation", boundary)
 	}
-	t.Logf("actual v16 journal retained; persisted state is %s", map[string]string{"host": "Before", "state": "After"}[boundary])
+	t.Logf("actual v17 journal retained; persisted state is %s", map[string]string{"host": "Before", "state": "After"}[boundary])
 }
 
 func RequireRecoveryDryRun(t *testing.T, fixture RecoveryFixture, classification string, alternatives ...string) clijson.Recover {

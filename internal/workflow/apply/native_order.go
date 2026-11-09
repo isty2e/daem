@@ -1,11 +1,10 @@
 package apply
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -13,7 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
-func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, locked lock.File, reconciliation reconcile.Result, orders []pipackage.OrderObservation, options runOptions) (relationOrderRunResult, error) {
+func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, locked lock.File, reconciliation reconcile.Result, orders []relationhost.SelectedDocumentEdit, options runOptions) (relationOrderRunResult, error) {
 	classes := make(map[hostrelation.OrderClassID]struct{}, len(orders))
 	expectedMutations := 0
 	for _, order := range orders {
@@ -38,39 +37,31 @@ func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, l
 	}
 	matched := 0
 	for _, class := range prepared.observed {
-		if !relationOrderMutationRequired(class.decisions) {
-			continue
+		actualEdits, err := class.observation.SelectedEdits(reconciliation.CarrierRetirementClaims())
+		if err != nil {
+			return prepared, err
 		}
-		actual, pi := class.observation.Pi()
-		if !pi {
-			return prepared, fmt.Errorf("native order preparation changed its host family")
-		}
-		found := false
-		for _, planned := range orders {
-			if planned.Sequence().SequenceID() != actual.Sequence().SequenceID() {
+		for _, actual := range actualEdits {
+			if !actual.Changed() {
 				continue
 			}
-			input, err := actual.CaptureInput()
-			if err != nil {
-				return prepared, err
+			found := false
+			for _, planned := range orders {
+				if planned.Sequence().SequenceID() != actual.Sequence().SequenceID() {
+					continue
+				}
+				if !planned.SameMutation(actual) {
+					return prepared, fmt.Errorf("native selected mutation differs from its reserved actor")
+				}
+				found, matched = true, matched+1
 			}
-			if err := planned.VerifyBaseline(input.Document.Content(), input.Document.Exists()); err != nil {
-				return prepared, err
+			if !found {
+				return prepared, fmt.Errorf("native selected mutation has no reserved actor")
 			}
-			left, leftExists := planned.Candidate()
-			right, rightExists := actual.Candidate()
-			if planned.SettingsPath() != actual.SettingsPath() || leftExists != rightExists || !bytes.Equal(left, right) {
-				return prepared, fmt.Errorf("native Pi order differs from its reserved candidate")
-			}
-			found = true
-			matched++
-		}
-		if !found {
-			return prepared, fmt.Errorf("native Pi order has no reserved actor")
 		}
 	}
 	if matched != expectedMutations {
-		return prepared, fmt.Errorf("native Pi order actors changed before publication")
+		return prepared, fmt.Errorf("native selected actors changed before publication")
 	}
 	return prepared, nil
 }

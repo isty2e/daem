@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -36,7 +36,7 @@ func (batch NativeDocumentObservationBatch) Evidence() journalobservation.Batch 
 
 // CaptureMembers selects metadata while preserving the original borrowed roots;
 // it neither requalifies those roots nor acquires publication authority.
-func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, []journalobservation.Member, error) {
+func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string, orders ...relationhost.SelectedDocumentEdit) (NativeDocumentObservationBatch, []journalobservation.Member, error) {
 	selected, members, err := batch.evidence.CaptureMembers(after, operationID, orders...)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, nil, err
@@ -44,7 +44,7 @@ func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapsho
 	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, protection: batch.protection, owner: batch.owner, budget: batch.budget}, members, nil
 }
 
-func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, error) {
+func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...relationhost.SelectedDocumentEdit) (NativeDocumentObservationBatch, error) {
 	selected, err := batch.evidence.SelectCaptureMembers(ctx, after, orders...)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
