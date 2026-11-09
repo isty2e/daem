@@ -173,6 +173,8 @@ func (alias Alias) Binding() (configuration.AliasBinding, bool) {
 
 // WriterPin is durable identity evidence, not a current route or
 // permission to acquire outside independently selected roots.
+// Its value validation participates in persisted native-journal interpretation;
+// changes require compatibility review, not just live eligibility review.
 type WriterPin struct {
 	reference  output.RootReference
 	provenance rootedpath.AuthorityProvenance

@@ -79,7 +79,7 @@ func TestNativeRecordQueriesDistinguishZeroFromEmptyFamilyFacts(t *testing.T) {
 		t.Fatal("zero native supplied valid empty intents")
 	}
 	fixture := nativeJournalFixture(t)
-	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	value := fixture.nativeValue(t)
 	if zero.MatchesContext(fixture.claims.owner, fixture.before, fixture.after) || !value.MatchesContext(fixture.claims.owner, fixture.before, fixture.after) {
 		t.Fatal("native context did not distinguish initialized family facts")
 	}
@@ -95,7 +95,8 @@ func TestNativeRecordQueriesDistinguishZeroFromEmptyFamilyFacts(t *testing.T) {
 	if values, err := value.ProvisionalAcquires(); err != nil || len(values) != 0 {
 		t.Fatal("valid empty ordinary intents were refused", err)
 	}
-	value.record.DocumentGroups = nil
+	fixture.record.DocumentGroups = nil
+	value = fixture.nativeValue(t)
 	if present, err := value.HasDocumentGroups(); err != nil || present {
 		t.Fatal("valid no-document facts were confused with a zero native value", err)
 	}
@@ -106,7 +107,7 @@ func TestNativeRecordQueriesDistinguishZeroFromEmptyFamilyFacts(t *testing.T) {
 
 func TestNativeRecoveryQueriesKeepHeadersAndRefuseInvalidRemovalFacts(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	value := fixture.nativeValue(t)
 	if !value.Owner().Equal(fixture.claims.owner) || !value.Before().Equal(fixture.before) || !value.After().Equal(fixture.after) || value.OperationID() != fixture.record.OperationID {
 		t.Fatal("native header projection changed complete operation facts")
 	}

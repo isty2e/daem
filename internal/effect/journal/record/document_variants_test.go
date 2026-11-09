@@ -285,7 +285,7 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if len(loaded.provisional[0]) != 1 || len(loaded.claims[0].After()) != 0 {
 		t.Fatal("provisional record fabricated exact claims before promotion")
 	}
-	current := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	current := fixture.nativeValue(t)
 	original, err := current.Encode(t.Context(), fixture.codec)
 	if err != nil {
 		t.Fatal(err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -15,13 +16,14 @@ import (
 
 type Document struct {
 	record      recoveryDocumentGroup
+	namespace   documentNamespaceFacts
 	owner       stateauthority.Authority
 	operationID string
 	initialized bool
 }
 
 type DocumentAlias struct {
-	record      recoveryDocumentAlias
+	facts       documentAliasFacts
 	initialized bool
 }
 
@@ -30,8 +32,8 @@ func (journal Native) Documents() ([]Document, error) {
 		return nil, err
 	}
 	result := make([]Document, 0, len(journal.record.DocumentGroups))
-	for _, record := range journal.record.DocumentGroups {
-		result = append(result, journal.documentView(record))
+	for index := range journal.record.DocumentGroups {
+		result = append(result, journal.documentView(index))
 	}
 	return result, nil
 }
@@ -43,11 +45,14 @@ func (journal Native) DocumentAt(index int) (Document, error) {
 	if index < 0 || index >= len(journal.record.DocumentGroups) {
 		return Document{}, fmt.Errorf("recorded document index is outside the complete record")
 	}
-	return journal.documentView(journal.record.DocumentGroups[index]), nil
+	return journal.documentView(index), nil
 }
 
-func (journal Native) documentView(record recoveryDocumentGroup) Document {
-	return Document{record: record, owner: journal.owner, operationID: journal.record.OperationID, initialized: true}
+func (journal Native) documentView(index int) Document {
+	return Document{
+		record: journal.record.DocumentGroups[index], namespace: journal.namespace.documents[index],
+		owner: journal.owner, operationID: journal.record.OperationID, initialized: true,
+	}
 }
 
 func (journal Native) MatchesManifestRoot(root rootedpath.AuthorityProvenance) bool {
@@ -65,36 +70,21 @@ func (document Document) Addresses(ctx context.Context) ([]aggregate.DocumentAdd
 	if err := document.require(); err != nil {
 		return nil, err
 	}
-	aliases := make([]aggregate.DocumentAddress, 0, len(document.record.Aliases))
-	for _, alias := range document.record.Aliases {
+	aliases := make([]aggregate.DocumentAddress, 0, len(document.namespace.aliases))
+	for _, alias := range document.namespace.aliases {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		address, err := alias.Address.canonical()
-		if err != nil {
-			return nil, err
-		}
-		aliases = append(aliases, address)
+		aliases = append(aliases, alias.address)
 	}
 	return aliases, nil
 }
 
-func (document Document) Writer() (rootedpath.AuthorityProvenance, rootedpath.RelativeDestination, error) {
+func (document Document) WriterPin() (journalnamespace.WriterPin, error) {
 	if err := document.require(); err != nil {
-		return rootedpath.AuthorityProvenance{}, rootedpath.RelativeDestination{}, err
+		return journalnamespace.WriterPin{}, err
 	}
-	provenance, err := document.record.Writer.Root.canonical()
-	if err != nil {
-		return rootedpath.AuthorityProvenance{}, rootedpath.RelativeDestination{}, err
-	}
-	relative, err := rootedpath.NewRelativeDestination(document.record.Writer.RelativePath)
-	if err != nil {
-		return rootedpath.AuthorityProvenance{}, rootedpath.RelativeDestination{}, err
-	}
-	if relative.Path() != document.record.Writer.RelativePath {
-		return rootedpath.AuthorityProvenance{}, rootedpath.RelativeDestination{}, fmt.Errorf("recorded writer relative referent is invalid")
-	}
-	return provenance, relative, nil
+	return document.namespace.writer, nil
 }
 
 func (document Document) RequireCapturedNamespace(current mutation.DirectoryEntryAuthorityObservation) error {
@@ -108,9 +98,9 @@ func (document Document) Aliases() []DocumentAlias {
 	if !document.initialized {
 		return nil
 	}
-	result := make([]DocumentAlias, 0, len(document.record.Aliases))
-	for _, alias := range document.record.Aliases {
-		result = append(result, DocumentAlias{record: alias, initialized: true})
+	result := make([]DocumentAlias, 0, len(document.namespace.aliases))
+	for _, alias := range document.namespace.aliases {
+		result = append(result, DocumentAlias{facts: alias, initialized: true})
 	}
 	return result
 }
@@ -119,29 +109,28 @@ func (alias DocumentAlias) Address() (aggregate.DocumentAddress, error) {
 	if !alias.initialized {
 		return aggregate.DocumentAddress{}, fmt.Errorf("recorded document alias is required")
 	}
-	return alias.record.Address.canonical()
+	return alias.facts.address, nil
 }
 
 func (alias DocumentAlias) Location() (configuration.AliasLocation, error) {
-	address, err := alias.Address()
-	if err != nil {
-		return configuration.AliasLocation{}, err
+	if !alias.initialized {
+		return configuration.AliasLocation{}, fmt.Errorf("recorded document alias is required")
 	}
-	return native16RootBindingForAlias(address)
+	return alias.facts.location, nil
 }
 
 func (alias DocumentAlias) MatchesRoot(root rootedpath.AuthorityProvenance) bool {
-	return alias.initialized && persistedNativeRoot(root) == alias.record.LogicalRoot.Provenance
+	return alias.initialized && root == alias.facts.root
 }
 
 func (alias DocumentAlias) RequireObservations(current mutation.DirectoryEntryAuthorityObservation) error {
 	if !alias.initialized {
 		return fmt.Errorf("recorded document alias is required")
 	}
-	if err := matchRetainedNativeObservation(alias.record.SelectedObservation, current); err != nil {
+	if err := matchRetainedNativeObservation(alias.facts.selected, current); err != nil {
 		return err
 	}
-	return matchRetainedNativeObservation(alias.record.ObservedBefore, current)
+	return matchRetainedNativeObservation(alias.facts.before, current)
 }
 
 func (document Document) PiQualification() (PiQualification, bool, error) {

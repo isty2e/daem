@@ -43,6 +43,15 @@ type nativeRecordFixture struct {
 	original, expected aggregate.Document
 }
 
+func (fixture nativeRecordFixture) nativeValue(t *testing.T) Native {
+	t.Helper()
+	value, err := newNative16Value(fixture.record, fixture.claims.owner, fixture.before, fixture.after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
 func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 	t.Helper()
 	claims := documentClaimsForTest(t)

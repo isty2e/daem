@@ -39,10 +39,11 @@ type recoveryStateAuthority struct {
 }
 
 type Native struct {
-	record nativeJournalRecord
-	owner  stateauthority.Authority
-	before durable.Snapshot
-	after  durable.Snapshot
+	record    nativeJournalRecord
+	namespace nativeNamespaceFacts
+	owner     stateauthority.Authority
+	before    durable.Snapshot
+	after     durable.Snapshot
 }
 
 func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durable.SnapshotCodec) (Native, error) {
@@ -179,10 +180,14 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 	} else if len(record.ClaimTransitions) != 0 || len(record.ProvisionalAcquires) != 0 || len(record.RemovalIntents) != 0 {
 		return Native{}, fmt.Errorf("ordinary metadata requires ordinary entries")
 	}
+	value, err := newNative16Value(record, owner, before, after)
+	if err != nil {
+		return Native{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return Native{}, err
 	}
-	return Native{record: record, owner: owner, before: before, after: after}, nil
+	return value, nil
 }
 
 func marshalNativeJournalRecord(ctx context.Context, record nativeJournalRecord, before, after durable.Snapshot, codec durable.SnapshotCodec) ([]byte, error) {

@@ -327,12 +327,15 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 					t.Fatal(err)
 				}
 				operationID, created, before, after := basis.OperationID(), basis.CreatedAt(), basis.Before(), basis.After()
+				groups := fixture.groups
 				switch change {
 				case "operation":
 					operationID = "other"
 				case "time":
 					created = created.Add(time.Second)
 				case "provenance":
+					// Isolate the header join from contradictory project-alias facts.
+					groups = nil
 					other := nativeNamespaceRoot(t, t.TempDir())
 					otherAuthority, err := other.Root.Authority()
 					if err != nil {
@@ -354,7 +357,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				case "after state":
 					after = durable.EmptySnapshot()
 				}
-				journal, err = journalrecord.NewNativeCapture(operationID, created, fixture.whole.input.Owner(), manifest, before, after, fixture.groups)
+				journal, err = journalrecord.NewNativeCapture(operationID, created, fixture.whole.input.Owner(), manifest, before, after, groups)
 				if err != nil {
 					t.Fatal(err)
 				}

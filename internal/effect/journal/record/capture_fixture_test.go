@@ -19,8 +19,9 @@ func ordinaryEvidenceFixture(t *testing.T, createdAt string) (Native, OrdinaryEv
 	t.Helper()
 	fixture := nativeJournalFixture(t)
 	input, before := ordinaryRecordDraftInput(t)
-	journal := Native{record: fixture.record, owner: fixture.claims.owner, before: input.before, after: input.after}
-	journal.record.OperationID, journal.record.CreatedAt, journal.record.ManifestRootProvenance = input.operationID, createdAt, persistedNativeRoot(input.manifest)
+	fixture.before, fixture.after = input.before, input.after
+	fixture.record.OperationID, fixture.record.CreatedAt, fixture.record.ManifestRootProvenance = input.operationID, createdAt, persistedNativeRoot(input.manifest)
+	journal := fixture.nativeValue(t)
 	basis, err := journal.OrdinaryCaptureBasis()
 	if err != nil {
 		t.Fatal(err)

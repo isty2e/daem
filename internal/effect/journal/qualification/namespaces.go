@@ -65,11 +65,7 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 			}
 			aliases = append(aliases, journalnamespace.RecordedAlias{Address: address, Location: location})
 		}
-		provenance, relative, err := record.Writer()
-		if err != nil {
-			return nil, err
-		}
-		pin, err := journalnamespace.NewWriterPin(provenance, relative)
+		pin, err := record.WriterPin()
 		if err != nil {
 			return nil, err
 		}

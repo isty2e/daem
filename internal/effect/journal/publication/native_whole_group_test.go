@@ -104,8 +104,10 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer, relative, err := recorded.Writer()
-	if err != nil || writer != provenance || relative.Path() != "prompts/Caf\u00e9.md" {
+	writer, err := recorded.WriterPin()
+	child, directory := writer.Coordinate().DirectoryChild()
+	_, bound := writer.RootReference()
+	if err != nil || bound || writer.Provenance() != provenance || !directory || child != "prompts/Caf\u00e9.md" {
 		t.Fatal("logical project alias replaced the independently selected physical writer", err)
 	}
 	if err := recorded.RequireCapturedNamespace(namespace.Observation()); err != nil {

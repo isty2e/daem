@@ -1,6 +1,7 @@
 package record
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/output"
@@ -8,6 +9,41 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestNative16NamespaceRefusesConflictingGlobalRootAnchors(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	aliases := make([]recoveryDocumentAlias, 0, 2)
+	for index, path := range []string{"@pi-agent/first.json", "@pi-agent/second.json"} {
+		destination, err := output.Parse(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		address, err := aggregate.NewDocumentAddress(target.TargetPi, target.ScopeGlobal, destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		alias := fixture.record.DocumentGroups[0].Aliases[0]
+		alias.Address = persistedDocumentAlias(address)
+		if index != 0 {
+			alias.LogicalRoot.Provenance.PhysicalRoot = t.TempDir()
+		}
+		aliases = append(aliases, alias)
+		wire := fixture.record
+		wire.DocumentGroups = slices.Clone(wire.DocumentGroups)
+		wire.DocumentGroups[0].Aliases = []recoveryDocumentAlias{alias}
+		value, err := newNative16Value(wire, fixture.claims.owner, fixture.before, fixture.after)
+		if err != nil || value.requireNativeValue() != nil {
+			t.Fatal("individually valid global anchor was refused", err)
+		}
+	}
+	wire := fixture.record
+	wire.DocumentGroups = slices.Clone(wire.DocumentGroups)
+	wire.DocumentGroups[0].Aliases = aliases
+	value, err := newNative16Value(wire, fixture.claims.owner, fixture.before, fixture.after)
+	if err == nil || value.requireNativeValue() == nil {
+		t.Fatal("conflicting global root anchors produced complete or partial namespace facts", err)
+	}
+}
 
 func TestNative16BindingsRetainTheirRecordedVersionMeaning(t *testing.T) {
 	for _, test := range []struct {
@@ -71,7 +107,7 @@ func TestNative16BindingsRefuseUnadmittedRootsAndHosts(t *testing.T) {
 
 func TestNative16ManifestReferenceKeepsItsRecordedVersion(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	value := fixture.nativeValue(t)
 	reference, err := value.ManifestRootReference()
 	if err != nil || reference.Identity() != "project" || reference.LocatorPolicy() != "selected-project-v1" {
 		t.Fatal("native16 manifest reference followed a current catalog revision", reference, err)
@@ -86,9 +122,9 @@ func TestNative16ConsumersDoNotReinterpretUnadmittedBindings(t *testing.T) {
 	fixture.record.DocumentGroups[0].Aliases[0].Address = recoveryDocumentAliasRef{
 		Target: string(target.TargetClaudeCode), Scope: string(target.ScopeGlobal), Destination: "~/.claude/settings.json",
 	}
-	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
-	if roots, err := value.RecordedRootAnchors(); err == nil || roots != nil {
-		t.Fatal("native16 census reinterpreted a third-host alias through the current catalog", roots, err)
+	value, err := newNative16Value(fixture.record, fixture.claims.owner, fixture.before, fixture.after)
+	if err == nil || value.requireNativeValue() == nil {
+		t.Fatal("native16 lowering reinterpreted a third-host alias through the current catalog", err)
 	}
 	if err := fixture.record.validateWriterSpellingPartition(t.Context()); err == nil {
 		t.Fatal("native16 writer partition reinterpreted a third-host alias through the current catalog")

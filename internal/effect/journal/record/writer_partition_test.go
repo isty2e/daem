@@ -96,9 +96,14 @@ func TestNativeWriterPartitionRefusesOverlappingEncodeAndDecode(t *testing.T) {
 	if _, err := decodeNativeJournalRecord(t.Context(), content, testStateCodec()); err != nil {
 		t.Fatal("disjoint writer control could not decode", err)
 	}
-	journal.record.DocumentGroups = slices.Clone(journal.record.DocumentGroups)
-	journal.record.DocumentGroups[0].Writer.Root = journal.record.ManifestRootProvenance
-	journal.record.DocumentGroups[0].Writer.RelativePath = journal.record.Entries[0].Path
+	wire := journal.record
+	wire.DocumentGroups = slices.Clone(wire.DocumentGroups)
+	wire.DocumentGroups[0].Writer.Root = wire.ManifestRootProvenance
+	wire.DocumentGroups[0].Writer.RelativePath = wire.Entries[0].Path
+	journal, err = newNative16Value(wire, journal.owner, journal.before, journal.after)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := journal.record.DocumentGroups[0].validate(journal.record.ManifestRootProvenance); err != nil {
 		t.Fatal("overlap invalidated unrelated document metadata", err)
 	}

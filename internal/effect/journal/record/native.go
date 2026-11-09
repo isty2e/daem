@@ -3,6 +3,7 @@ package record
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -34,7 +35,7 @@ func NewNativeCapture(operationID string, createdAt time.Time, owner stateauthor
 		StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(owner.StatefileAuthority()), ManifestPath: owner.ManifestPath()},
 		ManifestRootProvenance: persistedNativeRoot(manifest), Entries: []recoveryEntry{}, ClaimTransitions: []recoveryClaimTransition{}, ProvisionalAcquires: []recoveryProvisionalAcquireIntent{}, RemovalIntents: []recoveryRemovalIntent{}, DocumentGroups: records,
 	}
-	return Native{record: record, owner: owner, before: before, after: after}, nil
+	return newNative16Value(record, owner, before, after)
 }
 
 func (journal Native) requireNativeValue() error {
@@ -178,44 +179,14 @@ func (journal Native) ManifestRootReference() (output.RootReference, error) {
 	if err := journal.requireNativeValue(); err != nil {
 		return output.RootReference{}, err
 	}
-	return native16ManifestRootReference()
+	return journal.namespace.manifestReference, nil
 }
 
 func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath.AuthorityProvenance, error) {
 	if err := journal.requireNativeValue(); err != nil {
 		return nil, err
 	}
-	manifest, err := journal.record.ManifestRootProvenance.canonical()
-	if err != nil {
-		return nil, err
-	}
-	manifestReference, err := journal.ManifestRootReference()
-	if err != nil {
-		return nil, err
-	}
-	anchors := map[output.RootReference]rootedpath.AuthorityProvenance{manifestReference: manifest}
-	documents, err := journal.Documents()
-	if err != nil {
-		return nil, err
-	}
-	for _, document := range documents {
-		for _, alias := range document.Aliases() {
-			location, err := alias.Location()
-			if err != nil {
-				return nil, err
-			}
-			reference := location.RootReference()
-			provenance, err := alias.record.LogicalRoot.Provenance.canonical()
-			if err != nil {
-				return nil, err
-			}
-			if previous, known := anchors[reference]; known && previous != provenance {
-				return nil, fmt.Errorf("native reference has inconsistent recorded root anchors")
-			}
-			anchors[reference] = provenance
-		}
-	}
-	return anchors, nil
+	return maps.Clone(journal.namespace.roots), nil
 }
 
 func (journal Native) ProvisionalAcquireEntry(intent ownership.ProvisionalAcquireIntent) (recovery.Entry, error) {
