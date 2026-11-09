@@ -129,7 +129,7 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 		result = locations.selected("CODEX_HOME", filepath.Join(locations.home, ".codex"))
 		result.path, err = CodexHomeDirectory(locations.values["CODEX_HOME"], locations.workDir, locations.home)
 	case "claude-preferences-location-v1":
-		result = locations.claudeConfigurationDirectory()
+		result, err = locations.claudeConfigurationDirectory()
 	case "claude-account-location-v1":
 		result = locations.selected("CLAUDE_CONFIG_DIR", locations.home)
 		result.path = locations.lexicalNodePath(result.path)
@@ -146,10 +146,7 @@ func (locations Locations) resolve(reference output.RootReference) (Location, er
 		value := locations.values["CLAUDE_CODE_PLUGIN_CACHE_DIR"]
 		result = Location{source: "CLAUDE_CODE_PLUGIN_CACHE_DIR", absent: value == ""}
 		if !result.absent {
-			if value == "~" || strings.HasPrefix(value, "~/") {
-				value = locations.home + strings.TrimPrefix(value, "~")
-			}
-			result.path = locations.lexicalNodePath(value)
+			result.path, err = ClaudePluginDirectory(value, "", locations.workDir, locations.home)
 		}
 	case "opencode-location-v1":
 		result, err = locations.openCodePath("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
@@ -262,13 +259,56 @@ func (locations Locations) lexicalNodePath(expression string) string {
 	return locations.nodeAbsolute(cleaned)
 }
 
-func (locations Locations) claudeConfigurationDirectory() Location {
+func (locations Locations) claudeConfigurationDirectory() (Location, error) {
 	value, present := locations.values["CLAUDE_CONFIG_DIR"]
 	source := "CLAUDE_CONFIG_DIR"
 	if !present {
-		value, source = filepath.Join(locations.home, ".claude"), "default location"
+		source = "default location"
 	}
-	return Location{path: locations.lexicalNodePath(norm.NFC.String(value)), source: source}
+	path, err := ClaudeConfigurationDirectory(value, present, locations.workDir, locations.home)
+	return Location{path: path, source: source}, err
+}
+
+// ClaudeConfigurationDirectory preserves present-empty configuration and applies
+// the host's NFC and lexical Node-path rules without reading the environment.
+func ClaudeConfigurationDirectory(configured string, present bool, workDir, home string) (string, error) {
+	if !present {
+		if err := validateLocatorBase(home); err != nil {
+			return "", fmt.Errorf("Claude default home: %w", err)
+		}
+		configured = filepath.Join(home, ".claude")
+	}
+	return lexicalNodeDirectory(norm.NFC.String(configured), workDir)
+}
+
+// ClaudePluginDirectory expands the store override independently of configuration
+// normalization. An empty override selects the supplied configuration's plugins.
+func ClaudePluginDirectory(configured, configurationDir, workDir, home string) (string, error) {
+	if configured == "" {
+		if err := validateLocatorBase(configurationDir); err != nil {
+			return "", fmt.Errorf("Claude plugin configuration directory: %w", err)
+		}
+		configured = filepath.Join(configurationDir, "plugins")
+	} else if configured == "~" || strings.HasPrefix(configured, "~/") {
+		if err := validateLocatorBase(home); err != nil {
+			return "", fmt.Errorf("Claude plugin home: %w", err)
+		}
+		configured = home + strings.TrimPrefix(configured, "~")
+	}
+	return lexicalNodeDirectory(configured, workDir)
+}
+
+func lexicalNodeDirectory(expression, workDir string) (string, error) {
+	if !filepath.IsAbs(expression) {
+		if err := validateLocatorBase(workDir); err != nil {
+			return "", err
+		}
+	}
+	path := (Locations{workDir: workDir}).lexicalNodePath(expression)
+	if err := validateLocatorBase(path); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (locations Locations) selected(variable, fallback string) Location {

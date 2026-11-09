@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -186,41 +188,73 @@ func hostScopeForTargetScope(scope target.Scope) (HostScope, bool) {
 // InstalledInventoryPath returns the exact host file consumed by
 // ReadInstalledInventory for mutation evidence and diagnostics.
 func InstalledInventoryPath(input InstalledInventoryInput) (string, error) {
-	configRoot, err := installedConfigRoot(input.ConfigRoot, input.WorkDir)
+	_, pluginRoot, err := installedPluginDirectories(input)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configRoot, "plugins", "installed_plugins.json"), nil
+	return filepath.Join(pluginRoot, "installed_plugins.json"), nil
 }
 
-func installedConfigRoot(configRoot string, workDir string) (string, error) {
-	root := configRoot
-	if root == "" {
-		root = os.Getenv("CLAUDE_CONFIG_DIR")
-	}
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve Claude config home: %w", err)
-		}
-		root = filepath.Join(home, ".claude")
-	}
-	if filepath.IsAbs(root) {
-		return filepath.Clean(root), nil
-	}
-	base := workDir
-	if base == "" {
-		var err error
-		base, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("resolve Claude config working directory: %w", err)
-		}
-	}
-	absolute, err := filepath.Abs(filepath.Join(base, root))
+// InstalledPluginRoots includes configuration side effects and the independently
+// selected installation store. These paths are not filesystem authority.
+func InstalledPluginRoots(input InstalledInventoryInput) ([]string, error) {
+	configRoot, pluginRoot, err := installedPluginDirectories(input)
 	if err != nil {
-		return "", fmt.Errorf("resolve Claude config root %q from %q: %w", root, base, err)
+		return nil, err
 	}
-	return filepath.Clean(absolute), nil
+	roots := []string{configRoot}
+	if pluginRoot != configRoot {
+		roots = append(roots, pluginRoot)
+	}
+	return roots, nil
+}
+
+func installedPluginDirectories(input InstalledInventoryInput) (string, string, error) {
+	workDir := input.WorkDir
+	if input.ConfigRoot != "" {
+		root := input.ConfigRoot
+		if !filepath.IsAbs(root) {
+			if workDir == "" {
+				var err error
+				workDir, err = os.Getwd()
+				if err != nil {
+					return "", "", fmt.Errorf("resolve Claude config working directory: %w", err)
+				}
+			}
+			var err error
+			root, err = filepath.Abs(filepath.Join(workDir, root))
+			if err != nil {
+				return "", "", err
+			}
+		}
+		root = filepath.Clean(root)
+		return root, filepath.Join(root, "plugins"), nil
+	}
+
+	configured, present := os.LookupEnv("CLAUDE_CONFIG_DIR")
+	plugin := os.Getenv("CLAUDE_CODE_PLUGIN_CACHE_DIR")
+	pluginHome := plugin == "~" || strings.HasPrefix(plugin, "~/")
+	var home string
+	if !present || pluginHome {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", "", fmt.Errorf("resolve Claude home: %w", err)
+		}
+	}
+	if workDir == "" && (present && !filepath.IsAbs(configured) || plugin != "" && !pluginHome && !filepath.IsAbs(plugin)) {
+		var err error
+		workDir, err = os.Getwd()
+		if err != nil {
+			return "", "", fmt.Errorf("resolve Claude working directory: %w", err)
+		}
+	}
+	configRoot, err := nativehostpath.ClaudeConfigurationDirectory(configured, present, workDir, home)
+	if err != nil {
+		return "", "", err
+	}
+	pluginRoot, err := nativehostpath.ClaudePluginDirectory(plugin, configRoot, workDir, home)
+	return configRoot, pluginRoot, err
 }
 
 func decodeInstalledPluginsFile(data []byte) (installedPluginsFile, error) {

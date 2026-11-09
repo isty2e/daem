@@ -37,12 +37,14 @@ func opaquePluginNamespaces(paths daempaths.Paths, selected target.Target, scope
 			}
 		}
 	case target.TargetClaudeCode:
-		inventory, err := claudeplugin.InstalledInventoryPath(claudeplugin.InstalledInventoryInput{WorkDir: paths.ManifestRoot, ProjectRoot: paths.ManifestRoot})
+		roots, err := claudeplugin.InstalledPluginRoots(claudeplugin.InstalledInventoryInput{WorkDir: paths.ManifestRoot, ProjectRoot: paths.ManifestRoot})
 		if err != nil {
 			return nil, true, err
 		}
-		if err := add(filepath.Dir(filepath.Dir(inventory)), target.ScopeGlobal); err != nil {
-			return nil, true, err
+		for _, root := range roots {
+			if err := add(root, target.ScopeGlobal); err != nil {
+				return nil, true, err
+			}
 		}
 		if scope == target.ScopeProject {
 			if err := add(filepath.Join(paths.ManifestRoot, ".claude"), scope); err != nil {

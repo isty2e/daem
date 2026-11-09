@@ -60,6 +60,32 @@ func settingsProfileDocument(t *testing.T, syntax configdocument.Syntax, text st
 	return document
 }
 
+func TestClaudeOpaqueInvocationKeepsConfigurationAndOverriddenPluginStore(t *testing.T) {
+	paths := settingsProfilePaths(t)
+	config := filepath.Join(paths.ManifestRoot, "config")
+	store := filepath.Join(paths.ManifestRoot, "plugin-store")
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", store)
+	key := settingsProfileKey(t, desiredextension.CarrierClaudeCodePlugin, target.TargetClaudeCode, target.ScopeGlobal, "alpha@market")
+	selected, err := NativeSettingsProfileFor(key, lock.OperationInstall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathsToPreserve, err := selected.ExclusionPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{config, store} {
+		found := false
+		for _, actual := range pathsToPreserve {
+			found = found || actual.Path() == expected && actual.Target() == target.TargetClaudeCode && actual.Scope() == target.ScopeGlobal
+		}
+		if !found {
+			t.Error("opaque invocation lost a selected configuration or plugin store", expected, pathsToPreserve)
+		}
+	}
+}
+
 func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 	for _, row := range []struct {
 		carrier    desiredextension.Carrier
@@ -70,7 +96,7 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 	}{
 		{desiredextension.CarrierPiPackage, target.TargetPi, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "npm:@acme/tools@1", 0},
 		{desiredextension.CarrierCodexPlugin, target.TargetCodex, []target.Scope{target.ScopeGlobal}, "alpha@market", 0},
-		{desiredextension.CarrierClaudeCodePlugin, target.TargetClaudeCode, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "alpha@market", 1},
+		{desiredextension.CarrierClaudeCodePlugin, target.TargetClaudeCode, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "alpha@market", 2},
 		{desiredextension.CarrierAntigravityCLIPlugin, target.TargetAntigravityCLI, []target.Scope{target.ScopeGlobal}, "acme/tools", 2},
 		{desiredextension.CarrierOpenCodePlugin, target.TargetOpenCode, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "@acme/tools@1", 4},
 	} {
