@@ -40,6 +40,9 @@ func (grant RootGrant) ObserveRoute(ctx context.Context, destination output.Dest
 }
 
 func (alias Alias) ObserveRoute(ctx context.Context, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
+	if alias.root.selection.endpoint != nil {
+		return alias.root.observeEndpointRoute(ctx, budget)
+	}
 	capability, err := alias.root.acquireRoute(ctx, alias.relative, budget)
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
@@ -47,9 +50,37 @@ func (alias Alias) ObserveRoute(ctx context.Context, budget *physicalwork.Budget
 	return ObserveWriterCapability(ctx, capability, budget)
 }
 
+func (grant RootGrant) observeEndpointRoute(ctx context.Context, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
+	if ctx == nil || budget == nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("endpoint route observation requires context and original allocation")
+	}
+	if err := grant.selection.qualifyLocator(ctx, budget); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	if grant.selection.creation != nil {
+		if _, err := grant.selection.qualifyCreation(ctx, budget); err != nil {
+			return mutation.DirectoryEntryAuthorityObservation{}, err
+		}
+	} else if err := grant.selection.capturedRoot().ValidateSelectionBounded(grant.selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	route, _, err := endpointRoutePath(ctx, grant.selection.endpoint.selected, budget)
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(route, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err := errors.Join(err, ctx.Err()); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	return observed, nil
+}
+
 func (grant RootGrant) acquireRoute(ctx context.Context, selected rootedpath.RelativeDestination, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if grant.selection.endpoint != nil {
+		return nil, fmt.Errorf("endpoint witness cannot authorize a directory-relative route")
 	}
 	if grant.selection.Root == nil {
 		return nil, fmt.Errorf("writer route requires its selected retained root")

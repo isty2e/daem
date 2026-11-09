@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -35,7 +36,7 @@ type Profile struct {
 
 type OwnedRoots struct {
 	selection journalnamespace.Roots
-	retained  []*rootedpath.CapturedRoot
+	retained  []io.Closer
 	closed    bool
 }
 
@@ -87,7 +88,7 @@ func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Nati
 		if err != nil {
 			return nil, err
 		}
-		owned.retained = append(owned.retained, selection.Root)
+		owned.retained = append(owned.retained, selection)
 		owned.selection, err = owned.selection.With(reference, selection)
 		if err != nil {
 			return nil, err

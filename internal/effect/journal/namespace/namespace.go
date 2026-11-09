@@ -31,11 +31,29 @@ type RootSelection struct {
 	Root         *rootedpath.CapturedRoot
 	creation     *nativeRootCreation
 	literal      string
+	endpoint     *retainedEndpoint
 }
 
 func (selection RootSelection) validate() error {
-	if selection.Root == nil || !filepath.IsAbs(selection.SelectedPath) || filepath.Clean(selection.SelectedPath) != selection.SelectedPath || strings.ContainsRune(selection.SelectedPath, '\x00') {
+	if selection.capturedRoot() == nil || !filepath.IsAbs(selection.SelectedPath) || filepath.Clean(selection.SelectedPath) != selection.SelectedPath || strings.ContainsRune(selection.SelectedPath, '\x00') {
 		return fmt.Errorf("selected root requires a retained handle and canonical lexical selector")
+	}
+	if selection.endpoint != nil && (selection.Root != nil || filepath.Dir(selection.endpoint.physical) != selection.SelectedPath) {
+		return fmt.Errorf("selected endpoint witness differs from its parent")
+	}
+	return nil
+}
+
+func (selection RootSelection) capturedRoot() *rootedpath.CapturedRoot {
+	if selection.endpoint != nil {
+		return selection.endpoint.witness
+	}
+	return selection.Root
+}
+
+func (selection RootSelection) Close() error {
+	if root := selection.capturedRoot(); root != nil {
+		return root.Close()
 	}
 	return nil
 }
@@ -52,6 +70,13 @@ func (roots Roots) With(reference output.RootReference, selection RootSelection)
 	}
 	if err := selection.validate(); err != nil {
 		return Roots{}, err
+	}
+	manifest, err := configuration.ProjectRootReference()
+	if err != nil {
+		return Roots{}, err
+	}
+	if reference == manifest && selection.endpoint != nil {
+		return Roots{}, fmt.Errorf("native manifest root requires a directory selection")
 	}
 	for existing := range roots.selected {
 		if existing.Identity() == reference.Identity() && existing != reference {
@@ -84,6 +109,7 @@ type RootGrant struct {
 	selection  RootSelection
 	authority  rootedpath.Authority
 	provenance rootedpath.AuthorityProvenance
+	endpoint   mutation.DirectoryEntryAuthorityObservation
 }
 
 type QualifiedRoots struct {
@@ -103,10 +129,10 @@ func (grant RootGrant) Provenance() rootedpath.AuthorityProvenance { return gran
 func (grant RootGrant) SelectedPath() string                       { return grant.selection.SelectedPath }
 
 func (grant RootGrant) ValidateSelection(selector string, budget rootedpath.PhysicalTraversalBudget) error {
-	if grant.selection.Root == nil {
+	if grant.selection.capturedRoot() == nil {
 		return fmt.Errorf("native root grant is required")
 	}
-	return grant.selection.Root.ValidateSelectionBounded(selector, physicalwork.MaximumPhysicalPathDepth, budget)
+	return grant.selection.capturedRoot().ValidateSelectionBounded(selector, physicalwork.MaximumPhysicalPathDepth, budget)
 }
 
 type Alias struct {
@@ -271,7 +297,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if err != nil {
 		return DocumentNamespace{}, err
 	}
-	writerGrant, relative, err := nativeDocumentWriterGrant(grants, boundRoots, referent, pinned)
+	writerGrant, relative, err := nativeDocumentWriterGrant(grants, boundRoots, referent, result.observation, pinned)
 	if err != nil {
 		return DocumentNamespace{}, err
 	}
@@ -293,7 +319,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if !result.observation.Equal(observedWriter) {
 		return DocumentNamespace{}, fmt.Errorf("native document writer does not identify the aliased referent")
 	}
-	capability, err := writerGrant.selection.Root.AcquireBounded(writer, physicalwork.MaximumPhysicalPathDepth, budget)
+	capability, err := writerGrant.selection.capturedRoot().AcquireBounded(writer, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return DocumentNamespace{}, err
 	}
@@ -311,7 +337,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if err := ctx.Err(); err != nil {
 		return DocumentNamespace{}, err
 	}
-	result.writerRoot, result.writer = writerGrant.selection.Root, writer
+	result.writerRoot, result.writer = writerGrant.selection.capturedRoot(), writer
 	result.writerPin, err = NewWriterPin(writerGrant.provenance, relative)
 	if err != nil {
 		return DocumentNamespace{}, err
@@ -389,10 +415,10 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 			if _, err := selection.qualifyCreation(ctx, budget); err != nil {
 				return QualifiedRoots{}, err
 			}
-		} else if err := selection.Root.ValidateSelectionBounded(selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
+		} else if err := selection.capturedRoot().ValidateSelectionBounded(selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
 			return QualifiedRoots{}, err
 		}
-		authority, err := selection.Root.AuthorityBounded(budget)
+		authority, err := selection.capturedRoot().AuthorityBounded(budget)
 		if err != nil {
 			return QualifiedRoots{}, err
 		}
@@ -400,7 +426,14 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 		if err != nil {
 			return QualifiedRoots{}, err
 		}
-		result[reference] = RootGrant{selection, authority, provenance}
+		grant := RootGrant{selection: selection, authority: authority, provenance: provenance}
+		if selection.endpoint != nil {
+			grant.endpoint, err = mutation.ObserveDirectoryEntryAuthorityBounded(selection.endpoint.physical, physicalwork.MaximumPhysicalPathDepth, budget)
+			if err != nil {
+				return QualifiedRoots{}, err
+			}
+		}
+		result[reference] = grant
 	}
 	return QualifiedRoots{grants: result}, nil
 }
@@ -418,7 +451,7 @@ func validateNativeDocumentRootRole(address aggregate.DocumentAddress, role outp
 	return fmt.Errorf("native document alias contradicts its selected host root role")
 }
 
-func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundRoots map[output.RootReference]struct{}, referent string, pinned *WriterPin) (RootGrant, rootedpath.RelativeDestination, error) {
+func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundRoots map[output.RootReference]struct{}, referent string, observation mutation.DirectoryEntryAuthorityObservation, pinned *WriterPin) (RootGrant, rootedpath.RelativeDestination, error) {
 	contracts, err := configuration.NativeRootContracts()
 	if err != nil {
 		return RootGrant{}, rootedpath.RelativeDestination{}, err
@@ -441,10 +474,17 @@ func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundR
 			continue
 		}
 		grant := grants[reference]
+		writerReferent := referent
+		if grant.selection.endpoint != nil {
+			if _, bound := boundRoots[reference]; !bound || !observation.Equal(grant.endpoint) {
+				continue
+			}
+			writerReferent = grant.selection.endpoint.physical
+		}
 		if grant.selection.creation != nil && !nativeRootContains(grant.selection.creation.physical, referent) {
 			continue
 		}
-		path, err := filepath.Rel(grant.authority.PhysicalRoot(), referent)
+		path, err := filepath.Rel(grant.authority.PhysicalRoot(), writerReferent)
 		if err != nil {
 			continue
 		}
@@ -459,11 +499,11 @@ func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundR
 			candidate = pinned.relative
 			return grant, candidate, nil
 		}
-		if selected.selection.Root == nil || len(grant.authority.PhysicalRoot()) > len(selected.authority.PhysicalRoot()) {
+		if selected.selection.capturedRoot() == nil || len(grant.authority.PhysicalRoot()) > len(selected.authority.PhysicalRoot()) {
 			selected, relative = grant, candidate
 		}
 	}
-	if selected.selection.Root == nil {
+	if selected.selection.capturedRoot() == nil {
 		return RootGrant{}, rootedpath.RelativeDestination{}, ErrNoTrustedWriterRoot
 	}
 	return selected, relative, nil

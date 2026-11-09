@@ -47,3 +47,25 @@ func TestClaudeLocationConsumersKeepTheirOwnPresenceAndNormalizationRules(t *tes
 		})
 	}
 }
+
+func TestClaudeAccountFilesPreserveBothConsumerExpressions(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "Cafe\u0301")
+	work := filepath.Join(base, "logical-cwd")
+	for _, row := range []struct {
+		name, configured string
+		present          bool
+		want             [2]string
+	}{
+		{"default", "", false, [2]string{filepath.Join(base, "Café", ".claude", ".config.json"), filepath.Join(home, ".claude.json")}},
+		{"present empty", "", true, [2]string{filepath.Join(work, ".config.json"), filepath.Join(home, ".claude.json")}},
+		{"relative normalized", "../Cafe\u0301", true, [2]string{work + string(filepath.Separator) + filepath.FromSlash("../Café/.config.json"), work + string(filepath.Separator) + filepath.FromSlash("../Cafe\u0301/.claude.json")}},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			selected, err := ClaudeAccountFiles(row.configured, row.present, work, home)
+			if err != nil || selected != row.want {
+				t.Fatal("preferred/fallback account candidates lost their distinct consumer rules", selected, err, row.want)
+			}
+		})
+	}
+}

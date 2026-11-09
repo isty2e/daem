@@ -272,13 +272,46 @@ func (locations Locations) claudeConfigurationDirectory() (Location, error) {
 // ClaudeConfigurationDirectory preserves present-empty configuration and applies
 // the host's NFC and lexical Node-path rules without reading the environment.
 func ClaudeConfigurationDirectory(configured string, present bool, workDir, home string) (string, error) {
+	expression, err := claudeConfigurationExpression(configured, present, home)
+	if err != nil {
+		return "", err
+	}
+	return absoluteNodeExpression(expression, workDir)
+}
+
+func claudeConfigurationExpression(configured string, present bool, home string) (string, error) {
 	if !present {
 		if err := validateLocatorBase(home); err != nil {
 			return "", fmt.Errorf("Claude default home: %w", err)
 		}
 		configured = filepath.Join(home, ".claude")
 	}
-	return lexicalNodeDirectory(norm.NFC.String(configured), workDir)
+	return norm.NFC.String(configured), nil
+}
+
+// ClaudeAccountFiles returns the preferred legacy and fallback account files.
+// Their order is a consumption rule; selecting one requires a presence observation.
+func ClaudeAccountFiles(configured string, present bool, workDir, home string) ([2]string, error) {
+	configuration, err := claudeConfigurationExpression(configured, present, home)
+	if err != nil {
+		return [2]string{}, err
+	}
+	account := configured
+	if !present || account == "" {
+		if err := validateLocatorBase(home); err != nil {
+			return [2]string{}, fmt.Errorf("Claude account home: %w", err)
+		}
+		account = home
+	}
+	preferred, err := absoluteNodeExpression(filepath.Join(configuration, ".config.json"), workDir)
+	if err != nil {
+		return [2]string{}, err
+	}
+	fallback, err := absoluteNodeExpression(filepath.Join(account, ".claude.json"), workDir)
+	if err != nil {
+		return [2]string{}, err
+	}
+	return [2]string{preferred, fallback}, nil
 }
 
 // ClaudePluginDirectory expands the store override independently of configuration
@@ -295,10 +328,10 @@ func ClaudePluginDirectory(configured, configurationDir, workDir, home string) (
 		}
 		configured = home + strings.TrimPrefix(configured, "~")
 	}
-	return lexicalNodeDirectory(configured, workDir)
+	return absoluteNodeExpression(configured, workDir)
 }
 
-func lexicalNodeDirectory(expression, workDir string) (string, error) {
+func absoluteNodeExpression(expression, workDir string) (string, error) {
 	if !filepath.IsAbs(expression) {
 		if err := validateLocatorBase(workDir); err != nil {
 			return "", err

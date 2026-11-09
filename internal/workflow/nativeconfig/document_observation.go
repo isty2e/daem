@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"strings"
@@ -165,7 +166,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, err
 	}
 	var roots journalnamespace.Roots
-	var retained []*rootedpath.CapturedRoot
+	var retained []io.Closer
 	defer func() {
 		if resultErr == nil && operation != nil {
 			operation.roots = retained
@@ -210,7 +211,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		if err != nil {
 			return nil, fmt.Errorf("observe selected native root %q without creating it: %w", reference.Identity(), err)
 		}
-		retained = append(retained, selection.Root)
+		retained = append(retained, selection)
 		roots, err = roots.With(reference, selection)
 		if err != nil {
 			return nil, err

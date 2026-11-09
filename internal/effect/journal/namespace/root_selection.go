@@ -134,6 +134,9 @@ func CaptureRootSelector(ctx context.Context, selector string, budget rootedpath
 }
 
 func (selection RootSelection) qualifyLocator(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) error {
+	if selection.endpoint != nil {
+		return selection.endpoint.qualify(ctx, budget)
+	}
 	if selection.literal == "" {
 		return nil
 	}
@@ -210,7 +213,7 @@ func (selection RootSelection) qualifyCreation(ctx context.Context, budget roote
 	if proof == nil || selection.SelectedPath != proof.selector {
 		return "", fmt.Errorf("native creation selection differs from its selector")
 	}
-	authority, err := selection.Root.AuthorityBounded(budget)
+	authority, err := selection.capturedRoot().AuthorityBounded(budget)
 	if err != nil {
 		return "", err
 	}
@@ -218,7 +221,7 @@ func (selection RootSelection) qualifyCreation(ctx context.Context, budget roote
 	if err != nil || provenance != proof.provenance {
 		return "", fmt.Errorf("native creation anchor incarnation changed")
 	}
-	if err := selection.Root.ValidateSelectionBounded(authority.PhysicalRoot(), physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
+	if err := selection.capturedRoot().ValidateSelectionBounded(authority.PhysicalRoot(), physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
 		return "", err
 	}
 	physical, err := rootedpath.ResolveReferentPathBounded(proof.selector, physicalwork.MaximumPhysicalPathDepth, budget)
