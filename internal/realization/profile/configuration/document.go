@@ -68,16 +68,51 @@ type AliasInput struct {
 	Syntax      hostconfig.Syntax
 }
 
+// AliasBinding retains the static address contract independently of selected
+// filesystem facts, authoring admission and producer grammar.
+type AliasBinding struct {
+	reference output.RootReference
+	relative  string
+	policy    string
+}
+
+func newAliasBinding(root rootFact, relative, policy string) (AliasBinding, error) {
+	reference, err := root.reference()
+	if err != nil {
+		return AliasBinding{}, err
+	}
+	binding := AliasBinding{reference: reference, relative: relative, policy: policy}
+	if err := binding.Validate(); err != nil {
+		return AliasBinding{}, err
+	}
+	return binding, nil
+}
+
+func (binding AliasBinding) RootReference() output.RootReference { return binding.reference }
+func (binding AliasBinding) RelativePath() string                { return binding.relative }
+func (binding AliasBinding) PolicyID() string                    { return binding.policy }
+
+func (binding AliasBinding) Validate() error {
+	if err := binding.reference.Validate(); err != nil {
+		return err
+	}
+	if err := hostconfig.ValidateRelativePath(binding.relative); err != nil {
+		return err
+	}
+	if binding.policy == "" {
+		return fmt.Errorf("native alias binding requires its carrier or layout policy")
+	}
+	return nil
+}
+
 // DocumentSpec is declaration-independent. Its alias is a candidate address;
 // each participant still needs its own selected-root and physical qualification.
 type DocumentSpec struct {
 	target              target.Target
 	scope               target.Scope
 	nativePath          string
-	root                output.RootReference
-	relative            string
+	binding             AliasBinding
 	destination         output.Destination
-	policy              string
 	grammar             Grammar
 	class               DocumentClass
 	mode                FileModePolicy
@@ -87,36 +122,63 @@ type DocumentSpec struct {
 	outsideNativeLayout bool
 }
 
-// RootBindingForAlias projects the alias's root and root-relative path without
+// RootBindingForAlias projects the alias's static root, path and policy without
 // imposing placement or grammar admission on retained namespace addresses.
-func RootBindingForAlias(input AliasInput) (output.RootReference, string, error) {
+func RootBindingForAlias(input AliasInput) (AliasBinding, error) {
 	if err := input.Destination.ValidateScope(input.Scope); err != nil {
-		return output.RootReference{}, "", err
+		return AliasBinding{}, err
 	}
 	var root rootFact
-	var relative string
+	var relative, policy string
 	if dedicated, matched := dedicatedAliasFor(input); matched {
-		root, relative = dedicated.root, dedicated.relative
+		root, relative, policy = dedicated.root, dedicated.relative, dedicated.policy
 	} else {
 		layout, err := selectLayout(input.Target, input.Scope)
 		if err != nil {
-			return output.RootReference{}, "", err
+			return AliasBinding{}, err
 		}
 		var matched bool
 		relative, matched = layout.bindingRelativePathFor(input.Destination)
 		if !matched {
-			return output.RootReference{}, "", fmt.Errorf("%w: alias %q has no native root binding", ErrDocumentPath, input.Destination.String())
+			return AliasBinding{}, fmt.Errorf("%w: alias %q has no native root binding", ErrDocumentPath, input.Destination.String())
 		}
-		root = layout.root
+		root, policy = layout.root, layout.policy
 	}
-	if err := hostconfig.ValidateRelativePath(relative); err != nil {
-		return output.RootReference{}, "", err
+	return newAliasBinding(root, relative, policy)
+}
+
+// AdmitRecordedAliasBinding selects the recorded rule family, then checks its
+// exact static projection. Unknown revisions are not reinterpreted as current.
+func AdmitRecordedAliasBinding(input AliasInput, reference output.RootReference, relative, policy string) (AliasBinding, error) {
+	if err := input.Destination.ValidateScope(input.Scope); err != nil {
+		return AliasBinding{}, err
 	}
-	reference, err := root.reference()
+	var canonical AliasBinding
+	var err error
+	for _, dedicated := range dedicatedDocumentAliases {
+		if dedicated.policy == policy && dedicated.target == input.Target && dedicated.scope == input.Scope && dedicated.alias == input.Destination.String() {
+			canonical, err = newAliasBinding(dedicated.root, dedicated.relative, dedicated.policy)
+			break
+		}
+	}
+	if canonical == (AliasBinding{}) && err == nil {
+		for key, layout := range nativeLayouts {
+			if layout.policy != policy || key.target != input.Target || key.scope != input.Scope {
+				continue
+			}
+			if path, matched := layout.bindingRelativePathFor(input.Destination); matched {
+				canonical, err = newAliasBinding(layout.root, path, layout.policy)
+			}
+			break
+		}
+	}
 	if err != nil {
-		return output.RootReference{}, "", err
+		return AliasBinding{}, err
 	}
-	return reference, relative, nil
+	if canonical == (AliasBinding{}) || canonical.reference != reference || canonical.relative != relative || canonical.policy != policy {
+		return AliasBinding{}, fmt.Errorf("%w: recorded alias binding does not match its versioned contract", ErrDocumentPath)
+	}
+	return canonical, nil
 }
 
 func NewDocumentSpec(input DocumentInput) (DocumentSpec, error) {
@@ -165,11 +227,8 @@ func buildDocument(input DocumentInput, root rootFact, relative string, destinat
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	reference, err := root.reference()
+	binding, err := newAliasBinding(root, relative, policy)
 	if err != nil {
-		return DocumentSpec{}, err
-	}
-	if err := hostconfig.ValidateRelativePath(relative); err != nil {
 		return DocumentSpec{}, err
 	}
 	rule, err := documentRuleFor(input.Target, input.Scope, input.Path, outsideNativeLayout)
@@ -182,7 +241,7 @@ func buildDocument(input DocumentInput, root rootFact, relative string, destinat
 	}
 	spec := DocumentSpec{
 		target: input.Target, scope: input.Scope, nativePath: input.Path,
-		root: reference, relative: relative, destination: destination, policy: policy,
+		binding: binding, destination: destination,
 		grammar: grammar, class: rule.class, mode: PrivateCreation,
 		observations: observations | rule.observations, slots: rule.slots, outsideNativeLayout: outsideNativeLayout,
 	}
@@ -223,10 +282,10 @@ func selectGrammar(known Grammar, nativePath string, requested hostconfig.Syntax
 
 func (spec DocumentSpec) Target() target.Target               { return spec.target }
 func (spec DocumentSpec) Scope() target.Scope                 { return spec.scope }
-func (spec DocumentSpec) RootReference() output.RootReference { return spec.root }
-func (spec DocumentSpec) RootRelativePath() string            { return spec.relative }
+func (spec DocumentSpec) RootReference() output.RootReference { return spec.binding.RootReference() }
+func (spec DocumentSpec) RootRelativePath() string            { return spec.binding.RelativePath() }
 func (spec DocumentSpec) Destination() output.Destination     { return spec.destination }
-func (spec DocumentSpec) PolicyID() string                    { return spec.policy }
+func (spec DocumentSpec) PolicyID() string                    { return spec.binding.PolicyID() }
 func (spec DocumentSpec) Grammar() Grammar                    { return spec.grammar }
 func (spec DocumentSpec) Class() DocumentClass                { return spec.class }
 func (spec DocumentSpec) ModePolicy() FileModePolicy          { return spec.mode }
@@ -251,7 +310,7 @@ func (spec DocumentSpec) RequireWriterGrammar(writer Grammar) error {
 // NativePlacementPath inverts the generic native layout. It does not classify
 // ordinary writer semantics or waive that writer's physical-alias agreement.
 func (spec DocumentSpec) NativePlacementPath() (string, bool) {
-	if spec.outsideNativeLayout || spec.root.Validate() != nil {
+	if spec.outsideNativeLayout || spec.binding.Validate() != nil {
 		return "", false
 	}
 	return spec.nativePath, true

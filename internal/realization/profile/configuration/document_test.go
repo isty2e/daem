@@ -33,9 +33,14 @@ func assertDocumentContract(t *testing.T, spec configuration.DocumentSpec, want 
 			spec.Destination().String(), spec.RootReference().Identity(), spec.RootReference().LocatorPolicy(), spec.RootRelativePath(),
 			spec.PolicyID(), spec.Grammar(), spec.Class(), spec.ModePolicy(), spec.RequiredObservations())
 	}
-	reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()})
-	if err != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || relative != want.relative {
-		t.Fatalf("alias binding = %v/%s, %v; want %s/%s/%s", reference, relative, err, want.root, want.locator, want.relative)
+	binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()})
+	reference := binding.RootReference()
+	if err != nil || binding.Validate() != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || binding.RelativePath() != want.relative || binding.PolicyID() != want.policy {
+		t.Fatalf("alias binding = %v/%s/%s, %v; want %s/%s/%s/%s", reference, binding.RelativePath(), binding.PolicyID(), err, want.root, want.locator, want.relative, want.policy)
+	}
+	retained, err := configuration.AdmitRecordedAliasBinding(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()}, reference, binding.RelativePath(), binding.PolicyID())
+	if err != nil || retained != binding {
+		t.Fatal("recorded binding does not retain the selected rule family", retained, err)
 	}
 	if _, native := spec.NativePlacementPath(); native {
 		reference, err := configuration.RootReferenceForScope(spec.Target(), spec.Scope())
@@ -63,9 +68,9 @@ func TestRootBindingRefusesUnrelatedPortableRootsAndHomePaths(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: test.selected, Scope: target.ScopeGlobal, Destination: destination})
-		if !errors.Is(err, configuration.ErrDocumentPath) || reference != (output.RootReference{}) || relative != "" {
-			t.Fatalf("unrelated alias %s returned a binding: %v/%s, %v", test.alias, reference, relative, err)
+		binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: test.selected, Scope: target.ScopeGlobal, Destination: destination})
+		if !errors.Is(err, configuration.ErrDocumentPath) || binding != (configuration.AliasBinding{}) {
+			t.Fatalf("unrelated alias %s returned a binding: %v, %v", test.alias, binding, err)
 		}
 	}
 }
@@ -86,13 +91,47 @@ func TestRootBindingDoesNotImposePlacementOrGrammarAdmission(t *testing.T) {
 			t.Fatal(err)
 		}
 		input := configuration.AliasInput{Target: test.selected, Scope: test.scope, Destination: destination, Syntax: hostconfig.Syntax("not-a-grammar")}
-		reference, relative, err := configuration.RootBindingForAlias(input)
-		if err != nil || reference.Identity() != test.root || relative != test.relative {
-			t.Fatalf("retained binding %s = %v/%s, %v", test.alias, reference, relative, err)
+		binding, err := configuration.RootBindingForAlias(input)
+		if err != nil || binding.RootReference().Identity() != test.root || binding.RelativePath() != test.relative || binding.PolicyID() == "" {
+			t.Fatalf("retained binding %s = %v, %v", test.alias, binding, err)
 		}
 		if _, err := configuration.DocumentSpecForAlias(input); err == nil {
 			t.Fatal("binding lookup was mistaken for placement admission")
 		}
+	}
+}
+
+func TestRecordedBindingRefusesReferencePathAndPolicyReinterpretation(t *testing.T) {
+	destination, err := output.Parse("~/.pi/agent/mcp.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := configuration.AliasInput{Target: target.TargetPi, Scope: target.ScopeGlobal, Destination: destination, Syntax: "not-a-grammar"}
+	binding, err := configuration.RootBindingForAlias(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongRoot, err := output.NewRootReference(binding.RootReference().Identity(), "pi-agent-location-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		reference output.RootReference
+		relative  string
+		policy    string
+	}{
+		{wrongRoot, binding.RelativePath(), binding.PolicyID()},
+		{binding.RootReference(), "sibling.json", binding.PolicyID()},
+		{binding.RootReference(), binding.RelativePath(), "pi-mcp-carrier-v2"},
+		{binding.RootReference(), binding.RelativePath(), "pi-native-v1"},
+	} {
+		retained, err := configuration.AdmitRecordedAliasBinding(input, test.reference, test.relative, test.policy)
+		if !errors.Is(err, configuration.ErrDocumentPath) || retained != (configuration.AliasBinding{}) {
+			t.Fatal("recorded identity was reinterpreted through another rule family", retained, err)
+		}
+	}
+	if retained, err := configuration.AdmitRecordedAliasBinding(input, binding.RootReference(), binding.RelativePath(), binding.PolicyID()); err != nil || retained != binding {
+		t.Fatal("binding admission imposed a producer grammar", retained, err)
 	}
 }
 
@@ -275,6 +314,9 @@ func TestNativeLayoutRejectsUnboundAndNoncanonicalDocuments(t *testing.T) {
 	}
 	if (configuration.DocumentSpec{}).Validate() == nil {
 		t.Fatal("zero document contract admitted")
+	}
+	if (configuration.AliasBinding{}).Validate() == nil {
+		t.Fatal("zero alias binding admitted")
 	}
 }
 

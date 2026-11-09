@@ -398,7 +398,7 @@ func versionedRuntimePath(nativePath string) bool {
 // ValidateDocument checks coverage for a constructor-checked immutable document;
 // it does not reconstruct the document's canonical shape.
 func (facts DedicatedReservations) ValidateDocument(spec DocumentSpec) error {
-	if err := spec.root.Validate(); err != nil {
+	if err := spec.binding.Validate(); err != nil {
 		return err
 	}
 

@@ -24,8 +24,8 @@ func TestNativeWriterPartitionKeepsMissingRootPrefixes(t *testing.T) {
 			base := fixture.record.ManifestRootProvenance
 			template := fixture.record.DocumentGroups[0]
 			firstAnchor, firstRelative := "", ".pi/agent/settings.json"
-			secondAlias, secondRelative := "~/.claude/settings.json", ".claude/settings.json"
-			secondTarget, secondScope := target.TargetClaudeCode, target.ScopeGlobal
+			secondAlias, secondRelative := "@codex-home/config.toml", ".codex/config.toml"
+			secondTarget, secondScope := target.TargetCodex, target.ScopeGlobal
 			if projectSibling {
 				firstAnchor, firstRelative = ".pi", "agent/settings.json"
 				secondAlias, secondRelative = ".pi/settings.json", ".pi/settings.json"

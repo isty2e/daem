@@ -196,10 +196,11 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, err
 	}
 	for _, alias := range addresses {
-		reference, _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: alias.Target(), Scope: alias.Scope(), Destination: alias.AggregateRoot()})
+		binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: alias.Target(), Scope: alias.Scope(), Destination: alias.AggregateRoot()})
 		if err != nil {
 			return nil, err
 		}
+		reference := binding.RootReference()
 		if _, supplied := roots.Selection(reference); supplied {
 			continue
 		}

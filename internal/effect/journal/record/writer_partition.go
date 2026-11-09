@@ -10,7 +10,6 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -93,7 +92,7 @@ func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Co
 			if err := alias.LogicalRoot.validate(address.Scope(), record.ManifestRootProvenance); err != nil {
 				return err
 			}
-			_, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+			_, relative, err := native16RootBindingForAlias(address)
 			if err != nil {
 				return err
 			}

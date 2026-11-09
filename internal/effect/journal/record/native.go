@@ -16,7 +16,6 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func NewNativeCapture(operationID string, createdAt time.Time, owner stateauthority.Authority, manifest rootedpath.AuthorityProvenance, before, after durable.Snapshot, groups []SealedDocumentGroup) (Native, error) {
@@ -183,7 +182,7 @@ func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath
 	if err != nil {
 		return nil, err
 	}
-	manifestReference, err := configuration.ProjectRootReference()
+	manifestReference, err := native16ManifestRootReference()
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +197,7 @@ func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath
 			if err != nil {
 				return nil, err
 			}
-			reference, _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+			reference, _, err := native16RootBindingForAlias(address)
 			if err != nil {
 				return nil, err
 			}

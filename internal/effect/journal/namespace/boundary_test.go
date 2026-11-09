@@ -198,6 +198,9 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	pin := original.WriterPin()
+	if _, bound := pin.RootReference(); !bound {
+		t.Fatal("fresh observation did not retain its selected root reference")
+	}
 	pin, err = NewWriterPin(pin.Provenance(), pin.Relative())
 	if err != nil {
 		t.Fatal(err)
@@ -205,6 +208,17 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	current, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, pin)
 	if err != nil || !original.Observation().Equal(current.Observation()) {
 		t.Fatalf("canonical pin lost the selected namespace: %v", err)
+	}
+	if _, inferred := current.WriterPin().RootReference(); inferred {
+		t.Fatal("legacy reobservation inferred a writer reference absent from its record")
+	}
+	bound, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, original.WriterPin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalReference, _ := original.WriterPin().RootReference()
+	if reference, present := bound.WriterPin().RootReference(); !present || reference != originalReference {
+		t.Fatal("referenced reobservation lost its recorded reference")
 	}
 	aliases := current.Aliases()
 	aliases[0] = Alias{}
