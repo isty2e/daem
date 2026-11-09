@@ -228,6 +228,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	slices.SortFunc(aliases, journaldocument.CompareAliases)
 	grants := qualified.grants
 	result := DocumentNamespace{roots: roots, protection: protection, filesystem: filesystem}
+	boundRoots := make(map[output.RootReference]struct{})
 	var referent string
 	for _, address := range aliases {
 		if err := ctx.Err(); err != nil {
@@ -264,6 +265,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 			return DocumentNamespace{}, fmt.Errorf("native document aliases do not identify one physical referent")
 		}
 		result.aliases = append(result.aliases, Alias{address: address, root: grant, relative: selectedRelative, observation: observation})
+		boundRoots[reference] = struct{}{}
 	}
 	observer := newPhysicalObserver(protection, budget)
 	if err := observer.requireUnreserved(ctx, result.aliases); err != nil {
@@ -273,7 +275,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	if err != nil {
 		return DocumentNamespace{}, err
 	}
-	writerGrant, relative, err := nativeDocumentWriterGrant(grants, referent, pinned)
+	writerGrant, relative, err := nativeDocumentWriterGrant(grants, boundRoots, referent, pinned)
 	if err != nil {
 		return DocumentNamespace{}, err
 	}
@@ -385,12 +387,28 @@ func validateNativeDocumentRootRole(address aggregate.DocumentAddress, role outp
 	return fmt.Errorf("native document alias contradicts its selected host root role")
 }
 
-func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, referent string, pinned *WriterPin) (RootGrant, rootedpath.RelativeDestination, error) {
+func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundRoots map[output.RootReference]struct{}, referent string, pinned *WriterPin) (RootGrant, rootedpath.RelativeDestination, error) {
+	contracts, err := configuration.NativeRootContracts()
+	if err != nil {
+		return RootGrant{}, rootedpath.RelativeDestination{}, err
+	}
+	unboundEndpoints := make(map[output.RootReference]struct{})
+	for _, contract := range contracts {
+		if contract.Envelope() == configuration.NativeEndpoints {
+			if _, bound := boundRoots[contract.Reference()]; !bound {
+				unboundEndpoints[contract.Reference()] = struct{}{}
+			}
+		}
+	}
+
 	var selected RootGrant
 	var relative rootedpath.RelativeDestination
 	references := slices.Collect(maps.Keys(grants))
 	slices.SortFunc(references, output.RootReference.Compare)
 	for _, reference := range references {
+		if _, unbound := unboundEndpoints[reference]; unbound {
+			continue
+		}
 		grant := grants[reference]
 		if grant.selection.creation != nil && !nativeRootContains(grant.selection.creation.physical, referent) {
 			continue

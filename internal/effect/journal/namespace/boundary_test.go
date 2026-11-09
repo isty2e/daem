@@ -11,8 +11,93 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
+	contracts, err := configuration.NativeRootContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range contracts {
+		if contract.Envelope() != configuration.NativeEndpoints {
+			continue
+		}
+		for _, mode := range []string{"unbound endpoint", "pinned endpoint", "independent directory"} {
+			t.Run(contract.Reference().Identity()+"/"+mode, func(t *testing.T) {
+				base := t.TempDir()
+				manifest := nativeNamespaceRoot(t, filepath.Join(base, "manifest"))
+				anchor := nativeNamespaceRoot(t, filepath.Join(base, "anchor"))
+				referent := filepath.Join(anchor.SelectedPath, "sibling.json")
+				if err := os.WriteFile(referent, []byte(`{"fixture":true}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(filepath.Join(manifest.SelectedPath, ".pi"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(referent, filepath.Join(manifest.SelectedPath, ".pi", "alias.json")); err != nil {
+					t.Skipf("symlinks are unavailable: %v", err)
+				}
+
+				roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: manifest})
+				roots, err := roots.With(contract.Reference(), anchor)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode == "independent directory" {
+					reference, _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: target.TargetCodex, Scope: target.ScopeGlobal, Destination: nativeNamespaceAddress(t, target.TargetCodex, target.ScopeGlobal, "@codex-home/config.toml").AggregateRoot()})
+					if err != nil {
+						t.Fatal(err)
+					}
+					roots, err = roots.With(reference, anchor)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+
+				aliases := []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/alias.json")}
+				reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
+				budget := imageBudget(t)
+				var value DocumentNamespace
+				var observationErr error
+				if mode == "pinned endpoint" {
+					authority, err := anchor.Root.AuthorityBounded(budget)
+					if err != nil {
+						t.Fatal(err)
+					}
+					provenance, err := authority.Provenance()
+					if err != nil {
+						t.Fatal(err)
+					}
+					relative, err := rootedpath.NewRelativeDestination("sibling.json")
+					if err != nil {
+						t.Fatal(err)
+					}
+					pin, err := NewWriterPin(provenance, relative)
+					if err != nil {
+						t.Fatal(err)
+					}
+					value, observationErr = Reobserve(t.Context(), aliases, roots, fixtureProtection(t), reader, budget, pin)
+				} else {
+					value, observationErr = Observe(t.Context(), aliases, roots, fixtureProtection(t), reader, budget)
+				}
+
+				if mode == "independent directory" {
+					if observationErr != nil {
+						t.Fatal("an independently supplied directory lost its containing grant", observationErr)
+					}
+					image, _, _, err := value.ReadReferent(t.Context(), 1024, budget)
+					if err != nil || string(image.Content()) != `{"fixture":true}` {
+						t.Fatal("the directory-granted referent could not be read", err)
+					}
+				} else if observationErr == nil || value.Observation().Validate() == nil || len(reader.capabilities) != 0 {
+					t.Fatal("an unrelated endpoint anchor became a containing writer grant", observationErr)
+				}
+			})
+		}
+	}
+}
 
 func TestAliasRouteUsesItsAdmittedRootRelativeDestination(t *testing.T) {
 	selection := nativeNamespaceRoot(t, t.TempDir())
