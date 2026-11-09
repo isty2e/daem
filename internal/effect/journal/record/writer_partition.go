@@ -103,7 +103,7 @@ func (record nativeRuntimeRecord) validateWriterSpellingPartition(ctx context.Co
 			}
 			child, directory := location.Coordinate().DirectoryChild()
 			if !directory {
-				continue
+				return fmt.Errorf("project alias must retain its directory-child coordinate")
 			}
 			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, child)
 			if err != nil {

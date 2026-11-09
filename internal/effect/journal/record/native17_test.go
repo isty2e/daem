@@ -145,6 +145,13 @@ func TestNative17CaptureUsesTheSameBoundNamespaceBeforeAndAfterPublicationPrepar
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, originalReference, expectedReference, err := documentImageReferences(comparison, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(nativeRecordJSON(t, decoded.record.DocumentGroups[0].Original), nativeRecordJSON(t, originalReference)) || !bytes.Equal(nativeRecordJSON(t, decoded.record.DocumentGroups[0].Expected), nativeRecordJSON(t, expectedReference)) {
+		t.Fatal("native17 image references did not survive capture/prepare serialization")
+	}
 	for _, value := range []Native{journal, decoded} {
 		document, err := value.DocumentAt(0)
 		if err != nil {
@@ -300,6 +307,23 @@ func TestNative17RefusesMalformedRootPolicyAndPurposeBeforeEffects(t *testing.T)
 			}
 			if value, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec); err == nil || value.requireNativeValue() == nil {
 				t.Fatal("malformed17 returned usable or partial native facts", err)
+			}
+		})
+	}
+}
+
+func TestNative17RefusesSequenceContractsThatCannotReplay(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	for _, syntax := range []string{"toml-v1", "json-v2"} {
+		t.Run(syntax, func(t *testing.T) {
+			wire := native17RecordFixture(t, fixture)
+			wire.DocumentGroups[0].Sequences = []nativeSequenceWitness{{Alias: wire.DocumentGroups[0].Aliases[0].Address, Path: []string{"packages"}, Syntax: syntax, Removed: []int{}, Order: []int{1, 0}}}
+			content, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if journal, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec); err == nil || journal.requireNativeValue() == nil {
+				t.Fatal("irreplayable sequence contract reached admitted native facts", err)
 			}
 		})
 	}

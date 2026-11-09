@@ -12,6 +12,7 @@ import (
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
@@ -377,8 +378,12 @@ func (witness nativeSequenceWitness) validate(aliases []documentAliasFacts) erro
 	if !found || witness.Path == nil || witness.Removed == nil || witness.Order == nil {
 		return fmt.Errorf("selected sequence requires its document alias and explicit positional evidence")
 	}
-	if _, err := output.NewKeyPath(witness.Path...); err != nil {
+	path, err := output.NewKeyPath(witness.Path...)
+	if err != nil {
 		return err
+	}
+	if path.IsRoot() {
+		return fmt.Errorf("selected sequence requires a non-root array path")
 	}
 	previous := -1
 	for _, removed := range witness.Removed {
@@ -394,11 +399,20 @@ func (witness nativeSequenceWitness) validate(aliases []documentAliasFacts) erro
 		}
 		seen[slot] = true
 	}
+	_, err = witness.syntax()
+	return err
+}
+
+func (witness nativeSequenceWitness) syntax() (configdocument.Syntax, error) {
 	switch witness.Syntax {
-	case "json-v1", "jsonc-v1", "json-line-comments-v1", "toml-v1":
-		return nil
+	case "json-v1":
+		return configdocument.JSON, nil
+	case "jsonc-v1":
+		return configdocument.JSONC, nil
+	case "json-line-comments-v1":
+		return configdocument.JSONLineComments, nil
 	default:
-		return fmt.Errorf("selected array syntax contract is unsupported")
+		return 0, fmt.Errorf("selected array syntax contract is unsupported")
 	}
 }
 

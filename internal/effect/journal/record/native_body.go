@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -208,12 +207,7 @@ func (witness nativeSequenceWitness) reconstruct(ctx context.Context, input jour
 	if !input.Before.Exists() || !input.Expected.Exists() {
 		return configdocument.JSONArrayEdit{}, fmt.Errorf("selected array requires existing before and expected documents")
 	}
-	switch witness.Syntax {
-	case "json-v1", "jsonc-v1", "json-line-comments-v1", "toml-v1":
-	default:
-		return configdocument.JSONArrayEdit{}, fmt.Errorf("selected array has an unsupported syntax contract")
-	}
-	syntax, err := configdocument.ParseSyntax(strings.TrimSuffix(witness.Syntax, "-v1"))
+	syntax, err := witness.syntax()
 	if err != nil {
 		return configdocument.JSONArrayEdit{}, err
 	}
