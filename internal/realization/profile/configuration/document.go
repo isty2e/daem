@@ -115,6 +115,7 @@ type DocumentSpec struct {
 	target              target.Target
 	scope               target.Scope
 	nativePath          string
+	catalogPath         string
 	binding             AliasBinding
 	destination         output.Destination
 	grammar             Grammar
@@ -226,12 +227,12 @@ func DocumentSpecForAlias(input AliasInput) (DocumentSpec, error) {
 	return NewDocumentSpec(DocumentInput{Target: input.Target, Scope: input.Scope, Path: nativePath, Syntax: input.Syntax})
 }
 
-func buildDocument(input DocumentInput, root rootFact, relative string, destination output.Destination, policy string, observations observationSet, outsideNativeLayout bool) (DocumentSpec, error) {
+func buildDocument(input DocumentInput, root rootFact, catalogPath string, destination output.Destination, policy string, observations observationSet, outsideNativeLayout bool) (DocumentSpec, error) {
 	requested, err := hostconfig.ParseSyntax(string(input.Syntax))
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	binding, err := newAliasBinding(root, relative, policy)
+	binding, err := newAliasBinding(root, catalogPath, policy)
 	if err != nil {
 		return DocumentSpec{}, err
 	}
@@ -244,7 +245,7 @@ func buildDocument(input DocumentInput, root rootFact, relative string, destinat
 		return DocumentSpec{}, err
 	}
 	spec := DocumentSpec{
-		target: input.Target, scope: input.Scope, nativePath: input.Path,
+		target: input.Target, scope: input.Scope, nativePath: input.Path, catalogPath: catalogPath,
 		binding: binding, destination: destination,
 		grammar: grammar, class: rule.class, mode: PrivateCreation,
 		observations: observations | rule.observations, slots: rule.slots, outsideNativeLayout: outsideNativeLayout,
@@ -287,7 +288,7 @@ func selectGrammar(known Grammar, nativePath string, requested hostconfig.Syntax
 func (spec DocumentSpec) Target() target.Target               { return spec.target }
 func (spec DocumentSpec) Scope() target.Scope                 { return spec.scope }
 func (spec DocumentSpec) RootReference() output.RootReference { return spec.binding.RootReference() }
-func (spec DocumentSpec) RootRelativePath() string            { return spec.binding.RelativePath() }
+func (spec DocumentSpec) RootRelativePath() string            { return spec.catalogPath }
 func (spec DocumentSpec) Destination() output.Destination     { return spec.destination }
 func (spec DocumentSpec) PolicyID() string                    { return spec.binding.PolicyID() }
 func (spec DocumentSpec) Grammar() Grammar                    { return spec.grammar }
