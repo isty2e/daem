@@ -41,7 +41,7 @@ func (demand ImageDemand) Original() DocumentImage { return demand.original }
 func (demand ImageDemand) Expected() DocumentImage { return demand.expected }
 
 type documentReconstructionGroup struct {
-	record             recoveryDocumentGroup
+	record             nativeDocumentRecord
 	original, expected DocumentImage
 	aliases            []aggregate.DocumentAddress
 	subjects           []topology.SubjectID
@@ -99,7 +99,7 @@ func newDocumentReconstruction(ctx context.Context, journal Native, limits confi
 		return nil, fmt.Errorf("document reconstruction requires its selected image source")
 	}
 
-	indexes, err := journaldocument.IndexSnapshots(ctx, journal.before, journal.after)
+	indexes, err := journaldocument.IndexSnapshotsForClaims(ctx, journal.before, journal.after, journal.namespace.claims)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (session *LoadedReconstruction) Next(ctx context.Context) (ImageDemand, boo
 
 	record := session.journal.record.DocumentGroups[session.cursor]
 	if session.mode == documentReconstructionPrepared {
-		if err := record.validate(session.journal.record.ManifestRootProvenance); err != nil {
+		if err := record.validate(); err != nil {
 			return ImageDemand{}, false, session.reject(err)
 		}
 	}
@@ -176,7 +176,7 @@ func (session *LoadedReconstruction) supplyPreparedImages(ctx context.Context, d
 		return session.reject(fmt.Errorf("document reconstruction has no matching prepared-image demand"))
 	}
 
-	images, err := preparedNativeDocumentImages(ctx, session.pending.record, session.prepared[session.cursor], session.limits)
+	images, err := preparedNativeDocumentImages(ctx, session.pending.record.nativeDocumentBody, session.prepared[session.cursor], session.limits)
 	if err != nil {
 		return session.reject(err)
 	}

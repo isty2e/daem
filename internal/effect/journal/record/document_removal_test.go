@@ -57,7 +57,7 @@ func TestNativeRemovalChecksActualImageHashAndMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	images, err := preparedNativeDocumentImages(t.Context(), group, comparison, fixture.limits)
+	images, err := preparedNativeDocumentImages(t.Context(), native16GroupBody(group), comparison, fixture.limits)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -298,7 +298,7 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if err != nil || !bytes.Equal(original, unchanged) {
 		t.Fatal("promotion changed its input record", err)
 	}
-	fixture.record = promoted.record
+	fixture.record = promoted.native16Record()
 	group = &fixture.record.DocumentGroups[0]
 	loaded = nativeRecordLoadFixture(t, fixture)
 	if len(loaded.provisional[0]) != 0 || len(loaded.claims[0].Prepared()) != 1 || loaded.images[0].original.document.Exists() {

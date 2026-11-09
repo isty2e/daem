@@ -63,7 +63,11 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 			if err != nil {
 				return nil, err
 			}
-			aliases = append(aliases, journalnamespace.RecordedAlias{Address: address, Location: location})
+			if binding, recorded := alias.Binding(); recorded {
+				aliases = append(aliases, journalnamespace.RecordedAlias{Address: address, Binding: binding})
+			} else {
+				aliases = append(aliases, journalnamespace.RecordedAlias{Address: address, Location: location})
+			}
 		}
 		pin, err := record.WriterPin()
 		if err != nil {
@@ -71,6 +75,13 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		}
 		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.Protection, options.Filesystem, options.Budget, pin)
 		if err != nil {
+			return nil, err
+		}
+		writerPath, err := namespace.WriterPath()
+		if err != nil {
+			return nil, err
+		}
+		if err := record.RequireWriterSpelling(writerPath); err != nil {
 			return nil, err
 		}
 		if options.Rules.mode == forwardNamespaceRules {

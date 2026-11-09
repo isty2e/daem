@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -31,6 +32,7 @@ type DocumentGroupAlias struct {
 	address     aggregate.DocumentAddress
 	root        rootedpath.AuthorityProvenance
 	observation mutation.DirectoryEntryAuthorityObservation
+	binding     configuration.AliasBinding
 }
 
 func NewDocumentGroupAlias(address aggregate.DocumentAddress, root rootedpath.AuthorityProvenance, observation mutation.DirectoryEntryAuthorityObservation) DocumentGroupAlias {
@@ -46,14 +48,20 @@ const (
 )
 
 type DocumentGroupDraft struct {
-	phase    documentGroupDraftPhase
-	facts    documentGroupCaptureFacts
-	record   recoveryDocumentGroup
-	manifest rootedpath.AuthorityProvenance
+	phase     documentGroupDraftPhase
+	facts     documentGroupCaptureFacts
+	record    nativeDocumentBody
+	legacy    *native16DocumentEnvelope
+	current   *native17DocumentEnvelope
+	namespace documentNamespaceFacts
+	manifest  rootedpath.AuthorityProvenance
 }
 
 type DocumentGroupCandidate struct {
-	record      recoveryDocumentGroup
+	record      nativeDocumentBody
+	legacy      *native16DocumentEnvelope
+	current     *native17DocumentEnvelope
+	namespace   documentNamespaceFacts
 	comparison  journaldocument.Comparison
 	manifest    rootedpath.AuthorityProvenance
 	initialized bool
@@ -63,6 +71,8 @@ type DocumentGroupCandidate struct {
 // admission, a published revision or permission to mutate a host document.
 type SealedDocumentGroup struct {
 	record      recoveryDocumentGroup
+	current     *native17Document
+	namespace   documentNamespaceFacts
 	initialized bool
 }
 
@@ -166,7 +176,85 @@ func (draft DocumentGroupDraft) WithNamespace(ctx context.Context, observed muta
 		return DocumentGroupDraft{}, err
 	}
 
-	draft.record, draft.manifest, draft.phase = group, manifest, documentGroupMetadataComplete
+	namespace, err := lowerNative16DocumentNamespace(group, persistedNativeRoot(manifest))
+	if err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	draft.record, draft.manifest, draft.phase = native16GroupBody(group), manifest, documentGroupMetadataComplete
+	draft.namespace = namespace
+	draft.legacy = &native16DocumentEnvelope{writer: group.Writer, aliases: group.Aliases}
+	return draft, nil
+}
+
+func NewBoundDocumentGroupAlias(address aggregate.DocumentAddress, binding configuration.AliasBinding, root rootedpath.AuthorityProvenance, observation mutation.DirectoryEntryAuthorityObservation) DocumentGroupAlias {
+	return DocumentGroupAlias{address: address, binding: binding, root: root, observation: observation}
+}
+
+func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed mutation.DirectoryEntryAuthorityObservation, writer journalnamespace.WriterPin, spelling string, aliases []DocumentGroupAlias, manifest rootedpath.AuthorityProvenance) (DocumentGroupDraft, error) {
+	if ctx == nil || draft.phase != documentGroupAwaitingNamespace {
+		return DocumentGroupDraft{}, fmt.Errorf("bound document namespace requires its awaiting capture draft and context")
+	}
+	if err := writer.Validate(); err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	writerReference, bound := writer.RootReference()
+	if !bound {
+		return DocumentGroupDraft{}, fmt.Errorf("native17 capture requires a bound writer")
+	}
+	if err := manifest.Validate(); err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	captured, err := persistedNativeObservation(observed)
+	if err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	body := nativeDocumentBody{CapturedTarget: captured, SelectedSubjects: []persistedSubjectRef{}, BindingIntents: make([]recoveryDocumentBindingIntent, 0, len(draft.facts.bindings))}
+	envelope := &native17DocumentEnvelope{Writer: native17Writer{Root: persistedRootReference(writerReference), Coordinate: persistedCoordinate(writer.Coordinate())}, Aliases: make([]native17Alias, 0, len(aliases)), Sequences: []nativeSequenceWitness{}}
+	if writer.Coordinate().Kind() == configuration.CoordinatePointSelf {
+		if err := validateWriterSpelling(spelling, persistedNativeRoot(writer.Provenance())); err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		envelope.Writer.Spelling = spelling
+	}
+	namespace := documentNamespaceFacts{writer: writer, writerSpelling: envelope.Writer.Spelling, aliases: make([]documentAliasFacts, 0, len(aliases))}
+	addresses := make([]aggregate.DocumentAddress, 0, len(aliases))
+	for _, alias := range aliases {
+		if err := ctx.Err(); err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		binding, err := configuration.AdmitRecordedAliasBinding(configuration.AliasInput{Target: alias.address.Target(), Scope: alias.address.Scope(), Destination: alias.address.AggregateRoot()}, alias.binding.RootReference(), alias.binding.Coordinate(), alias.binding.PolicyID())
+		if err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		if err := alias.root.Validate(); err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		selected, err := persistedNativeObservation(alias.observation)
+		if err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		envelope.Aliases = append(envelope.Aliases, native17Alias{Address: persistedDocumentAlias(alias.address), Root: persistedRootReference(binding.RootReference()), Coordinate: persistedCoordinate(binding.Coordinate()), Policy: binding.PolicyID(), SelectedObservation: selected, ObservedBefore: captured})
+		namespace.aliases = append(namespace.aliases, documentAliasFacts{address: alias.address, location: binding.Location(), binding: binding, root: alias.root, selected: selected, before: captured})
+		addresses = append(addresses, alias.address)
+	}
+	body.ExclusiveClaims, err = draft.facts.documentClaims(observed, addresses)
+	if err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	for _, intent := range draft.facts.bindings {
+		if err := ctx.Err(); err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		record, err := persistedDocumentBindingIntent(intent)
+		if err != nil {
+			return DocumentGroupDraft{}, err
+		}
+		body.BindingIntents = append(body.BindingIntents, record)
+	}
+	if _, err := canonicalDocumentBindingIntents(ctx, body, namespace.aliases, draft.facts.owner); err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	draft.record, draft.namespace, draft.current, draft.manifest, draft.phase = body, namespace, envelope, manifest, documentGroupMetadataComplete
 	return draft, nil
 }
 
@@ -206,7 +294,7 @@ func (facts documentGroupCaptureFacts) documentClaims(observation mutation.Direc
 }
 
 func (draft DocumentGroupDraft) WithPiOrder(order pipackage.OrderObservation) (DocumentGroupDraft, PiQualification, error) {
-	if draft.phase != documentGroupMetadataComplete {
+	if draft.phase != documentGroupMetadataComplete || draft.legacy == nil {
 		return DocumentGroupDraft{}, PiQualification{}, fmt.Errorf("document group draft cannot record Pi order in its current phase")
 	}
 
@@ -224,7 +312,7 @@ func (draft DocumentGroupDraft) WithPiOrder(order pipackage.OrderObservation) (D
 	}
 	aliasRecord := persistedDocumentAlias(alias)
 	present := false
-	for _, entry := range draft.record.Aliases {
+	for _, entry := range draft.legacy.aliases {
 		if entry.Address == aliasRecord {
 			present = true
 			break
@@ -238,7 +326,9 @@ func (draft DocumentGroupDraft) WithPiOrder(order pipackage.OrderObservation) (D
 	if err != nil {
 		return DocumentGroupDraft{}, PiQualification{}, err
 	}
-	draft.record.PiOrder, draft.phase = &orderRecord, documentGroupOrderRecorded
+	envelope := *draft.legacy
+	envelope.order, draft.phase = &orderRecord, documentGroupOrderRecorded
+	draft.legacy = &envelope
 	return draft, qualification, nil
 }
 
@@ -261,7 +351,7 @@ func (draft DocumentGroupDraft) WithComparison(comparison journaldocument.Compar
 			record.SelectedSubjects = append(record.SelectedSubjects, persistedSubjectRef{Kind: string(subject.Kind()), Namespace: subject.Namespace(), Name: subject.Key()})
 		}
 	}
-	return DocumentGroupCandidate{record: record, comparison: comparison, manifest: draft.manifest, initialized: true}, nil
+	return DocumentGroupCandidate{record: record, namespace: draft.namespace, legacy: draft.legacy, current: draft.current, comparison: comparison, manifest: draft.manifest, initialized: true}, nil
 }
 
 func (candidate DocumentGroupCandidate) Seal(ctx context.Context, removal *recovery.DocumentRemoval) (SealedDocumentGroup, journaldocument.Comparison, error) {
@@ -277,13 +367,27 @@ func (candidate DocumentGroupCandidate) Seal(ctx context.Context, removal *recov
 		}
 		record.Removal = &evidence
 	}
-	if err := record.validate(persistedNativeRoot(candidate.manifest)); err != nil {
-		return SealedDocumentGroup{}, journaldocument.Comparison{}, err
+	var sealed SealedDocumentGroup
+	if candidate.legacy != nil {
+		legacy := assembleNative16Document(record, *candidate.legacy)
+		if err := legacy.validate(persistedNativeRoot(candidate.manifest)); err != nil {
+			return SealedDocumentGroup{}, journaldocument.Comparison{}, err
+		}
+		sealed = SealedDocumentGroup{record: legacy, initialized: true}
+	} else if candidate.current != nil {
+		current := native17Document{nativeDocumentBody: record, native17DocumentEnvelope: *candidate.current}
+		runtime := nativeDocumentRecord{nativeDocumentBody: record, namespace: candidate.namespace, replay: selectedSequenceReplay{arrays: current.Sequences}}
+		if err := runtime.validate(); err != nil {
+			return SealedDocumentGroup{}, journaldocument.Comparison{}, err
+		}
+		sealed = SealedDocumentGroup{current: &current, namespace: candidate.namespace, initialized: true}
+	} else {
+		return SealedDocumentGroup{}, journaldocument.Comparison{}, fmt.Errorf("document has no admitted capture envelope")
 	}
 	if err := ctx.Err(); err != nil {
 		return SealedDocumentGroup{}, journaldocument.Comparison{}, err
 	}
-	return SealedDocumentGroup{record: record, initialized: true}, candidate.comparison, nil
+	return sealed, candidate.comparison, nil
 }
 
 func (record recoveryDocumentPiOrder) qualificationContext() (PiQualification, error) {

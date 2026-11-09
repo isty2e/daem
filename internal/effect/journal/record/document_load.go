@@ -56,14 +56,11 @@ func (journal Native) documentBindings(ctx context.Context) ([][]ownership.Docum
 	groups := make([][]ownership.DocumentBindingIntent, 0, len(journal.record.DocumentGroups))
 	seenAliases := make(map[aggregate.DocumentAddress]struct{})
 	for _, group := range journal.record.DocumentGroups {
-		for _, alias := range group.Aliases {
+		for _, alias := range group.namespace.aliases {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			address, err := alias.Address.canonical()
-			if err != nil {
-				return nil, err
-			}
+			address := alias.address
 			if _, repeated := seenAliases[address]; repeated {
 				return nil, fmt.Errorf("document alias belongs to more than one group")
 			}
@@ -91,12 +88,24 @@ func (journal Native) documentBindings(ctx context.Context) ([][]ownership.Docum
 }
 
 func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
-	beforeByDestination := make(map[string]recoveryDocumentObservation, len(group.Aliases))
-	for _, alias := range group.Aliases {
+	aliases, err := legacyDocumentAliasFacts(group.Aliases)
+	if err != nil {
+		return nil, err
+	}
+	return canonicalDocumentBindingIntents(ctx, native16GroupBody(group), aliases, owner)
+}
+
+func (group nativeDocumentRecord) canonicalBindingIntents(ctx context.Context, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
+	return canonicalDocumentBindingIntents(ctx, group.nativeDocumentBody, group.namespace.aliases, owner)
+}
+
+func canonicalDocumentBindingIntents(ctx context.Context, group nativeDocumentBody, aliases []documentAliasFacts, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
+	beforeByDestination := make(map[string]recoveryDocumentObservation, len(aliases))
+	for _, alias := range aliases {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		beforeByDestination[alias.Address.Destination] = alias.ObservedBefore
+		beforeByDestination[alias.address.AggregateRoot().String()] = alias.before
 	}
 	intents := make([]ownership.DocumentBindingIntent, 0, len(group.BindingIntents))
 	for _, record := range group.BindingIntents {
@@ -146,7 +155,7 @@ func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, 
 	return intents, nil
 }
 
-func (journal Native) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record recoveryDocumentGroup, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []journaldocument.ProvisionalAcquire, error) {
+func (journal Native) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record nativeDocumentRecord, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []journaldocument.ProvisionalAcquire, error) {
 	before, err := indexes.Before().Footprints(ctx, aliases)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, nil, err

@@ -102,6 +102,18 @@ func persistedDocumentRemoval(removal recovery.DocumentRemoval) (recoveryDocumen
 }
 
 func (record recoveryDocumentGroup) validateRemoval() error {
+	aliases, err := legacyDocumentAliasFacts(record.Aliases)
+	if err != nil {
+		return err
+	}
+	writer, err := documentRootedWriterPath(record.Writer.Root, record.Writer.RelativePath)
+	if err != nil {
+		return err
+	}
+	return validateDocumentRemoval(native16GroupBody(record), aliases, writer)
+}
+
+func validateDocumentRemoval(record nativeDocumentBody, aliasFacts []documentAliasFacts, writer string) error {
 	required := (record.Original.Kind == "absent") != (record.Expected.Kind == "absent")
 	if !required {
 		if record.Removal != nil {
@@ -119,12 +131,9 @@ func (record recoveryDocumentGroup) validateRemoval() error {
 	if err != nil {
 		return err
 	}
-	aliases := make(map[removalRelationKey]struct{}, len(record.Aliases))
-	for _, alias := range record.Aliases {
-		address, err := alias.Address.canonical()
-		if err != nil {
-			return err
-		}
+	aliases := make(map[removalRelationKey]struct{}, len(aliasFacts))
+	for _, alias := range aliasFacts {
+		address := alias.address
 		aliases[removalRelationKey{scope: address.Scope(), destination: address.AggregateRoot()}] = struct{}{}
 	}
 	for _, demand := range removal.Demands().Demands() {
@@ -139,7 +148,7 @@ func (record recoveryDocumentGroup) validateRemoval() error {
 	} else if ancestor := record.Removal.Namespace.RetainedAncestorProvenance; ancestor != nil {
 		actual = filepath.Join(ancestor.PhysicalRoot, filepath.FromSlash(record.Removal.Namespace.MissingSuffix))
 	}
-	want := filepath.Dir(filepath.Join(record.Writer.Root.PhysicalRoot, filepath.FromSlash(record.Writer.RelativePath)))
+	want := filepath.Dir(writer)
 	if actual != want {
 		return fmt.Errorf("document removal namespace does not belong to its physical writer")
 	}
@@ -147,8 +156,15 @@ func (record recoveryDocumentGroup) validateRemoval() error {
 }
 
 func (record recoveryDocumentGroup) validateRemovalImages(images LoadedImages) error {
-	if err := record.validateRemoval(); err != nil || record.Removal == nil {
+	if err := record.validateRemoval(); err != nil {
 		return err
+	}
+	return native16GroupBody(record).validateRemovalImages(images)
+}
+
+func (record nativeDocumentBody) validateRemovalImages(images LoadedImages) error {
+	if record.Removal == nil {
+		return nil
 	}
 	states, err := journaldocument.RemovalStates(images.original.document, images.original.mode, images.expected.document, images.expected.mode)
 	if err != nil {

@@ -18,11 +18,25 @@ func AdmitNativeAliasRootReference(reference output.RootReference) error {
 		rootFact{"codex-home", "codex-home-location-v1"},
 		rootFact{"claude-preferences", "claude-preferences-location-v1"},
 		rootFact{"claude-account", "claude-account-location-v1"},
+		rootFact{"claude-account", "claude-account-point-v2"},
 		rootFact{"opencode-configuration", "opencode-location-v1"},
 		rootFact{"antigravity-preferences", "antigravity-preferences-location-v1"},
-		rootFact{"antigravity-shared", "antigravity-shared-location-v1"}:
+		rootFact{"antigravity-shared", "antigravity-shared-location-v1"},
+		rootFact{"antigravity-shared", "antigravity-shared-point-v2"}:
 		return nil
 	default:
 		return fmt.Errorf("native root reference has no supported locator contract")
 	}
+}
+
+// NativeRootIsPoint retains selection shape with the locator revision, not the
+// read-only protection envelope of a similarly named anchor.
+func NativeRootIsPoint(reference output.RootReference) (bool, error) {
+	if reference.Identity() == ProjectRootIdentity && reference.LocatorPolicy() == "selected-project-v1" {
+		return false, nil
+	}
+	if err := AdmitNativeAliasRootReference(reference); err != nil {
+		return false, err
+	}
+	return reference.LocatorPolicy() == "claude-account-point-v2" || reference.LocatorPolicy() == "antigravity-shared-point-v2", nil
 }

@@ -6,7 +6,6 @@ import (
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -36,17 +35,13 @@ func (journal Native) PrepareDocuments(ctx context.Context, comparisons []journa
 	return session.finishPrepared(ctx)
 }
 
-func (record recoveryDocumentGroup) canonicalReferences(ctx context.Context) ([]aggregate.DocumentAddress, []topology.SubjectID, error) {
-	aliases := make([]aggregate.DocumentAddress, 0, len(record.Aliases))
-	for _, alias := range record.Aliases {
+func (record nativeDocumentRecord) canonicalReferences(ctx context.Context) ([]aggregate.DocumentAddress, []topology.SubjectID, error) {
+	aliases := make([]aggregate.DocumentAddress, 0, len(record.namespace.aliases))
+	for _, alias := range record.namespace.aliases {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		address, err := alias.Address.canonical()
-		if err != nil {
-			return nil, nil, err
-		}
-		aliases = append(aliases, address)
+		aliases = append(aliases, alias.address)
 	}
 	subjects := make([]topology.SubjectID, 0, len(record.SelectedSubjects))
 	for _, ref := range record.SelectedSubjects {
@@ -62,7 +57,7 @@ func (record recoveryDocumentGroup) canonicalReferences(ctx context.Context) ([]
 	return aliases, subjects, nil
 }
 
-func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDocumentGroup, images LoadedImages, selections []aggregate.Selection, limits configdocument.Limits, codecs aggregate.CodecCatalog) (journaldocument.Comparison, error) {
+func reconstructNativeDocumentComparison(ctx context.Context, record nativeDocumentRecord, images LoadedImages, selections []aggregate.Selection, limits configdocument.Limits, codecs aggregate.CodecCatalog) (journaldocument.Comparison, error) {
 	input := journaldocument.ComparisonInput{Before: images.original.document, Expected: images.expected.document, BeforeMode: images.original.mode, ExpectedMode: images.expected.mode, Limits: limits}
 	if record.Extent == "whole" {
 		return journaldocument.NewWholeComparison(ctx, input)
@@ -75,15 +70,7 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 		}
 		participants = append(participants, participant)
 	}
-	var order *pipackage.OrderObservation
-	if record.PiOrder != nil {
-		observed, err := record.PiOrder.Evidence.canonical(ctx, images.original.document)
-		if err != nil {
-			return journaldocument.Comparison{}, err
-		}
-		order = &observed
-	}
-	candidate, err := ReconstructNative16Selected(ctx, input, participants, order)
+	candidate, err := record.replay.reconstruct(ctx, input, participants)
 	if err != nil {
 		return journaldocument.Comparison{}, err
 	}
@@ -92,13 +79,11 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 	for _, selection := range selections {
 		relations = append(relations, selection.DocumentAddress())
 	}
-	if record.PiOrder != nil {
-		alias, err := record.PiOrder.Alias.canonical()
-		if err != nil {
-			return journaldocument.Comparison{}, err
-		}
-		relations = append(relations, alias)
+	sequenceDocuments, err := record.replay.documents()
+	if err != nil {
+		return journaldocument.Comparison{}, err
 	}
+	relations = append(relations, sequenceDocuments...)
 	expected, err := comparison.RemovalDemands(ctx, relations)
 	if err != nil {
 		return journaldocument.Comparison{}, err
@@ -117,7 +102,7 @@ func reconstructNativeDocumentComparison(ctx context.Context, record recoveryDoc
 	return comparison, nil
 }
 
-func preparedNativeDocumentImages(ctx context.Context, record recoveryDocumentGroup, comparison journaldocument.Comparison, limits configdocument.Limits) (LoadedImages, error) {
+func preparedNativeDocumentImages(ctx context.Context, record nativeDocumentBody, comparison journaldocument.Comparison, limits configdocument.Limits) (LoadedImages, error) {
 	if err := comparison.Validate(); err != nil {
 		return LoadedImages{}, err
 	}

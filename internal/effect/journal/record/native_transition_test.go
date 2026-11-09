@@ -38,7 +38,7 @@ func TestNativeRecordAliasAndAnchorQueriesReturnCompleteIndependentFacts(t *test
 	if err != nil || againAnchors[manifestReference] != manifest {
 		t.Fatal("caller changed recorded anchors", err)
 	}
-	bad := value.record.DocumentGroups[0].Aliases[0]
+	bad := fixture.record.DocumentGroups[0].Aliases[0]
 	bad.Address.Destination = ""
 	fixture.record.DocumentGroups[0].Aliases = append(fixture.record.DocumentGroups[0].Aliases, bad)
 	invalid, err := newNative16Value(fixture.record, fixture.claims.owner, fixture.before, fixture.after)
@@ -89,9 +89,11 @@ func TestNativeRecordTransitionsAndAliasQueriesRefuseZero(t *testing.T) {
 func TestNativeOrdinaryPromotionKeepsFactsSeparateFromFamilyAdmission(t *testing.T) {
 	fixture := ordinaryPromotionRecordFixture(t)
 	ordinary := fixture.record
-	value := Native{record: nativeJournalRecord{
-		Version: NativeVersion, OperationID: ordinary.OperationID(),
-		Entries: ordinary.record.Entries, ClaimTransitions: ordinary.record.ClaimTransitions, ProvisionalAcquires: ordinary.record.ProvisionalAcquires,
+	value := Native{record: nativeRuntimeRecord{
+		Version: NativeVersion, nativeRecordBody: nativeRecordBody{
+			OperationID: ordinary.OperationID(),
+			Entries:     ordinary.record.Entries, ClaimTransitions: ordinary.record.ClaimTransitions, ProvisionalAcquires: ordinary.record.ProvisionalAcquires,
+		},
 	}}
 	if _, err := value.ProvisionalAcquireEntry(fixture.intent); err != nil {
 		t.Fatal("matching ordinary entry was lost", err)

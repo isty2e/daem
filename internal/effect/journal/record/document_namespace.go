@@ -15,8 +15,7 @@ import (
 )
 
 type Document struct {
-	record      recoveryDocumentGroup
-	namespace   documentNamespaceFacts
+	record      nativeDocumentRecord
 	owner       stateauthority.Authority
 	operationID string
 	initialized bool
@@ -50,8 +49,8 @@ func (journal Native) DocumentAt(index int) (Document, error) {
 
 func (journal Native) documentView(index int) Document {
 	return Document{
-		record: journal.record.DocumentGroups[index], namespace: journal.namespace.documents[index],
-		owner: journal.owner, operationID: journal.record.OperationID, initialized: true,
+		record: journal.record.DocumentGroups[index],
+		owner:  journal.owner, operationID: journal.record.OperationID, initialized: true,
 	}
 }
 
@@ -70,8 +69,8 @@ func (document Document) Addresses(ctx context.Context) ([]aggregate.DocumentAdd
 	if err := document.require(); err != nil {
 		return nil, err
 	}
-	aliases := make([]aggregate.DocumentAddress, 0, len(document.namespace.aliases))
-	for _, alias := range document.namespace.aliases {
+	aliases := make([]aggregate.DocumentAddress, 0, len(document.record.namespace.aliases))
+	for _, alias := range document.record.namespace.aliases {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -84,7 +83,7 @@ func (document Document) WriterPin() (journalnamespace.WriterPin, error) {
 	if err := document.require(); err != nil {
 		return journalnamespace.WriterPin{}, err
 	}
-	return document.namespace.writer, nil
+	return document.record.namespace.writer, nil
 }
 
 func (document Document) RequireCapturedNamespace(current mutation.DirectoryEntryAuthorityObservation) error {
@@ -98,8 +97,8 @@ func (document Document) Aliases() []DocumentAlias {
 	if !document.initialized {
 		return nil
 	}
-	result := make([]DocumentAlias, 0, len(document.namespace.aliases))
-	for _, alias := range document.namespace.aliases {
+	result := make([]DocumentAlias, 0, len(document.record.namespace.aliases))
+	for _, alias := range document.record.namespace.aliases {
 		result = append(result, DocumentAlias{facts: alias, initialized: true})
 	}
 	return result
@@ -117,6 +116,20 @@ func (alias DocumentAlias) Location() (configuration.AliasLocation, error) {
 		return configuration.AliasLocation{}, fmt.Errorf("recorded document alias is required")
 	}
 	return alias.facts.location, nil
+}
+
+func (alias DocumentAlias) Binding() (configuration.AliasBinding, bool) {
+	return alias.facts.binding, alias.initialized && alias.facts.binding != (configuration.AliasBinding{})
+}
+
+func (document Document) RequireWriterSpelling(path string) error {
+	if err := document.require(); err != nil {
+		return err
+	}
+	if expected := document.record.namespace.writerSpelling; expected != "" && expected != path {
+		return fmt.Errorf("point writer differs from its retained qualified spelling")
+	}
+	return nil
 }
 
 func (alias DocumentAlias) MatchesRoot(root rootedpath.AuthorityProvenance) bool {
@@ -137,11 +150,7 @@ func (document Document) PiQualification() (PiQualification, bool, error) {
 	if err := document.require(); err != nil {
 		return PiQualification{}, false, err
 	}
-	if document.record.PiOrder == nil {
-		return PiQualification{}, false, nil
-	}
-	facts, err := document.record.PiOrder.qualificationContext()
-	return facts, err == nil, err
+	return document.record.piQualification()
 }
 
 func (document Document) Removal() (recovery.DocumentRemoval, bool, error) {

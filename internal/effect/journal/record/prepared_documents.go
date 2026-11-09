@@ -21,7 +21,7 @@ func (prepared PreparedDocuments) Encode(ctx context.Context, codec durable.Snap
 	if !prepared.initialized {
 		return nil, fmt.Errorf("prepared document record is required")
 	}
-	return marshalNativeJournalRecord(ctx, prepared.journal.record, prepared.journal.before, prepared.journal.after, codec)
+	return prepared.journal.encode(ctx, codec)
 }
 
 func (prepared PreparedDocuments) Comparisons() ([]journaldocument.Comparison, error) {

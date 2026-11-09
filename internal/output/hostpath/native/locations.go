@@ -72,6 +72,9 @@ func (locations Locations) Resolve(reference output.RootReference) (Location, er
 	if err := configuration.AdmitNativeAliasRootReference(reference); err != nil {
 		return Location{}, err
 	}
+	if point, err := configuration.NativeRootIsPoint(reference); err != nil || point {
+		return Location{}, fmt.Errorf("point locator requires an explicit selected alternative")
+	}
 	if reference.LocatorPolicy() == "opencode-location-v1" {
 		base := locations.selected("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
 		if !filepath.IsAbs(base.path) {
@@ -83,6 +86,49 @@ func (locations Locations) Resolve(reference output.RootReference) (Location, er
 		return location, fmt.Errorf("native alias root cannot be absent")
 	}
 	return location, err
+}
+
+// PointCandidates derives literal candidates without observing their presence.
+func (locations Locations) PointCandidates(reference output.RootReference) ([2]string, error) {
+	point, err := configuration.NativeRootIsPoint(reference)
+	if err != nil || !point || locations.workDir == "" || locations.home == "" {
+		return [2]string{}, fmt.Errorf("point candidates require an admitted locator and captured context")
+	}
+	switch reference.LocatorPolicy() {
+	case "claude-account-point-v2":
+		configured, present := locations.values["CLAUDE_CONFIG_DIR"]
+		return ClaudeAccountFiles(configured, present, locations.workDir, locations.home)
+	case "antigravity-shared-point-v2":
+		anchorReference, err := output.NewRootReference("antigravity-shared", "antigravity-shared-location-v1")
+		if err != nil {
+			return [2]string{}, err
+		}
+		anchor, err := locations.resolve(anchorReference)
+		if err != nil {
+			return [2]string{}, err
+		}
+		file := filepath.Join(anchor.path, "mcp_config.json")
+		return [2]string{file, file}, nil
+	default:
+		return [2]string{}, fmt.Errorf("point locator revision is unsupported")
+	}
+}
+
+func (locations Locations) ResolvePoint(reference output.RootReference, alternative configuration.PointAlternative) (string, error) {
+	if err := alternative.Validate(); err != nil {
+		return "", err
+	}
+	candidates, err := locations.PointCandidates(reference)
+	if err != nil {
+		return "", err
+	}
+	if alternative == configuration.PointFallback {
+		if candidates[0] == candidates[1] {
+			return "", fmt.Errorf("identical point candidates cannot retain a fallback choice")
+		}
+		return candidates[1], nil
+	}
+	return candidates[0], nil
 }
 
 // ResolveProtection includes read-only locations that have no native alias or

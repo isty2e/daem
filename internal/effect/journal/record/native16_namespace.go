@@ -5,48 +5,51 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 )
 
 func newNative16Value(record nativeJournalRecord, owner stateauthority.Authority, before, after durable.Snapshot) (Native, error) {
-	namespace, err := lowerNative16Namespace(record)
+	namespace, documents, err := lowerNative16Namespace(record)
 	if err != nil {
 		return Native{}, err
 	}
-	return Native{record: record, namespace: namespace, owner: owner, before: before, after: after}, nil
+	body, envelope := lowerNative16Record(record, documents)
+	return Native{record: body, legacy: envelope, namespace: namespace, owner: owner, before: before, after: after}, nil
 }
 
-func lowerNative16Namespace(record nativeJournalRecord) (nativeNamespaceFacts, error) {
+func lowerNative16Namespace(record nativeJournalRecord) (nativeNamespaceFacts, []documentNamespaceFacts, error) {
 	reference, err := native16ManifestRootReference()
 	if err != nil {
-		return nativeNamespaceFacts{}, err
+		return nativeNamespaceFacts{}, nil, err
 	}
 	manifest, err := record.ManifestRootProvenance.canonical()
 	if err != nil {
-		return nativeNamespaceFacts{}, err
+		return nativeNamespaceFacts{}, nil, err
 	}
 	result := nativeNamespaceFacts{
+		claims:            journaldocument.LegacyGlobalClaims,
 		manifestReference: reference,
 		roots:             map[output.RootReference]rootedpath.AuthorityProvenance{reference: manifest},
-		documents:         make([]documentNamespaceFacts, len(record.DocumentGroups)),
 	}
+	documents := make([]documentNamespaceFacts, len(record.DocumentGroups))
 	for index, group := range record.DocumentGroups {
 		facts, err := lowerNative16DocumentNamespace(group, record.ManifestRootProvenance)
 		if err != nil {
-			return nativeNamespaceFacts{}, err
+			return nativeNamespaceFacts{}, nil, err
 		}
 		for _, alias := range facts.aliases {
 			reference := alias.location.RootReference()
 			if previous, known := result.roots[reference]; known && previous != alias.root {
-				return nativeNamespaceFacts{}, fmt.Errorf("native reference has inconsistent recorded root anchors")
+				return nativeNamespaceFacts{}, nil, fmt.Errorf("native reference has inconsistent recorded root anchors")
 			}
 			result.roots[reference] = alias.root
 		}
-		result.documents[index] = facts
+		documents[index] = facts
 	}
-	return result, nil
+	return result, documents, nil
 }
 
 func lowerNative16DocumentNamespace(group recoveryDocumentGroup, manifest recoveryRootProvenance) (documentNamespaceFacts, error) {

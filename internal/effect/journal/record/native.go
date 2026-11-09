@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func NewNativeCapture(operationID string, createdAt time.Time, owner stateauthority.Authority, manifest rootedpath.AuthorityProvenance, before, after durable.Snapshot, groups []SealedDocumentGroup) (Native, error) {
@@ -25,13 +26,13 @@ func NewNativeCapture(operationID string, createdAt time.Time, owner stateauthor
 	}
 	records := make([]recoveryDocumentGroup, len(groups))
 	for index, group := range groups {
-		if !group.initialized {
+		if !group.initialized || group.current != nil {
 			return Native{}, fmt.Errorf("captured document group is required")
 		}
 		records[index] = group.record
 	}
 	record := nativeJournalRecord{
-		Version: NativeVersion, Operation: OperationApply, OperationID: operationID, CreatedAt: createdAt.UTC().Format(time.RFC3339),
+		Version: native16Version, Operation: OperationApply, OperationID: operationID, CreatedAt: createdAt.UTC().Format(time.RFC3339),
 		StateAuthority:         recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(owner.StatefileAuthority()), ManifestPath: owner.ManifestPath()},
 		ManifestRootProvenance: persistedNativeRoot(manifest), Entries: []recoveryEntry{}, ClaimTransitions: []recoveryClaimTransition{}, ProvisionalAcquires: []recoveryProvisionalAcquireIntent{}, RemovalIntents: []recoveryRemovalIntent{}, DocumentGroups: records,
 	}
@@ -39,7 +40,7 @@ func NewNativeCapture(operationID string, createdAt time.Time, owner stateauthor
 }
 
 func (journal Native) requireNativeValue() error {
-	if journal.record.Version != NativeVersion {
+	if !SupportsNativeVersion(journal.record.Version) {
 		return fmt.Errorf("native journal record is required")
 	}
 	return nil
@@ -189,6 +190,11 @@ func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath
 	return maps.Clone(journal.namespace.roots), nil
 }
 
+func (journal Native) RecordedPointAlternative(reference output.RootReference) (configuration.PointAlternative, bool) {
+	alternative, point := journal.namespace.alternatives[reference]
+	return alternative, point
+}
+
 func (journal Native) ProvisionalAcquireEntry(intent ownership.ProvisionalAcquireIntent) (recovery.Entry, error) {
 	if err := journal.requireNativeValue(); err != nil {
 		return recovery.Entry{}, err
@@ -274,5 +280,5 @@ func (journal Native) Encode(ctx context.Context, codec durable.SnapshotCodec) (
 	if err := journal.requireNativeValue(); err != nil {
 		return nil, err
 	}
-	return marshalNativeJournalRecord(ctx, journal.record, journal.Before(), journal.After(), codec)
+	return journal.encode(ctx, codec)
 }

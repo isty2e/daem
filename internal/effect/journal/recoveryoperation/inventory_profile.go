@@ -40,6 +40,9 @@ func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) journa
 		case journalrecord.NativeVersion:
 			return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, native)
 		default:
+			if journalrecord.SupportsNativeVersion(version) {
+				return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, native)
+			}
 			return journalrecord.Loaded{}, journalrecord.UnsupportedVersion(version)
 		}
 	}

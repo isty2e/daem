@@ -55,7 +55,7 @@ func (index SnapshotIndex) Footprints(ctx context.Context, aliases []aggregate.D
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		for footprint := range index.globalFootprints[address] {
+		for footprint := range index.claimFootprints[address] {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}

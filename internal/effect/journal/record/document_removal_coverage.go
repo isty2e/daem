@@ -9,7 +9,23 @@ import (
 )
 
 func (record nativeJournalRecord) validateRemovalCoverage() error {
-	physical, err := canonicalRecoveryRemovalIntents(record.RemovalIntents)
+	groups := make([]nativeDocumentBody, len(record.DocumentGroups))
+	for index, group := range record.DocumentGroups {
+		groups[index] = native16GroupBody(group)
+	}
+	return validateNativeRemovalCoverage(record.RemovalIntents, groups)
+}
+
+func (record nativeRuntimeRecord) validateRemovalCoverage() error {
+	groups := make([]nativeDocumentBody, len(record.DocumentGroups))
+	for index, group := range record.DocumentGroups {
+		groups[index] = group.nativeDocumentBody
+	}
+	return validateNativeRemovalCoverage(record.RemovalIntents, groups)
+}
+
+func validateNativeRemovalCoverage(ordinary []recoveryRemovalIntent, groups []nativeDocumentBody) error {
+	physical, err := canonicalRecoveryRemovalIntents(ordinary)
 	if err != nil {
 		return err
 	}
@@ -17,7 +33,7 @@ func (record nativeJournalRecord) validateRemovalCoverage() error {
 	for _, intent := range physical {
 		demands = append(demands, intent.Demand())
 	}
-	for _, group := range record.DocumentGroups {
+	for _, group := range groups {
 		if group.Removal == nil {
 			continue
 		}

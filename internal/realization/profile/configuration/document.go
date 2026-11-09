@@ -158,25 +158,7 @@ func AdmitRecordedAliasBinding(input AliasInput, reference output.RootReference,
 	if err := input.Destination.ValidateScope(input.Scope); err != nil {
 		return AliasBinding{}, err
 	}
-	var canonical AliasBinding
-	var err error
-	for _, dedicated := range dedicatedDocumentAliases {
-		if dedicated.policy == policy && dedicated.target == input.Target && dedicated.scope == input.Scope && dedicated.alias == input.Destination.String() {
-			canonical, err = newAliasBinding(dedicated.root, dedicated.relative, dedicated.policy)
-			break
-		}
-	}
-	if canonical == (AliasBinding{}) && err == nil {
-		for key, layout := range nativeLayouts {
-			if layout.policy != policy || key.target != input.Target || key.scope != input.Scope {
-				continue
-			}
-			if path, matched := layout.bindingRelativePathFor(input.Destination); matched {
-				canonical, err = newAliasBinding(layout.root, path, layout.policy)
-			}
-			break
-		}
-	}
+	canonical, err := recordedAliasBinding(input, policy)
 	if err != nil {
 		return AliasBinding{}, err
 	}

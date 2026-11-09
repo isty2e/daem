@@ -56,7 +56,7 @@ func (record Loaded) AuthorityFingerprint(ctx context.Context, codec durable.Sna
 		return record.ordinary.AuthorityFingerprint(ctx, codec)
 	}
 	journal := *record.native
-	content, err := marshalNativeJournalRecord(ctx, journal.record, journal.before, journal.after, record.nativeCodec)
+	content, err := journal.encode(ctx, record.nativeCodec)
 	if err != nil {
 		return "", err
 	}
@@ -89,7 +89,7 @@ func DecodeNativeSnapshot(ctx context.Context, snapshot mutationfs.RegularFileSn
 	if err != nil {
 		return Loaded{}, err
 	}
-	if version != NativeVersion {
+	if !SupportsNativeVersion(version) {
 		return Loaded{}, UnsupportedVersion(version)
 	}
 	journal, err := decodeNativeJournalRecord(ctx, content, codec)

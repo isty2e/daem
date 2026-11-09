@@ -14,6 +14,7 @@ import (
 type RecordedAlias struct {
 	Address  aggregate.DocumentAddress
 	Location configuration.AliasLocation
+	Binding  configuration.AliasBinding
 }
 
 type aliasInput struct {
@@ -53,7 +54,14 @@ func recordedAliasInputs(ctx context.Context, aliases []RecordedAlias) ([]aliasI
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		inputs = append(inputs, aliasInput{address: alias.Address, legacyLocation: alias.Location})
+		if alias.Binding != (configuration.AliasBinding{}) {
+			if alias.Location != (configuration.AliasLocation{}) || alias.Binding.Validate() != nil {
+				return nil, fmt.Errorf("recorded alias must supply exactly one admitted binding")
+			}
+			inputs = append(inputs, aliasInput{address: alias.Address, binding: alias.Binding})
+		} else {
+			inputs = append(inputs, aliasInput{address: alias.Address, legacyLocation: alias.Location})
+		}
 	}
 	return inputs, nil
 }

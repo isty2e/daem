@@ -49,7 +49,8 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 	profile := &journal.Profile{
 		StateCodec: stateCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
 		Manifest: paths.ManifestRoot, ManifestPath: paths.ManifestPath, Budget: budget,
-		Protection: protection,
+		Protection:   protection,
+		ResolvePoint: locations.ResolvePoint,
 		ResolveRoot: func(reference output.RootReference) (string, error) {
 			location, err := locations.Resolve(reference)
 			if err != nil {

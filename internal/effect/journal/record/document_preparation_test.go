@@ -135,7 +135,7 @@ func TestPreparedNativeDocumentsRejectMismatchedImagesAndWholeOperation(t *testi
 
 func TestPreparedNativeDocumentsDiscardEarlierGroupOnLaterFailure(t *testing.T) {
 	fixture, decoded, comparison := preparedNativeFixture(t)
-	wire := decoded.record
+	wire := decoded.native16Record()
 	late := wire.DocumentGroups[0]
 	late.Aliases = append([]recoveryDocumentAlias(nil), late.Aliases...)
 	late.Aliases[0].Address.Destination = "@pi-agent/settings.json"
