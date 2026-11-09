@@ -326,7 +326,10 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	original := []byte(`{"packages":["npm:b@1","npm:foreign@1","npm:a@1"],"theme":"day"}`)
-	order, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{Scope: scope, SettingsContext: settingsContext, Constraint: constraint, Relations: relations, Document: aggregate.ExistingDocument(original)})
+	order, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
+		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint,
+		Relations: relations, Document: aggregate.ExistingDocument(original),
+	})
 	if err != nil || !order.Changed() {
 		t.Fatal("fixture has no changed Pi order", err)
 	}

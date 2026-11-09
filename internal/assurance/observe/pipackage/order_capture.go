@@ -36,7 +36,8 @@ func (observation OrderObservation) SameSelection(other OrderObservation) bool {
 		return false
 	}
 	right, err := other.CaptureInput()
-	if err != nil || left.Scope != right.Scope || left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
+	if err != nil || left.Scope != right.Scope || !left.Capability.Equal(right.Capability) ||
+		left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
 		return false
 	}
 	return slices.EqualFunc(left.Relations, right.Relations, func(a, b ScopedRelation) bool {
@@ -64,8 +65,9 @@ func (observation OrderObservation) CaptureInput() (LoadedOrderInput, error) {
 		document = aggregate.ExistingDocument(observation.inventory.content)
 	}
 	return LoadedOrderInput{
-		Scope: observation.selection.scope, SettingsContext: *observation.inventory.sourceContext,
-		Document: document, Constraint: observation.selection.constraint,
+		Scope: observation.selection.scope, Capability: observation.selection.capability,
+		SettingsContext: *observation.inventory.sourceContext,
+		Document:        document, Constraint: observation.selection.constraint,
 		Relations: slices.Clone(observation.selection.relations),
 	}, nil
 }

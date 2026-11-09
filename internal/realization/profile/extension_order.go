@@ -148,16 +148,20 @@ func (capability ExtensionOrderCapability) Validate() error {
 	if err != nil {
 		return err
 	}
-	if capability.carrier != canonical.carrier ||
-		capability.scope != canonical.scope ||
-		capability.classID != canonical.classID ||
-		capability.memberIdentityContract != canonical.memberIdentityContract ||
-		capability.sequenceMembership != canonical.sequenceMembership ||
-		!slices.Equal(capability.nativeSequences, canonical.nativeSequences) ||
-		capability.runtimeMeaning != canonical.runtimeMeaning {
+	if !capability.Equal(canonical) {
 		return fmt.Errorf("extension order capability is not canonical")
 	}
 	return nil
+}
+
+func (capability ExtensionOrderCapability) Equal(other ExtensionOrderCapability) bool {
+	return capability.carrier == other.carrier &&
+		capability.scope == other.scope &&
+		capability.classID == other.classID &&
+		capability.memberIdentityContract == other.memberIdentityContract &&
+		capability.sequenceMembership == other.sequenceMembership &&
+		slices.Equal(capability.nativeSequences, other.nativeSequences) &&
+		capability.runtimeMeaning == other.runtimeMeaning
 }
 
 func (capability ExtensionOrderCapability) Carrier() desiredextension.Carrier {

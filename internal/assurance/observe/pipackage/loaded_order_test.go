@@ -8,7 +8,9 @@ import (
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -137,7 +139,9 @@ func TestLoadedPiOrderRejectsAmbientIncompleteAndUnboundedInput(t *testing.T) {
 	liveRelation.Relations = live.Relations
 	wrongScope := input
 	wrongScope.Scope = target.ScopeGlobal
-	for _, bad := range []observepipackage.LoadedOrderInput{badContext, liveRelation, wrongScope} {
+	missingCapability := input
+	missingCapability.Capability = profile.ExtensionOrderCapability{}
+	for _, bad := range []observepipackage.LoadedOrderInput{badContext, liveRelation, wrongScope, missingCapability} {
 		if observation, err := observepipackage.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
 			t.Fatal("incomplete or ambient input returned a valid observation")
 		}
@@ -193,6 +197,33 @@ func TestContextBoundPiCorrelationUsesTheSameSelectedCommandContext(t *testing.T
 	assertCorrelationState(t, result, observerelation.StateExactCorrelation)
 }
 
+func TestLoadedPiOrderRefusesOtherCarrierAndIncompleteMembership(t *testing.T) {
+	root := t.TempDir()
+	input, _ := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, root,
+		[]orderSpec{{id: "a", source: "npm:a"}}, aggregate.ExistingDocument([]byte(`{"packages":["npm:a"]}`)))
+	for _, test := range []struct {
+		carrier    desiredextension.Carrier
+		membership profile.SequenceMembershipContract
+	}{
+		{desiredextension.CarrierOpenCodePlugin, profile.CompleteClassMembership},
+		{desiredextension.CarrierPiPackage, profile.LoadedClassSubset},
+	} {
+		capability, err := profile.NewExtensionOrderCapability(profile.ExtensionOrderCapabilityInput{
+			Carrier: test.carrier, Scope: input.Scope, ClassID: input.Capability.ClassID(),
+			MemberIdentityContract: input.Capability.MemberIdentityContract(), SequenceMembership: test.membership,
+			NativeSequences: input.Capability.NativeSequences(), RuntimeMeaning: input.Capability.RuntimeMeaning(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bad := input
+		bad.Capability = capability
+		if observation, err := observepipackage.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
+			t.Fatal("another semantic contract became a Pi loaded observation")
+		}
+	}
+}
+
 func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandRoot, home string, specs []orderSpec, document aggregate.Document) (observepipackage.LoadedOrderInput, observepipackage.OrderInput) {
 	t.Helper()
 	live := mustOrderInput(t, observepipackage.SettingsInput{
@@ -234,7 +265,12 @@ func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandR
 		}
 		relations = append(relations, relation)
 	}
+	capability, admitted := profile.Profile(target.TargetPi).ExtensionOrder(desiredextension.CarrierPiPackage, scope)
+	if !admitted {
+		t.Fatal("Pi loaded-order fixture capability is unavailable")
+	}
 	return observepipackage.LoadedOrderInput{
-		Scope: scope, SettingsContext: settingsContext, Document: document, Constraint: live.Constraint, Relations: relations,
+		Scope: scope, Capability: capability, SettingsContext: settingsContext,
+		Document: document, Constraint: live.Constraint, Relations: relations,
 	}, live
 }

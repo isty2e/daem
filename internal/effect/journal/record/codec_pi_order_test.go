@@ -10,8 +10,6 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
@@ -234,9 +232,9 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 		}
 		members = append(members, member)
 	}
-	capability, found := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetPi, scope, desiredextension.CarrierPiPackage)
-	if !found {
-		t.Fatal("Pi order fixture capability is unavailable")
+	capability, err := native16PiOrderCapability(scope)
+	if err != nil {
+		t.Fatal(err)
 	}
 	constraint, err := hostrelation.NewRelationOrderConstraint(capability.ClassID(), capability.MemberIdentityContract(), capability.RuntimeMeaning(), members)
 	if err != nil {
@@ -259,7 +257,7 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 		t.Fatal(err)
 	}
 	input := pipackage.LoadedOrderInput{
-		Scope: scope, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
+		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
 		Document: aggregate.ExistingDocument([]byte(`{"packages":[{"source":` + string(quotedB) + `,"opaque":{"User-Key":null}},"npm:foreign@1",` + string(quotedA) + `],"theme":"day"}`)),
 	}
 	observation, err := pipackage.ReconstructOrder(input)

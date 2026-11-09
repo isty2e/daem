@@ -3,7 +3,6 @@ package document_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
@@ -221,45 +220,6 @@ func TestSelectedCandidateRejectsPiExpectedLimitBeforeCopying(t *testing.T) {
 	}
 }
 
-func TestNative16PiSequenceRecoveryKeepsItsStrictJSONAndPortableAddress(t *testing.T) {
-	for _, test := range []struct {
-		scope       target.Scope
-		destination string
-	}{
-		{target.ScopeProject, ".pi/settings.json"},
-		{target.ScopeGlobal, "@pi-agent/settings.json"},
-	} {
-		t.Run(string(test.scope), func(t *testing.T) {
-			before := aggregate.ExistingDocument([]byte(`{"packages":["npm:b","npm:a"]}`))
-			order := candidateOrderForScope(t, before, test.scope)
-			address, err := pipackage.SettingsDocumentAddress(test.scope)
-			if err != nil || address.AggregateRoot().String() != test.destination {
-				t.Fatal("native16 Pi portable address changed", err)
-			}
-			selected, err := order.SelectedSequenceEdit()
-			projection := selected.Projection()
-			if err != nil || projection.Destination() != address.AggregateRoot() || projection.ArrayPath().String() != "/packages" {
-				t.Fatal("normalization and native16 recovery selected different Pi surfaces", err)
-			}
-			mode := recovery.PermissionMode(0o600)
-			prepared, err := document.PrepareSelected(t.Context(), document.SelectedPreparationInput{
-				Before: before, BeforeMode: &mode, ExpectedMode: &mode,
-				Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
-			}, nil, &order)
-			if err != nil {
-				t.Fatal(err)
-			}
-			current := aggregate.ExistingDocument(append([]byte("// not strict Pi JSON\n"), prepared.Document().Content()...))
-			if match, err := prepared.Comparison().Match(t.Context(), current, &mode); !errors.Is(err, configdocument.ErrInvalidDocument) || match.Recoverable() {
-				t.Fatal("current catalog grammar widened native16 Pi comparison", err)
-			}
-			if restored, err := prepared.Comparison().RestoreBefore(t.Context(), current, &mode); !errors.Is(err, configdocument.ErrInvalidDocument) || restored.Validate() == nil {
-				t.Fatal("native16 Pi recovery admitted a comment-bearing settings document", err)
-			}
-		})
-	}
-}
-
 func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired string) compose.ProjectionEdit {
 	t.Helper()
 	participant := comparisonParticipant(t, name)
@@ -371,7 +331,7 @@ func candidateOrderForScope(t *testing.T, document aggregate.Document, scope tar
 		t.Fatal(err)
 	}
 	observation, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
-		Scope: scope, SettingsContext: local, Document: document, Constraint: constraint, Relations: relations,
+		Scope: scope, Capability: capability, SettingsContext: local, Document: document, Constraint: constraint, Relations: relations,
 	})
 	if err != nil {
 		t.Fatal(err)

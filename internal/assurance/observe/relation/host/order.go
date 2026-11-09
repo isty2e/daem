@@ -174,7 +174,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		}
 		var observation observepipackage.OrderObservation
 		if input.PiDocument != nil {
-			observation, err = reconstructPiOrder(input, settings, relations)
+			observation, err = reconstructPiOrder(input, settings, relations, capability)
 		} else {
 			observation, err = observepipackage.ReadOrder(observepipackage.OrderInput{
 				Settings:   settings,
@@ -230,7 +230,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	)
 }
 
-func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation) (observepipackage.OrderObservation, error) {
+func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation, capability profile.ExtensionOrderCapability) (observepipackage.OrderObservation, error) {
 	home, err := input.Paths.UserHomeDir()
 	if err != nil {
 		return observepipackage.OrderObservation{}, err
@@ -258,7 +258,8 @@ func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInpu
 	}
 
 	return observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
-		Scope: settings.Scope, SettingsContext: settingsContext, Document: *input.PiDocument, Constraint: input.Constraint, Relations: bound,
+		Scope: settings.Scope, Capability: capability, SettingsContext: settingsContext,
+		Document: *input.PiDocument, Constraint: input.Constraint, Relations: bound,
 	})
 }
 

@@ -188,9 +188,6 @@ func newOrderSelection(
 	constraint hostrelation.RelationOrderConstraint,
 	relations []ScopedRelation,
 ) (orderSelection, error) {
-	if err := constraint.Validate(); err != nil {
-		return orderSelection{}, fmt.Errorf("Pi package order constraint: %w", err)
-	}
 	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
 		target.TargetPi,
 		scope,
@@ -198,6 +195,25 @@ func newOrderSelection(
 	)
 	if !admitted {
 		return orderSelection{}, fmt.Errorf("Pi %s package order is not admitted", scope)
+	}
+	return newOrderSelectionWithCapability(scope, constraint, relations, capability)
+}
+
+func newOrderSelectionWithCapability(
+	scope target.Scope,
+	constraint hostrelation.RelationOrderConstraint,
+	relations []ScopedRelation,
+	capability profile.ExtensionOrderCapability,
+) (orderSelection, error) {
+	if err := constraint.Validate(); err != nil {
+		return orderSelection{}, fmt.Errorf("Pi package order constraint: %w", err)
+	}
+	if err := capability.Validate(); err != nil {
+		return orderSelection{}, err
+	}
+	if capability.Carrier() != desiredextension.CarrierPiPackage || capability.Scope() != scope ||
+		capability.SequenceMembership() != profile.CompleteClassMembership {
+		return orderSelection{}, fmt.Errorf("Pi package order requires its scoped complete-membership capability")
 	}
 	if constraint.ClassID() != capability.ClassID() ||
 		constraint.MemberIdentityContract() != capability.MemberIdentityContract() ||

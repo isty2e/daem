@@ -7,6 +7,8 @@ import (
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
@@ -93,6 +95,41 @@ func TestOrderCaptureAndProjectionPreserveActualInputAndExplicitContexts(t *test
 	}
 	if _, err := ambient.CaptureInput(); err == nil {
 		t.Fatal("ambient-only observation became replay evidence")
+	}
+}
+
+func TestOrderCaptureRetainsAndComparesTheSuppliedProjectionContract(t *testing.T) {
+	root := t.TempDir()
+	input, _ := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, root,
+		[]orderSpec{{id: "a", source: "npm:a"}, {id: "b", source: "npm:b"}},
+		aggregate.ExistingDocument([]byte(`{"packages":["npm:b","npm:a"]}`)))
+	original, err := observepipackage.ReconstructOrder(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := input.Capability.NativeSequences()[0]
+	alternate, err := profile.NewNativeSequenceProjection(projection.SequenceID(), projection.Destination(), configuration.JSONC, projection.ArrayPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Capability, err = profile.NewExtensionOrderCapability(profile.ExtensionOrderCapabilityInput{
+		Carrier: input.Capability.Carrier(), Scope: input.Scope, ClassID: input.Capability.ClassID(),
+		MemberIdentityContract: input.Capability.MemberIdentityContract(), SequenceMembership: input.Capability.SequenceMembership(),
+		NativeSequences: []profile.NativeSequenceProjection{alternate}, RuntimeMeaning: input.Capability.RuntimeMeaning(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := observepipackage.ReconstructOrder(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := changed.CaptureInput()
+	if err != nil || !captured.Capability.Equal(input.Capability) {
+		t.Fatal("capture replaced the supplied projection with the current catalog", err)
+	}
+	if original.SameSelection(changed) || changed.SameSelection(original) {
+		t.Fatal("different grammar contracts became the same replayable intent")
 	}
 }
 

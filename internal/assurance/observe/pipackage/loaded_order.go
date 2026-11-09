@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -12,13 +13,15 @@ import (
 
 type LoadedOrderInput struct {
 	Scope           target.Scope
+	Capability      profile.ExtensionOrderCapability
 	SettingsContext extensiontopology.LocalSourceContext
 	Document        aggregate.Document
 	Constraint      hostrelation.RelationOrderConstraint
 	Relations       []ScopedRelation
 }
 
-// ReconstructOrder interprets loaded settings using explicit lexical contexts.
+// ReconstructOrder uses the supplied contract and explicit lexical contexts,
+// without selecting a capability from the current catalog.
 // It performs no filesystem observation and supplies no publication authority.
 func ReconstructOrder(input LoadedOrderInput) (OrderObservation, error) {
 	if err := input.SettingsContext.Validate(); err != nil {
@@ -35,7 +38,7 @@ func ReconstructOrder(input LoadedOrderInput) (OrderObservation, error) {
 			return OrderObservation{}, err
 		}
 	}
-	selection, err := newOrderSelection(input.Scope, input.Constraint, input.Relations)
+	selection, err := newOrderSelectionWithCapability(input.Scope, input.Constraint, input.Relations, input.Capability)
 	if err != nil {
 		return OrderObservation{}, err
 	}
