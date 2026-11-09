@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 )
 
 func TestParseAndRemoveExactSourcePreservesJSONC(t *testing.T) {
@@ -455,5 +456,32 @@ func TestCorrelatedBareCRCommentsRemainEditable(t *testing.T) {
 	want := []byte("{\"plugin\":[\"a\", // comment\r \n \"b\"]}")
 	if err != nil || !changed || !bytes.Equal(candidate, want) {
 		t.Fatal("literal qualification became a blanket bare-CR refusal", string(candidate), changed, err)
+	}
+}
+
+func TestSemanticPostChecksRefuseEqualLiteralsFromDifferentPhysicalRows(t *testing.T) {
+	input := []byte("{\"plugin\":[\"a\", // c\r /*\n \"b\", /* */ // d\r \"b\",\n \"e\"]}")
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := output.NewKeyPath("plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := configdocument.Limits{MaximumBytes: int64(len(input)), MaximumDepth: 16}
+	raw, err := configdocument.EditJSONArraySource(t.Context(), input, configdocument.JSONC, limits, path, []string{`"a"`, `"b"`, `"e"`}, []int{1}, []int{0, 1})
+	if err != nil {
+		t.Fatal("fixture no longer reaches the semantic postcondition after literal qualification", err)
+	}
+	legacy, err := Parse(raw)
+	if err != nil || legacy.ExactSourceCount("b") != 1 || len(legacy.Entries()) != 3 {
+		t.Fatal("fixture no longer aliases equal literal bytes at distinct physical tokens", err)
+	}
+	if candidate, changed, err := document.RemoveExactSource("b"); err == nil || changed || candidate != nil {
+		t.Fatal("literal-only qualification bypassed removal's semantic postcondition", string(candidate), changed, err)
+	}
+	if candidate, changed, err := document.PermutePluginRows([]int{0, 2, 1}); err == nil || changed || candidate != nil {
+		t.Fatal("literal-only qualification bypassed permutation's semantic postcondition", string(candidate), changed, err)
 	}
 }
