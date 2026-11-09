@@ -1,6 +1,7 @@
 package namespace
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,11 +25,20 @@ func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
 		if contract.Envelope() != configuration.NativeEndpoints {
 			continue
 		}
-		for _, mode := range []string{"unbound endpoint", "pinned endpoint", "independent directory"} {
+		for _, mode := range []string{"unbound endpoint", "pinned endpoint", "independent manifest", "unknown directory", "coincident pinned directory"} {
 			t.Run(contract.Reference().Identity()+"/"+mode, func(t *testing.T) {
 				base := t.TempDir()
-				manifest := nativeNamespaceRoot(t, filepath.Join(base, "manifest"))
+				manifestPath := filepath.Join(base, "manifest")
+				if mode == "independent manifest" {
+					manifestPath = base
+				}
+				manifest := nativeNamespaceRoot(t, manifestPath)
+				var independent RootSelection
+				if mode == "independent manifest" {
+					independent = manifest
+				}
 				anchor := nativeNamespaceRoot(t, filepath.Join(base, "anchor"))
+				writerRelative := "anchor/sibling.json"
 				referent := filepath.Join(anchor.SelectedPath, "sibling.json")
 				if err := os.WriteFile(referent, []byte(`{"fixture":true}`), 0o600); err != nil {
 					t.Fatal(err)
@@ -45,12 +55,25 @@ func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if mode == "independent directory" {
-					reference, _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: target.TargetCodex, Scope: target.ScopeGlobal, Destination: nativeNamespaceAddress(t, target.TargetCodex, target.ScopeGlobal, "@codex-home/config.toml").AggregateRoot()})
+				if mode == "coincident pinned directory" {
+					independent = anchor
+					writerRelative = "sibling.json"
+					reference, err := configuration.RootReferenceForScope(target.TargetCodex, target.ScopeGlobal)
 					if err != nil {
 						t.Fatal(err)
 					}
-					roots, err = roots.With(reference, anchor)
+					roots, err = roots.With(reference, independent)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				if mode == "unknown directory" {
+					independent = nativeNamespaceRoot(t, base)
+					reference, err := output.NewRootReference("explicit-directory", "caller-selected-v1")
+					if err != nil {
+						t.Fatal(err)
+					}
+					roots, err = roots.With(reference, independent)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -59,9 +82,13 @@ func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
 				aliases := []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/alias.json")}
 				reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
 				budget := imageBudget(t)
+				metadata, err := ObserveAlias(t.Context(), aliases[0], roots, budget)
+				if err != nil || metadata.Validate() != nil {
+					t.Fatal("alias grouping attempted premature writer qualification", err)
+				}
 				var value DocumentNamespace
 				var observationErr error
-				if mode == "pinned endpoint" {
+				if mode == "pinned endpoint" || mode == "coincident pinned directory" {
 					authority, err := anchor.Root.AuthorityBounded(budget)
 					if err != nil {
 						t.Fatal(err)
@@ -83,15 +110,26 @@ func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
 					value, observationErr = Observe(t.Context(), aliases, roots, fixtureProtection(t), reader, budget)
 				}
 
-				if mode == "independent directory" {
+				if independent.Root != nil {
 					if observationErr != nil {
 						t.Fatal("an independently supplied directory lost its containing grant", observationErr)
+					}
+					authority, err := independent.Root.AuthorityBounded(budget)
+					if err != nil {
+						t.Fatal(err)
+					}
+					provenance, err := authority.Provenance()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if value.WriterPin().Provenance() != provenance || value.WriterPin().Relative().Path() != writerRelative {
+						t.Fatal("a deeper unbound endpoint displaced the independently supplied directory", value.WriterPin())
 					}
 					image, _, _, err := value.ReadReferent(t.Context(), 1024, budget)
 					if err != nil || string(image.Content()) != `{"fixture":true}` {
 						t.Fatal("the directory-granted referent could not be read", err)
 					}
-				} else if observationErr == nil || value.Observation().Validate() == nil || len(reader.capabilities) != 0 {
+				} else if !errors.Is(observationErr, ErrNoTrustedWriterRoot) || value.Observation().Validate() == nil || len(reader.capabilities) != 0 {
 					t.Fatal("an unrelated endpoint anchor became a containing writer grant", observationErr)
 				}
 			})
@@ -208,6 +246,9 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 
 func TestZeroCustodyValuesCannotAuthorizeWork(t *testing.T) {
 	budget := imageBudget(t)
+	if observed, err := ObserveAlias(t.Context(), aggregate.DocumentAddress{}, Roots{}, budget); err == nil || observed.Validate() == nil {
+		t.Fatal("zero alias supplied grouping metadata")
+	}
 	if observed, err := (Alias{}).ObserveRoute(t.Context(), budget); err == nil || observed.Validate() == nil {
 		t.Fatal("zero alias supplied route evidence")
 	}

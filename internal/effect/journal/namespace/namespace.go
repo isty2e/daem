@@ -22,6 +22,8 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+var ErrNoTrustedWriterRoot = errors.New("native document referent has no explicitly supplied trusted writer root")
+
 // RootSelection borrows a caller-selected root and its canonical document base.
 // Persisted paths cannot create or enlarge this grant.
 type RootSelection struct {
@@ -109,6 +111,7 @@ func (grant RootGrant) ValidateSelection(selector string, budget rootedpath.Phys
 
 type Alias struct {
 	address     aggregate.DocumentAddress
+	reference   output.RootReference
 	root        RootGrant
 	relative    rootedpath.RelativeDestination
 	observation mutation.DirectoryEntryAuthorityObservation
@@ -152,6 +155,23 @@ type DocumentNamespace struct {
 	writerRoot  *rootedpath.CapturedRoot
 	writer      rootedpath.Destination
 	writerPin   WriterPin
+}
+
+// ObserveAlias returns grouping metadata after binding/root qualification. It
+// neither checks resource protection nor supplies a readable/writable namespace.
+func ObserveAlias(ctx context.Context, address aggregate.DocumentAddress, roots Roots, budget rootedpath.PhysicalTraversalBudget) (mutation.DirectoryEntryAuthorityObservation, error) {
+	if ctx == nil || budget == nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native alias observation requires context and shared traversal budget")
+	}
+	if _, err := journaldocument.AliasSet(ctx, []aggregate.DocumentAddress{address}); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	qualified, err := roots.Qualify(ctx, budget)
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	alias, _, err := observeNativeAlias(ctx, address, qualified.grants, budget)
+	return alias.observation, err
 }
 
 func Observe(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget) (DocumentNamespace, error) {
@@ -231,41 +251,17 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	boundRoots := make(map[output.RootReference]struct{})
 	var referent string
 	for _, address := range aliases {
-		if err := ctx.Err(); err != nil {
-			return DocumentNamespace{}, err
-		}
-		role := address.AggregateRoot().RootRole()
-		if err := validateNativeDocumentRootRole(address, role); err != nil {
-			return DocumentNamespace{}, err
-		}
-		reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
-		if err != nil {
-			return DocumentNamespace{}, err
-		}
-		selectedRelative, err := rootedpath.NewRelativeDestination(relative)
-		if err != nil {
-			return DocumentNamespace{}, err
-		}
-		grant, present := grants[reference]
-		if !present {
-			return DocumentNamespace{}, fmt.Errorf("native document alias has no independently selected root")
-		}
-		logical := filepath.Join(grant.selection.SelectedPath, filepath.FromSlash(selectedRelative.Path()))
-		physical, err := rootedpath.ResolveReferentPathBounded(logical, physicalwork.MaximumPhysicalPathDepth, budget)
-		if err != nil {
-			return DocumentNamespace{}, err
-		}
-		observation, err := mutation.ObserveDirectoryEntryAuthorityBounded(physical, physicalwork.MaximumPhysicalPathDepth, budget)
+		alias, physical, err := observeNativeAlias(ctx, address, grants, budget)
 		if err != nil {
 			return DocumentNamespace{}, err
 		}
 		if len(result.aliases) == 0 {
-			result.observation, referent = observation, physical
-		} else if !result.observation.Equal(observation) {
+			result.observation, referent = alias.observation, physical
+		} else if !result.observation.Equal(alias.observation) {
 			return DocumentNamespace{}, fmt.Errorf("native document aliases do not identify one physical referent")
 		}
-		result.aliases = append(result.aliases, Alias{address: address, root: grant, relative: selectedRelative, observation: observation})
-		boundRoots[reference] = struct{}{}
+		result.aliases = append(result.aliases, alias)
+		boundRoots[alias.reference] = struct{}{}
 	}
 	observer := newPhysicalObserver(protection, budget)
 	if err := observer.requireUnreserved(ctx, result.aliases); err != nil {
@@ -321,6 +317,41 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 		return DocumentNamespace{}, err
 	}
 	return result, nil
+}
+
+func observeNativeAlias(ctx context.Context, address aggregate.DocumentAddress, grants map[output.RootReference]RootGrant, budget rootedpath.PhysicalTraversalBudget) (Alias, string, error) {
+	if err := ctx.Err(); err != nil {
+		return Alias{}, "", err
+	}
+	if err := validateNativeDocumentRootRole(address, address.AggregateRoot().RootRole()); err != nil {
+		return Alias{}, "", err
+	}
+	reference, relative, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+	if err != nil {
+		return Alias{}, "", err
+	}
+	selectedRelative, err := rootedpath.NewRelativeDestination(relative)
+	if err != nil {
+		return Alias{}, "", err
+	}
+	grant, present := grants[reference]
+	if !present {
+		return Alias{}, "", fmt.Errorf("native document alias has no independently selected root")
+	}
+
+	logical := filepath.Join(grant.selection.SelectedPath, filepath.FromSlash(selectedRelative.Path()))
+	physical, err := rootedpath.ResolveReferentPathBounded(logical, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return Alias{}, "", err
+	}
+	observation, err := mutation.ObserveDirectoryEntryAuthorityBounded(physical, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return Alias{}, "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return Alias{}, "", err
+	}
+	return Alias{address: address, reference: reference, root: grant, relative: selectedRelative, observation: observation}, physical, nil
 }
 
 func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (QualifiedRoots, error) {
@@ -433,7 +464,7 @@ func nativeDocumentWriterGrant(grants map[output.RootReference]RootGrant, boundR
 		}
 	}
 	if selected.selection.Root == nil {
-		return RootGrant{}, rootedpath.RelativeDestination{}, fmt.Errorf("native document referent has no explicitly supplied trusted writer root")
+		return RootGrant{}, rootedpath.RelativeDestination{}, ErrNoTrustedWriterRoot
 	}
 	return selected, relative, nil
 }
