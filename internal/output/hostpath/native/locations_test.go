@@ -108,6 +108,34 @@ func TestNativeLocationsRejectIncompleteOrDifferentLocatorContracts(t *testing.T
 	}
 }
 
+func TestRetainedV1AliasLocatorsDoNotDependOnCurrentPlacementSelection(t *testing.T) {
+	home, work := t.TempDir(), t.TempDir()
+	configuredCodex := filepath.FromSlash("literal/../codex")
+	locations, err := NewLocations(work, home, map[string]string{
+		"PI_CODING_AGENT_DIR": "~/legacy/pi", "CODEX_HOME": configuredCodex,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		identity, policy, path, source string
+	}{
+		{"pi-agent", "pi-agent-location-v1", filepath.Join(home, "legacy", "pi"), "PI_CODING_AGENT_DIR"},
+		{"codex-home", "codex-home-location-v1", work + string(filepath.Separator) + configuredCodex, "CODEX_HOME"},
+	} {
+		t.Run(test.identity, func(t *testing.T) {
+			reference, err := output.NewRootReference(test.identity, test.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			location, err := locations.Resolve(reference)
+			if err != nil || location.Path() != test.path || location.Source() != test.source || location.Absent() {
+				t.Fatal("a retained locator changed its v1 literal semantics", location, err)
+			}
+		})
+	}
+}
+
 func TestPiLocatorUsesLexicalParentsWhileCodexPreservesFilesystemParents(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Win32 parent components are lexical before reparse traversal")

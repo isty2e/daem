@@ -69,16 +69,8 @@ func (locations Locations) Resolve(reference output.RootReference) (Location, er
 	if locations.workDir == "" || locations.home == "" {
 		return Location{}, fmt.Errorf("native location context is not initialized")
 	}
-	contracts, err := configuration.NativeRootContracts()
-	if err != nil {
+	if err := configuration.AdmitNativeAliasRootReference(reference); err != nil {
 		return Location{}, err
-	}
-	known := false
-	for _, contract := range contracts {
-		known = known || contract.Reference() == reference && contract.SupportsAliases()
-	}
-	if !known {
-		return Location{}, fmt.Errorf("native root reference has no supported locator contract")
 	}
 	if reference.LocatorPolicy() == "opencode-location-v1" {
 		base := locations.selected("XDG_CONFIG_HOME", filepath.Join(locations.home, ".config"))
