@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -24,6 +25,14 @@ func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, err
 		return aggregate.DocumentAddress{}, err
 	}
 	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
+}
+
+func (observation OrderObservation) NativeProjection() (profile.NativeSequenceProjection, error) {
+	projection, present := observation.selection.capability.NativeSequence(observation.sequence.SequenceID())
+	if !present {
+		return profile.NativeSequenceProjection{}, fmt.Errorf("Pi sequence has no admitted native projection")
+	}
+	return projection, nil
 }
 
 // SameSelection compares replayable order intent, not observed bytes or candidates.

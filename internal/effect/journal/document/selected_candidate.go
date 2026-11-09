@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 )
 
 type SelectedPreparationInput struct {
@@ -93,7 +92,7 @@ func ReconstructSelected(ctx context.Context, input ComparisonInput, participant
 		}
 	}
 	nativeExpected := input.Expected
-	var permutation *piconfig.PackagePermutation
+	var permutations []configdocument.JSONArrayPermutation
 	if order != nil {
 		if input.Expected.ContentSize() > pipackage.MaximumSettingsBytes {
 			return SelectedCandidate{}, fmt.Errorf("Pi expected image exceeds the settings byte limit")
@@ -109,24 +108,32 @@ func ReconstructSelected(ctx context.Context, input ComparisonInput, participant
 			return SelectedCandidate{}, err
 		}
 		if order.Changed() {
-			before, err := readPiComparisonDocument(ctx, input.Before, input.Limits)
+			projection, err := order.NativeProjection()
 			if err != nil {
 				return SelectedCandidate{}, err
 			}
-			expected, err := readPiComparisonDocument(ctx, input.Expected, input.Limits)
+			syntax, err := configdocument.ParseSyntax(string(projection.Grammar()))
 			if err != nil {
 				return SelectedCandidate{}, err
 			}
-			inverse, err := piconfig.NewPackagePermutation(before, expected)
+			before, err := readArrayComparisonDocument(ctx, input.Before, input.Limits, syntax)
 			if err != nil {
 				return SelectedCandidate{}, err
 			}
-			content, _, err := inverse.Restore(expected)
+			expected, err := readArrayComparisonDocument(ctx, input.Expected, input.Limits, syntax)
 			if err != nil {
 				return SelectedCandidate{}, err
 			}
-			nativeExpected = aggregate.ExistingDocument(content)
-			permutation = &inverse
+			inverse, err := configdocument.NewJSONArrayPermutation(ctx, before, expected, projection.ArrayPath())
+			if err != nil {
+				return SelectedCandidate{}, err
+			}
+			restored, _, err := inverse.Restore(ctx, expected)
+			if err != nil {
+				return SelectedCandidate{}, err
+			}
+			nativeExpected = aggregate.ExistingDocument(restored.Bytes())
+			permutations = append(permutations, inverse)
 		}
 	}
 	if len(participants) == 0 {
@@ -136,12 +143,12 @@ func ReconstructSelected(ctx context.Context, input ComparisonInput, participant
 	} else if err := compose.VerifyCandidate(ctx, input.Before, nativeExpected, input.Limits, participants); err != nil {
 		return SelectedCandidate{}, err
 	}
-	comparison, err := NewSelectedComparison(ctx, input, participants, permutation)
+	comparison, err := NewSelectedComparison(ctx, input, participants, permutations)
 	if err != nil {
 		return SelectedCandidate{}, err
 	}
 	candidate := SelectedCandidate{comparison: comparison}
-	if permutation != nil {
+	if len(permutations) != 0 {
 		retained := *order
 		candidate.order = &retained
 	}

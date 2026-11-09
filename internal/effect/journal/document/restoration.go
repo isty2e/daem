@@ -57,16 +57,16 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 	}
 
 	candidate := current
-	if comparison.order != nil {
-		observed, err := readPiComparisonDocument(ctx, candidate, comparison.limits)
+	for _, sequence := range comparison.sequences {
+		observed, err := readArrayComparisonDocument(ctx, candidate, comparison.limits, sequence.Syntax())
 		if err != nil {
 			return Restoration{}, err
 		}
-		restored, _, err := comparison.order.Restore(observed)
+		restored, _, err := sequence.Restore(ctx, observed)
 		if err != nil {
 			return Restoration{}, err
 		}
-		candidate = aggregate.ExistingDocument(restored)
+		candidate = aggregate.ExistingDocument(restored.Bytes())
 	}
 	if len(comparison.participants) != 0 {
 		baselines, err := compose.ReadBaselines(ctx, comparison.before, comparison.limits, comparison.participants)
@@ -82,13 +82,17 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 	if err := ValidateImage(ctx, candidate, comparison.limits); err != nil {
 		return Restoration{}, err
 	}
-	if comparison.order != nil {
-		observed, err := readPiComparisonDocument(ctx, candidate, comparison.limits)
+	for _, sequence := range comparison.sequences {
+		observed, err := readArrayComparisonDocument(ctx, candidate, comparison.limits, sequence.Syntax())
 		if err != nil {
 			return Restoration{}, err
 		}
-		if !comparison.order.MatchesBefore(observed) {
-			return Restoration{}, fmt.Errorf("restored document lost the original Pi package array")
+		matchesBefore, err := sequence.MatchesBefore(ctx, observed)
+		if err != nil {
+			return Restoration{}, err
+		}
+		if !matchesBefore {
+			return Restoration{}, fmt.Errorf("restored document lost an original native array")
 		}
 	}
 	candidateMode, err := comparison.selectedRestorationMode(candidate, current, mode)

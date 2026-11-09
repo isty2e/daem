@@ -3,13 +3,13 @@ package document
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 )
 
 type ComparisonInput struct {
@@ -29,7 +29,7 @@ type Comparison struct {
 	expectedState recovery.PartialDocumentState
 	limits        configdocument.Limits
 	participants  []compose.Participant
-	order         *piconfig.PackagePermutation
+	sequences     []configdocument.JSONArrayPermutation
 	whole         bool
 	initialized   bool
 }
@@ -80,9 +80,9 @@ func NewWholeComparison(ctx context.Context, input ComparisonInput) (Comparison,
 	return comparison, nil
 }
 
-// NewSelectedComparison keeps dedicated package order separate from
+// NewSelectedComparison keeps selected native array order separate from
 // aggregate selections. An empty selection compares only regular-root metadata.
-func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, order *piconfig.PackagePermutation) (Comparison, error) {
+func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, sequences []configdocument.JSONArrayPermutation) (Comparison, error) {
 	comparison, err := newDocumentComparison(ctx, input, participants)
 	if err != nil {
 		return Comparison{}, err
@@ -90,36 +90,50 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 	if _, err := recovery.MatchPartialDocumentStates(comparison.beforeState, comparison.expectedState, comparison.beforeState); err != nil {
 		return Comparison{}, err
 	}
-	if order == nil {
+	if len(sequences) == 0 {
 		return comparison, nil
 	}
-	packages, err := output.NewKeyPath("packages")
-	if err != nil {
-		return Comparison{}, err
-	}
-	for _, participant := range comparison.participants {
-		for _, area := range participant.RewriteAreas() {
-			if area.Overlaps(packages) {
-				return Comparison{}, fmt.Errorf("selected aggregate area overlaps dedicated Pi package order")
+	retained := slices.Clone(sequences)
+	slices.SortFunc(retained, func(left, right configdocument.JSONArrayPermutation) int {
+		return strings.Compare(left.ArrayPath().String(), right.ArrayPath().String())
+	})
+	for index, sequence := range retained {
+		for _, previous := range retained[:index] {
+			if sequence.ArrayPath().Overlaps(previous.ArrayPath()) {
+				return Comparison{}, fmt.Errorf("selected native array edits overlap")
 			}
 		}
-	}
-	before, err := readPiComparisonDocument(ctx, input.Before, input.Limits)
-	if err != nil {
-		return Comparison{}, err
-	}
-	expected, err := readPiComparisonDocument(ctx, input.Expected, input.Limits)
-	if err != nil {
-		return Comparison{}, err
-	}
-	if !order.MatchesBefore(before) || !order.MatchesExpected(expected) {
-		return Comparison{}, fmt.Errorf("Pi package inverse does not match the loaded document witnesses")
+		for _, participant := range comparison.participants {
+			for _, area := range participant.RewriteAreas() {
+				if area.Overlaps(sequence.ArrayPath()) {
+					return Comparison{}, fmt.Errorf("selected aggregate area overlaps native array order")
+				}
+			}
+		}
+		before, err := readArrayComparisonDocument(ctx, input.Before, input.Limits, sequence.Syntax())
+		if err != nil {
+			return Comparison{}, err
+		}
+		expected, err := readArrayComparisonDocument(ctx, input.Expected, input.Limits, sequence.Syntax())
+		if err != nil {
+			return Comparison{}, err
+		}
+		matchesBefore, err := sequence.MatchesBefore(ctx, before)
+		if err != nil {
+			return Comparison{}, err
+		}
+		matchesExpected, err := sequence.MatchesExpected(ctx, expected)
+		if err != nil {
+			return Comparison{}, err
+		}
+		if !matchesBefore || !matchesExpected {
+			return Comparison{}, fmt.Errorf("native array inverse does not match the loaded document witnesses")
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return Comparison{}, err
 	}
-	retained := *order
-	comparison.order = &retained
+	comparison.sequences = retained
 	return comparison, nil
 }
 
@@ -173,12 +187,15 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	match := ComparisonMatch{
 		before: partial.MatchesBefore(), expected: partial.MatchesExpected(), recoverable: partial.Recoverable(),
 	}
-	if comparison.order != nil {
-		document, err := readPiComparisonDocument(ctx, current, comparison.limits)
+	for _, sequence := range comparison.sequences {
+		document, err := readArrayComparisonDocument(ctx, current, comparison.limits, sequence.Syntax())
 		if err != nil {
 			return ComparisonMatch{}, err
 		}
-		before, expected := comparison.order.MatchesBefore(document), comparison.order.MatchesExpected(document)
+		before, expected, err := sequence.Match(ctx, document)
+		if err != nil {
+			return ComparisonMatch{}, err
+		}
 		match.before = match.before && before
 		match.expected = match.expected && expected
 		match.recoverable = match.recoverable && (before || expected)
@@ -189,12 +206,11 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	return match, nil
 }
 
-func readPiComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits) (piconfig.Document, error) {
-	content := document.Content()
-	if _, err := configdocument.Parse(ctx, content, configdocument.JSON, limits); err != nil {
-		return piconfig.Document{}, err
+func readArrayComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits, syntax configdocument.Syntax) (configdocument.Document, error) {
+	if !document.Exists() {
+		return configdocument.Document{}, fmt.Errorf("selected native array requires an existing document")
 	}
-	return piconfig.Parse(content)
+	return configdocument.Parse(ctx, document.Content(), syntax, limits)
 }
 
 func ValidateImage(ctx context.Context, document aggregate.Document, limits configdocument.Limits) error {

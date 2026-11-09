@@ -1,10 +1,13 @@
 package profile
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -40,7 +43,7 @@ type ExtensionOrderCapabilityInput struct {
 	ClassID                hostrelation.OrderClassID
 	MemberIdentityContract string
 	SequenceMembership     SequenceMembershipContract
-	PhysicalSequenceIDs    []hostrelation.PhysicalSequenceID
+	NativeSequences        []NativeSequenceProjection
 	RuntimeMeaning         hostrelation.RuntimeMeaning
 }
 
@@ -52,7 +55,7 @@ type ExtensionOrderCapability struct {
 	classID                hostrelation.OrderClassID
 	memberIdentityContract string
 	sequenceMembership     SequenceMembershipContract
-	physicalSequenceIDs    []hostrelation.PhysicalSequenceID
+	nativeSequences        []NativeSequenceProjection
 	runtimeMeaning         hostrelation.RuntimeMeaning
 }
 
@@ -81,19 +84,28 @@ func NewExtensionOrderCapability(
 	); err != nil {
 		return ExtensionOrderCapability{}, err
 	}
-	if len(input.PhysicalSequenceIDs) == 0 {
+	if len(input.NativeSequences) == 0 {
 		return ExtensionOrderCapability{}, fmt.Errorf(
 			"extension order class %q requires at least one physical sequence",
 			input.ClassID,
 		)
 	}
 
-	sequenceIDs := append([]hostrelation.PhysicalSequenceID(nil), input.PhysicalSequenceIDs...)
-	seen := make(map[hostrelation.PhysicalSequenceID]struct{}, len(sequenceIDs))
-	for _, sequenceID := range sequenceIDs {
-		if err := sequenceID.Validate(); err != nil {
+	sequences := slices.Clone(input.NativeSequences)
+	seen := make(map[hostrelation.PhysicalSequenceID]struct{}, len(sequences))
+	type arraySelection struct {
+		destination output.Destination
+		array       output.KeyPath
+	}
+	arrays := make(map[arraySelection]struct{}, len(sequences))
+	for _, projection := range sequences {
+		if err := projection.Validate(); err != nil {
 			return ExtensionOrderCapability{}, err
 		}
+		if err := projection.destination.ValidateScope(input.Scope); err != nil {
+			return ExtensionOrderCapability{}, err
+		}
+		sequenceID := projection.sequence
 		if _, duplicate := seen[sequenceID]; duplicate {
 			return ExtensionOrderCapability{}, fmt.Errorf(
 				"extension order physical sequence %q appears more than once",
@@ -101,8 +113,15 @@ func NewExtensionOrderCapability(
 			)
 		}
 		seen[sequenceID] = struct{}{}
+		selection := arraySelection{projection.destination, projection.array}
+		if _, duplicate := arrays[selection]; duplicate {
+			return ExtensionOrderCapability{}, fmt.Errorf("extension order repeats a native document array")
+		}
+		arrays[selection] = struct{}{}
 	}
-	slices.Sort(sequenceIDs)
+	slices.SortFunc(sequences, func(left, right NativeSequenceProjection) int {
+		return cmp.Compare(left.sequence, right.sequence)
+	})
 
 	return ExtensionOrderCapability{
 		carrier:                input.Carrier,
@@ -110,7 +129,7 @@ func NewExtensionOrderCapability(
 		classID:                input.ClassID,
 		memberIdentityContract: input.MemberIdentityContract,
 		sequenceMembership:     input.SequenceMembership,
-		physicalSequenceIDs:    sequenceIDs,
+		nativeSequences:        sequences,
 		runtimeMeaning:         input.RuntimeMeaning,
 	}, nil
 }
@@ -123,7 +142,7 @@ func (capability ExtensionOrderCapability) Validate() error {
 		ClassID:                capability.classID,
 		MemberIdentityContract: capability.memberIdentityContract,
 		SequenceMembership:     capability.sequenceMembership,
-		PhysicalSequenceIDs:    capability.physicalSequenceIDs,
+		NativeSequences:        capability.nativeSequences,
 		RuntimeMeaning:         capability.runtimeMeaning,
 	})
 	if err != nil {
@@ -134,7 +153,7 @@ func (capability ExtensionOrderCapability) Validate() error {
 		capability.classID != canonical.classID ||
 		capability.memberIdentityContract != canonical.memberIdentityContract ||
 		capability.sequenceMembership != canonical.sequenceMembership ||
-		!slices.Equal(capability.physicalSequenceIDs, canonical.physicalSequenceIDs) ||
+		!slices.Equal(capability.nativeSequences, canonical.nativeSequences) ||
 		capability.runtimeMeaning != canonical.runtimeMeaning {
 		return fmt.Errorf("extension order capability is not canonical")
 	}
@@ -160,7 +179,24 @@ func (capability ExtensionOrderCapability) SequenceMembership() SequenceMembersh
 }
 
 func (capability ExtensionOrderCapability) PhysicalSequenceIDs() []hostrelation.PhysicalSequenceID {
-	return append([]hostrelation.PhysicalSequenceID(nil), capability.physicalSequenceIDs...)
+	result := make([]hostrelation.PhysicalSequenceID, 0, len(capability.nativeSequences))
+	for _, projection := range capability.nativeSequences {
+		result = append(result, projection.sequence)
+	}
+	return result
+}
+
+func (capability ExtensionOrderCapability) NativeSequences() []NativeSequenceProjection {
+	return slices.Clone(capability.nativeSequences)
+}
+
+func (capability ExtensionOrderCapability) NativeSequence(sequence hostrelation.PhysicalSequenceID) (NativeSequenceProjection, bool) {
+	for _, projection := range capability.nativeSequences {
+		if projection.sequence == sequence {
+			return projection, true
+		}
+	}
+	return NativeSequenceProjection{}, false
 }
 
 // AdmitsPhysicalSequenceID reports whether one independently mutable sequence
@@ -168,7 +204,8 @@ func (capability ExtensionOrderCapability) PhysicalSequenceIDs() []hostrelation.
 func (capability ExtensionOrderCapability) AdmitsPhysicalSequenceID(
 	sequenceID hostrelation.PhysicalSequenceID,
 ) bool {
-	return slices.Contains(capability.physicalSequenceIDs, sequenceID)
+	_, admitted := capability.NativeSequence(sequenceID)
+	return admitted
 }
 
 func (capability ExtensionOrderCapability) RuntimeMeaning() hostrelation.RuntimeMeaning {
@@ -184,10 +221,7 @@ type ExtensionOrderAdmission struct {
 func (admission ExtensionOrderAdmission) Target() target.Target { return admission.target }
 func (admission ExtensionOrderAdmission) Capability() ExtensionOrderCapability {
 	capability := admission.capability
-	capability.physicalSequenceIDs = append(
-		[]hostrelation.PhysicalSequenceID(nil),
-		capability.physicalSequenceIDs...,
-	)
+	capability.nativeSequences = slices.Clone(capability.nativeSequences)
 	return capability
 }
 
@@ -205,11 +239,11 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			ClassID:                mustOrderClassID("extension:opencode:project:plugins"),
 			MemberIdentityContract: openCodeOrderMemberIdentityV1,
 			SequenceMembership:     LoadedClassSubset,
-			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
-				mustPhysicalSequenceID("opencode:project:server.json.plugins"),
-				mustPhysicalSequenceID("opencode:project:server.jsonc.plugins"),
-				mustPhysicalSequenceID("opencode:project:tui.json.plugins"),
-				mustPhysicalSequenceID("opencode:project:tui.jsonc.plugins"),
+			NativeSequences: []NativeSequenceProjection{
+				mustNativeSequenceProjection("opencode:project:server.json.plugins", ".opencode/opencode.json", configuration.JSONC, "plugin"),
+				mustNativeSequenceProjection("opencode:project:server.jsonc.plugins", ".opencode/opencode.jsonc", configuration.JSONC, "plugin"),
+				mustNativeSequenceProjection("opencode:project:tui.json.plugins", ".opencode/tui.json", configuration.JSONC, "plugin"),
+				mustNativeSequenceProjection("opencode:project:tui.jsonc.plugins", ".opencode/tui.jsonc", configuration.JSONC, "plugin"),
 			},
 			RuntimeMeaning: hostrelation.ConfigOrderOnly,
 		}),
@@ -222,11 +256,11 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			ClassID:                mustOrderClassID("extension:opencode:global:plugins"),
 			MemberIdentityContract: openCodeOrderMemberIdentityV1,
 			SequenceMembership:     LoadedClassSubset,
-			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
-				mustPhysicalSequenceID("opencode:global:server.json.plugins"),
-				mustPhysicalSequenceID("opencode:global:server.jsonc.plugins"),
-				mustPhysicalSequenceID("opencode:global:tui.json.plugins"),
-				mustPhysicalSequenceID("opencode:global:tui.jsonc.plugins"),
+			NativeSequences: []NativeSequenceProjection{
+				mustNativeSequenceProjection("opencode:global:server.json.plugins", "~/.config/opencode/opencode.json", configuration.JSONC, "plugin"),
+				mustNativeSequenceProjection("opencode:global:server.jsonc.plugins", "~/.config/opencode/opencode.jsonc", configuration.JSONC, "plugin"),
+				mustNativeSequenceProjection("opencode:global:tui.json.plugins", "~/.config/opencode/tui.json", configuration.JSONC, "plugin"),
+				mustNativeSequenceProjection("opencode:global:tui.jsonc.plugins", "~/.config/opencode/tui.jsonc", configuration.JSONC, "plugin"),
 			},
 			RuntimeMeaning: hostrelation.ConfigOrderOnly,
 		}),
@@ -239,8 +273,8 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			ClassID:                mustOrderClassID("extension:pi:project:packages"),
 			MemberIdentityContract: piOrderMemberIdentityV1,
 			SequenceMembership:     CompleteClassMembership,
-			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
-				mustPhysicalSequenceID("pi:project:settings.packages"),
+			NativeSequences: []NativeSequenceProjection{
+				mustNativeSequenceProjection("pi:project:settings.packages", ".pi/settings.json", configuration.JSON, "packages"),
 			},
 			RuntimeMeaning: hostrelation.RuntimePrecedence,
 		}),
@@ -253,8 +287,8 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			ClassID:                mustOrderClassID("extension:pi:global:packages"),
 			MemberIdentityContract: piOrderMemberIdentityV1,
 			SequenceMembership:     CompleteClassMembership,
-			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
-				mustPhysicalSequenceID("pi:global:settings.packages"),
+			NativeSequences: []NativeSequenceProjection{
+				mustNativeSequenceProjection("pi:global:settings.packages", "@pi-agent/settings.json", configuration.JSON, "packages"),
 			},
 			RuntimeMeaning: hostrelation.RuntimePrecedence,
 		}),
@@ -324,6 +358,13 @@ func validateExtensionOrderCapabilityCatalog(
 	admissions := make(map[admissionKey]struct{}, len(catalog))
 	classIDs := make(map[hostrelation.OrderClassID]admissionKey, len(catalog))
 	sequenceIDs := make(map[hostrelation.PhysicalSequenceID]hostrelation.OrderClassID)
+	type selectedArray struct {
+		target      target.Target
+		scope       target.Scope
+		destination output.Destination
+		array       output.KeyPath
+	}
+	selectedArrays := make(map[selectedArray]struct{})
 	for index, row := range catalog {
 		if _, err := target.ParseTarget(string(row.target)); err != nil {
 			return fmt.Errorf("extension order capability[%d] target: %w", index, err)
@@ -350,6 +391,16 @@ func validateExtensionOrderCapabilityCatalog(
 			)
 		}
 		admissions[key] = struct{}{}
+		for _, projection := range row.capability.nativeSequences {
+			if _, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: row.target, Scope: row.capability.scope, Destination: projection.destination}); err != nil {
+				return fmt.Errorf("extension order native document has no admitted root binding: %w", err)
+			}
+			selected := selectedArray{row.target, row.capability.scope, projection.destination, projection.array}
+			if _, duplicate := selectedArrays[selected]; duplicate {
+				return fmt.Errorf("extension order classes share a native document array")
+			}
+			selectedArrays[selected] = struct{}{}
+		}
 		if previous, duplicate := classIDs[row.capability.ClassID()]; duplicate {
 			return fmt.Errorf(
 				"extension order class %q is shared by %q/%q/%q and %q/%q/%q",

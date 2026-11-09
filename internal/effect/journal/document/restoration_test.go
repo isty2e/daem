@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -20,7 +19,7 @@ func TestDocumentRestorationRollsBackBothMixedNativePiDirections(t *testing.T) {
 	before := `{"model":"balanced","outside":"old","packages":["npm:a","npm:b"]}`
 	expected := `{"model":"fast","outside":"old","packages":["npm:b","npm:a"]}`
 	order := comparisonOrder(t, before, expected)
-	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayPermutation{order})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +41,12 @@ func TestDocumentRestorationRollsBackBothMixedNativePiDirections(t *testing.T) {
 			}
 			assertRestorationValue(t, restored.Document(), "model", `"balanced"`)
 			assertRestorationValue(t, restored.Document(), "outside", `"new"`)
-			parsed, err := piconfig.Parse(restored.Document().Content())
-			if err != nil || !order.MatchesBefore(parsed) {
+			parsed, err := configdocument.Parse(t.Context(), restored.Document().Content(), order.Syntax(), comparison.Limits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			matches, err := order.MatchesBefore(t.Context(), parsed)
+			if err != nil || !matches {
 				t.Fatalf("restoration did not restore the dedicated array: %v", err)
 			}
 			if actual, present := restored.RegularFileMode(); !present || actual != mode {
@@ -166,7 +169,7 @@ func TestDocumentRestorationRefusesThirdStateWithoutUsableCandidate(t *testing.T
 	mode := recovery.PermissionMode(0o600)
 	before, expected := `{"model":1,"packages":["npm:a","npm:b"]}`, `{"model":2,"packages":["npm:b","npm:a"]}`
 	order := comparisonOrder(t, before, expected)
-	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayPermutation{order})
 	if err != nil {
 		t.Fatal(err)
 	}

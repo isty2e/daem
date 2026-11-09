@@ -350,22 +350,26 @@ func restorationPublicationComparison(t *testing.T, mode recovery.PermissionMode
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := piconfig.Parse([]byte(restorationBefore))
+	before, err := configdocument.Parse(t.Context(), []byte(restorationBefore), configdocument.JSON, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := piconfig.Parse([]byte(restorationExpected))
+	expected, err := configdocument.Parse(t.Context(), []byte(restorationExpected), configdocument.JSON, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	order, err := piconfig.NewPackagePermutation(before, expected)
+	array, err := output.NewKeyPath("packages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	order, err := configdocument.NewJSONArrayPermutation(t.Context(), before, expected, array)
 	if err != nil {
 		t.Fatal(err)
 	}
 	comparison, err := journaldocument.NewSelectedComparison(t.Context(), journaldocument.ComparisonInput{
 		Before: aggregate.ExistingDocument([]byte(restorationBefore)), Expected: aggregate.ExistingDocument([]byte(restorationExpected)),
 		BeforeMode: &mode, ExpectedMode: &mode, Limits: limits,
-	}, []compose.Participant{participant}, &order)
+	}, []compose.Participant{participant}, []configdocument.JSONArrayPermutation{order})
 	if err != nil {
 		t.Fatal(err)
 	}
