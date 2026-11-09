@@ -164,22 +164,27 @@ func TestJSONArraySourceBoundaryKeepsUnrelatedLegacyFieldsOpaque(t *testing.T) {
 	path := arrayKey(t, "g", "rows")
 	limits := configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 16}
 	before := []byte(`{"keep":1,"keep":2,"g":{"rows":[1,2]}}`)
-	candidate, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, limits, path, nil, []int{1, 0})
+	candidate, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, limits, path, []string{"1", "2"}, nil, []int{1, 0})
 	if err != nil || string(candidate) != `{"keep":1,"keep":2,"g":{"rows":[2,1]}}` {
 		t.Fatal("syntax-only editing reinterpreted unrelated duplicate fields", string(candidate), err)
 	}
 	if _, err := configdocument.Parse(t.Context(), before, configdocument.JSONC, limits); err == nil {
 		t.Fatal("source adapter weakened canonical native document validation")
 	}
+	for _, rows := range [][]string{{"1"}, {"2", "1"}, {"1", "3"}, {" 1", "2"}} {
+		if rejected, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, limits, path, rows, nil, []int{1, 0}); !errors.Is(err, configdocument.ErrPathConflict) || rejected != nil {
+			t.Fatal("unmatched semantic literal positions produced edited bytes", rows, err)
+		}
+	}
 	for _, text := range []string{`{"g":{"rows":[1],"rows":[2]}}`, `{"g":{"rows":[1]},"g":{"rows":[2]}}`} {
-		if rejected, err := configdocument.EditJSONArraySource(t.Context(), []byte(text), configdocument.JSONC, limits, path, nil, []int{0}); !errors.Is(err, configdocument.ErrPathConflict) || rejected != nil {
+		if rejected, err := configdocument.EditJSONArraySource(t.Context(), []byte(text), configdocument.JSONC, limits, path, []string{"1"}, nil, []int{0}); !errors.Is(err, configdocument.ErrPathConflict) || rejected != nil {
 			t.Fatal("ambiguous selected path became an array-edit authority", err)
 		}
 	}
-	if rejected, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, configdocument.Limits{MaximumBytes: 4, MaximumDepth: 16}, path, nil, []int{1, 0}); !errors.Is(err, configdocument.ErrLimitExceeded) || rejected != nil {
+	if rejected, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, configdocument.Limits{MaximumBytes: 4, MaximumDepth: 16}, path, []string{"1", "2"}, nil, []int{1, 0}); !errors.Is(err, configdocument.ErrLimitExceeded) || rejected != nil {
 		t.Fatal("raw source adapter bypassed the caller's byte limit", err)
 	}
-	if rejected, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 2}, path, nil, []int{1, 0}); !errors.Is(err, configdocument.ErrLimitExceeded) || rejected != nil {
+	if rejected, err := configdocument.EditJSONArraySource(t.Context(), before, configdocument.JSONC, configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 2}, path, []string{"1", "2"}, nil, []int{1, 0}); !errors.Is(err, configdocument.ErrLimitExceeded) || rejected != nil {
 		t.Fatal("raw source adapter bypassed the caller's depth limit", err)
 	}
 }

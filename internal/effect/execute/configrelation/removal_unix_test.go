@@ -282,6 +282,31 @@ func TestRemoveExactSourceRefusesConcurrentReplacement(t *testing.T) {
 	}
 }
 
+func TestRemovalRefusesUncorrelatedRowsBeforePublication(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "opencode.jsonc")
+	content := []byte("{\"plugin\":[\"a\", // c\r /*\n \"b\", /* */ \"e\", // d\r \"f\"\n]}")
+	if err := os.WriteFile(path, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	authority := bindAuthority(t, root, path)
+	defer authority.Close()
+	replaced := false
+	store := concurrentReplaceStore{RootedStore: storagecommit.Adapter{}, beforeReplace: func() { replaced = true }}
+	changed, err := removeOpenCodeExactSource(t.Context(), store, authority, "b")
+	if err == nil || changed || replaced {
+		t.Fatal("uncorrelated row positions reached the rooted publication boundary", changed, replaced, err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil || string(current) != string(content) {
+		t.Fatal("refusal changed the original config bytes", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatal("refusal changed original metadata", err)
+	}
+}
+
 type concurrentReplaceStore struct {
 	mutationfs.RootedStore
 	beforeReplace func()

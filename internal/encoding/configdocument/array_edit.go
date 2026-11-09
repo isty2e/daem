@@ -131,12 +131,23 @@ func EditJSONArray(ctx context.Context, document Document, path output.KeyPath, 
 }
 
 // EditJSONArraySource is the syntax-only boundary for existing semantic parsers.
-// It rejects an ambiguous selected path without imposing canonical semantics on
-// unrelated properties. Callers retain their own entry validation and limits.
-func EditJSONArraySource(ctx context.Context, content []byte, syntax Syntax, limits Limits, path output.KeyPath, removed, order []int) ([]byte, error) {
+// The semantic parser's literal rows must match this parser's view before any
+// position is applied. Unrelated properties remain opaque to canonical semantics.
+func EditJSONArraySource(ctx context.Context, content []byte, syntax Syntax, limits Limits, path output.KeyPath, rowLiterals []string, removed, order []int) ([]byte, error) {
 	source, err := readJSONArraySource(ctx, content, syntax, limits, path)
 	if err != nil {
 		return nil, err
+	}
+	if len(source.rows) != len(rowLiterals) {
+		return nil, fmt.Errorf("%w: syntax row count differs from the semantic parser witness", ErrPathConflict)
+	}
+	for index, row := range source.rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if string(content[row.value.start:row.value.end]) != rowLiterals[index] {
+			return nil, fmt.Errorf("%w: syntax row differs from the semantic parser witness", ErrPathConflict)
+		}
 	}
 	array, err := source.edit(ctx, content, removed, order)
 	if err != nil {

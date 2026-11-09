@@ -415,3 +415,45 @@ func TestParseWithoutPluginFieldIsEmpty(t *testing.T) {
 		t.Fatalf("Entries = %v, want empty", got)
 	}
 }
+
+func TestArrayEditingRefusesSemanticRowDriftAcrossBareCRComments(t *testing.T) {
+	input := []byte("{\"plugin\":[\"a\", // c\r /*\n \"b\", /* */ \"e\", // d\r \"f\"\n]}")
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, entry := range document.Entries() {
+		sources = append(sources, entry.Source())
+	}
+	if !slices.Equal(sources, []string{"a", "b", "e"}) {
+		t.Fatal("fixture no longer exercises the legacy semantic parser's row view", sources)
+	}
+	if candidate, changed, err := document.RemoveExactSource("b"); err == nil || changed || candidate != nil {
+		t.Fatal("a semantic row index removed a different syntax row", string(candidate), changed, err)
+	}
+	if candidate, changed, err := document.PermutePluginRows([]int{1, 0, 2}); err == nil || changed || candidate != nil {
+		t.Fatal("permutation accepted uncorrelated syntax-row positions", string(candidate), changed, err)
+	}
+	unchanged, changed, err := document.PermutePluginRows([]int{0, 1, 2})
+	if err != nil || changed || !bytes.Equal(unchanged, input) {
+		t.Fatal("row-view disagreement narrowed a safe byte-exact no-op", err)
+	}
+	unchanged, changed, err = document.RemoveExactSource("absent")
+	if err != nil || changed || !bytes.Equal(unchanged, input) {
+		t.Fatal("uncorrelated row views narrowed an absent-source no-op", err)
+	}
+}
+
+func TestCorrelatedBareCRCommentsRemainEditable(t *testing.T) {
+	input := []byte("{\"plugin\":[\"b\", // comment\r \n \"a\"]}")
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, changed, err := document.PermutePluginRows([]int{1, 0})
+	want := []byte("{\"plugin\":[\"a\", // comment\r \n \"b\"]}")
+	if err != nil || !changed || !bytes.Equal(candidate, want) {
+		t.Fatal("literal qualification became a blanket bare-CR refusal", string(candidate), changed, err)
+	}
+}

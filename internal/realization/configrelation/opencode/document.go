@@ -23,6 +23,7 @@ type Document struct {
 type Entry struct {
 	source           string
 	hostLoadIdentity string
+	literal          string
 }
 
 // Parse validates one OpenCode JSONC document without normalizing its bytes.
@@ -38,7 +39,7 @@ func ParseAt(content []byte, sourcePath string) (Document, error) {
 	if err != nil {
 		return Document{}, fmt.Errorf("parse OpenCode config JSONC: %w", err)
 	}
-	entries, err := pluginEntries(root, sourcePath)
+	entries, err := pluginEntries(root, sourcePath, owned)
 	if err != nil {
 		return Document{}, err
 	}
@@ -84,7 +85,11 @@ func (document Document) PermutePluginRows(order []int) ([]byte, bool, error) {
 			len(document.entries),
 		)
 	}
-	if len(order) == 0 {
+	unchanged := true
+	for destination, source := range order {
+		unchanged = unchanged && destination == source
+	}
+	if unchanged {
 		return bytes.Clone(document.content), false, nil
 	}
 	output, err := document.editRows(nil, order)
@@ -95,10 +100,13 @@ func (document Document) PermutePluginRows(order []int) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("validate reordered OpenCode config: %w", err)
 	}
+	if len(candidate.entries) != len(order) {
+		return nil, false, fmt.Errorf("reordered OpenCode plugin row count changed")
+	}
 	for destination, source := range order {
 		got := candidate.entries[destination]
 		want := document.entries[source]
-		if got.source != want.source || got.hostLoadIdentity != want.hostLoadIdentity {
+		if got != want {
 			return nil, false, fmt.Errorf(
 				"reordered OpenCode plugin row[%d] does not preserve source semantics",
 				destination,
@@ -138,8 +146,22 @@ func (document Document) RemoveExactSource(source string) ([]byte, bool, error) 
 		if err != nil {
 			return nil, false, err
 		}
-		if _, err := ParseAt(output, document.sourcePath); err != nil {
+		candidate, err := ParseAt(output, document.sourcePath)
+		if err != nil {
 			return nil, false, fmt.Errorf("validate edited OpenCode config: %w", err)
+		}
+		if len(candidate.entries) != len(document.entries)-1 {
+			return nil, false, fmt.Errorf("removed OpenCode plugin row count changed")
+		}
+		remaining := 0
+		for original, retained := range document.entries {
+			if original == index {
+				continue
+			}
+			if candidate.entries[remaining] != retained {
+				return nil, false, fmt.Errorf("removed OpenCode plugin changed a surviving literal row")
+			}
+			remaining++
 		}
 		return output, true, nil
 	}
@@ -154,12 +176,17 @@ func (document Document) editRows(removed, order []int) ([]byte, error) {
 	// Parsing already owns input admission. These ceilings preserve that input's
 	// envelope; removals and literal permutations cannot enlarge it.
 	limits := configdocument.Limits{MaximumBytes: int64(max(1, len(document.content))), MaximumDepth: max(1, len(document.content))}
-	return configdocument.EditJSONArraySource(context.Background(), document.content, configdocument.JSONC, limits, path, removed, order)
+	rows := make([]string, len(document.entries))
+	for index, entry := range document.entries {
+		rows[index] = entry.literal
+	}
+	return configdocument.EditJSONArraySource(context.Background(), document.content, configdocument.JSONC, limits, path, rows, removed, order)
 }
 
 func pluginEntries(
 	root hujson.Value,
 	sourcePath string,
+	content []byte,
 ) ([]Entry, error) {
 	object, ok := root.Value.(*hujson.Object)
 	if !ok {
@@ -175,6 +202,10 @@ func pluginEntries(
 		if err != nil {
 			return nil, fmt.Errorf("OpenCode plugin row[%d]: %w", index, err)
 		}
+		if value.StartOffset < 0 || value.EndOffset < value.StartOffset || value.EndOffset > len(content) {
+			return nil, fmt.Errorf("OpenCode plugin row has invalid literal offsets")
+		}
+		entry.literal = string(content[value.StartOffset:value.EndOffset])
 		entries = append(entries, entry)
 	}
 	return entries, nil

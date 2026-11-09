@@ -123,21 +123,33 @@ func (document Document) PermutePackageRows(order []int) ([]byte, bool, error) {
 			len(document.spans),
 		)
 	}
-	if len(order) == 0 {
+	unchanged := true
+	for destination, source := range order {
+		unchanged = unchanged && destination == source
+	}
+	if unchanged {
 		return bytes.Clone(document.content), false, nil
 	}
 	path, err := output.NewKeyPath("packages")
 	if err != nil {
 		return nil, false, err
 	}
-	limits := configdocument.Limits{MaximumBytes: int64(len(document.content)), MaximumDepth: maximumSettingsDepth}
-	content, err := configdocument.EditJSONArraySource(context.Background(), document.content, configdocument.JSON, limits, path, nil, order)
+	// jsonstrict starts at depth zero; the token scanner counts the root container.
+	limits := configdocument.Limits{MaximumBytes: int64(len(document.content)), MaximumDepth: maximumSettingsDepth + 1}
+	rows := make([]string, len(document.spans))
+	for index, span := range document.spans {
+		rows[index] = string(document.content[span.start:span.end])
+	}
+	content, err := configdocument.EditJSONArraySource(context.Background(), document.content, configdocument.JSON, limits, path, rows, nil, order)
 	if err != nil {
 		return nil, false, err
 	}
 	candidate, err := Parse(content)
 	if err != nil {
 		return nil, false, fmt.Errorf("validate reordered Pi settings: %w", err)
+	}
+	if len(candidate.entries) != len(order) {
+		return nil, false, fmt.Errorf("reordered Pi package row count changed")
 	}
 	for destination, source := range order {
 		if candidate.entries[destination].source != document.entries[source].source {
