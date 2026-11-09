@@ -1,13 +1,15 @@
 package publication
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -73,7 +75,7 @@ func TestCapturedRecoverySelectionRequiresOriginalAllocationAndManifestIncarnati
 		t.Fatal("replacement control did not isolate the manifest incarnation")
 	}
 	anchors, err := captured.journal.RecordedRootAnchors()
-	manifestReference, referenceErr := configuration.ProjectRootReference()
+	manifestReference, referenceErr := captured.journal.ManifestRootReference()
 	if referenceErr != nil {
 		t.Fatal(referenceErr)
 	}
@@ -86,4 +88,29 @@ func TestCapturedRecoverySelectionRequiresOriginalAllocationAndManifestIncarnati
 	if err := captured.RequireRecoverySelection(replacement, budget); err == nil {
 		t.Fatal("same-path replacement manifest was admitted for captured recovery")
 	}
+}
+
+func TestCaptureRefusesAnotherManifestLocatorBeforeJournalVisibility(t *testing.T) {
+	input := nativeCaptureInput(t, false, target.ScopeProject)
+	manifest, present := input.batch.roots.Manifest()
+	if !present {
+		t.Fatal("fixture has no selected manifest")
+	}
+	other, err := output.NewRootReference("project", "fixture-other-project-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.batch.roots, err = (journalnamespace.Roots{}).With(other, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := input.capture(t.Context())
+	var published *NativeJournalPublicationError
+	if err == nil || captured.Validate() == nil || errors.As(err, &published) {
+		t.Fatal("a mismatched manifest locator reached journal publication", err)
+	}
+	if _, err := os.Lstat(filepath.Join(input.paths.RecoveryDir, "native-record-apply")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a mismatched manifest locator left visible recovery evidence", err)
+	}
+	input.requireUnchanged(t)
 }

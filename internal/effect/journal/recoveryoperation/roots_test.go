@@ -27,6 +27,15 @@ func TestRecoveryRootsOwnOnlyTheirIndependentCaptures(t *testing.T) {
 	if !supplied || manifest.Root == nil || manifest.Root == borrowed {
 		t.Fatal("disk recovery borrowed the containing operation's capture")
 	}
+	qualified, err := selection.Qualify(t.Context(), profile.Budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, supplied := qualified.Manifest()
+	reference, err := journal.ManifestRootReference()
+	if err != nil || !supplied || grant.RootReference() != reference || reference.LocatorPolicy() != "selected-project-v1" {
+		t.Fatal("recovery did not retain its recorded manifest locator", reference, err)
+	}
 	if err := owned.Close(); err != nil {
 		t.Fatal(err)
 	}

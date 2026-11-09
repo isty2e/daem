@@ -153,9 +153,13 @@ func CaptureNativeJournalWithOptions(
 		return CapturedNativeJournal{}, err
 	}
 	roots := batch.roots
-	manifest, supplied := roots.Manifest()
+	manifestReference, err := journal.ManifestRootReference()
+	if err != nil {
+		return CapturedNativeJournal{}, err
+	}
+	manifest, supplied := roots.Selection(manifestReference)
 	if !supplied {
-		return CapturedNativeJournal{}, fmt.Errorf("native capture requires its selected manifest binding")
+		return CapturedNativeJournal{}, fmt.Errorf("native capture requires its recorded manifest binding")
 	}
 	options.ManifestRoot = manifest.Root
 	stageOptions := StageOptions{StateCodec: options.StateCodec, Codecs: options.Codecs, Limits: batch.Evidence().DocumentLimits(), Budget: batch.budget}

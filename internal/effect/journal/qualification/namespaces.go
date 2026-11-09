@@ -37,7 +37,11 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		return nil, err
 	}
 	manifest, present := grants.Manifest()
-	if !present || !journal.MatchesManifestRoot(manifest.Provenance()) {
+	manifestReference, err := journal.ManifestRootReference()
+	if err != nil {
+		return nil, err
+	}
+	if !present || manifest.RootReference() != manifestReference || !journal.MatchesManifestRoot(manifest.Provenance()) {
 		return nil, fmt.Errorf("native journal manifest root does not match the selected live root")
 	}
 	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(documents))

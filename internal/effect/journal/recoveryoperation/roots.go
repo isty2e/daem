@@ -17,7 +17,6 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // Profile selects recovery readers and permitted root paths independently of
@@ -55,7 +54,7 @@ func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Nati
 	if err != nil {
 		return nil, err
 	}
-	manifestReference, err := configuration.ProjectRootReference()
+	manifestReference, err := journal.ManifestRootReference()
 	if err != nil {
 		return nil, err
 	}

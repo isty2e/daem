@@ -6,7 +6,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func (captured CapturedNativeJournal) RequireAllocation(budget *physicalwork.Budget) error {
@@ -36,7 +35,7 @@ func (captured CapturedNativeJournal) RequireRecoverySelection(manifest *rootedp
 	if err != nil {
 		return err
 	}
-	manifestReference, err := configuration.ProjectRootReference()
+	manifestReference, err := captured.journal.ManifestRootReference()
 	if err != nil {
 		return err
 	}

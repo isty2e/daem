@@ -174,6 +174,13 @@ func (journal Native) DocumentAliases() ([][]aggregate.DocumentAddress, error) {
 	return result, nil
 }
 
+func (journal Native) ManifestRootReference() (output.RootReference, error) {
+	if err := journal.requireNativeValue(); err != nil {
+		return output.RootReference{}, err
+	}
+	return native16ManifestRootReference()
+}
+
 func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath.AuthorityProvenance, error) {
 	if err := journal.requireNativeValue(); err != nil {
 		return nil, err
@@ -182,7 +189,7 @@ func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath
 	if err != nil {
 		return nil, err
 	}
-	manifestReference, err := native16ManifestRootReference()
+	manifestReference, err := journal.ManifestRootReference()
 	if err != nil {
 		return nil, err
 	}

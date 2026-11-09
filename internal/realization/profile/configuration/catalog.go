@@ -10,6 +10,8 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+const ProjectRootIdentity = "project"
+
 type scopeKey struct {
 	target target.Target
 	scope  target.Scope
@@ -52,7 +54,7 @@ type nativeLayout struct {
 }
 
 var (
-	projectRoot       = rootFact{"project", "selected-project-v1"}
+	projectRoot       = rootFact{ProjectRootIdentity, "selected-project-v1"}
 	piRoot            = rootFact{"pi-agent", "pi-agent-location-v1"}
 	codexRoot         = rootFact{"codex-home", "codex-home-location-v1"}
 	claudePreferences = rootFact{"claude-preferences", "claude-preferences-location-v1"}

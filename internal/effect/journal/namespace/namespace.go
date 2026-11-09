@@ -71,11 +71,7 @@ func (roots Roots) With(reference output.RootReference, selection RootSelection)
 	if err := selection.validate(); err != nil {
 		return Roots{}, err
 	}
-	manifest, err := configuration.ProjectRootReference()
-	if err != nil {
-		return Roots{}, err
-	}
-	if reference == manifest && selection.endpoint != nil {
+	if reference.Identity() == configuration.ProjectRootIdentity && selection.endpoint != nil {
 		return Roots{}, fmt.Errorf("native manifest root requires a directory selection")
 	}
 	for existing := range roots.selected {
@@ -98,11 +94,12 @@ func (roots Roots) Selection(reference output.RootReference) (RootSelection, boo
 }
 
 func (roots Roots) Manifest() (RootSelection, bool) {
-	reference, err := configuration.ProjectRootReference()
-	if err != nil {
-		return RootSelection{}, false
+	for reference, selection := range roots.selected {
+		if reference.Identity() == configuration.ProjectRootIdentity {
+			return selection, true
+		}
 	}
-	return roots.Selection(reference)
+	return RootSelection{}, false
 }
 
 type RootGrant struct {
@@ -118,12 +115,12 @@ type QualifiedRoots struct {
 }
 
 func (roots QualifiedRoots) Manifest() (RootGrant, bool) {
-	reference, err := configuration.ProjectRootReference()
-	if err != nil {
-		return RootGrant{}, false
+	for reference, grant := range roots.grants {
+		if reference.Identity() == configuration.ProjectRootIdentity {
+			return grant, true
+		}
 	}
-	grant, present := roots.grants[reference]
-	return grant, present
+	return RootGrant{}, false
 }
 
 func (grant RootGrant) Provenance() rootedpath.AuthorityProvenance { return grant.provenance }
@@ -415,10 +412,6 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 	if err := ctx.Err(); err != nil {
 		return QualifiedRoots{}, err
 	}
-	manifest, err := configuration.ProjectRootReference()
-	if err != nil {
-		return QualifiedRoots{}, err
-	}
 	references := slices.Collect(maps.Keys(roots.selected))
 	slices.SortFunc(references, output.RootReference.Compare)
 	result := make(map[output.RootReference]RootGrant, len(roots.selected))
@@ -437,7 +430,7 @@ func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraver
 			return QualifiedRoots{}, err
 		}
 		if selection.creation != nil {
-			if reference == manifest {
+			if reference.Identity() == configuration.ProjectRootIdentity {
 				return QualifiedRoots{}, fmt.Errorf("native manifest root must already exist")
 			}
 			if _, err := selection.qualifyCreation(ctx, budget); err != nil {

@@ -33,6 +33,68 @@ func TestManifestBindingCannotComeFromAContainingHostRoot(t *testing.T) {
 	}
 }
 
+func TestManifestIdentityKeepsItsExplicitLocatorRevision(t *testing.T) {
+	selected := nativeNamespaceRoot(t, t.TempDir())
+	reference, err := output.NewRootReference("project", "fixture-project-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := (Roots{}).With(reference, selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, present := roots.Manifest()
+	if !present || manifest != selected {
+		t.Fatal("a selected manifest disappeared because its locator is not the current catalog revision")
+	}
+	qualified, err := roots.Qualify(t.Context(), imageBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, present := qualified.Manifest()
+	if !present || grant.RootReference() != reference || grant.SelectedPath() != selected.SelectedPath {
+		t.Fatal("manifest qualification substituted the current locator contract")
+	}
+	other, err := output.NewRootReference("project", "fixture-other-project-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := roots.With(other, selected); err == nil {
+		t.Fatal("two locator revisions claimed one manifest identity")
+	}
+}
+
+func TestManifestRoleCannotBecomeAPointOrCreationThroughAnotherRevision(t *testing.T) {
+	reference, err := output.NewRootReference("project", "fixture-project-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	point := filepath.Join(t.TempDir(), "selected.json")
+	endpoint, err := CaptureEndpointRoot(t.Context(), [2]string{point, point}, imageBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = endpoint.Close() })
+	if roots, err := (Roots{}).With(reference, endpoint); err == nil || len(roots.selected) != 0 {
+		t.Error("another locator revision turned a point into a manifest directory")
+	}
+	creation, err := CaptureRootSelector(t.Context(), filepath.Join(t.TempDir(), "missing-project"), imageBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = creation.Close() })
+	if creation.creation == nil {
+		t.Fatal("fixture did not require directory creation")
+	}
+	roots, err := (Roots{}).With(reference, creation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qualified, err := roots.Qualify(t.Context(), imageBudget(t)); err == nil || len(qualified.grants) != 0 {
+		t.Fatal("another locator revision admitted creation of its selected manifest root")
+	}
+}
+
 func TestManifestAuthorityClosesOnlyItsOwnedRoot(t *testing.T) {
 	selected := nativeNamespaceRoot(t, t.TempDir())
 	destination := outputtest.Parse(t, "AGENTS.md")

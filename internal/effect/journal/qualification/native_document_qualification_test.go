@@ -179,6 +179,47 @@ func TestQualifiedNativeWriterRefusesProtectedArtifactRoot(t *testing.T) {
 	}
 }
 
+func TestQualifiedNativeManifestRequiresRecordedLocatorWithTheSameProvenance(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	manifestReference, err := fixture.journal.ManifestRootReference()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := output.NewRootReference(manifestReference.Identity(), "fixture-other-project-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchors, err := fixture.journal.RecordedRootAnchors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roots journalnamespace.Roots
+	for reference := range anchors {
+		selected, supplied := fixture.roots.Selection(reference)
+		if !supplied {
+			t.Fatal("fixture omitted a recorded root")
+		}
+		if reference == manifestReference {
+			reference = other
+		}
+		roots, err = roots.With(reference, selected)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	grants, err := roots.Qualify(t.Context(), fixture.read.Budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, present := grants.Manifest()
+	if !present || manifest.RootReference() != other || !fixture.journal.MatchesManifestRoot(manifest.Provenance()) {
+		t.Fatal("fixture did not isolate the recorded locator from manifest provenance")
+	}
+	if namespaces, err := journalqualification.LoadNamespaces(fixture.journal, t.Context(), fixture.read, roots); err == nil || namespaces != nil {
+		t.Fatal("matching provenance substituted for the recorded manifest locator", err)
+	}
+}
+
 func TestZeroNativeQualificationRefusesBeforeRootQualification(t *testing.T) {
 	_, err := journalqualification.LoadNamespaces(journalrecord.Native{}, t.Context(), journalqualification.ReadOptions{
 		Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t),

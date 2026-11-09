@@ -66,6 +66,18 @@ func TestNative16BindingsRefuseUnadmittedRootsAndHosts(t *testing.T) {
 	}
 }
 
+func TestNative16ManifestReferenceKeepsItsRecordedVersion(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	reference, err := value.ManifestRootReference()
+	if err != nil || reference.Identity() != "project" || reference.LocatorPolicy() != "selected-project-v1" {
+		t.Fatal("native16 manifest reference followed a current catalog revision", reference, err)
+	}
+	if reference, err := (Native{}).ManifestRootReference(); err == nil || reference != (output.RootReference{}) {
+		t.Fatal("an uninitialized journal supplied a manifest reference", reference, err)
+	}
+}
+
 func TestNative16ConsumersDoNotReinterpretUnadmittedBindings(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	fixture.record.DocumentGroups[0].Aliases[0].Address = recoveryDocumentAliasRef{
