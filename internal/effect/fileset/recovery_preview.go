@@ -42,6 +42,10 @@ func InspectFileSetRecovery(ctx context.Context, stateDir string, exactPaths []s
 			return "", fmt.Errorf("interrupted file-set target %q does not belong to this operation", target.Path)
 		}
 	}
+	return inspectLoadedFileSetRecovery(ctx, canonical, marker)
+}
+
+func inspectLoadedFileSetRecovery(ctx context.Context, canonical string, marker transactionMarker) (RecoveryDisposition, error) {
 	if err := rejectAbandonedFileSetResidue(ctx, canonical); err != nil {
 		return "", err
 	}

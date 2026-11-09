@@ -75,6 +75,17 @@ func prepareMarkerVersion(
 	version int,
 	retainReference bool,
 ) (transactionMarker, error) {
+	return prepareMarkerIntentVersion(ctx, stateDir, targets, version, retainReference, nil)
+}
+
+func prepareMarkerIntentVersion(
+	ctx context.Context,
+	stateDir string,
+	targets []FileTarget,
+	version int,
+	retainReference bool,
+	expected map[string]RecoveryTarget,
+) (transactionMarker, error) {
 	if err := ctx.Err(); err != nil {
 		return transactionMarker{}, err
 	}
@@ -205,6 +216,11 @@ func prepareMarkerVersion(
 		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if expected != nil {
+			if err := matchFileSetIntent(marker, expected); err != nil {
+				return err
+			}
 		}
 		markerContent, marshalErr := marshalMarker(marker)
 		if marshalErr != nil {
