@@ -46,6 +46,12 @@ func TestNativeNamespaceFollowsAliasesOnlyIntoExplicitTrustedRoots(t *testing.T)
 	if err != nil || namespace.Observation().Validate() != nil {
 		t.Fatalf("actual alias qualification: %v", err)
 	}
+	for _, alias := range namespace.Aliases() {
+		binding, known := alias.Binding()
+		if !known || binding.Validate() != nil || binding.Location() != alias.Location() || binding.RootReference() != alias.Root().RootReference() {
+			t.Fatal("forward observation lost its selected complete binding")
+		}
+	}
 	piAuthority, err := pi.Root.Authority()
 	if err != nil {
 		t.Fatal(err)

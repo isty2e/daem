@@ -10,7 +10,7 @@ import (
 // WriterBinding requalifies the aliases before exposing their existing borrowed
 // writer root and binding. It does not acquire ownership or execution leases.
 func (namespace DocumentNamespace) WriterBinding(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (*rootedpath.CapturedRoot, rootedpath.Destination, error) {
-	current, err := observeNativeDocumentNamespace(ctx, namespace.Addresses(), namespace.roots, namespace.protection, namespace.filesystem, budget, &namespace.writerPin)
+	current, err := observeNativeDocumentNamespace(ctx, namespace.inputs, namespace.roots, namespace.protection, namespace.filesystem, budget, &namespace.writerPin)
 	if err != nil {
 		return nil, rootedpath.Destination{}, err
 	}

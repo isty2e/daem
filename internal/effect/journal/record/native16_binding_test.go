@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -32,9 +33,10 @@ func TestNative16BindingsRetainTheirRecordedVersionMeaning(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			reference, relative, err := native16RootBindingForAlias(address)
-			if err != nil || reference.Identity() != test.identity || reference.LocatorPolicy() != test.policy || relative != test.relative {
-				t.Fatal("historical binding changed", reference, relative, err)
+			location, err := native16RootBindingForAlias(address)
+			reference := location.RootReference()
+			if err != nil || reference.Identity() != test.identity || reference.LocatorPolicy() != test.policy || location.RelativePath() != test.relative {
+				t.Fatal("historical binding changed", reference, location.RelativePath(), err)
 			}
 		})
 	}
@@ -59,9 +61,9 @@ func TestNative16BindingsRefuseUnadmittedRootsAndHosts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		reference, relative, err := native16RootBindingForAlias(address)
-		if err == nil || reference != (output.RootReference{}) || relative != "" {
-			t.Fatal("unsupported native16 alias supplied partial binding facts", test.alias, reference, relative, err)
+		location, err := native16RootBindingForAlias(address)
+		if err == nil || location != (configuration.AliasLocation{}) {
+			t.Fatal("unsupported native16 alias supplied partial binding facts", test.alias, location, err)
 		}
 	}
 }

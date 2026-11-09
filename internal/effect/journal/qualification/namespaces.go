@@ -49,9 +49,21 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		aliases, err := record.Addresses(ctx)
-		if err != nil {
-			return nil, err
+		recordedAliases := record.Aliases()
+		aliases := make([]journalnamespace.RecordedAlias, 0, len(recordedAliases))
+		for _, alias := range recordedAliases {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			address, err := alias.Address()
+			if err != nil {
+				return nil, err
+			}
+			location, err := alias.Location()
+			if err != nil {
+				return nil, err
+			}
+			aliases = append(aliases, journalnamespace.RecordedAlias{Address: address, Location: location})
 		}
 		provenance, relative, err := record.Writer()
 		if err != nil {
@@ -66,7 +78,7 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 			return nil, err
 		}
 		if options.Rules.mode == forwardNamespaceRules {
-			original, present := expected[aliases[0]]
+			original, present := expected[aliases[0].Address]
 			if !present {
 				return nil, fmt.Errorf("native forward document has no original rule observation")
 			}
@@ -84,7 +96,7 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		for _, alias := range namespace.Aliases() {
 			currentAliases[alias.Address()] = alias
 		}
-		for _, alias := range record.Aliases() {
+		for _, alias := range recordedAliases {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}

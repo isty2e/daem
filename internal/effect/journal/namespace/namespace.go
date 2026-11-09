@@ -136,6 +136,7 @@ func (grant RootGrant) ValidateSelection(selector string, budget rootedpath.Phys
 
 type Alias struct {
 	address     aggregate.DocumentAddress
+	location    configuration.AliasLocation
 	binding     configuration.AliasBinding
 	root        RootGrant
 	relative    rootedpath.RelativeDestination
@@ -146,8 +147,13 @@ func (alias Alias) Address() aggregate.DocumentAddress { return alias.address }
 func (alias Alias) Observation() mutation.DirectoryEntryAuthorityObservation {
 	return alias.observation
 }
-func (alias Alias) Root() RootGrant                     { return alias.root }
-func (alias Alias) Binding() configuration.AliasBinding { return alias.binding }
+func (alias Alias) Root() RootGrant                       { return alias.root }
+func (alias Alias) Location() configuration.AliasLocation { return alias.location }
+
+// Binding is unavailable when the recorded format did not retain a document policy.
+func (alias Alias) Binding() (configuration.AliasBinding, bool) {
+	return alias.binding, alias.binding != (configuration.AliasBinding{})
+}
 
 // WriterPin is durable identity evidence, not a current route or
 // permission to acquire outside independently selected roots.
@@ -192,6 +198,7 @@ type DocumentNamespace struct {
 	protection  ReservationSelectors
 	physical    physicalDocumentFacts
 	filesystem  mutationfs.RootedReader
+	inputs      []aliasInput
 	aliases     []Alias
 	observation mutation.DirectoryEntryAuthorityObservation
 	writerRoot  *rootedpath.CapturedRoot
@@ -205,22 +212,30 @@ func ObserveAlias(ctx context.Context, address aggregate.DocumentAddress, roots 
 	if ctx == nil || budget == nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native alias observation requires context and shared traversal budget")
 	}
-	if _, err := journaldocument.AliasSet(ctx, []aggregate.DocumentAddress{address}); err != nil {
+	inputs, err := currentAliasInputs(ctx, []aggregate.DocumentAddress{address})
+	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
 	qualified, err := roots.Qualify(ctx, budget)
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
-	alias, _, err := observeNativeAlias(ctx, address, qualified.grants, budget)
+	alias, _, err := observeNativeAlias(ctx, inputs[0], qualified.grants, budget)
 	return alias.observation, err
 }
 
 func Observe(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget) (DocumentNamespace, error) {
-	return observeNativeDocumentNamespace(ctx, aliases, roots, protection, filesystem, budget, nil)
+	if ctx == nil || filesystem == nil || budget == nil {
+		return DocumentNamespace{}, fmt.Errorf("native namespace context, filesystem and shared traversal budget are required")
+	}
+	inputs, err := currentAliasInputs(ctx, aliases)
+	if err != nil {
+		return DocumentNamespace{}, err
+	}
+	return observeNativeDocumentNamespace(ctx, inputs, roots, protection, filesystem, budget, nil)
 }
 
-func Reobserve(ctx context.Context, aliases []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pin WriterPin) (DocumentNamespace, error) {
+func Reobserve(ctx context.Context, aliases []RecordedAlias, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pin WriterPin) (DocumentNamespace, error) {
 	if _, err := NewWriterPin(pin.provenance, pin.relative); err != nil {
 		return DocumentNamespace{}, err
 	}
@@ -229,7 +244,17 @@ func Reobserve(ctx context.Context, aliases []aggregate.DocumentAddress, roots R
 			return DocumentNamespace{}, err
 		}
 	}
-	return observeNativeDocumentNamespace(ctx, aliases, roots, protection, filesystem, budget, &pin)
+	if ctx == nil || filesystem == nil || budget == nil {
+		return DocumentNamespace{}, fmt.Errorf("native namespace context, filesystem and shared traversal budget are required")
+	}
+	if err := ctx.Err(); err != nil {
+		return DocumentNamespace{}, err
+	}
+	inputs, err := recordedAliasInputs(ctx, aliases)
+	if err != nil {
+		return DocumentNamespace{}, err
+	}
+	return observeNativeDocumentNamespace(ctx, inputs, roots, protection, filesystem, budget, &pin)
 }
 
 func (namespace DocumentNamespace) Observation() mutation.DirectoryEntryAuthorityObservation {
@@ -260,7 +285,7 @@ func (namespace DocumentNamespace) QualifyRoots(ctx context.Context, budget root
 // AcquireReferent requalifies root selections and aliases before returning a
 // final-entry-no-follow capability. The caller closes or consumes the capability.
 func (namespace DocumentNamespace) AcquireReferent(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, error) {
-	current, err := observeNativeDocumentNamespace(ctx, namespace.Addresses(), namespace.roots, namespace.protection, namespace.filesystem, budget, &namespace.writerPin)
+	current, err := observeNativeDocumentNamespace(ctx, namespace.inputs, namespace.roots, namespace.protection, namespace.filesystem, budget, &namespace.writerPin)
 	if err != nil {
 		return nil, err
 	}
@@ -277,14 +302,14 @@ func (namespace DocumentNamespace) AcquireReferent(ctx context.Context, budget r
 	return capability, nil
 }
 
-func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.DocumentAddress, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pinned *WriterPin) (DocumentNamespace, error) {
+func observeNativeDocumentNamespace(ctx context.Context, inputs []aliasInput, roots Roots, protection ReservationSelectors, filesystem mutationfs.RootedReader, budget rootedpath.PhysicalTraversalBudget, pinned *WriterPin) (DocumentNamespace, error) {
 	if ctx == nil || filesystem == nil || budget == nil {
 		return DocumentNamespace{}, fmt.Errorf("native namespace context, filesystem and shared traversal budget are required")
 	}
 	if err := ctx.Err(); err != nil {
 		return DocumentNamespace{}, err
 	}
-	if _, err := journaldocument.AliasSet(ctx, inputs); err != nil {
+	if err := validateAliasInputs(ctx, inputs); err != nil {
 		return DocumentNamespace{}, err
 	}
 	qualified, err := roots.Qualify(ctx, budget)
@@ -292,13 +317,15 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 		return DocumentNamespace{}, err
 	}
 	aliases := slices.Clone(inputs)
-	slices.SortFunc(aliases, journaldocument.CompareAliases)
+	slices.SortFunc(aliases, func(left, right aliasInput) int {
+		return journaldocument.CompareAliases(left.address, right.address)
+	})
 	grants := qualified.grants
-	result := DocumentNamespace{roots: roots, protection: protection, filesystem: filesystem}
+	result := DocumentNamespace{roots: roots, protection: protection, filesystem: filesystem, inputs: aliases}
 	boundRoots := make(map[output.RootReference]struct{})
 	var referent string
-	for _, address := range aliases {
-		alias, physical, err := observeNativeAlias(ctx, address, grants, budget)
+	for _, input := range aliases {
+		alias, physical, err := observeNativeAlias(ctx, input, grants, budget)
 		if err != nil {
 			return DocumentNamespace{}, err
 		}
@@ -308,7 +335,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 			return DocumentNamespace{}, fmt.Errorf("native document aliases do not identify one physical referent")
 		}
 		result.aliases = append(result.aliases, alias)
-		boundRoots[alias.binding.RootReference()] = struct{}{}
+		boundRoots[alias.location.RootReference()] = struct{}{}
 	}
 	observer := newPhysicalObserver(protection, budget)
 	if err := observer.requireUnreserved(ctx, result.aliases); err != nil {
@@ -370,24 +397,25 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aggregate.Docu
 	return result, nil
 }
 
-func observeNativeAlias(ctx context.Context, address aggregate.DocumentAddress, grants map[output.RootReference]RootGrant, budget rootedpath.PhysicalTraversalBudget) (Alias, string, error) {
+func observeNativeAlias(ctx context.Context, input aliasInput, grants map[output.RootReference]RootGrant, budget rootedpath.PhysicalTraversalBudget) (Alias, string, error) {
 	if err := ctx.Err(); err != nil {
 		return Alias{}, "", err
 	}
+	address := input.address
 	if err := validateNativeDocumentRootRole(address, address.AggregateRoot().RootRole()); err != nil {
 		return Alias{}, "", err
 	}
-	binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+	location := input.location()
+	selectedRelative, err := rootedpath.NewRelativeDestination(location.RelativePath())
 	if err != nil {
 		return Alias{}, "", err
 	}
-	selectedRelative, err := rootedpath.NewRelativeDestination(binding.RelativePath())
-	if err != nil {
-		return Alias{}, "", err
-	}
-	grant, present := grants[binding.RootReference()]
+	grant, present := grants[location.RootReference()]
 	if !present {
 		return Alias{}, "", fmt.Errorf("native document alias has no independently selected root")
+	}
+	if grant.selection.endpoint != nil {
+		return Alias{}, "", fmt.Errorf("directory-relative alias cannot use a selected file-point witness")
 	}
 
 	logical := filepath.Join(grant.selection.SelectedPath, filepath.FromSlash(selectedRelative.Path()))
@@ -402,7 +430,7 @@ func observeNativeAlias(ctx context.Context, address aggregate.DocumentAddress, 
 	if err := ctx.Err(); err != nil {
 		return Alias{}, "", err
 	}
-	return Alias{address: address, binding: binding, root: grant, relative: selectedRelative, observation: observation}, physical, nil
+	return Alias{address: address, location: location, binding: input.binding, root: grant, relative: selectedRelative, observation: observation}, physical, nil
 }
 
 func (roots Roots) Qualify(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) (QualifiedRoots, error) {

@@ -105,7 +105,15 @@ func TestEndpointAnchorsCannotAuthorizeUnrelatedAliasGroups(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					value, observationErr = Reobserve(t.Context(), aliases, roots, fixtureProtection(t), reader, budget, pin)
+					inputs, err := currentAliasInputs(t.Context(), aliases)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var recorded []RecordedAlias
+					for _, input := range inputs {
+						recorded = append(recorded, RecordedAlias{Address: input.address, Location: input.location()})
+					}
+					value, observationErr = Reobserve(t.Context(), recorded, roots, fixtureProtection(t), reader, budget, pin)
 				} else {
 					value, observationErr = Observe(t.Context(), aliases, roots, fixtureProtection(t), reader, budget)
 				}
@@ -205,14 +213,18 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, pin)
+	var recorded []RecordedAlias
+	for _, alias := range original.Aliases() {
+		recorded = append(recorded, RecordedAlias{Address: alias.Address(), Location: alias.Location()})
+	}
+	current, err := Reobserve(t.Context(), recorded, roots, fixtureProtection(t), reader, budget, pin)
 	if err != nil || !original.Observation().Equal(current.Observation()) {
 		t.Fatalf("canonical pin lost the selected namespace: %v", err)
 	}
 	if _, inferred := current.WriterPin().RootReference(); inferred {
 		t.Fatal("legacy reobservation inferred a writer reference absent from its record")
 	}
-	bound, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, original.WriterPin())
+	bound, err := Reobserve(t.Context(), recorded, roots, fixtureProtection(t), reader, budget, original.WriterPin())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +265,7 @@ func TestWriterPinRetainsOnlyItsObservedSelectedRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if value, err := Reobserve(t.Context(), original.Addresses(), roots, fixtureProtection(t), reader, budget, foreign); err == nil || value.Observation().Validate() == nil || len(value.Addresses()) != 0 {
+	if value, err := Reobserve(t.Context(), recorded, roots, fixtureProtection(t), reader, budget, foreign); err == nil || value.Observation().Validate() == nil || len(value.Addresses()) != 0 {
 		t.Fatal("writer pin introduced a root not selected by the caller")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -119,6 +120,14 @@ func (alias DocumentAlias) Address() (aggregate.DocumentAddress, error) {
 		return aggregate.DocumentAddress{}, fmt.Errorf("recorded document alias is required")
 	}
 	return alias.record.Address.canonical()
+}
+
+func (alias DocumentAlias) Location() (configuration.AliasLocation, error) {
+	address, err := alias.Address()
+	if err != nil {
+		return configuration.AliasLocation{}, err
+	}
+	return native16RootBindingForAlias(address)
 }
 
 func (alias DocumentAlias) MatchesRoot(root rootedpath.AuthorityProvenance) bool {

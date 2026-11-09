@@ -92,7 +92,7 @@ func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Co
 			if err := alias.LogicalRoot.validate(address.Scope(), record.ManifestRootProvenance); err != nil {
 				return err
 			}
-			_, relative, err := native16RootBindingForAlias(address)
+			location, err := native16RootBindingForAlias(address)
 			if err != nil {
 				return err
 			}
@@ -102,7 +102,7 @@ func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Co
 			if address.Scope() != target.ScopeProject {
 				continue
 			}
-			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, relative)
+			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, location.RelativePath())
 			if err != nil {
 				return err
 			}

@@ -220,6 +220,46 @@ func TestQualifiedNativeManifestRequiresRecordedLocatorWithTheSameProvenance(t *
 	}
 }
 
+func TestRecordedNativeAliasLocationDoesNotSelectTheCurrentBinding(t *testing.T) {
+	fixture := nativeJournalFixture(t)
+	documents, err := fixture.journal.Documents()
+	if err != nil || len(documents) != 1 || len(documents[0].Aliases()) != 1 {
+		t.Fatal("fixture does not provide one historical alias", err)
+	}
+	location, err := documents[0].Aliases()[0].Location()
+	if err != nil || location.RootReference().Identity() != "pi-agent" || location.RootReference().LocatorPolicy() != "pi-agent-location-v1" {
+		t.Fatal("recorded alias followed the current locator selection", location, err)
+	}
+	manifestReference, err := fixture.journal.ManifestRootReference()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roots journalnamespace.Roots
+	for reference, selected := range map[output.RootReference]journalnamespace.RootSelection{
+		manifestReference:        namespacetest.LegacyRoot(t, fixture.roots, output.RootProject),
+		location.RootReference(): namespacetest.LegacyRoot(t, fixture.roots, output.RootPiAgent),
+	} {
+		roots, err = roots.With(reference, selected)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	namespaces, err := journalqualification.LoadNamespaces(fixture.journal, t.Context(), fixture.read, roots)
+	if err != nil || len(namespaces) != 1 {
+		t.Fatal("historical alias could not use its independently selected recorded root", err)
+	}
+	alias := namespaces[0].Aliases()[0]
+	if alias.Location() != location {
+		t.Fatal("qualified alias replaced its recorded root-relative location")
+	}
+	if _, known := alias.Binding(); known {
+		t.Fatal("native16 qualification invented a document policy")
+	}
+	if _, _, err := namespaces[0].WriterBinding(t.Context(), fixture.read.Budget); err != nil {
+		t.Fatal("qualified writer reinterpreted historical alias facts", err)
+	}
+}
+
 func TestZeroNativeQualificationRefusesBeforeRootQualification(t *testing.T) {
 	_, err := journalqualification.LoadNamespaces(journalrecord.Native{}, t.Context(), journalqualification.ReadOptions{
 		Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t),

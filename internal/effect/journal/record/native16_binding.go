@@ -3,7 +3,6 @@ package record
 import (
 	"fmt"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
@@ -16,14 +15,14 @@ func native16ManifestRootReference() (output.RootReference, error) {
 
 // Native16 did not record bindings. Keep its admitted interpretation independent
 // of the current catalog; third-host native namespaces were not admitted by it.
-func native16RootBindingForAlias(address aggregate.DocumentAddress) (output.RootReference, string, error) {
+func native16RootBindingForAlias(address aggregate.DocumentAddress) (configuration.AliasLocation, error) {
 	selected := address.Target()
 	if selected != target.TargetPi && selected != target.TargetCodex {
-		return output.RootReference{}, "", fmt.Errorf("native16 document alias has an unsupported host")
+		return configuration.AliasLocation{}, fmt.Errorf("native16 document alias has an unsupported host")
 	}
 	destination := address.AggregateRoot()
 	if err := destination.ValidateScope(address.Scope()); err != nil {
-		return output.RootReference{}, "", err
+		return configuration.AliasLocation{}, err
 	}
 	relative := destination.RelativePath()
 	var reference output.RootReference
@@ -31,7 +30,7 @@ func native16RootBindingForAlias(address aggregate.DocumentAddress) (output.Root
 	switch address.Scope() {
 	case target.ScopeProject:
 		if destination.RootRole() != output.RootProject {
-			return output.RootReference{}, "", fmt.Errorf("native16 project alias requires its manifest root")
+			return configuration.AliasLocation{}, fmt.Errorf("native16 project alias requires its manifest root")
 		}
 		reference, err = native16ManifestRootReference()
 	case target.ScopeGlobal:
@@ -40,25 +39,22 @@ func native16RootBindingForAlias(address aggregate.DocumentAddress) (output.Root
 			if destination.String() == "~/.pi/agent/mcp.json" {
 				relative = "mcp.json"
 			} else if destination.RootRole() != output.RootPiAgent {
-				return output.RootReference{}, "", fmt.Errorf("%w: native16 Pi alias has no recorded-version root binding", configuration.ErrDocumentPath)
+				return configuration.AliasLocation{}, fmt.Errorf("%w: native16 Pi alias has no recorded-version root binding", configuration.ErrDocumentPath)
 			}
 			reference, err = output.NewRootReference("pi-agent", "pi-agent-location-v1")
 		case target.TargetCodex:
 			if destination.String() == "~/.codex/config.toml" {
 				relative = "config.toml"
 			} else if destination.RootRole() != output.RootCodexHome {
-				return output.RootReference{}, "", fmt.Errorf("%w: native16 Codex alias has no recorded-version root binding", configuration.ErrDocumentPath)
+				return configuration.AliasLocation{}, fmt.Errorf("%w: native16 Codex alias has no recorded-version root binding", configuration.ErrDocumentPath)
 			}
 			reference, err = output.NewRootReference("codex-home", "codex-home-location-v1")
 		}
 	default:
-		return output.RootReference{}, "", fmt.Errorf("native16 alias requires an admitted scope")
+		return configuration.AliasLocation{}, fmt.Errorf("native16 alias requires an admitted scope")
 	}
 	if err != nil {
-		return output.RootReference{}, "", err
+		return configuration.AliasLocation{}, err
 	}
-	if err := hostconfig.ValidateRelativePath(relative); err != nil {
-		return output.RootReference{}, "", err
-	}
-	return reference, relative, nil
+	return configuration.NewAliasLocation(reference, relative)
 }

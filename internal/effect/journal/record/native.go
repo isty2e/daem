@@ -200,14 +200,11 @@ func (journal Native) RecordedRootAnchors() (map[output.RootReference]rootedpath
 	}
 	for _, document := range documents {
 		for _, alias := range document.Aliases() {
-			address, err := alias.Address()
+			location, err := alias.Location()
 			if err != nil {
 				return nil, err
 			}
-			reference, _, err := native16RootBindingForAlias(address)
-			if err != nil {
-				return nil, err
-			}
+			reference := location.RootReference()
 			provenance, err := alias.record.LogicalRoot.Provenance.canonical()
 			if err != nil {
 				return nil, err
