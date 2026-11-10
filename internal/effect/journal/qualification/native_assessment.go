@@ -246,6 +246,24 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 				return Assessment{}, fmt.Errorf("native document[%d] restoration ownership: %w", index, err)
 			}
 		}
+		if actions := ordinary.entries.Actions(); len(actions) != 0 {
+			selected, present := options.Roots.Manifest()
+			if !present {
+				return Assessment{}, fmt.Errorf("ordinary restoration requires its selected manifest binding")
+			}
+			manifest, err := journalnamespace.CaptureManifestAuthority(selected.SelectedPath, selected.Root, options.Documents.Budget)
+			if err != nil {
+				return Assessment{}, err
+			}
+			assessmentErr := RequireOrdinaryRestorationWriteExclusion(ctx, actions, journal.Owner().Key(), registry, OrdinaryRestorationReadOptions{
+				Manifest: manifest, Capabilities: options.Documents.OrdinaryCapabilities, Resolver: options.Resolver,
+				Artifacts: options.Documents.Artifacts, Active: options.Active, Filesystem: options.Documents.Filesystem,
+				Codecs: options.Documents.Codecs, Budget: options.Documents.Budget,
+			})
+			if err := errors.Join(assessmentErr, manifest.Close()); err != nil {
+				return Assessment{}, err
+			}
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return Assessment{}, err

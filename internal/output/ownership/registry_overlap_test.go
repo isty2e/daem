@@ -255,7 +255,7 @@ func TestRegistryWriteExclusionUsesActualEffectSemantics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = registry.RequireWriteExclusion(own, test.values, test.existence, test.modes, test.missing)
+			err = registry.RequireWriteExclusion(own.Key(), test.values, test.existence, test.modes, test.missing)
 			if test.conflict.Validate() != nil {
 				if err != nil {
 					t.Fatal("noninterfering write was refused", err)
@@ -293,7 +293,7 @@ func TestRegistryWriteExclusionRefusesIncompleteEvidence(t *testing.T) {
 		{name: "invalid provisional", registry: EmptyRegistry(), owner: owner, missing: []pathauthority.Provisional{{}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := test.registry.RequireWriteExclusion(test.owner, test.values, test.existence, test.modes, test.missing); err == nil {
+			if err := test.registry.RequireWriteExclusion(test.owner.Key(), test.values, test.existence, test.modes, test.missing); err == nil {
 				t.Fatal("incomplete comparison facts granted claim exclusion")
 			}
 		})

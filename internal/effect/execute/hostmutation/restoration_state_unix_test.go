@@ -110,8 +110,11 @@ func TestRestorationOwnershipGuardReceivesIndependentActionFacts(t *testing.T) {
 			}
 			stop := errors.New("stop at ownership guard")
 			guardCalls := 0
-			guard := func(_ context.Context, observed RestorationAction, _ mutationnamespace.Destination) error {
+			guard := func(_ context.Context, observed RestorationAction, _ mutationnamespace.Destination, effects recovery.RestorationEffects) error {
 				guardCalls++
+				if err := effects.Validate(); err != nil || !effects.Changed() || !effects.ChangesExistence() {
+					t.Fatalf("guard received an unqualified whole-document effect: %+v, %v", effects, err)
+				}
 				if observed.ExpectedAfter.PathMode == nil || observed.ExpectedAfter.PathMode.FileMode().Perm() != 0o600 {
 					t.Fatal("ownership guard changed retained action mode")
 				}
@@ -128,6 +131,9 @@ func TestRestorationOwnershipGuardReceivesIndependentActionFacts(t *testing.T) {
 			}
 			if guardCalls != 2 {
 				t.Fatalf("guard calls = %d, want two unchanged action snapshots", guardCalls)
+			}
+			if restoration.rollback.entries[0].attempted {
+				t.Fatal("guard refusal manufactured a host attempt requiring compensation")
 			}
 			current, err := os.ReadFile(path)
 			if err != nil || string(current) != string(content) {

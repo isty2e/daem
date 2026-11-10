@@ -297,7 +297,7 @@ func stageRootedRollbackDestinations(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,
-			baseline.stagedState.contentHash,
+			string(artifact.HashFileContent(content)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("bind rooted rollback file %q: %w", destination.Logical(), err)

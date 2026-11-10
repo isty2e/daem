@@ -76,7 +76,7 @@ func (stage nativeOrdinaryRecoveryStage) execute(ctx context.Context, authority 
 		visit++
 		return semanticGuard(ctx)
 	}
-	err = stage.restoration.Execute(ctx, authority.generalExecutionWorkBudget, beforeAction, claimoperation.ProvisionalRestorationGuard(intents, reader, authority.generalTraversalPhase), gate)
+	err = stage.restoration.Execute(ctx, authority.generalExecutionWorkBudget, beforeAction, claimoperation.RestorationGuard(operation.Owner().Key(), intents, reader, authority.generalTraversalPhase), gate)
 	if err != nil {
 		return err
 	}

@@ -173,14 +173,15 @@ func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testi
 	}
 
 	_, err = ApplyWithOptions(t.Context(), ApplyInput{
-		Paths:               fixture.paths,
-		Resolver:            destinationResolver(fixture.paths),
-		ManagedPathEffects:  []effectpreparation.ManagedPathEffect{effect},
-		ManagedPathEvidence: []observe.ManagedPathEvidence{evidence},
-		CurrentState:        durable.EmptySnapshot(),
-		Payloads:            payloads,
-		StateCodec:          testStateCodec(),
-		Filesystem:          testFilesystem(),
+		Paths:                   fixture.paths,
+		Resolver:                destinationResolver(fixture.paths),
+		ManagedPathEffects:      []effectpreparation.ManagedPathEffect{effect},
+		ManagedPathEvidence:     []observe.ManagedPathEvidence{evidence},
+		CurrentState:            durable.EmptySnapshot(),
+		Payloads:                payloads,
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
 			return &statefileRefusal{errors.New("injected statefile failure")}

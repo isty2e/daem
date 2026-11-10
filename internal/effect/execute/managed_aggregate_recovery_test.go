@@ -79,13 +79,14 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 		journalCapture, journalCaptureErr = readTreeBytes(paths.RecoveryDir)
 	})
 	_, err := ApplyWithOptions(context.Background(), ApplyInput{
-		Paths:            paths,
-		Resolver:         destinationResolver(paths),
-		AggregateEffects: effects,
-		CurrentState:     durable.EmptySnapshot(),
-		Codecs:           testAggregateCodecs(),
-		StateCodec:       testStateCodec(),
-		Filesystem:       testFilesystem(),
+		Paths:                   paths,
+		Resolver:                destinationResolver(paths),
+		AggregateEffects:        effects,
+		CurrentState:            durable.EmptySnapshot(),
+		Codecs:                  testAggregateCodecs(),
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		Events: events,
 		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
@@ -145,13 +146,14 @@ func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *test
 	}
 
 	_, err := ApplyWithOptions(context.Background(), ApplyInput{
-		Paths:            paths,
-		Resolver:         destinationResolver(paths),
-		AggregateEffects: effects,
-		CurrentState:     durable.EmptySnapshot(),
-		Codecs:           testAggregateCodecs(),
-		StateCodec:       testStateCodec(),
-		Filesystem:       testFilesystem(),
+		Paths:                   paths,
+		Resolver:                destinationResolver(paths),
+		AggregateEffects:        effects,
+		CurrentState:            durable.EmptySnapshot(),
+		Codecs:                  testAggregateCodecs(),
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
 			return &statefileRefusal{errors.New("injected statefile failure")}
@@ -248,6 +250,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		AggregateEffects:    aggregateEffects,
 		CurrentState:        durable.EmptySnapshot(), Payloads: payloads,
 		Codecs: testAggregateCodecs(), StateCodec: testStateCodec(), Filesystem: testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		Events: func(event executionevent.Event) {
 			if event.Kind == executionevent.ActionDone && event.Action != nil {
@@ -335,13 +338,14 @@ func TestRecoveryRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 	paths := managedAggregateTestPaths(root, dataDir)
 
 	_, err := ApplyWithOptions(context.Background(), ApplyInput{
-		Paths:            paths,
-		Resolver:         destinationResolver(paths),
-		AggregateEffects: effects,
-		CurrentState:     durable.EmptySnapshot(),
-		Codecs:           testAggregateCodecs(),
-		StateCodec:       testStateCodec(),
-		Filesystem:       testFilesystem(),
+		Paths:                   paths,
+		Resolver:                destinationResolver(paths),
+		AggregateEffects:        effects,
+		CurrentState:            durable.EmptySnapshot(),
+		Codecs:                  testAggregateCodecs(),
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
 			return errors.New("injected indeterminate statefile failure")
@@ -504,6 +508,7 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 		Paths: paths, Resolver: destinationResolver(paths),
 		AggregateEffects: effects, CurrentState: currentState, Codecs: testAggregateCodecs(),
 		StateCodec: testStateCodec(), Filesystem: testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
 			return &statefileRefusal{errors.New("injected mixed statefile failure")}
@@ -588,13 +593,14 @@ func TestAggregateCancellationAfterVisibleBatchRollsBackEveryProjection(t *testi
 	paths := managedAggregateTestPaths(root, dataDir)
 	ctx, cancel := context.WithCancel(context.Background())
 	_, err := ApplyWithOptions(ctx, ApplyInput{
-		Paths:            paths,
-		Resolver:         destinationResolver(paths),
-		AggregateEffects: effects,
-		CurrentState:     durable.EmptySnapshot(),
-		Codecs:           testAggregateCodecs(),
-		StateCodec:       testStateCodec(),
-		Filesystem:       testFilesystem(),
+		Paths:                   paths,
+		Resolver:                destinationResolver(paths),
+		AggregateEffects:        effects,
+		CurrentState:            durable.EmptySnapshot(),
+		Codecs:                  testAggregateCodecs(),
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		Events: func(event executionevent.Event) {
 			if event.Kind == executionevent.ActionDone {

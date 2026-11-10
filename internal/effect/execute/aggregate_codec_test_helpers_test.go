@@ -2,6 +2,7 @@ package execute
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -51,22 +52,32 @@ func testStateReader(path string) durable.SnapshotReader {
 }
 
 func testPlanLoadOptions(paths Paths) journal.PlanLoadOptions {
-	return journal.PlanLoadOptions{
-		Filesystem:  testFilesystem(),
-		Resolver:    journalDestinationResolver(paths),
-		Codecs:      testAggregateCodecs(),
-		StateCodec:  testStateCodec(),
-		StateReader: testStateReader(paths.StatefilePath),
+	registry, err := ownershipstore.NewRecoveryReader(testRecoveryRegistryPath(paths))
+	if err != nil {
+		panic(err)
 	}
+	return journal.PlanLoadOptions{
+		Filesystem: testFilesystem(), Resolver: journalDestinationResolver(paths),
+		OwnershipRegistry: registry, Codecs: testAggregateCodecs(),
+		StateCodec: testStateCodec(), StateReader: testStateReader(paths.StatefilePath),
+	}
+}
+
+func testRecoveryRegistryPath(paths Paths) string {
+	if paths.OwnershipRegistryPath != "" {
+		return paths.OwnershipRegistryPath
+	}
+	return filepath.Join(filepath.Dir(paths.StatefilePath), "test-ownership.json")
 }
 
 func testRecoveryOptions(paths Paths) RecoveryOptions {
 	return RecoveryOptions{
-		Resolver:    destinationResolver(paths),
-		Codecs:      testAggregateCodecs(),
-		StateCodec:  testStateCodec(),
-		StateReader: testStateReader(paths.StatefilePath),
-		Filesystem:  testFilesystem(),
+		Resolver:                destinationResolver(paths),
+		Codecs:                  testAggregateCodecs(),
+		StateCodec:              testStateCodec(),
+		StateReader:             testStateReader(paths.StatefilePath),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}
 }
 

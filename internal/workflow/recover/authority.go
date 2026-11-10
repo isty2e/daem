@@ -331,9 +331,13 @@ func buildActiveRecoveryAuthorityEvidence(
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
-	if len(plan.ClaimTransitions()) != 0 {
+	if len(plan.ClaimTransitions()) != 0 || plan.RequiresHostWriteExclusion() {
+		access := mutation.AccessShared
+		if len(plan.ClaimTransitions()) != 0 {
+			access = mutation.AccessExclusive
+		}
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-			if err := builder.AddLogical(paths.OwnershipRegistryPath, mutation.AccessExclusive, effect); err != nil {
+			if err := builder.AddLogical(paths.OwnershipRegistryPath, access, effect); err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 		}

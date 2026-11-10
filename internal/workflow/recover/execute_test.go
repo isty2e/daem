@@ -421,6 +421,59 @@ func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) 
 	}
 }
 
+func TestHostRestorationRetainsSharedRegistryLeaseWithoutClaimSettlement(t *testing.T) {
+	fixture := prepareRecoveryFixture(t, true)
+	prepared, err := Plan(t.Context(), fixture.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	active, present := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !present || active.RequiresOwnershipSettlement() || !active.RequiresHostWriteExclusion() {
+		t.Fatal("fixture does not separate host-write observation from claim settlement")
+	}
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := prepared.lifecycle.planned.(recoveryPreparation).authorityEvidence
+	store, err := mutation.NewStore(paths.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := store.Acquire(t.Context(), evidence.domains...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leases.Release()
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		reader, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: paths.OwnershipRegistryPath, Access: mutation.AccessShared, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shared, err := store.Acquire(t.Context(), reader)
+		if err != nil {
+			t.Fatal("a concurrent Registry reader was unnecessarily excluded", err)
+		}
+		if err := shared.Release(); err != nil {
+			t.Fatal(err)
+		}
+		writer, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: paths.OwnershipRegistryPath, Access: mutation.AccessExclusive, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		other, acquireErr := store.Acquire(ctx, writer)
+		cancel()
+		if acquireErr == nil {
+			_ = other.Release()
+		}
+		if !errors.Is(acquireErr, context.DeadlineExceeded) {
+			t.Fatalf("Registry publication raced a host restoration: %v", acquireErr)
+		}
+	}
+}
+
 func TestCleanupOnlyRecoveryUsesOnlyRetirementAuthority(t *testing.T) {
 	fixture := prepareCleanupRecoveryFixture(t, retirement.PhasePrepared, true)
 	writeRecoverTestFile(t, fixture.paths.StatefilePath, []byte("invalid statefile\n"))

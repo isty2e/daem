@@ -76,10 +76,11 @@ func newApplyEventFixture(t *testing.T) *applyEventFixture {
 	return &applyEventFixture{
 		root: root,
 		paths: Paths{
-			RecoveryDir:   filepath.Join(root, ".daem", "recovery"),
-			StateDir:      filepath.Join(root, ".daem"),
-			StatefilePath: filepath.Join(root, ".daem", "state.json"),
-			ManifestRoot:  root,
+			RecoveryDir:           filepath.Join(root, ".daem", "recovery"),
+			StateDir:              filepath.Join(root, ".daem"),
+			StatefilePath:         filepath.Join(root, ".daem", "state.json"),
+			ManifestRoot:          root,
+			OwnershipRegistryPath: filepath.Join(root, ".daem", "ownership.json"),
 		},
 		current:      durable.EmptySnapshot(),
 		destinations: make(map[string]output.Destination),
@@ -113,14 +114,15 @@ func (fixture *applyEventFixture) input(actions []applyEventAction) ApplyInput {
 		panic(err)
 	}
 	return ApplyInput{
-		Paths:               fixture.paths,
-		Resolver:            destinationResolver(fixture.paths),
-		ManagedPathEffects:  effects,
-		ManagedPathEvidence: evidence,
-		CurrentState:        fixture.current,
-		Payloads:            payloads,
-		StateCodec:          testStateCodec(),
-		Filesystem:          testFilesystem(),
+		Paths:                   fixture.paths,
+		Resolver:                destinationResolver(fixture.paths),
+		ManagedPathEffects:      effects,
+		ManagedPathEvidence:     evidence,
+		CurrentState:            fixture.current,
+		Payloads:                payloads,
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}
 }
 

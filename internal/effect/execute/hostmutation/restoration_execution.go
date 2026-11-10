@@ -35,7 +35,7 @@ type RestorationAction struct {
 	AggregateContract   *aggregate.ProjectionContract
 }
 
-type RestorationOwnershipGuard func(context.Context, RestorationAction, mutationnamespace.Destination) error
+type RestorationOwnershipGuard func(context.Context, RestorationAction, mutationnamespace.Destination, recovery.RestorationEffects) error
 
 type recoveryAggregateActionGroup struct {
 	indexes     []int
@@ -232,11 +232,6 @@ func executeRecoveryHostActionPlan(
 		}
 
 		destination := plan.resolvedDestinations[index]
-		if ownershipGuard != nil {
-			if err := ownershipGuard(ctx, action.clone(), destination); err != nil {
-				return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
-			}
-		}
 		if err := validateStagedRecoveryDestination(ctx, authority, budget, staged[index]); err != nil {
 			return fmt.Errorf(
 				"validate recovery host action %d baseline: %w",
@@ -261,6 +256,28 @@ func executeRecoveryHostActionPlan(
 				if err != nil {
 					return fmt.Errorf("read backup for %q: %w", action.Destination, err)
 				}
+				if ownershipGuard != nil {
+					current := aggregate.AbsentDocument()
+					var mode *recovery.PermissionMode
+					if staged[index].existed {
+						if err := admitRecoveryObservation(budget, staged[index].kind, staged[index].stagedWork); err != nil {
+							return err
+						}
+						baseline, err := staged[index].backup.ReadFile(ctx, max(int64(1), staged[index].stagedWork.Bytes()))
+						if err != nil {
+							return fmt.Errorf("read staged restoration baseline: %w", err)
+						}
+						current = aggregate.ExistingDocument(baseline)
+						mode = recovery.NewPermissionMode(staged[index].fileMode)
+					}
+					effects, err := recovery.NewFileRestorationEffects(current, mode, aggregate.ExistingDocument(content), recovery.NewPermissionMode(fileMode))
+					if err != nil {
+						return err
+					}
+					if err := ownershipGuard(ctx, action.clone(), destination, effects); err != nil {
+						return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+					}
+				}
 				if err := authority.control.Validate(ctx); err != nil {
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
@@ -281,6 +298,15 @@ func executeRecoveryHostActionPlan(
 					return fmt.Errorf("restore file %q: %w", action.Destination, err)
 				}
 			case recovery.PathKindDirectory:
+				if ownershipGuard != nil {
+					effects, err := recovery.NewWholePathRestorationEffects(staged[index].existed, true)
+					if err != nil {
+						return err
+					}
+					if err := ownershipGuard(ctx, action.clone(), destination, effects); err != nil {
+						return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+					}
+				}
 				if err := authority.control.Validate(ctx); err != nil {
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
@@ -302,6 +328,15 @@ func executeRecoveryHostActionPlan(
 				return fmt.Errorf("backup kind %q for %q is not supported", action.BackupKind, action.Destination)
 			}
 		case recovery.ActionKindRestoreDelete:
+			if ownershipGuard != nil {
+				effects, err := recovery.NewWholePathRestorationEffects(staged[index].existed, false)
+				if err != nil {
+					return err
+				}
+				if err := ownershipGuard(ctx, action.clone(), destination, effects); err != nil {
+					return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+				}
+			}
 			if err := authority.control.Validate(ctx); err != nil {
 				return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 			}
@@ -462,16 +497,6 @@ func executeRecoveryAggregateActionGroup(
 			err,
 		)
 	}
-	if ownershipGuard != nil {
-		for _, index := range group.indexes {
-			if err := ownershipGuard(ctx, actions[index].clone(), group.destination); err != nil {
-				return recoveryWholePathState{}, fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
-			}
-		}
-	}
-	for _, index := range group.indexes {
-		staged[index].attempted = true
-	}
 	if err := admitRecoveryObservation(
 		budget,
 		recovery.PathKindFile,
@@ -479,13 +504,6 @@ func executeRecoveryAggregateActionGroup(
 	); err != nil {
 		return recoveryWholePathState{}, fmt.Errorf(
 			"admit aggregate recovery baseline observation: %w",
-			err,
-		)
-	}
-	if err := authority.control.Validate(ctx); err != nil {
-		return recoveryWholePathState{}, fmt.Errorf(
-			"validate aggregate recovery group at action %d semantics: %w",
-			firstIndex,
 			err,
 		)
 	}
@@ -516,9 +534,26 @@ func executeRecoveryAggregateActionGroup(
 			if exists {
 				current = aggregate.ExistingDocument(existing)
 			}
-			rendered, failure := codec.Restore(current, baseline)
-			if failure != nil {
-				return nil, true, failure
+			var currentMode *recovery.PermissionMode
+			if exists {
+				currentMode = recovery.NewPermissionMode(mode)
+			}
+			rendered, effects, err := recovery.RestoreProjectionDocument(current, currentMode, baseline, recovery.NewPermissionMode(fileMode), codecs)
+			if err != nil {
+				return nil, true, err
+			}
+			if ownershipGuard != nil {
+				for _, index := range group.indexes {
+					if err := ownershipGuard(ctx, actions[index].clone(), group.destination, effects); err != nil {
+						return nil, true, fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+					}
+				}
+			}
+			if err := authority.control.Validate(ctx); err != nil {
+				return nil, true, fmt.Errorf("validate aggregate recovery group at action %d semantics: %w", firstIndex, err)
+			}
+			for _, index := range group.indexes {
+				staged[index].attempted = true
 			}
 			expected = rendered
 			expectedKnown = true

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -20,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
@@ -251,6 +253,20 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 
 func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, filesystem mutationfs.Store) (journal.NativeRecoveryPlan, journal.PlanLoadOptions) {
 	t.Helper()
+	load := nativeOrderRecoveryLoadOptions(t, input, host, filesystem)
+	disclosed, err := journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.JournalPaths(), load)
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, ok := disclosed.(journal.NativeRecoveryPlan)
+	if !ok || native.Blocked() || native.HasErrors() {
+		t.Fatalf("retained operation did not disclose executable native recovery: %#v", disclosed)
+	}
+	return native, load
+}
+
+func nativeOrderRecoveryLoadOptions(t *testing.T, input NativeApplyInput, host string, filesystem mutationfs.Store) journal.PlanLoadOptions {
+	t.Helper()
 	budget := physicalwork.NewCaptureBudget(nil)
 	reader, err := ownershipstore.NewRecoveryReader(input.Paths.OwnershipRegistryPath)
 	if err != nil {
@@ -263,7 +279,7 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	load := journal.PlanLoadOptions{
+	return journal.PlanLoadOptions{
 		Resolver: func(destination output.Destination) (string, error) { return input.Resolver(destination, budget) }, Filesystem: filesystem, OwnershipRegistry: reader,
 		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
 		NativeDocuments: &journal.Profile{
@@ -279,15 +295,110 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 			},
 		},
 	}
-	disclosed, err := journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.JournalPaths(), load)
+}
+
+func TestNativeOrdinaryRestorationExcludesFreshForeignOwnership(t *testing.T) {
+	input, host, original := nativeOrderApplyInput(t, target.ScopeProject)
+	input, ordinaryHost := nativeOrderWithOrdinaryMCP(t, input)
+	plan, err := PrepareNativeApplyEffectPlan(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	native, ok := disclosed.(journal.NativeRecoveryPlan)
-	if !ok || native.Blocked() || native.HasErrors() {
-		t.Fatalf("retained operation did not disclose executable native recovery: %#v", disclosed)
+	failure := errors.New("retain the mixed native journal")
+	refusal := errors.New("refuse automatic compensation")
+	options := nativeOrderApplyOptions(t)
+	accept := options.AcceptVisibilityChanges
+	reached := false
+	options.AcceptVisibilityChanges = func(ctx context.Context) error {
+		if err := accept(ctx); err != nil {
+			return err
+		}
+		current, err := os.ReadFile(host)
+		if err != nil || bytes.Equal(current, original) {
+			return err
+		}
+		if _, err := os.ReadFile(ordinaryHost); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		reached = true
+		return failure
 	}
-	return native, load
+	options.ValidateCompensationAuthority = func(context.Context) error { return refusal }
+	if _, err := ApplyNativeWithEffectPlan(t.Context(), input, plan, options); !reached || !errors.Is(err, failure) || !errors.Is(err, refusal) {
+		t.Fatal("mixed native fixture did not retain both actual publications", err)
+	}
+	if err := input.ProjectRoot.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(ordinaryHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = nativeOrderRecoveryPlan(t, input, host, testFilesystem())
+
+	foreignState := filepath.Join(t.TempDir(), "state.json")
+	stateBytes, err := input.StateCodec.Encode(durable.EmptySnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreignState, stateBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateKey, err := mutation.ObservePersistedDirectoryEntryAuthority(foreignState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(stateKey.Exact(), filepath.Join(filepath.Dir(foreignState), "foreign.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := mutation.ObservePersistedDirectoryEntryAuthority(ordinaryHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := ownership.NewManagedAddress(physical.Exact(), output.WholePathFootprint())
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ownership.NewActiveClaim(address, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := ownership.PresentClaim(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := ownership.NewClaimChange(address, ownership.NoClaim(), value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convergence, err := ownership.NewClaimConvergence([]ownership.ClaimChange{change})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := ownershipstore.New(input.Paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Converge(t.Context(), convergence); err != nil {
+		t.Fatal(err)
+	}
+	load := nativeOrderRecoveryLoadOptions(t, input, host, testFilesystem())
+	_, err = journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.JournalPaths(), load)
+	var conflict *ownership.ForeignClaimError
+	if !errors.As(err, &conflict) || !conflict.Existing.Equal(claim) {
+		t.Fatal("native ordinary restoration did not apply the current foreign-owner predicate", err)
+	}
+	current, err := os.ReadFile(ordinaryHost)
+	if err != nil || !bytes.Equal(current, before) {
+		t.Fatal("refused native ordinary assessment changed the host", err)
+	}
+	entries, err := os.ReadDir(input.Paths.RecoveryDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("refused native ordinary assessment lost the retained journal", err)
+	}
 }
 
 func nativeOrderWithOrdinaryMCP(t *testing.T, input NativeApplyInput) (NativeApplyInput, string) {

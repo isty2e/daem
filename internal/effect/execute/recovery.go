@@ -12,8 +12,10 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -275,7 +277,7 @@ func executeRecoveryPlanEffects(
 	if authority == nil {
 		return fmt.Errorf("recovery mutation authority is unavailable")
 	}
-	requiresOwnershipRegistry := len(plan.ClaimTransitions()) != 0 || len(plan.ProvisionalAcquireIntents()) != 0
+	requiresOwnershipRegistry := plan.RequiresOwnershipSettlement()
 	var registryStore ownershipmutation.RegistryStore
 	var physicalAuthority mutation.PhysicalAuthoritySet
 	if err := execution.runTerminalStep(
@@ -287,8 +289,8 @@ func executeRecoveryPlanEffects(
 			if authority.ownershipRegistryBinder == nil {
 				authority.ownershipRegistryBinder = options.OwnershipRegistryBinder
 			}
-			if requiresOwnershipRegistry &&
-				!authority.hasOwnershipRegistry &&
+			if (requiresOwnershipRegistry || plan.RequiresHostWriteExclusion()) &&
+				authority.ownershipRegistry == nil &&
 				authority.ownershipRegistryBinder == nil {
 				return fmt.Errorf("recovery ownership registry binder is required")
 			}
@@ -307,6 +309,10 @@ func executeRecoveryPlanEffects(
 				var err error
 				registryStore, err = authority.rootedOwnershipRegistry()
 				if err != nil {
+					return err
+				}
+			} else if plan.RequiresHostWriteExclusion() {
+				if err := authority.bindOwnershipRegistryRead(paths.OwnershipRegistryPath); err != nil {
 					return err
 				}
 			}
@@ -678,9 +684,13 @@ func executeRecoveryRollbackEffects(
 ) error {
 	steps := activeRecoveryRollbackPreparationSteps()
 	var hostActions []hostmutation.RestorationAction
+	var writeOwner stateauthority.Key
 	if err := execution.runTerminalStep(steps[0], func() error {
 		var err error
 		hostActions, err = recoveryHostActionsForPlan(plan)
+		if err == nil && len(hostActions) != 0 {
+			writeOwner, err = journalqualification.ObserveRestorationOwner(paths.StatefilePath, authority.generalTraversalPhase)
+		}
 		return err
 	}); err != nil {
 		return err
@@ -840,7 +850,7 @@ func executeRecoveryRollbackEffects(
 		ctx,
 		authority.generalExecutionWorkBudget,
 		guardedBeforeAction,
-		recoveryIntentClaimGuard(plan.ProvisionalAcquireIntents(), registryStore, authority),
+		recoveryIntentClaimGuard(writeOwner, plan.ProvisionalAcquireIntents(), authority),
 		gate,
 	)
 	hostErr = execution.settleHostBatch(hostErr)

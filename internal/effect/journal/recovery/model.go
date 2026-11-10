@@ -333,6 +333,26 @@ func (plan Plan) Clone() Plan {
 	return plan
 }
 
+func (authority Authority) RequiresOwnershipSettlement() bool {
+	return len(authority.claimTransitions) != 0 || len(authority.provisionalIntents) != 0
+}
+
+func (plan Plan) RequiresOwnershipSettlement() bool {
+	return plan.authority.RequiresOwnershipSettlement()
+}
+
+func (plan Plan) RequiresHostWriteExclusion() bool {
+	if plan.classification != ClassificationNeedsRollback {
+		return false
+	}
+	for _, action := range plan.actions {
+		if action.Kind == ActionKindRestoreWrite || action.Kind == ActionKindRestoreDelete {
+			return true
+		}
+	}
+	return false
+}
+
 // ClaimTransitions returns validated operation-scoped ownership transitions.
 func (plan Plan) ClaimTransitions() []ownershipmutation.ClaimTransition {
 	return append([]ownershipmutation.ClaimTransition(nil), plan.authority.claimTransitions...)

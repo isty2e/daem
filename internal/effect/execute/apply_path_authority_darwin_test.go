@@ -214,6 +214,7 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 		ManagedPathEffects: effects, ManagedPathEvidence: evidence,
 		CurrentState: fixture.current, Payloads: payloadSet,
 		StateCodec: testStateCodec(), Filesystem: testFilesystem(),
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}
 	return pathAuthorityApplyScenario{
 		fixture: fixture, input: input, leases: leases, destinations: destinations,

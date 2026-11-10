@@ -48,7 +48,7 @@ func (registry Registry) ProvisionalAncestorClaims(candidate pathauthority.Provi
 // RequireWriteExclusion checks value, existence, mode and provisional effects
 // separately. It grants neither mutation authority nor a mode transition;
 // phase and protection checks remain separate.
-func (registry Registry) RequireWriteExclusion(owner stateauthority.Authority, values []ManagedAddress, existence, modes []pathauthority.Exact, missing []pathauthority.Provisional) error {
+func (registry Registry) RequireWriteExclusion(owner stateauthority.Key, values []ManagedAddress, existence, modes []pathauthority.Exact, missing []pathauthority.Provisional) error {
 	if !registry.initialized {
 		return fmt.Errorf("ownership registry is required")
 	}
@@ -62,7 +62,7 @@ func (registry Registry) RequireWriteExclusion(owner stateauthority.Authority, v
 			return err
 		}
 		for _, claim := range claims {
-			if !claim.OwnedBy(owner) {
+			if claim.Owner().Key() != owner {
 				return &ForeignClaimError{Existing: claim}
 			}
 		}
@@ -78,7 +78,7 @@ func (registry Registry) RequireWriteExclusion(owner stateauthority.Authority, v
 			return err
 		}
 		for _, claim := range claims {
-			if !claim.OwnedBy(owner) {
+			if claim.Owner().Key() != owner {
 				return &ForeignClaimError{Existing: claim}
 			}
 		}
@@ -94,7 +94,7 @@ func (registry Registry) RequireWriteExclusion(owner stateauthority.Authority, v
 			return err
 		}
 		for _, claim := range claims {
-			if claim.Address().WholePath() && claim.Address().PathAuthority().Contains(physical) && !claim.OwnedBy(owner) {
+			if claim.Address().WholePath() && claim.Address().PathAuthority().Contains(physical) && claim.Owner().Key() != owner {
 				return &ForeignClaimError{Existing: claim}
 			}
 		}
@@ -106,7 +106,7 @@ func (registry Registry) RequireWriteExclusion(owner stateauthority.Authority, v
 			return err
 		}
 		for _, claim := range claims {
-			if !claim.OwnedBy(owner) {
+			if claim.Owner().Key() != owner {
 				return &ForeignClaimError{Existing: claim}
 			}
 		}

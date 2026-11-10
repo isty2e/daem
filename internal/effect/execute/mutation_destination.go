@@ -44,9 +44,8 @@ type mutationAuthority struct {
 	recoveryBackups            *hostmutation.Backups
 	generalExecutionWorkBudget *physicalwork.Budget
 	preparedRetirement         *journal.RetirementContinuation
-	ownershipRegistry          ownershipmutation.RegistryStore
+	ownershipRegistry          *ownershipRegistryBinding
 	ownershipRegistryBinder    ownershipmutation.RootedRegistryBinder
-	hasOwnershipRegistry       bool
 	ownsCapturedRoot           bool
 }
 
@@ -309,7 +308,6 @@ func (authority *mutationAuthority) close() error {
 	authority.ownershipRegistry = nil
 	authority.ownershipRegistryBinder = nil
 	authority.filesystem = nil
-	authority.hasOwnershipRegistry = false
 	if authority.capturedRoot == nil {
 		return closeErr
 	}

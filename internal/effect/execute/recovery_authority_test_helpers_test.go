@@ -22,6 +22,10 @@ func executeRecoveryPlanWithOptionsForTest(
 	paths Paths,
 	options RecoveryOptions,
 ) error {
+	paths.OwnershipRegistryPath = testRecoveryRegistryPath(paths)
+	if options.OwnershipRegistryBinder == nil && !plan.RequiresOwnershipSettlement() {
+		options.OwnershipRegistryBinder = testOwnershipRegistryBinder()
+	}
 	if options.ActiveJournalAuthority.Validate() == nil ||
 		plan.Blocked() ||
 		options.Resolver == nil ||

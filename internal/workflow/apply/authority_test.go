@@ -1,11 +1,14 @@
 package apply
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -173,6 +176,60 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	}
 	if evidence.authorityFingerprint.Equal(changedEvidence.authorityFingerprint) {
 		t.Fatal("authority fingerprint ignored destination change")
+	}
+}
+
+func TestProjectOnlyManagedApplyRetainsRegistryReadLeaseForRollback(t *testing.T) {
+	planned := applyAuthorityTestPlan(t)
+	if planned.nativePlan != nil {
+		t.Fatal("fixture must not rely on native-plan Registry authority")
+	}
+	for _, decision := range planned.assessment.Reconciliation.MutatingManagedPaths() {
+		if decision.InvolvesScope(target.ScopeGlobal) {
+			t.Fatal("fixture must not rely on ordinary global claim settlement")
+		}
+	}
+	evidence, err := buildApplyAuthorityEvidence(t.Context(), planned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evidence.documentWriteRequests) != 1 {
+		t.Fatal("project-only managed writes did not select their document namespace")
+	}
+	store, err := mutation.NewStore(planned.context.Paths.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := store.Acquire(t.Context(), evidence.domains...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leases.Release()
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		reader, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: planned.context.Paths.OwnershipRegistryPath, Access: mutation.AccessShared, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shared, err := store.Acquire(t.Context(), reader)
+		if err != nil {
+			t.Fatal("the existing project apply lease unnecessarily excludes another reader", err)
+		}
+		if err := shared.Release(); err != nil {
+			t.Fatal(err)
+		}
+		writer, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: planned.context.Paths.OwnershipRegistryPath, Access: mutation.AccessExclusive, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		other, acquireErr := store.Acquire(ctx, writer)
+		cancel()
+		if acquireErr == nil {
+			_ = other.Release()
+		}
+		if !errors.Is(acquireErr, context.DeadlineExceeded) {
+			t.Fatalf("Registry publication raced project apply/compensation: %v", acquireErr)
+		}
 	}
 }
 

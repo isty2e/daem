@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -18,25 +21,28 @@ type provisionalRestorationOutputKey struct {
 	footprint   output.Footprint
 }
 
-func ProvisionalRestorationGuard(intents []ownership.ProvisionalAcquireIntent, read func(context.Context) (ownership.Registry, error), budget rootedpath.PhysicalTraversalBudget) hostmutation.RestorationOwnershipGuard {
-	if len(intents) == 0 {
-		return nil
-	}
+func RestorationGuard(owner stateauthority.Key, intents []ownership.ProvisionalAcquireIntent, read func(context.Context) (ownership.Registry, error), budget rootedpath.PhysicalTraversalBudget) hostmutation.RestorationOwnershipGuard {
 	byOutput := make(map[provisionalRestorationOutputKey]ownership.ProvisionalAcquireIntent, len(intents))
 	for _, intent := range intents {
 		byOutput[provisionalRestorationOutputKey{destination: intent.Destination().String(), footprint: intent.Footprint()}] = intent
 	}
-	return func(ctx context.Context, action hostmutation.RestorationAction, destination mutationnamespace.Destination) error {
+	return func(ctx context.Context, action hostmutation.RestorationAction, destination mutationnamespace.Destination, effects recovery.RestorationEffects) error {
+		if err := effects.Validate(); err != nil {
+			return err
+		}
+		if err := owner.Validate(); err != nil {
+			return err
+		}
+		if budget == nil {
+			return fmt.Errorf("recovery restoration traversal budget is required")
+		}
 		footprint, err := output.FootprintFromLegacy(output.ContentPath(action.ContentPath))
 		if err != nil {
 			return fmt.Errorf("provisional recovery action scope: %w", err)
 		}
 		intent, present := byOutput[provisionalRestorationOutputKey{destination: action.Destination, footprint: footprint}]
-		if !present {
-			return nil
-		}
 		if read == nil {
-			return fmt.Errorf("ownership registry is required for provisional recovery rollback")
+			return fmt.Errorf("ownership registry is required for recovery host restoration")
 		}
 		observation, err := mutation.ObserveDirectoryEntryAuthorityBounded(destination.HostPath(), physicalwork.MaximumPhysicalPathDepth, budget)
 		if err != nil {
@@ -45,6 +51,12 @@ func ProvisionalRestorationGuard(intents []ownership.ProvisionalAcquireIntent, r
 		registry, err := read(ctx)
 		if err != nil {
 			return err
+		}
+		if err := registry.RequireWriteExclusion(owner, nil, nil, nil, nil); err != nil {
+			return err
+		}
+		if !present {
+			return journalqualification.RequireRestorationEffectsWriteExclusion(owner, registry, observation, effects)
 		}
 		if exact, ok := observation.Exact(); ok {
 			address, err := ownership.NewManagedAddressFromLegacy(exact, action.ContentPath)
@@ -58,7 +70,7 @@ func ProvisionalRestorationGuard(intents []ownership.ProvisionalAcquireIntent, r
 				actual, _ := ownership.PresentClaim(claim)
 				return &ownership.StaleClaimError{Address: address, Expected: ownership.NoClaim(), Actual: actual}
 			}
-			return nil
+			return journalqualification.RequireRestorationEffectsWriteExclusion(owner, registry, observation, effects)
 		}
 		provisional, ok := observation.Provisional()
 		if !ok || !provisional.Equal(intent.Path()) {
