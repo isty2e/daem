@@ -257,7 +257,7 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-	configReader, err := nativeConfigReader(native, resolver)
+	configReader, err := nativeConfigReader(native)
 	if err != nil {
 		return Assessment{}, err
 	}

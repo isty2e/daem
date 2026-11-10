@@ -174,6 +174,39 @@ func (alias Alias) Observation() mutation.DirectoryEntryAuthorityObservation {
 func (alias Alias) Root() RootGrant                       { return alias.root }
 func (alias Alias) Location() configuration.AliasLocation { return alias.location }
 
+// ReadPaths returns spellings of the captured selector and qualified route.
+// The paths are read aliases, not mutation authority.
+func (alias Alias) ReadPaths() []string {
+	if alias.route == "" {
+		return nil
+	}
+
+	paths := []string{alias.route}
+	var literal string
+	if endpoint := alias.root.selection.endpoint; endpoint != nil {
+		literal = endpoint.selected
+	} else if selector := alias.root.selection.literal; selector != "" {
+		literal = selector + string(filepath.Separator) + filepath.FromSlash(alias.relative.Path())
+	}
+
+	if literal == "" || literal == alias.route {
+		return paths
+	}
+	paths = append(paths, literal)
+
+	// Cleaning parent components can select a different symlinked parent.
+	for _, component := range strings.Split(filepath.ToSlash(literal), "/") {
+		if component == ".." {
+			return paths
+		}
+	}
+
+	if cleaned := filepath.Clean(literal); cleaned != literal && cleaned != alias.route {
+		paths = append(paths, cleaned)
+	}
+	return paths
+}
+
 // Binding is unavailable when the recorded format did not retain a document policy.
 func (alias Alias) Binding() (configuration.AliasBinding, bool) {
 	return alias.binding, alias.binding != (configuration.AliasBinding{})

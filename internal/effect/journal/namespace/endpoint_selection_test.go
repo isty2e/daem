@@ -6,12 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
+	"github.com/isty2e/daem/internal/target"
 )
 
 func TestEndpointSelectionUsesReferentPresenceWithoutChangingFiles(t *testing.T) {
@@ -236,7 +239,8 @@ func TestEndpointCaptureInterpretsTheLogicalParentBeforeJoiningTheFile(t *testin
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 	preferred := logical + string(filepath.Separator) + filepath.FromSlash("../config/.config.json")
-	selection, err := CaptureEndpointRoot(t.Context(), [2]string{preferred, filepath.Join(base, ".claude.json")}, imageBudget(t))
+	budget := imageBudget(t)
+	selection, err := CaptureEndpointRoot(t.Context(), [2]string{preferred, filepath.Join(base, ".claude.json")}, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +257,32 @@ func TestEndpointCaptureInterpretsTheLogicalParentBeforeJoiningTheFile(t *testin
 	if err != nil || !os.SameFile(current, expected) {
 		t.Fatal("endpoint normalization selected the lexical parent instead of host path semantics", selection.endpoint.physical, err)
 	}
-	if err := selection.qualifyLocator(t.Context(), imageBudget(t)); err != nil {
+	if err := selection.qualifyLocator(t.Context(), budget); err != nil {
 		t.Fatal(err)
+	}
+	address := nativeNamespaceAddress(t, target.TargetClaudeCode, target.ScopeGlobal, aggregate.ClaudeGlobalMCPConfigPath)
+	binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := (Roots{}).With(binding.RootReference(), selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, fixtureProtection(t), journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := namespace.Aliases()[0]
+	paths := alias.ReadPaths()
+	if !slices.Contains(paths, preferred) || !slices.Contains(paths, alias.route) {
+		t.Fatal("point read paths lost their captured selector or qualified route", paths)
+	}
+	for _, path := range paths {
+		observed, err := os.Stat(path)
+		if err != nil || !os.SameFile(current, observed) {
+			t.Fatal("point read path selected another physical file", path, err)
+		}
 	}
 }
 
