@@ -1,6 +1,7 @@
 package recovery_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -11,6 +12,31 @@ import (
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestPartialDocumentChangedFootprintsExcludeRootMetadata(t *testing.T) {
+	codec := partialNativeCodec(t, configdocument.JSON)
+	selection := partialNativeSelection(t, codec, ".codex/example.data", partialKey(t, "a"), partialKey(t, "b"))
+	left := partialState(t, true, 0o600, partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"a":0,"b":0}`))))
+	right := partialState(t, true, 0o640, partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"a":1,"b":0,"foreign":true}`))))
+	footprint, err := output.NewKeyFootprint(partialKey(t, "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := left.ChangedValueFootprints(right)
+	if err != nil || !slices.Equal(changed, []output.Footprint{footprint}) {
+		t.Fatal("selected delta included root metadata or an unchanged value", changed, err)
+	}
+	if changed, err := left.ChangedValueFootprints(left); err != nil || len(changed) != 0 {
+		t.Fatal("equal selected facts changed", changed, err)
+	}
+	if _, err := left.ChangedValueFootprints(recovery.PartialDocumentState{}); err == nil {
+		t.Fatal("uninitialized partial facts became an empty delta")
+	}
+	other := partialState(t, true, 0o600, partialRead(t, codec, partialNativeSelection(t, codec, ".codex/example.data", partialKey(t, "a")), aggregate.ExistingDocument([]byte(`{"a":0}`))))
+	if _, err := left.ChangedValueFootprints(other); err == nil {
+		t.Fatal("different selections became a partial delta")
+	}
+}
 
 func TestPartialDocumentPhaseIgnoresNativeHistoricalRootAcrossGrammars(t *testing.T) {
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.JSONC, configdocument.JSONLineComments, configdocument.TOML} {

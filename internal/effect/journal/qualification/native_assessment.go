@@ -236,6 +236,17 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 	default:
 		return Assessment{}, errors.Join(fmt.Errorf("native document state, host and registry phases do not admit recovery"), rollbackErr, finalizeErr)
 	}
+	if result.facts.disposition == nativeDocumentsRollback {
+		for index, stage := range stages {
+			namespace, present := qualified.NamespaceAt(index)
+			if !present {
+				return Assessment{}, fmt.Errorf("native recovery document namespace is incomplete")
+			}
+			if err := RequireRestorationWriteExclusion(journal.Owner(), registry, namespace.Observation(), stage.Restoration()); err != nil {
+				return Assessment{}, fmt.Errorf("native document[%d] restoration ownership: %w", index, err)
+			}
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return Assessment{}, err
 	}

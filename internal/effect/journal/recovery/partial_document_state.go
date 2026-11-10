@@ -2,7 +2,9 @@ package recovery
 
 import (
 	"fmt"
+	"slices"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -87,16 +89,38 @@ func MatchPartialDocumentStates(before, expected, current PartialDocumentState) 
 	}
 	for address, projection := range current.projections {
 		original, candidate := before.projections[address], expected.projections[address]
-		isBefore, isExpected := projection.Equal(original), projection.Equal(candidate)
-		if _, native := aggregate.HostConfigSyntaxForCodec(projection.Contract().CodecContractID()); native {
-			isBefore = projection.SelectedValueEqual(original)
-			isExpected = projection.SelectedValueEqual(candidate)
-		}
+		isBefore, isExpected := samePartialProjection(projection, original), samePartialProjection(projection, candidate)
 		match.before = match.before && isBefore
 		match.expected = match.expected && isExpected
 		match.recoverable = match.recoverable && (isBefore || isExpected)
 	}
 	return match, nil
+}
+
+func samePartialProjection(left, right aggregate.ProjectionState) bool {
+	if _, native := aggregate.HostConfigSyntaxForCodec(left.Contract().CodecContractID()); native {
+		return left.SelectedValueEqual(right)
+	}
+	return left.Equal(right)
+}
+
+// ChangedValueFootprints compares the selected values, not document presence
+// or mode. Neither state supplies physical path or write authority.
+func (state PartialDocumentState) ChangedValueFootprints(other PartialDocumentState) ([]output.Footprint, error) {
+	if !state.initialized || !other.initialized {
+		return nil, fmt.Errorf("partial document states must be initialized")
+	}
+	if err := state.sameSelection(other); err != nil {
+		return nil, err
+	}
+	var footprints []output.Footprint
+	for address, projection := range state.projections {
+		if !samePartialProjection(projection, other.projections[address]) {
+			footprints = append(footprints, address.Footprint())
+		}
+	}
+	slices.SortFunc(footprints, output.CompareFootprints)
+	return slices.Compact(footprints), nil
 }
 
 func (state PartialDocumentState) hasMCPDocumentMode() bool {

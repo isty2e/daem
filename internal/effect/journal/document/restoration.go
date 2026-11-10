@@ -3,8 +3,10 @@ package document
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 )
@@ -12,10 +14,13 @@ import (
 // Restoration is a bound content/metadata candidate, not permission to
 // mutate a host path or a decision about the durable recovery phase.
 type Restoration struct {
-	document    aggregate.Document
-	root        recovery.PartialDocumentState
-	changed     bool
-	initialized bool
+	document        aggregate.Document
+	root            recovery.PartialDocumentState
+	valueFootprints []output.Footprint
+	existence       bool
+	mode            bool
+	changed         bool
+	initialized     bool
 }
 
 func (restoration Restoration) Validate() error {
@@ -27,6 +32,11 @@ func (restoration Restoration) Validate() error {
 
 func (restoration Restoration) Document() aggregate.Document { return restoration.document }
 func (restoration Restoration) Changed() bool                { return restoration.changed }
+func (restoration Restoration) ValueFootprints() []output.Footprint {
+	return slices.Clone(restoration.valueFootprints)
+}
+func (restoration Restoration) ChangesExistence() bool { return restoration.existence }
+func (restoration Restoration) ChangesMode() bool      { return restoration.mode }
 func (restoration Restoration) RegularFileMode() (recovery.PermissionMode, bool) {
 	return restoration.root.RegularFileMode()
 }
@@ -57,14 +67,22 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 	}
 
 	candidate := current
+	var sequenceFootprints []output.Footprint
 	for _, sequence := range comparison.sequences {
 		observed, err := readArrayComparisonDocument(ctx, candidate, comparison.limits, sequence.Syntax())
 		if err != nil {
 			return Restoration{}, err
 		}
-		restored, _, err := sequence.Restore(ctx, observed)
+		restored, changed, err := sequence.Restore(ctx, observed)
 		if err != nil {
 			return Restoration{}, err
+		}
+		if changed {
+			footprint, err := output.NewKeyFootprint(sequence.ArrayPath())
+			if err != nil {
+				return Restoration{}, err
+			}
+			sequenceFootprints = append(sequenceFootprints, footprint)
 		}
 		candidate = aggregate.ExistingDocument(restored.Bytes())
 	}
@@ -111,6 +129,20 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 	if !match.Recoverable() && restoration.Changed() {
 		return Restoration{}, fmt.Errorf("selected document differs from both recorded states")
 	}
+	final, err := readComparisonState(ctx, candidate, candidateMode, comparison.limits, comparison.participants)
+	if err != nil {
+		return Restoration{}, err
+	}
+	footprints, err := match.observed.ChangedValueFootprints(final)
+	if err != nil {
+		return Restoration{}, err
+	}
+	footprints = append(footprints, sequenceFootprints...)
+	slices.SortFunc(footprints, output.CompareFootprints)
+	restoration.valueFootprints = slices.Compact(footprints)
+	if restoration.Changed() && len(restoration.valueFootprints) == 0 && !restoration.existence && !restoration.mode {
+		return Restoration{}, fmt.Errorf("restoration changed outside its selected value and root envelope")
+	}
 	if err := ctx.Err(); err != nil {
 		return Restoration{}, err
 	}
@@ -153,8 +185,14 @@ func NewRestoration(current aggregate.Document, mode *recovery.PermissionMode, c
 	if err != nil {
 		return Restoration{}, err
 	}
+	var footprints []output.Footprint
+	if !current.Equal(candidate) {
+		footprints = []output.Footprint{output.WholePathFootprint()}
+	}
 	return Restoration{
-		document: candidate, root: root,
-		changed: !current.Equal(candidate) || !beforeRoot.SameRootMetadata(root), initialized: true,
+		document: candidate, root: root, valueFootprints: footprints,
+		existence: current.Exists() != candidate.Exists(),
+		mode:      current.Exists() && candidate.Exists() && !beforeRoot.SameRootMetadata(root),
+		changed:   !current.Equal(candidate) || !beforeRoot.SameRootMetadata(root), initialized: true,
 	}, nil
 }

@@ -122,6 +122,13 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		if same, err := registryScope.Matches(operation.ObservedRegistry(), registry); err != nil || !same {
 			return errors.Join(fmt.Errorf("joint recovery Registry scope changed before restoration"), err)
 		}
+		if initial.RequiresRollback() {
+			for _, document := range operation.Documents() {
+				if err := journalqualification.RequireRestorationWriteExclusion(operation.Owner(), registry, document.Namespace().Observation(), document.Restoration()); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	}
 	observe := func() (journalqualification.NativeRecoveryAssessment, error) {

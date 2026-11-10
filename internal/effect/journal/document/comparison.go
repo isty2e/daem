@@ -36,6 +36,7 @@ type ComparisonMatch struct {
 	before      bool
 	expected    bool
 	recoverable bool
+	observed    recovery.PartialDocumentState
 }
 
 func (match ComparisonMatch) MatchesBefore() bool   { return match.before }
@@ -164,7 +165,7 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 		if err := ctx.Err(); err != nil {
 			return ComparisonMatch{}, err
 		}
-		return ComparisonMatch{before: before, expected: expected, recoverable: before || expected}, nil
+		return ComparisonMatch{before: before, expected: expected, recoverable: before || expected, observed: observed}, nil
 	}
 	partial, err := recovery.MatchPartialDocumentStates(comparison.beforeState, comparison.expectedState, observed)
 	if err != nil {
@@ -172,6 +173,7 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	}
 	match := ComparisonMatch{
 		before: partial.MatchesBefore(), expected: partial.MatchesExpected(), recoverable: partial.Recoverable(),
+		observed: observed,
 	}
 	for _, sequence := range comparison.sequences {
 		document, err := readArrayComparisonDocument(ctx, current, comparison.limits, sequence.Syntax())

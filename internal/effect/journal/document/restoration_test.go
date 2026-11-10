@@ -2,6 +2,7 @@ package document_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/journal/document"
@@ -27,11 +28,12 @@ func TestDocumentRestorationRollsBackBothMixedNativePiDirections(t *testing.T) {
 		name    string
 		current string
 		changed bool
+		keys    []string
 	}{
-		{"native expected order before", `{"model":"fast","outside":"new","packages":["npm:a","npm:b"]}`, true},
-		{"native before order expected", `{"model":"balanced","outside":"new","packages":["npm:b","npm:a"]}`, true},
-		{"both expected", `{"model":"fast","outside":"new","packages":["npm:b","npm:a"]}`, true},
-		{"already before", `{"model":"balanced","outside":"new","packages":["npm:a","npm:b"]}`, false},
+		{"native expected order before", `{"model":"fast","outside":"new","packages":["npm:a","npm:b"]}`, true, []string{"model"}},
+		{"native before order expected", `{"model":"balanced","outside":"new","packages":["npm:b","npm:a"]}`, true, []string{"packages"}},
+		{"both expected", `{"model":"fast","outside":"new","packages":["npm:b","npm:a"]}`, true, []string{"model", "packages"}},
+		{"already before", `{"model":"balanced","outside":"new","packages":["npm:a","npm:b"]}`, false, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current := aggregate.ExistingDocument([]byte(test.current))
@@ -52,12 +54,93 @@ func TestDocumentRestorationRollsBackBothMixedNativePiDirections(t *testing.T) {
 			if actual, present := restored.RegularFileMode(); !present || actual != mode {
 				t.Fatal("selected restoration changed existing root metadata")
 			}
+			var footprints []output.Footprint
+			for _, name := range test.keys {
+				key, err := output.NewKeyPath(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				footprint, err := output.NewKeyFootprint(key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				footprints = append(footprints, footprint)
+			}
+			if !slices.Equal(restored.ValueFootprints(), footprints) || restored.ChangesExistence() || restored.ChangesMode() {
+				t.Fatal("mixed restoration did not retain its exact value envelope", restored.ValueFootprints())
+			}
 			if !test.changed && !restored.Document().Equal(current) {
 				t.Fatal("already-before recovery rewrote current bytes")
 			}
 			again, err := comparison.RestoreBefore(t.Context(), restored.Document(), &mode)
 			if err != nil || again.Validate() != nil || again.Changed() || !again.Document().Equal(restored.Document()) {
 				t.Fatalf("mixed recovery was not idempotent: %v", err)
+			}
+		})
+	}
+}
+
+func TestSelectedRestorationDoesNotWriteAnUnchangedSelectedKey(t *testing.T) {
+	mode := recovery.PermissionMode(0o600)
+	before := `{"a":0,"b":0,"outside":0}`
+	expected := `{"a":1,"b":1,"outside":0}`
+	comparison, err := document.NewSelectedComparison(t.Context(), comparisonInput(before, expected, &mode, &mode), []compose.Participant{comparisonParticipant(t, "a"), comparisonParticipant(t, "b")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := aggregate.ExistingDocument([]byte(`{"a":1,"b":0,"outside":2}`))
+	restored, err := comparison.RestoreBefore(t.Context(), current, &mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := output.NewKeyPath("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	footprint, err := output.NewKeyFootprint(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(restored.ValueFootprints(), []output.Footprint{footprint}) || restored.ChangesExistence() || restored.ChangesMode() {
+		t.Fatal("restoration claimed unchanged selected or foreign keys", restored.ValueFootprints())
+	}
+	assertRestorationValue(t, restored.Document(), "b", "0")
+	assertRestorationValue(t, restored.Document(), "outside", "2")
+	returned := restored.ValueFootprints()
+	returned[0] = output.WholePathFootprint()
+	if !slices.Equal(restored.ValueFootprints(), []output.Footprint{footprint}) {
+		t.Fatal("caller changed the sealed restoration envelope")
+	}
+}
+
+func TestWholeRestorationSeparatesValueExistenceAndModeEffects(t *testing.T) {
+	private, shared := recovery.PermissionMode(0o600), recovery.PermissionMode(0o644)
+	original := aggregate.ExistingDocument([]byte(`{"a":0}`))
+	updated := aggregate.ExistingDocument([]byte(`{"a":1}`))
+	for _, scenario := range []struct {
+		name              string
+		current, expected aggregate.Document
+		mode, wanted      *recovery.PermissionMode
+		value, exists     bool
+		metadata          bool
+	}{
+		{"no-op", original, original, &private, &private, false, false, false},
+		{"value", original, updated, &private, &private, true, false, false},
+		{"mode", original, original, &shared, &private, false, false, true},
+		{"create", aggregate.AbsentDocument(), original, nil, &private, true, true, false},
+		{"delete", original, aggregate.AbsentDocument(), &private, nil, true, true, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			restored, err := document.NewRestoration(scenario.current, scenario.mode, scenario.expected, scenario.wanted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var values []output.Footprint
+			if scenario.value {
+				values = []output.Footprint{output.WholePathFootprint()}
+			}
+			if !slices.Equal(restored.ValueFootprints(), values) || restored.ChangesExistence() != scenario.exists || restored.ChangesMode() != scenario.metadata || restored.Changed() != (scenario.value || scenario.exists || scenario.metadata) {
+				t.Fatal("whole restoration collapsed distinct effects", restored)
 			}
 		})
 	}
