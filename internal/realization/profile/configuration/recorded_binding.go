@@ -22,6 +22,7 @@ func recordedAliasBinding(input AliasInput, policy string) (AliasBinding, error)
 		{"codex-mcp-carrier-v1", aggregate.CodexGlobalMCPConfigPath, "codex-home", "codex-home-location-v1", "config.toml", target.TargetCodex, target.ScopeGlobal, false},
 		{"claude-account-carrier-v1", aggregate.ClaudeGlobalMCPConfigPath, "claude-account", "claude-account-location-v1", ".claude.json", target.TargetClaudeCode, target.ScopeGlobal, false},
 		{"claude-account-carrier-v2", aggregate.ClaudeGlobalMCPConfigPath, "claude-account", "claude-account-point-v2", "", target.TargetClaudeCode, target.ScopeGlobal, true},
+		{"claude-owned-mcp-source-v1", aggregate.ClaudeGlobalMCPConfigPath, "claude-account-owned-source", "claude-owned-source-point-v1", "", target.TargetClaudeCode, target.ScopeGlobal, true},
 		{"claude-mcp-carrier-v1", aggregate.ClaudeProjectMCPConfigPath, "project", "selected-project-v1", ".mcp.json", target.TargetClaudeCode, target.ScopeProject, false},
 		{"antigravity-mcp-carrier-v1", aggregate.AntigravityGlobalMCPConfigPath, "antigravity-shared", "antigravity-shared-location-v1", "mcp_config.json", target.TargetAntigravityCLI, target.ScopeGlobal, false},
 		{"antigravity-mcp-carrier-v2", aggregate.AntigravityGlobalMCPConfigPath, "antigravity-shared", "antigravity-shared-point-v2", "", target.TargetAntigravityCLI, target.ScopeGlobal, true},
@@ -71,4 +72,10 @@ func recordedAliasBinding(input AliasInput, policy string) (AliasBinding, error)
 		return AliasBinding{}, fmt.Errorf("%w: retained alias is outside its layout", ErrDocumentPath)
 	}
 	return newAliasBinding(root, child, policy)
+}
+
+// OwnedMCPSourceBinding describes the qualified historical endpoint, never a
+// forward location policy or authority inferred from a persisted selector.
+func OwnedMCPSourceBinding(input AliasInput) (AliasBinding, error) {
+	return recordedAliasBinding(input, "claude-owned-mcp-source-v1")
 }

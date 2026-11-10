@@ -48,7 +48,7 @@ func (selection RootSelection) validate() error {
 }
 
 func (selection RootSelection) pointAlternative() (configuration.PointAlternative, bool) {
-	if selection.endpoint == nil {
+	if selection.endpoint == nil || selection.endpoint.alternative == "" {
 		return "", false
 	}
 	return selection.endpoint.alternative, true
@@ -86,6 +86,9 @@ func (roots Roots) With(reference output.RootReference, selection RootSelection)
 	}
 	if point, err := configuration.NativeRootIsPoint(reference); err == nil && point != (selection.endpoint != nil) {
 		return Roots{}, fmt.Errorf("selected root kind contradicts its native locator contract")
+	}
+	if selection.endpoint != nil && configuration.NativeRootIsOwnedPoint(reference) != (selection.endpoint.basis == endpointFromOwned) {
+		return Roots{}, fmt.Errorf("selected endpoint basis contradicts its native locator contract")
 	}
 	for existing := range roots.selected {
 		if existing.Identity() == reference.Identity() && existing != reference {
@@ -358,7 +361,12 @@ func (namespace DocumentNamespace) Observation() mutation.DirectoryEntryAuthorit
 
 func (namespace DocumentNamespace) Addresses() []aggregate.DocumentAddress {
 	addresses := make([]aggregate.DocumentAddress, 0, len(namespace.aliases))
+	seen := make(map[aggregate.DocumentAddress]struct{}, len(namespace.aliases))
 	for _, alias := range namespace.aliases {
+		if _, present := seen[alias.address]; present {
+			continue
+		}
+		seen[alias.address] = struct{}{}
 		addresses = append(addresses, alias.address)
 	}
 	return addresses

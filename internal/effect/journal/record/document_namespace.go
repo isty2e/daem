@@ -180,11 +180,16 @@ func (document Document) RequireRetainedNamespace(ctx context.Context, current m
 	if err := document.require(); err != nil {
 		return err
 	}
-	bindings, err := document.record.canonicalBindingIntents(ctx, document.owner)
-	if err != nil {
-		return err
-	}
-	for _, intent := range bindings {
+	for _, bindingRecord := range document.record.BindingIntents {
+		intent, err := bindingRecord.canonicalShape()
+		if err != nil {
+			return err
+		}
+		// The operation seal paired a transfer's historical Before with its
+		// source group. This target is not that historical namespace.
+		if intent.IsTransfer() {
+			continue
+		}
 		if binding, present := intent.Before().Get(); present {
 			expected := recoveryDocumentObservation{Kind: "exact", Authority: persistedPathAuthority(binding.PathAuthority())}
 			if err := matchRetainedNativeObservation(expected, current); err != nil {

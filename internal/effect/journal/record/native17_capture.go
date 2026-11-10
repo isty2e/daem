@@ -30,8 +30,14 @@ func NewRootCapture(reference output.RootReference, provenance rootedpath.Author
 	}
 	row := native17Root{Reference: persistedRootReference(reference), Kind: "directory", Provenance: persistedNativeRoot(provenance)}
 	if point {
-		if err := alternative.Validate(); err != nil {
-			return RootCapture{}, err
+		if configuration.NativeRootIsOwnedPoint(reference) {
+			if alternative != "" {
+				return RootCapture{}, fmt.Errorf("owned point capture cannot carry a current chooser alternative")
+			}
+		} else {
+			if err := alternative.Validate(); err != nil {
+				return RootCapture{}, err
+			}
 		}
 		row.Kind, row.Alternative = "point", string(alternative)
 	} else if alternative != "" {

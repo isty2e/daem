@@ -80,6 +80,7 @@ func recordedAliasInputs(ctx context.Context, aliases []RecordedAlias) ([]aliasI
 
 func validateAliasInputs(ctx context.Context, inputs []aliasInput) error {
 	addresses := make([]aggregate.DocumentAddress, 0, len(inputs))
+	routes := make([]journaldocument.AliasRoute, 0, len(inputs))
 	for _, input := range inputs {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -91,6 +92,17 @@ func validateAliasInputs(ctx context.Context, inputs []aliasInput) error {
 			return fmt.Errorf("native alias supplies both a complete binding and an unversioned-policy location")
 		}
 		addresses = append(addresses, input.address)
+		if input.binding != (configuration.AliasBinding{}) {
+			route, err := journaldocument.NewAliasRoute(input.address, input.binding)
+			if err != nil {
+				return err
+			}
+			routes = append(routes, route)
+		}
+	}
+	if len(routes) == len(inputs) && len(routes) != 0 {
+		_, err := journaldocument.AliasRouteAddresses(ctx, routes)
+		return err
 	}
 	_, err := journaldocument.AliasSet(ctx, addresses)
 	return err

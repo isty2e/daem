@@ -89,6 +89,27 @@ func persistedDocumentBindingValue(value ownership.DocumentBindingValue) recover
 }
 
 func (record recoveryDocumentBindingIntent) canonical() (ownership.DocumentBindingIntent, error) {
+	return record.canonicalFromSource(nil)
+}
+
+func (record recoveryDocumentBindingIntent) canonicalFromSource(source *recoveryDocumentObservation) (ownership.DocumentBindingIntent, error) {
+	intent, err := record.canonicalShape()
+	if err != nil {
+		return ownership.DocumentBindingIntent{}, err
+	}
+	before, retained := intent.Before().Get()
+	if intent.IsTransfer() && source == nil {
+		return ownership.DocumentBindingIntent{}, fmt.Errorf("document binding transfer requires its paired source namespace")
+	}
+	if source != nil && retained && !source.matchesRetainedExact(before.PathAuthority()) {
+		return ownership.DocumentBindingIntent{}, fmt.Errorf("document binding before differs from its paired source namespace")
+	}
+	return intent, nil
+}
+
+// Local shape is not transfer permission; the containing native17 operation
+// must pair a historical source before admitting this value to its consumers.
+func (record recoveryDocumentBindingIntent) canonicalShape() (ownership.DocumentBindingIntent, error) {
 	statefile, err := canonicalPathAuthority(record.StatefileAuthority)
 	if err != nil {
 		return ownership.DocumentBindingIntent{}, fmt.Errorf("document binding statefile authority: %w", err)
@@ -105,12 +126,10 @@ func (record recoveryDocumentBindingIntent) canonical() (ownership.DocumentBindi
 	if err != nil {
 		return ownership.DocumentBindingIntent{}, fmt.Errorf("document binding before: %w", err)
 	}
+	retained, hadBefore := before.Get()
 	if record.After.Kind == "provisional" {
 		if record.After.Authority == nil || record.After.NamespaceAuthority == nil {
 			return ownership.DocumentBindingIntent{}, fmt.Errorf("provisional document binding requires candidate and namespace authorities")
-		}
-		if _, present := before.Get(); present {
-			return ownership.DocumentBindingIntent{}, fmt.Errorf("provisional document binding requires absent before")
 		}
 		provisional, err := pathauthority.NewProvisional(
 			record.After.Authority.Key, record.After.Authority.Witness,
@@ -119,11 +138,17 @@ func (record recoveryDocumentBindingIntent) canonical() (ownership.DocumentBindi
 		if err != nil {
 			return ownership.DocumentBindingIntent{}, err
 		}
+		if hadBefore {
+			return ownership.NewProvisionalDocumentBindingTransferIntent(retained, provisional)
+		}
 		return ownership.NewProvisionalDocumentBindingIntent(owner, destination, provisional)
 	}
 	after, err := record.After.canonicalValue(owner, destination)
 	if err != nil {
 		return ownership.DocumentBindingIntent{}, fmt.Errorf("document binding after: %w", err)
+	}
+	if target, present := after.Get(); hadBefore && present && !retained.PathAuthority().Equal(target.PathAuthority()) {
+		return ownership.NewExactDocumentBindingTransferIntent(retained, target.PathAuthority())
 	}
 	return ownership.NewExactDocumentBindingIntent(owner, destination, before, after)
 }

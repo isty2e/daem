@@ -50,6 +50,21 @@ func CompareAliases(left, right aggregate.DocumentAddress) int {
 func (indexes SnapshotIndexes) Before() SnapshotIndex { return indexes.before }
 func (indexes SnapshotIndexes) After() SnapshotIndex  { return indexes.after }
 
+func (indexes SnapshotIndexes) SelectedContractsForPlacement(ctx context.Context, subjects []topology.SubjectID, placement PhysicalPlacement, group int) ([]aggregate.Selection, error) {
+	if group < 0 || group >= len(placement.groups) {
+		return nil, fmt.Errorf("selected contracts require a physical group in the placement")
+	}
+	before := make(map[aggregate.DocumentAddress]struct{})
+	for _, alias := range placement.BeforeAliases(group) {
+		before[alias] = struct{}{}
+	}
+	after := make(map[aggregate.DocumentAddress]struct{})
+	for _, alias := range placement.AfterAliases(group) {
+		after[alias] = struct{}{}
+	}
+	return indexes.selectedContractsAt(ctx, subjects, before, after)
+}
+
 func IndexSnapshots(ctx context.Context, before, after durable.Snapshot) (SnapshotIndexes, error) {
 	return IndexSnapshotsForClaims(ctx, before, after, LegacyGlobalClaims)
 }

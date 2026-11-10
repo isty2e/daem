@@ -106,6 +106,42 @@ func native17PointMetadata(t *testing.T, fixture nativeRecordFixture) native17Jo
 	return wire
 }
 
+func TestNative17CoalescedSelectorsRoundTripWithoutLosingEitherWitness(t *testing.T) {
+	fixture, wire, _ := carrierRecordFixture(t, true)
+	content, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec)
+	if err != nil {
+		t.Fatal("coalesced namespace metadata lost one selector", err)
+	}
+	encoded, err := value.Encode(t.Context(), fixture.codec)
+	if err != nil {
+		t.Fatal("accepted coalesced namespace metadata did not encode", err)
+	}
+	roundTrip, err := decodeNativeJournalRecord(t.Context(), encoded, fixture.codec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := roundTrip.record.DocumentGroups[0].namespace.boundRoutes(t.Context())
+	if err != nil || len(routes) != 2 || !routes[0].CurrentCarrier() || !routes[1].OwnedSource() {
+		t.Fatal("namespace round-trip discarded a source/current witness", err)
+	}
+	placement, err := roundTrip.documentPlacement(t.Context())
+	if err != nil || len(placement.BeforeAliases(0)) != 1 || len(placement.AfterAliases(0)) != 1 {
+		t.Fatal("coalesced metadata became multiple logical memberships", err)
+	}
+	slices.Reverse(wire.DocumentGroups[0].Aliases)
+	unsorted, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeNativeJournalRecord(t.Context(), unsorted, fixture.codec); err == nil {
+		t.Fatal("namespace metadata silently normalized noncanonical selector ordering")
+	}
+}
+
 func TestNative17PointMetadataRequiresOwnAliasAndContainedSpelling(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	wire := native17PointMetadata(t, fixture)

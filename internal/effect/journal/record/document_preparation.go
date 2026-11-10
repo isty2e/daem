@@ -37,11 +37,15 @@ func (journal Native) PrepareDocuments(ctx context.Context, comparisons []journa
 
 func (record nativeDocumentRecord) canonicalReferences(ctx context.Context) ([]aggregate.DocumentAddress, []topology.SubjectID, error) {
 	aliases := make([]aggregate.DocumentAddress, 0, len(record.namespace.aliases))
+	seen := make(map[aggregate.DocumentAddress]struct{}, len(record.namespace.aliases))
 	for _, alias := range record.namespace.aliases {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		aliases = append(aliases, alias.address)
+		if _, present := seen[alias.address]; !present {
+			aliases = append(aliases, alias.address)
+			seen[alias.address] = struct{}{}
+		}
 	}
 	subjects := make([]topology.SubjectID, 0, len(record.SelectedSubjects))
 	for _, ref := range record.SelectedSubjects {

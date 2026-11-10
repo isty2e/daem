@@ -54,23 +54,32 @@ func (journal Native) documentBindings(ctx context.Context) ([][]ownership.Docum
 	}
 	equalState := journal.before.Equal(journal.after)
 	groups := make([][]ownership.DocumentBindingIntent, 0, len(journal.record.DocumentGroups))
-	seenAliases := make(map[aggregate.DocumentAddress]struct{})
-	for _, group := range journal.record.DocumentGroups {
-		for _, alias := range group.namespace.aliases {
-			if err := ctx.Err(); err != nil {
-				return nil, err
+	placement, err := journal.documentPlacement(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for index, group := range journal.record.DocumentGroups {
+		sources := make(map[output.Destination]recoveryDocumentObservation)
+		if journal.record.Version == native17Version {
+			for _, alias := range group.namespace.aliases {
+				before, present := placement.BeforeGroup(alias.address)
+				if present && before != index {
+					sources[alias.address.AggregateRoot()] = journal.record.DocumentGroups[before].CapturedTarget
+				}
 			}
-			address := alias.address
-			if _, repeated := seenAliases[address]; repeated {
-				return nil, fmt.Errorf("document alias belongs to more than one group")
-			}
-			seenAliases[address] = struct{}{}
 		}
-		intents, err := group.canonicalBindingIntents(ctx, journal.owner)
+		intents, err := canonicalDocumentBindingIntentsFromSources(ctx, group.nativeDocumentBody, group.namespace.aliases, journal.owner, sources)
 		if err != nil {
 			return nil, err
 		}
 		for _, intent := range intents {
+			for _, alias := range group.namespace.aliases {
+				beforeGroup, _ := placement.BeforeGroup(alias.address)
+				afterGroup, _ := placement.AfterGroup(alias.address)
+				if alias.address.AggregateRoot() == intent.Destination() && beforeGroup != afterGroup && afterGroup != index {
+					return nil, fmt.Errorf("carrier transfer binding intent must belong to its after group")
+				}
+			}
 			changes, err := intent.ChangesBinding()
 			if err != nil {
 				return nil, err
@@ -100,6 +109,10 @@ func (group nativeDocumentRecord) canonicalBindingIntents(ctx context.Context, o
 }
 
 func canonicalDocumentBindingIntents(ctx context.Context, group nativeDocumentBody, aliases []documentAliasFacts, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
+	return canonicalDocumentBindingIntentsFromSources(ctx, group, aliases, owner, nil)
+}
+
+func canonicalDocumentBindingIntentsFromSources(ctx context.Context, group nativeDocumentBody, aliases []documentAliasFacts, owner stateauthority.Authority, sources map[output.Destination]recoveryDocumentObservation) ([]ownership.DocumentBindingIntent, error) {
 	beforeByDestination := make(map[string]recoveryDocumentObservation, len(aliases))
 	for _, alias := range aliases {
 		if err := ctx.Err(); err != nil {
@@ -112,7 +125,15 @@ func canonicalDocumentBindingIntents(ctx context.Context, group nativeDocumentBo
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		intent, err := record.canonical()
+		destination, err := output.Parse(record.Destination)
+		if err != nil {
+			return nil, err
+		}
+		var source *recoveryDocumentObservation
+		if paired, present := sources[destination]; present {
+			source = &paired
+		}
+		intent, err := record.canonicalFromSource(source)
 		if err != nil {
 			return nil, err
 		}
@@ -123,44 +144,54 @@ func canonicalDocumentBindingIntents(ctx context.Context, group nativeDocumentBo
 		if !present {
 			return nil, fmt.Errorf("document binding has no group alias")
 		}
+		if source != nil {
+			before = *source
+		}
 		if binding, present := intent.Before().Get(); present {
 			if !before.matchesRetainedExact(binding.PathAuthority()) {
 				return nil, fmt.Errorf("document binding baseline differs from its captured before namespace")
 			}
 		}
-		if value, known := intent.KnownAfter(); known {
-			if binding, present := value.Get(); present {
-				exact := binding.PathAuthority()
-				_, historical := intent.Before().Get()
-				if historical || group.CapturedTarget.Kind == "exact" {
-					if !group.CapturedTarget.matchesRetainedExact(exact) {
-						return nil, fmt.Errorf("document binding after differs from the captured target")
-					}
-				} else {
-					provisional, err := group.CapturedTarget.provisional()
-					if err != nil || provisional.AdmitsExact(exact) != nil {
-						return nil, fmt.Errorf("promoted document binding is outside the captured namespace")
-					}
-				}
-			}
-		} else {
-			pending, _ := intent.ProvisionalAfter()
-			captured, err := group.CapturedTarget.provisional()
-			if err != nil || !pending.Equal(captured) {
-				return nil, fmt.Errorf("provisional document binding differs from the captured target")
-			}
+		if err := requireCapturedBindingTarget(intent, group.CapturedTarget); err != nil {
+			return nil, err
 		}
 		intents = append(intents, intent)
 	}
 	return intents, nil
 }
 
-func (journal Native) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record nativeDocumentRecord, aliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []journaldocument.ProvisionalAcquire, error) {
-	before, err := indexes.Before().Footprints(ctx, aliases)
+func requireCapturedBindingTarget(intent ownership.DocumentBindingIntent, captured recoveryDocumentObservation) error {
+	if value, known := intent.KnownAfter(); known {
+		if binding, present := value.Get(); present {
+			exact := binding.PathAuthority()
+			before, retained := intent.Before().Get()
+			if captured.Kind == "exact" || retained && before.PathAuthority().Equal(exact) {
+				if !captured.matchesRetainedExact(exact) {
+					return fmt.Errorf("document binding after differs from the captured target")
+				}
+			} else {
+				provisional, err := captured.provisional()
+				if err != nil || provisional.AdmitsExact(exact) != nil {
+					return fmt.Errorf("promoted document binding is outside the captured namespace")
+				}
+			}
+		}
+	} else {
+		pending, _ := intent.ProvisionalAfter()
+		provisional, err := captured.provisional()
+		if err != nil || !pending.Equal(provisional) {
+			return fmt.Errorf("provisional document binding differs from the captured target")
+		}
+	}
+	return nil
+}
+
+func (journal Native) documentClaims(ctx context.Context, indexes journaldocument.SnapshotIndexes, record nativeDocumentRecord, beforeAliases, afterAliases []aggregate.DocumentAddress) (ownershipmutation.DocumentClaimTransition, []journaldocument.ProvisionalAcquire, error) {
+	before, err := indexes.Before().Footprints(ctx, beforeAliases)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, nil, err
 	}
-	after, err := indexes.After().Footprints(ctx, aliases)
+	after, err := indexes.After().Footprints(ctx, afterAliases)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, nil, err
 	}
@@ -185,7 +216,7 @@ func (journal Native) documentClaims(ctx context.Context, indexes journaldocumen
 		if err != nil || len(before) != 0 {
 			return ownershipmutation.DocumentClaimTransition{}, nil, fmt.Errorf("provisional document claims require a newly acquired namespace")
 		}
-		acquires, err := record.ExclusiveClaims.canonicalProvisional(aliases, journal.owner, journal.record.OperationID, provisional, journal.namespace.claims)
+		acquires, err := record.ExclusiveClaims.canonicalProvisional(afterAliases, journal.owner, journal.record.OperationID, provisional, journal.namespace.claims)
 		if err != nil {
 			return ownershipmutation.DocumentClaimTransition{}, nil, err
 		}

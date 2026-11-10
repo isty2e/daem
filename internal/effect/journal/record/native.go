@@ -248,10 +248,11 @@ func (journal Native) PromoteDocument(ctx context.Context, index int, aliases []
 		}
 		changed = true
 	}
-	bindings, err := group.canonicalBindingIntents(ctx, journal.Owner())
+	groups, err := journal.documentBindings(ctx)
 	if err != nil {
 		return Native{}, false, err
 	}
+	bindings := groups[index]
 	group.BindingIntents = slices.Clone(group.BindingIntents)
 	for position, intent := range bindings {
 		if _, ready := intent.KnownAfter(); ready {

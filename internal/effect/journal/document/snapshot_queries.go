@@ -46,6 +46,9 @@ func (index SnapshotIndex) Subjects(ctx context.Context, aliases []aggregate.Doc
 }
 
 func (index SnapshotIndex) Footprints(ctx context.Context, aliases []aggregate.DocumentAddress) (map[output.Footprint]struct{}, error) {
+	if ctx != nil && len(aliases) == 0 {
+		return map[output.Footprint]struct{}{}, ctx.Err()
+	}
 	addresses, err := AliasSet(ctx, aliases)
 	if err != nil {
 		return nil, err

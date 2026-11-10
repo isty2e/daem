@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
@@ -44,6 +46,7 @@ type endpointSelectionBasis uint8
 const (
 	endpointFromChoice endpointSelectionBasis = iota + 1
 	endpointFromRecord
+	endpointFromOwned
 )
 
 type retainedEndpoint struct {
@@ -53,6 +56,52 @@ type retainedEndpoint struct {
 	selected    string
 	physical    string
 	witness     *rootedpath.CapturedRoot
+	owned       pathauthority.Exact
+}
+
+// CaptureOwnedEndpointRoot pins an independently selected historical file.
+// The exact value is identity evidence; callers must separately prove ownership.
+func CaptureOwnedEndpointRoot(ctx context.Context, selected string, expected pathauthority.Exact, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
+	if ctx == nil || budget == nil {
+		return RootSelection{}, fmt.Errorf("owned endpoint selection requires context and original allocation")
+	}
+	if err := expected.Validate(); err != nil {
+		return RootSelection{}, err
+	}
+	if err := validateEndpointExpression(selected); err != nil {
+		return RootSelection{}, err
+	}
+	resolved, err := resolveSelectedEndpoint(ctx, selected, budget)
+	if err != nil {
+		return RootSelection{}, err
+	}
+	if err := requireOwnedEndpoint(ctx, resolved.physical, expected, budget); err != nil {
+		return RootSelection{}, err
+	}
+	parent, err := CaptureRoot(ctx, filepath.Dir(resolved.physical), budget)
+	if err != nil {
+		return RootSelection{}, err
+	}
+	return retainEndpointRoot(ctx, parent, retainedEndpoint{
+		basis: endpointFromOwned, selected: selected, physical: resolved.physical, owned: expected,
+	}, resolved.parent)
+}
+
+func requireOwnedEndpoint(ctx context.Context, path string, expected pathauthority.Exact, budget rootedpath.PhysicalTraversalBudget) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return err
+	}
+	if exact, known := observed.Exact(); known && exact.Equal(expected) {
+		return ctx.Err()
+	}
+	if missing, provisional := observed.Provisional(); provisional && missing.MatchesMissingExact(expected) {
+		return ctx.Err()
+	}
+	return fmt.Errorf("owned endpoint differs from its retained exact identity")
 }
 
 // CaptureEndpointRoot retains a witness for one source-selected file point.
@@ -136,8 +185,20 @@ func (endpoint *retainedEndpoint) validate() error {
 	if endpoint == nil || endpoint.witness == nil {
 		return fmt.Errorf("endpoint selection requires its retained witness")
 	}
-	if err := endpoint.alternative.Validate(); err != nil {
-		return err
+	if endpoint.basis == endpointFromOwned {
+		if endpoint.alternative != "" || endpoint.candidates != ([2]string{}) {
+			return fmt.Errorf("owned endpoint cannot carry a preferred/fallback chooser")
+		}
+		if err := endpoint.owned.Validate(); err != nil {
+			return err
+		}
+	} else {
+		if err := endpoint.alternative.Validate(); err != nil {
+			return err
+		}
+		if endpoint.owned != (pathauthority.Exact{}) {
+			return fmt.Errorf("chosen endpoint cannot retain an owned source identity")
+		}
 	}
 	if err := validateEndpointExpression(endpoint.selected); err != nil {
 		return err
@@ -166,6 +227,7 @@ func (endpoint *retainedEndpoint) validate() error {
 		if endpoint.candidates != ([2]string{}) {
 			return fmt.Errorf("recorded endpoint cannot retain a current chooser")
 		}
+	case endpointFromOwned:
 	default:
 		return fmt.Errorf("endpoint selection basis is required")
 	}
@@ -197,6 +259,11 @@ func (endpoint *retainedEndpoint) qualify(ctx context.Context, budget rootedpath
 	}
 	if err != nil || resolved.physical != endpoint.physical {
 		return "", errors.Join(fmt.Errorf("native endpoint referent changed"), err)
+	}
+	if endpoint.basis == endpointFromOwned {
+		if err := requireOwnedEndpoint(ctx, resolved.physical, endpoint.owned, budget); err != nil {
+			return "", err
+		}
 	}
 	return resolved.route, nil
 }

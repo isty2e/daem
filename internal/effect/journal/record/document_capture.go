@@ -237,6 +237,15 @@ func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed
 		namespace.aliases = append(namespace.aliases, documentAliasFacts{address: alias.address, location: binding.Location(), binding: binding, root: alias.root, selected: selected, before: captured})
 		addresses = append(addresses, alias.address)
 	}
+	slices.SortFunc(envelope.Aliases, compareNative17Aliases)
+	routes, err := namespace.boundRoutes(ctx)
+	if err != nil {
+		return DocumentGroupDraft{}, err
+	}
+	addresses, err = journaldocument.AliasRouteAddresses(ctx, routes)
+	if err != nil {
+		return DocumentGroupDraft{}, err
+	}
 	body.ExclusiveClaims, err = draft.facts.documentClaims(observed, addresses, journaldocument.NativeClaims)
 	if err != nil {
 		return DocumentGroupDraft{}, err
@@ -251,8 +260,25 @@ func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed
 		}
 		body.BindingIntents = append(body.BindingIntents, record)
 	}
-	if _, err := canonicalDocumentBindingIntents(ctx, body, namespace.aliases, draft.facts.owner); err != nil {
-		return DocumentGroupDraft{}, err
+	// The source group is not available in this local draft. Only the complete
+	// operation may validate a historical Before against its paired namespace.
+	for _, intent := range draft.facts.bindings {
+		if !intent.Owner().Equal(draft.facts.owner) {
+			return DocumentGroupDraft{}, fmt.Errorf("document binding has another operation owner")
+		}
+		declared := false
+		for _, address := range addresses {
+			declared = declared || address.AggregateRoot() == intent.Destination()
+		}
+		if !declared {
+			return DocumentGroupDraft{}, fmt.Errorf("document binding has no group alias")
+		}
+		if before, present := intent.Before().Get(); present && !intent.IsTransfer() && !captured.matchesRetainedExact(before.PathAuthority()) {
+			return DocumentGroupDraft{}, fmt.Errorf("document binding baseline differs from its captured before namespace")
+		}
+		if err := requireCapturedBindingTarget(intent, captured); err != nil {
+			return DocumentGroupDraft{}, err
+		}
 	}
 	draft.record, draft.namespace, draft.current, draft.manifest, draft.phase = body, namespace, envelope, manifest, documentGroupMetadataComplete
 	return draft, nil

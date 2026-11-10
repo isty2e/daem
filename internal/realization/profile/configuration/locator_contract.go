@@ -19,6 +19,7 @@ func AdmitNativeAliasRootReference(reference output.RootReference) error {
 		rootFact{"claude-preferences", "claude-preferences-location-v1"},
 		rootFact{"claude-account", "claude-account-location-v1"},
 		rootFact{"claude-account", "claude-account-point-v2"},
+		rootFact{"claude-account-owned-source", "claude-owned-source-point-v1"},
 		rootFact{"opencode-configuration", "opencode-location-v1"},
 		rootFact{"antigravity-preferences", "antigravity-preferences-location-v1"},
 		rootFact{"antigravity-shared", "antigravity-shared-location-v1"},
@@ -38,5 +39,15 @@ func NativeRootIsPoint(reference output.RootReference) (bool, error) {
 	if err := AdmitNativeAliasRootReference(reference); err != nil {
 		return false, err
 	}
-	return reference.LocatorPolicy() == "claude-account-point-v2" || reference.LocatorPolicy() == "antigravity-shared-point-v2", nil
+	return NativeRootIsCurrentMCPPoint(reference) || reference.LocatorPolicy() == "antigravity-shared-point-v2" || NativeRootIsOwnedPoint(reference), nil
+}
+
+func NativeRootIsCurrentMCPPoint(reference output.RootReference) bool {
+	return reference.Identity() == "claude-account" && reference.LocatorPolicy() == "claude-account-point-v2"
+}
+
+// NativeRootIsOwnedPoint distinguishes a fixed owned document from a current
+// preferred/fallback chooser. Neither kind grants its containing directory.
+func NativeRootIsOwnedPoint(reference output.RootReference) bool {
+	return reference.Identity() == "claude-account-owned-source" && reference.LocatorPolicy() == "claude-owned-source-point-v1"
 }

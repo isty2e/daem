@@ -172,6 +172,10 @@ func (intent DocumentBindingIntent) ProvisionalAfter() (pathauthority.Provisiona
 	return intent.provisional, true
 }
 
+func (intent DocumentBindingIntent) IsTransfer() bool {
+	return intent.kind == bindingIntentTransfer && intent.Validate() == nil
+}
+
 func (intent DocumentBindingIntent) ChangesBinding() (bool, error) {
 	if err := intent.Validate(); err != nil {
 		return false, err

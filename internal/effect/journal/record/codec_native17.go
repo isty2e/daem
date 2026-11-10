@@ -1,6 +1,7 @@
 package record
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,6 +50,16 @@ type native17Alias struct {
 	Policy              string                      `json:"policy"`
 	SelectedObservation recoveryDocumentObservation `json:"selected_observation"`
 	ObservedBefore      recoveryDocumentObservation `json:"observed_before"`
+}
+
+func compareNative17Aliases(left, right native17Alias) int {
+	if order := compareDocumentAliasRefs(left.Address, right.Address); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(left.Root.Identity, right.Root.Identity); order != 0 {
+		return order
+	}
+	return cmp.Compare(left.Root.Locator, right.Root.Locator)
 }
 
 type native17DocumentEnvelope struct {
@@ -185,7 +196,11 @@ func (record native17JournalRecord) reconstruct(ctx context.Context, codec durab
 	if err := ctx.Err(); err != nil {
 		return Native{}, err
 	}
-	return Native{record: body, current: envelope, namespace: namespace, owner: owner, before: before, after: after}, nil
+	value := Native{record: body, current: envelope, namespace: namespace, owner: owner, before: before, after: after}
+	if err := value.validateCarrierMetadata(ctx); err != nil {
+		return Native{}, err
+	}
+	return value, nil
 }
 
 func (record native17JournalRecord) lower(ctx context.Context) (nativeNamespaceFacts, []nativeDocumentRecord, error) {
@@ -232,10 +247,16 @@ func (record native17JournalRecord) lower(ctx context.Context) (nativeNamespaceF
 				return nativeNamespaceFacts{}, nil, fmt.Errorf("directory root cannot select a point alternative")
 			}
 		case "point":
-			if err := configuration.PointAlternative(row.Alternative).Validate(); err != nil {
-				return nativeNamespaceFacts{}, nil, err
+			if configuration.NativeRootIsOwnedPoint(reference) {
+				if row.Alternative != "" {
+					return nativeNamespaceFacts{}, nil, fmt.Errorf("owned point cannot carry a current chooser alternative")
+				}
+			} else {
+				if err := configuration.PointAlternative(row.Alternative).Validate(); err != nil {
+					return nativeNamespaceFacts{}, nil, err
+				}
+				facts.alternatives[reference] = configuration.PointAlternative(row.Alternative)
 			}
-			facts.alternatives[reference] = configuration.PointAlternative(row.Alternative)
 		default:
 			return nativeNamespaceFacts{}, nil, fmt.Errorf("native17 root selection kind is invalid")
 		}
@@ -277,8 +298,8 @@ func (record native17JournalRecord) lower(ctx context.Context) (nativeNamespaceF
 		ownPointAlias := false
 		for position, alias := range group.Aliases {
 			address, err := alias.Address.canonical()
-			if err != nil || position != 0 && compareDocumentAliasRefs(group.Aliases[position-1].Address, alias.Address) >= 0 {
-				return nativeNamespaceFacts{}, nil, fmt.Errorf("native17 aliases must be unique canonical addresses")
+			if err != nil || position != 0 && compareNative17Aliases(group.Aliases[position-1], alias) >= 0 {
+				return nativeNamespaceFacts{}, nil, fmt.Errorf("native17 aliases must have unique canonical selector routes")
 			}
 			reference, err := alias.Root.canonical()
 			if err != nil {
@@ -302,6 +323,13 @@ func (record native17JournalRecord) lower(ctx context.Context) (nativeNamespaceF
 			namespace.aliases = append(namespace.aliases, documentAliasFacts{address: address, location: binding.Location(), binding: binding, root: facts.roots[reference], selected: alias.SelectedObservation, before: alias.ObservedBefore})
 			used[reference] = true
 			ownPointAlias = ownPointAlias || reference == writerReference && root.Kind == "point"
+		}
+		routes, err := namespace.boundRoutes(ctx)
+		if err != nil {
+			return nativeNamespaceFacts{}, nil, err
+		}
+		if _, err := journaldocument.AliasRouteAddresses(ctx, routes); err != nil {
+			return nativeNamespaceFacts{}, nil, err
 		}
 		if writerRoot.Kind == "point" && !ownPointAlias {
 			return nativeNamespaceFacts{}, nil, fmt.Errorf("point writer has no own point-self alias")

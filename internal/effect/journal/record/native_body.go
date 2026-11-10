@@ -279,7 +279,7 @@ func (document nativeDocumentRecord) validate() error {
 		return err
 	}
 	for _, binding := range document.BindingIntents {
-		if _, err := binding.canonical(); err != nil {
+		if _, err := binding.canonicalShape(); err != nil {
 			return err
 		}
 	}

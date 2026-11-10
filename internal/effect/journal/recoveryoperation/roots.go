@@ -41,6 +41,8 @@ type OwnedRoots struct {
 	closed    bool
 }
 
+var ErrOwnedSourceSelectionRequired = errors.New("owned source recovery requires phase-qualified historical endpoint selection")
+
 func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Native) (result *OwnedRoots, resultErr error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("native recovery context is required")
@@ -63,6 +65,9 @@ func (profile Profile) OpenRoots(ctx context.Context, journal journalrecord.Nati
 	references := slices.Collect(maps.Keys(anchors))
 	slices.SortFunc(references, output.RootReference.Compare)
 	for _, reference := range references {
+		if configuration.NativeRootIsOwnedPoint(reference) {
+			return nil, ErrOwnedSourceSelectionRequired
+		}
 		var path string
 		alternative, point := journal.RecordedPointAlternative(reference)
 		if point {
