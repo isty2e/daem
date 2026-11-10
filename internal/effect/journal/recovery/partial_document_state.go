@@ -89,19 +89,12 @@ func MatchPartialDocumentStates(before, expected, current PartialDocumentState) 
 	}
 	for address, projection := range current.projections {
 		original, candidate := before.projections[address], expected.projections[address]
-		isBefore, isExpected := samePartialProjection(projection, original), samePartialProjection(projection, candidate)
+		isBefore, isExpected := projection.SameManagedProjection(original), projection.SameManagedProjection(candidate)
 		match.before = match.before && isBefore
 		match.expected = match.expected && isExpected
 		match.recoverable = match.recoverable && (isBefore || isExpected)
 	}
 	return match, nil
-}
-
-func samePartialProjection(left, right aggregate.ProjectionState) bool {
-	if _, native := aggregate.HostConfigSyntaxForCodec(left.Contract().CodecContractID()); native {
-		return left.SelectedValueEqual(right)
-	}
-	return left.Equal(right)
 }
 
 // ChangedValueFootprints compares the selected values, not document presence
@@ -115,7 +108,7 @@ func (state PartialDocumentState) ChangedValueFootprints(other PartialDocumentSt
 	}
 	var footprints []output.Footprint
 	for address, projection := range state.projections {
-		if !samePartialProjection(projection, other.projections[address]) {
+		if !projection.SameManagedProjection(other.projections[address]) {
 			footprints = append(footprints, address.Footprint())
 		}
 	}

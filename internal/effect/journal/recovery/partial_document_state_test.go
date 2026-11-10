@@ -8,8 +8,10 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -86,6 +88,37 @@ func TestPartialDocumentRemovalRetainsForeignRootButNotThirdMetadata(t *testing.
 		t.Fatal(err)
 	}
 	assertPartialBlocked(t, match)
+}
+
+func TestPartialHookRemovalRetainsForeignRootButNotThirdMetadataOrValue(t *testing.T) {
+	codec, selection := partialHookProjection(t)
+	before := partialState(t, true, 0o600, partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`))))
+	after := partialState(t, false, 0, partialRead(t, codec, selection, aggregate.AbsentDocument()))
+	foreign := partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"foreign":"keep"}`)))
+	current := partialState(t, true, 0o600, foreign)
+	match, err := recovery.MatchPartialDocumentStates(before, after, current)
+	if err != nil || !match.MatchesExpected() || match.MatchesBefore() || !match.Recoverable() {
+		t.Errorf("selected Hook removal did not permit the retained foreign root: %+v, %v", match, err)
+	}
+	if changed, err := after.ChangedValueFootprints(current); err != nil || len(changed) != 0 {
+		t.Error("outer Hook root presence became a selected-value change", changed, err)
+	}
+
+	thirdValue := partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"different"}]}]},"foreign":"keep"}`)))
+	for _, third := range []recovery.PartialDocumentState{
+		partialState(t, true, 0o640, foreign),
+		partialState(t, true, 0o600, thirdValue),
+	} {
+		match, err := recovery.MatchPartialDocumentStates(before, after, third)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertPartialBlocked(t, match)
+	}
+	changed, err := after.ChangedValueFootprints(partialState(t, true, 0o600, thirdValue))
+	if err != nil || len(changed) != 1 || changed[0] != selection.Contracts()[0].Address().Footprint() {
+		t.Fatal("changed Hook value lost its selected footprint", changed, err)
+	}
 }
 
 func TestPartialDocumentMetadataEnvelopeAndExplicitZeroMode(t *testing.T) {
@@ -300,6 +333,31 @@ func partialNativeCodec(t *testing.T, syntax configdocument.Syntax) aggregate.Co
 		t.Fatal(err)
 	}
 	return codec
+}
+
+func partialHookProjection(t *testing.T) (aggregate.Codec, aggregate.Selection) {
+	t.Helper()
+	placement, found := aggregate.HookPlacementFor(target.TargetCodex, target.ScopeProject)
+	if !found {
+		t.Fatal("Codex Hook placement unavailable")
+	}
+	codec, found := hookcodec.For(placement.CodecContractID())
+	if !found {
+		t.Fatal("Codex Hook codec unavailable")
+	}
+	canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{Event: "Stop", Type: "command", Command: "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contribution, err := placement.Contribution(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contribution.Contract()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return codec, selection
 }
 
 func partialNativeSelection(t *testing.T, codec aggregate.Codec, root string, keys ...output.KeyPath) aggregate.Selection {

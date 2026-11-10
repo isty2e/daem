@@ -116,3 +116,35 @@ func TestProjectionRestorationEffectsFollowActualRetainedRoot(t *testing.T) {
 		t.Fatal("unknown codec produced effect evidence")
 	}
 }
+
+func TestHookRestorationSeparatesRootExistenceFromSelectedValues(t *testing.T) {
+	codec, selection := partialHookProjection(t)
+	catalog, err := aggregate.NewCodecCatalog([]aggregate.Codec{codec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := recovery.PermissionMode(0o600)
+	missing, empty := aggregate.AbsentDocument(), aggregate.ExistingDocument([]byte(`{}`))
+	for _, scenario := range []struct {
+		name              string
+		current, baseline aggregate.Document
+		currentMode       *recovery.PermissionMode
+	}{
+		{"remove empty root", empty, missing, &mode},
+		{"restore empty root", missing, empty, nil},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			baseline := partialRead(t, codec, selection, scenario.baseline)
+			rendered, effects, err := recovery.RestoreProjectionDocument(scenario.current, scenario.currentMode, baseline, &mode, catalog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rendered.Document().Exists() != scenario.baseline.Exists() || !partialRead(t, codec, selection, rendered.Document()).Equal(baseline) {
+				t.Fatal("Hook restoration did not preserve the exact baseline")
+			}
+			if effects.Validate() != nil || !effects.Changed() || !effects.ChangesExistence() || effects.ChangesMode() || len(effects.ValueFootprints()) != 0 {
+				t.Fatalf("root-only restoration lost its existence effect or invented a value effect: %+v", effects)
+			}
+		})
+	}
+}

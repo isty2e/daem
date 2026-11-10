@@ -233,6 +233,20 @@ func (snapshot Snapshot) Equal(other Snapshot) bool {
 	return len(snapshot.states) != 0
 }
 
+// SameManagedProjection compares codec-owned state without outer document presence.
+func (snapshot Snapshot) SameManagedProjection(other Snapshot) bool {
+	if len(snapshot.states) == 0 || len(snapshot.states) != len(other.states) {
+		return false
+	}
+
+	for index, state := range snapshot.states {
+		if !state.SameManagedProjection(other.states[index]) {
+			return false
+		}
+	}
+	return true
+}
+
 // ProjectionIntent pairs fresh before evidence with desired contributions.
 // A nil desired set means remove the selected projection.
 type ProjectionIntent struct {

@@ -35,6 +35,7 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 	}
 	var candidates []configdocument.Projection
 	privateExpected := make([]aggregate.Snapshot, len(edits))
+	absenceRequested := false
 	for index, edit := range edits {
 		if err := ctx.Err(); err != nil {
 			return DocumentCandidate{}, err
@@ -50,16 +51,24 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		selected, err := nativeProjection(ctx, rendered.Document(), limits, edit.projection)
+		semanticDocument := rendered.Document()
+		selected, err := nativeProjection(ctx, semanticDocument, limits, edit.projection)
 		if err != nil {
 			return DocumentCandidate{}, err
 		}
 		candidates = append(candidates, selected)
 		privateExpected[index] = rendered.Expected()
+		absenceRequested = absenceRequested || !semanticDocument.Exists()
 	}
 	updated, err := configdocument.Project(ctx, original, candidates)
 	if err != nil {
 		return DocumentCandidate{}, err
+	}
+	if absenceRequested {
+		updated, err = omitEmptyDocument(updated, projections[0].syntax, limits)
+		if err != nil {
+			return DocumentCandidate{}, err
+		}
 	}
 	final := nativeDocument(updated)
 	expected := make([]aggregate.Snapshot, 0, len(edits))
@@ -68,7 +77,7 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		if !actual.Equal(privateExpected[index]) {
+		if !actual.SameManagedProjection(privateExpected[index]) {
 			return DocumentCandidate{}, fmt.Errorf("composed document differs from a semantic projection candidate")
 		}
 		if _, err := aggregate.NewRenderedDocument(final, edit.plan, actual); err != nil {
@@ -119,15 +128,9 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		return DocumentCandidate{}, err
 	}
 	if !beforeExisted {
-		root, present, err := updated.Lookup(output.KeyPath{})
+		updated, err = omitEmptyDocument(updated, projections[0].syntax, limits)
 		if err != nil {
 			return DocumentCandidate{}, err
-		}
-		if present && root.IsObject() && root.IsAtomic() && len(updated.Comments()) == 0 {
-			updated, err = configdocument.Absent(projections[0].syntax, limits)
-			if err != nil {
-				return DocumentCandidate{}, err
-			}
 		}
 	}
 	final := nativeDocument(updated)
@@ -137,7 +140,7 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		if !sameRestoredProjection(privateExpected[index], actual) {
+		if !privateExpected[index].SameManagedProjection(actual) {
 			return DocumentCandidate{}, fmt.Errorf("composed document differs from a semantic recovery candidate")
 		}
 		if _, err := aggregate.NewRestoredDocumentWithExpected(final, baseline.baseline, actual); err != nil {
@@ -188,21 +191,11 @@ func nativeProjection(ctx context.Context, document aggregate.Document, limits c
 	return configdocument.Projection{Document: parsed, Areas: projection.areas}, nil
 }
 
-func sameRestoredProjection(expected, actual aggregate.Snapshot) bool {
-	left, right := expected.States(), actual.States()
-	if len(left) != len(right) {
-		return false
+func omitEmptyDocument(document configdocument.Document, syntax configdocument.Syntax, limits configdocument.Limits) (configdocument.Document, error) {
+	if document.HasValues() || len(document.Comments()) != 0 {
+		return document, nil
 	}
-	for index, state := range left {
-		if _, native := aggregate.HostConfigSyntaxForCodec(state.Contract().CodecContractID()); native {
-			if !state.SelectedValueEqual(right[index]) {
-				return false
-			}
-		} else if !state.Equal(right[index]) {
-			return false
-		}
-	}
-	return true
+	return configdocument.Absent(syntax, limits)
 }
 
 func parse(ctx context.Context, document aggregate.Document, syntax configdocument.Syntax, limits configdocument.Limits) (configdocument.Document, error) {
