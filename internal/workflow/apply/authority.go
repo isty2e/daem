@@ -48,6 +48,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		0,
 	)
 	physicalOccupancies := make(physicalOccupancyIndex)
+	nativeActors := make(map[aggregate.DocumentAddress]aggregate.DocumentAddress)
+	if planned.nativePlan != nil {
+		for _, group := range planned.assessment.NativeApproval {
+			for _, alias := range group.Aliases {
+				nativeActors[alias] = group.Aliases[0]
+			}
+		}
+	}
 	registryAccess := mutation.AccessShared
 	requiresRegistry := planned.nativePlan != nil
 	if err := builder.AddLogicalPair(result.ManifestPath, mutation.AccessShared, mutation.AccessShared); err != nil {
@@ -201,9 +209,21 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		aggregateTarget target.Target,
 		write bool,
 	) error {
-		if err := physicalOccupancies.register(path, physicalOccupancy{
+		occupancy := physicalOccupancy{
 			scope: scope, destination: destination, kind: kind, target: aggregateTarget,
-		}); err != nil {
+		}
+		if kind == physicalOccupancyAggregate {
+			address, err := aggregate.NewDocumentAddress(aggregateTarget, scope, destination)
+			if err != nil {
+				return err
+			}
+			if actor, native := nativeActors[address]; native {
+				occupancy.scope = actor.Scope()
+				occupancy.destination = actor.AggregateRoot()
+				occupancy.target = actor.Target()
+			}
+		}
+		if err := physicalOccupancies.register(path, occupancy); err != nil {
 			return err
 		}
 		for _, consumer := range consumers {
@@ -274,15 +294,27 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			}
 		}
 	}
-	for _, decision := range planned.assessment.Reconciliation.MutatingAggregates() {
+	for _, decision := range planned.assessment.Reconciliation.Aggregates() {
 		document := decision.DocumentAddress()
-		var err error
-		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
-			err = addNativeDocument(document, true)
-		} else {
-			err = addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), true)
+		_, native := nativeActors[document]
+		_, nativeCodec := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID())
+		if native && !nativeCodec {
+			path, err := destinationResolver(planned.context.Paths).Resolve(document.AggregateRoot(), planned.context.physicalBudget)
+			if err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+			if err := builder.AddPhysicalPair(path, mutation.AccessShared, string(document.Target()), string(document.Scope())); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
 		}
-		if err != nil {
+		if !decision.MutatesHost() && !decision.MutatesState() {
+			continue
+		}
+		if native || nativeCodec {
+			if err := addNativeDocument(document, true); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		} else if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), true); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		for _, precondition := range decision.OperationPreconditions() {

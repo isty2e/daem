@@ -66,7 +66,7 @@ func ObserveSelectedDocuments(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, fmt.Errorf("selected native observation requires context, persistence and addresses")
 	}
 	operation := &DocumentObservation{}
-	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), operation); err != nil {
+	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), nil, operation); err != nil {
 		return nil, errors.Join(err, operation.Close())
 	}
 	return operation, nil
@@ -145,10 +145,14 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 	for alias := range aliases {
 		addresses = append(addresses, alias)
 	}
-	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, operation)
+	candidates, err := ordinaryDocumentAliasCandidates(input, before, addresses)
+	if err != nil {
+		return nil, err
+	}
+	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, candidates, operation)
 }
 
-func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses []aggregate.DocumentAddress, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
+func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses, candidates []aggregate.DocumentAddress, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
 	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
 	if err != nil {
 		return nil, err
@@ -236,6 +240,10 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, err
 	}
 	owner, err := stateauthority.New(stateAuthority.Exact(), paths.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	addresses, err = joinOrdinaryDocumentAliases(ctx, paths, roots, budget, addresses, candidates)
 	if err != nil {
 		return nil, err
 	}
