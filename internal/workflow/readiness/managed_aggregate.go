@@ -312,8 +312,9 @@ func observeAggregateDocuments(
 		}
 		for _, precondition := range preconditions {
 			var satisfied bool
-			if hasRetained {
-				satisfied = retained.Exists() != (precondition.Kind() == aggregate.OperationPreconditionDocumentAbsent)
+			preconditionDocument, _, retainedPrecondition := retainedNativeDocument(native, precondition.DocumentAddress())
+			if retainedPrecondition {
+				satisfied = preconditionDocument.Exists() != (precondition.Kind() == aggregate.OperationPreconditionDocumentAbsent)
 			} else {
 				satisfied, err = observeAggregatePrecondition(ctx, resolver, precondition)
 				if err != nil {
