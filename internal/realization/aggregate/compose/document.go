@@ -33,7 +33,7 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 	if err != nil {
 		return DocumentCandidate{}, err
 	}
-	var changes []configdocument.Change
+	var candidates []configdocument.Projection
 	privateExpected := make([]aggregate.Snapshot, len(edits))
 	for index, edit := range edits {
 		if err := ctx.Err(); err != nil {
@@ -50,14 +50,14 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		selected, err := projectedChanges(ctx, rendered.Document(), limits, edit.projection)
+		selected, err := nativeProjection(ctx, rendered.Document(), limits, edit.projection)
 		if err != nil {
 			return DocumentCandidate{}, err
 		}
-		changes = append(changes, selected...)
+		candidates = append(candidates, selected)
 		privateExpected[index] = rendered.Expected()
 	}
-	updated, err := configdocument.Edit(ctx, original, changes)
+	updated, err := configdocument.Project(ctx, original, candidates)
 	if err != nil {
 		return DocumentCandidate{}, err
 	}
@@ -94,7 +94,7 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		return DocumentCandidate{}, err
 	}
 	beforeExisted := baselines[0].baseline.DocumentExisted()
-	var changes []configdocument.Change
+	var candidates []configdocument.Projection
 	privateExpected := make([]aggregate.Snapshot, len(baselines))
 	for index, baseline := range baselines {
 		if err := ctx.Err(); err != nil {
@@ -107,14 +107,14 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		selected, err := projectedChanges(ctx, restored.Document(), limits, baseline.projection)
+		selected, err := nativeProjection(ctx, restored.Document(), limits, baseline.projection)
 		if err != nil {
 			return DocumentCandidate{}, err
 		}
-		changes = append(changes, selected...)
+		candidates = append(candidates, selected)
 		privateExpected[index] = restored.Expected()
 	}
-	updated, err := configdocument.Edit(ctx, original, changes)
+	updated, err := configdocument.Project(ctx, original, candidates)
 	if err != nil {
 		return DocumentCandidate{}, err
 	}
@@ -180,29 +180,12 @@ func prepare(ctx context.Context, document aggregate.Document, limits configdocu
 	return parse(ctx, document, projections[0].syntax, limits)
 }
 
-func projectedChanges(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projection Participant) ([]configdocument.Change, error) {
+func nativeProjection(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projection Participant) (configdocument.Projection, error) {
 	parsed, err := parse(ctx, document, projection.syntax, limits)
 	if err != nil {
-		return nil, err
+		return configdocument.Projection{}, err
 	}
-	changes := make([]configdocument.Change, 0, len(projection.areas))
-	for _, area := range projection.areas {
-		value, present, err := parsed.Lookup(area)
-		if err != nil {
-			return nil, err
-		}
-		var change configdocument.Change
-		if present {
-			change, err = configdocument.Set(area, value)
-		} else {
-			change, err = configdocument.Remove(area)
-		}
-		if err != nil {
-			return nil, err
-		}
-		changes = append(changes, change)
-	}
-	return changes, nil
+	return configdocument.Projection{Document: parsed, Areas: projection.areas}, nil
 }
 
 func sameRestoredProjection(expected, actual aggregate.Snapshot) bool {

@@ -33,19 +33,30 @@ func Remove(path output.KeyPath) (Change, error) {
 // must match the expected native result and retain every existing comment.
 // Removing a key retains empty ancestor objects; it is not formatting undo.
 func Edit(ctx context.Context, document Document, changes []Change) (Document, error) {
-	if ctx == nil {
-		return Document{}, fmt.Errorf("configuration context is required")
-	}
-	if err := ctx.Err(); err != nil {
+	if err := validateEdit(ctx, document); err != nil {
 		return Document{}, err
-	}
-	if !document.root.IsObject() || document.syntax.validate() != nil {
-		return Document{}, ErrInvalidDocument
 	}
 	tree, err := planChanges(ctx, changes, document.limits.MaximumDepth)
 	if err != nil {
 		return Document{}, err
 	}
+	return editTree(ctx, document, tree)
+}
+
+func validateEdit(ctx context.Context, document Document) error {
+	if ctx == nil {
+		return fmt.Errorf("configuration context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !document.root.IsObject() || document.syntax.validate() != nil {
+		return ErrInvalidDocument
+	}
+	return nil
+}
+
+func editTree(ctx context.Context, document Document, tree *changeTree) (Document, error) {
 	expected, err := updateTree(ctx, document.root, tree)
 	if err != nil {
 		return Document{}, err

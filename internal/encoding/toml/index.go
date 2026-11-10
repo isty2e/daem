@@ -49,6 +49,7 @@ type Index struct {
 	expressions []Expression
 	scoped      []ScopedComment
 	keys        []keyOccurrence
+	inlines     []InlineTable
 }
 
 func (index Index) Expressions() []Expression {
@@ -94,6 +95,7 @@ func IndexDocument(ctx context.Context, content []byte) (Index, error) {
 	parser.Reset(input)
 	var index Index
 	var table Key
+	arrays := &arrayTableScope{}
 	for parser.NextExpression() {
 		if err := ctx.Err(); err != nil {
 			return Index{}, err
@@ -117,6 +119,7 @@ func IndexDocument(ctx context.Context, content []byte) (Index, error) {
 			kind, closers := Table, 1
 			if node.Kind == unstable.ArrayTable {
 				kind, closers = ArrayTable, 2
+				arrays.add(path)
 			}
 			start := bytes.LastIndexByte(content[:first], '\n') + 1
 			for start < first && (content[start] == ' ' || content[start] == '\t' || content[start] == '\r' || start < bias) {
@@ -132,14 +135,14 @@ func IndexDocument(ctx context.Context, content []byte) (Index, error) {
 			index.keys = append(index.keys, keyOccurrence{path: slices.Clone(path), offset: first})
 			index.expressions = append(index.expressions, Expression{Path: path, Kind: kind, Span: Span{start, end}})
 		case unstable.KeyValue:
-			path, _, last := expressionKey(node, table, bias)
-			start := bias + int(node.Raw.Offset)
-			end := start + int(node.Raw.Length)
-			separator := last + bytes.IndexByte(content[last:end], '=')
-			valueStart := end - len(bytes.TrimLeft(content[separator+1:end], " \t"))
-			index.expressions = append(index.expressions, Expression{Path: path, Kind: KeyValue, Span: Span{start, end}, Value: Span{valueStart, end}})
-			if err := index.recordKeyValue(ctx, node, table, bias); err != nil {
+			index.expressions = append(index.expressions, keyValueExpression(content, node, table, bias))
+			if err := index.recordKeyValue(ctx, content, node, table, bias); err != nil {
 				return Index{}, err
+			}
+			if !arrays.contains(table) {
+				if err := index.recordInlineTables(ctx, content, node, table, bias); err != nil {
+					return Index{}, err
+				}
 			}
 		}
 	}
@@ -169,27 +172,36 @@ func expressionKey(node *unstable.Node, prefix Key, bias int) (Key, int, int) {
 	return path, first, last
 }
 
-func (index *Index) recordKeyValue(ctx context.Context, node *unstable.Node, prefix Key, bias int) error {
+func keyValueExpression(content []byte, node *unstable.Node, prefix Key, bias int) Expression {
+	path, _, last := expressionKey(node, prefix, bias)
+	start := bias + int(node.Raw.Offset)
+	end := start + int(node.Raw.Length)
+	separator := last + bytes.IndexByte(content[last:end], '=')
+	valueStart := end - len(bytes.TrimLeft(content[separator+1:end], " \t"))
+	return Expression{Path: path, Kind: KeyValue, Span: Span{start, end}, Value: Span{valueStart, end}}
+}
+
+func (index *Index) recordKeyValue(ctx context.Context, content []byte, node *unstable.Node, prefix Key, bias int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	path, first, _ := expressionKey(node, prefix, bias)
-	value := node.Value().Raw
-	index.keys = append(index.keys, keyOccurrence{path: path, offset: first, value: Span{bias + int(value.Offset), bias + int(value.Offset) + int(value.Length)}})
-	return index.recordChildren(ctx, node.Value(), path, bias)
+	value := keyValueExpression(content, node, prefix, bias).Value
+	index.keys = append(index.keys, keyOccurrence{path: path, offset: first, value: value})
+	return index.recordChildren(ctx, content, node.Value(), path, bias)
 }
 
-func (index *Index) recordChildren(ctx context.Context, node *unstable.Node, path Key, bias int) error {
+func (index *Index) recordChildren(ctx context.Context, content []byte, node *unstable.Node, path Key, bias int) error {
 	if node.Kind != unstable.Array && node.Kind != unstable.InlineTable {
 		return ctx.Err()
 	}
 	for child := node.Child(); child.Valid(); child = child.Next() {
 		if child.Kind == unstable.KeyValue {
-			if err := index.recordKeyValue(ctx, child, path, bias); err != nil {
+			if err := index.recordKeyValue(ctx, content, child, path, bias); err != nil {
 				return err
 			}
 		} else {
-			if err := index.recordChildren(ctx, child, path, bias); err != nil {
+			if err := index.recordChildren(ctx, content, child, path, bias); err != nil {
 				return err
 			}
 		}

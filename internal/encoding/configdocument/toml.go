@@ -107,6 +107,7 @@ type tomlExpression struct {
 type tomlIndex struct {
 	expressions []tomlExpression
 	comments    []sourceSpan
+	inlines     map[int]tomlsyntax.InlineTable
 }
 
 func indexTOML(ctx context.Context, content []byte) (tomlIndex, error) {
@@ -123,6 +124,10 @@ func indexTOML(ctx context.Context, content []byte) (tomlIndex, error) {
 	}
 	for _, span := range parsed.Comments() {
 		index.comments = append(index.comments, sourceSpan{span.Start, span.End})
+	}
+	index.inlines = make(map[int]tomlsyntax.InlineTable)
+	for _, table := range parsed.InlineTables() {
+		index.inlines[table.Span.Start] = table
 	}
 	return index, ctx.Err()
 }
