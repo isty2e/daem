@@ -147,7 +147,10 @@ func (indexes SnapshotIndexes) SelectedContracts(ctx context.Context, subjects [
 	if err != nil {
 		return nil, err
 	}
+	return indexes.selectedContractsAt(ctx, subjects, addresses, addresses)
+}
 
+func (indexes SnapshotIndexes) selectedContractsAt(ctx context.Context, subjects []topology.SubjectID, beforeAddresses, afterAddresses map[aggregate.DocumentAddress]struct{}) ([]aggregate.Selection, error) {
 	groups := make(map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract)
 	seen := make(map[topology.SubjectID]struct{}, len(subjects))
 	for index, subject := range subjects {
@@ -166,8 +169,8 @@ func (indexes SnapshotIndexes) SelectedContracts(ctx context.Context, subjects [
 		if beforePath || afterPath {
 			return nil, fmt.Errorf("selected subject[%d] is whole-path state, not a selected projection", index)
 		}
-		before, beforePresent := selectedContractAt(indexes.before, subject, addresses)
-		after, afterPresent := selectedContractAt(indexes.after, subject, addresses)
+		before, beforePresent := selectedContractAt(indexes.before, subject, beforeAddresses)
+		after, afterPresent := selectedContractAt(indexes.after, subject, afterAddresses)
 		if !beforePresent && !afterPresent {
 			return nil, fmt.Errorf("selected subject[%d] does not resolve within the document aliases", index)
 		}

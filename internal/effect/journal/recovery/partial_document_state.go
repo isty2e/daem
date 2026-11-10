@@ -50,6 +50,11 @@ func NewPartialDocumentState(exists bool, mode *PermissionMode, snapshots []aggr
 	return state, nil
 }
 
+func (state PartialDocumentState) Projection(contract aggregate.ProjectionContract) (aggregate.ProjectionState, bool) {
+	value, present := state.projections[contract.Address()]
+	return value, present && value.Contract().Equal(contract)
+}
+
 // PartialDocumentMatch is only the root-metadata and aggregate-projection
 // component of recovery. Dedicated order and durable-authority joins remain separate.
 type PartialDocumentMatch struct {

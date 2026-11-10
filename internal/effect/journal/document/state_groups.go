@@ -34,6 +34,8 @@ func NewStateGroupInput(aliases []aggregate.DocumentAddress, subjects []topology
 // Physical, prepared-action, image, claim and phase joins remain mandatory.
 type StateGroup struct {
 	aliases        []aggregate.DocumentAddress
+	beforeAliases  []aggregate.DocumentAddress
+	afterAliases   []aggregate.DocumentAddress
 	selections     []aggregate.Selection
 	comparison     Comparison
 	bindingIntents []ownership.DocumentBindingIntent
@@ -42,6 +44,14 @@ type StateGroup struct {
 
 func (group StateGroup) Comparison() Comparison               { return group.comparison }
 func (group StateGroup) Aliases() []aggregate.DocumentAddress { return slices.Clone(group.aliases) }
+func (group StateGroup) BeforeAliases() []aggregate.DocumentAddress {
+	return slices.Clone(group.beforeAliases)
+}
+
+func (group StateGroup) AfterAliases() []aggregate.DocumentAddress {
+	return slices.Clone(group.afterAliases)
+}
+
 func (group StateGroup) BindingIntents() []ownership.DocumentBindingIntent {
 	return slices.Clone(group.bindingIntents)
 }
@@ -72,9 +82,20 @@ type documentStateAddress struct {
 	destination output.Destination
 }
 
-func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority, before, after durable.Snapshot, inputs []StateGroupInput) ([]StateGroup, error) {
+func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority, before, after durable.Snapshot, inputs []StateGroupInput, transfers ...CarrierTransfer) ([]StateGroup, error) {
 	indexes, err := IndexSnapshots(ctx, before, after)
 	if err != nil {
+		return nil, err
+	}
+	aliasGroups := make([][]aggregate.DocumentAddress, len(inputs))
+	for index, input := range inputs {
+		aliasGroups[index] = input.aliases
+	}
+	placement, err := ResolvePhysicalPlacement(ctx, aliasGroups, transfers)
+	if err != nil {
+		return nil, err
+	}
+	if err := indexes.validateCarrierTransfers(ctx, transfers); err != nil {
 		return nil, err
 	}
 	groups := make([]StateGroup, 0, len(inputs))
@@ -89,12 +110,22 @@ func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority,
 		if err := input.comparison.Validate(); err != nil {
 			return nil, fmt.Errorf("document group[%d]: %w", index, err)
 		}
-		selections, err := indexes.SelectedContracts(ctx, input.selectedSubjects, input.aliases)
+		beforeAliases, afterAliases := placement.BeforeAliases(index), placement.AfterAliases(index)
+		beforeAddresses := make(map[aggregate.DocumentAddress]struct{}, len(beforeAliases))
+		for _, alias := range beforeAliases {
+			beforeAddresses[alias] = struct{}{}
+		}
+		afterAddresses := make(map[aggregate.DocumentAddress]struct{}, len(afterAliases))
+		for _, alias := range afterAliases {
+			afterAddresses[alias] = struct{}{}
+		}
+		selections, err := indexes.selectedContractsAt(ctx, input.selectedSubjects, beforeAddresses, afterAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("document group[%d]: %w", index, err)
 		}
 		group := StateGroup{
 			aliases: slices.Clone(input.aliases), selections: selections,
+			beforeAliases: beforeAliases, afterAliases: afterAliases,
 			comparison: input.comparison, bindingIntents: slices.Clone(input.bindingIntents),
 			frontier: make(map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract),
 		}
@@ -111,11 +142,13 @@ func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority,
 		}
 		destinations := make(map[output.Destination]struct{}, len(input.aliases))
 		for _, alias := range input.aliases {
-			if _, duplicate := aliases[alias]; duplicate {
-				return nil, fmt.Errorf("document alias belongs to more than one group")
+			if _, present := aliases[alias]; !present {
+				allAliases = append(allAliases, alias)
 			}
-			aliases[alias] = index
-			stateAliases[documentStateAddress{alias.Target(), alias.Scope(), alias.AggregateRoot()}] = index
+			// Transfers are MCP-only; native coverage still sees one group in both phases.
+			afterGroup, _ := placement.AfterGroup(alias)
+			aliases[alias] = afterGroup
+			stateAliases[documentStateAddress{alias.Target(), alias.Scope(), alias.AggregateRoot()}] = afterGroup
 			destinations[alias.AggregateRoot()] = struct{}{}
 		}
 		for _, intent := range input.bindingIntents {
@@ -123,9 +156,11 @@ func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority,
 				return nil, fmt.Errorf("document binding intent belongs to another group's alias")
 			}
 		}
-		allAliases = append(allAliases, input.aliases...)
 		intents = append(intents, input.bindingIntents...)
 		groups = append(groups, group)
+	}
+	if err := indexes.validateCarrierFrontiers(ctx, groups, transfers); err != nil {
+		return nil, err
 	}
 	if err := indexes.validateNativeBindingMembership(ctx, owner, allAliases, intents); err != nil {
 		return nil, err
