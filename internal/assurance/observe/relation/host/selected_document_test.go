@@ -191,6 +191,14 @@ func TestSelectedDocumentFactoryCompletesCompositionBeforeEveryVerifier(t *testi
 	if strings.TrimSpace(string(completed.Expected().Content())) != want || !completed.Original().Equal(before) {
 		t.Fatal("completion changed a tuple, foreign slot or unrelated composition", string(completed.Expected().Content()))
 	}
+	operationLimits := configdocument.Limits{MaximumBytes: 2 * pipackage.MaximumSettingsBytes, MaximumDepth: 32}
+	operationImage, err := CompleteSelectedImage(t.Context(), before, operationLimits, []compose.ProjectionEdit{projection}, edits)
+	if err != nil || operationImage.Limits() != operationLimits || !operationImage.Expected().Equal(completed.Expected()) {
+		t.Fatal("private host limits replaced the containing operation contract", err)
+	}
+	if _, err := CompleteSelectedImage(t.Context(), before, configdocument.Limits{MaximumBytes: before.ContentSize() - 1, MaximumDepth: 32}, nil, edits); err == nil {
+		t.Fatal("private host limits replaced a stricter operation bound")
+	}
 	sequences := completed.Sequences()
 	sequences[0] = CompletedSequence{}
 	if completed.Sequences()[0].ArrayEdit().ArrayPath().IsRoot() {

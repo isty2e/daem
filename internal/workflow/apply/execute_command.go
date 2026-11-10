@@ -506,6 +506,9 @@ func executeWithDependencies(
 		executionOptions.nativeInput = &native
 		executionOptions.persistenceCodec = current.nativePlan.stateCodec
 		executionOptions.nativeInvocations = nativeInvocations
+		if !current.nativePlan.opaque {
+			executionOptions.nativeOrderChecks = current.nativePlan.orders
+		}
 		if current.nativePlan.opaque {
 			originalOwnership := current.assessment.Ownership
 			requalificationInput := func() applyRequalificationInput {
@@ -594,8 +597,8 @@ func executeWithDependencies(
 					if err != nil {
 						return nativeSegmentResult{}, err
 					}
-					reconciliation := current.assessment.Reconciliation
 					current, currentAuthority, firstEffectRevisions, stateDirBoundaryValidated, revisionsValidated = updated.plan, updated.authority, updated.revisions, updated.stateDirBoundaryValidated, false
+					reconciliation := current.assessment.Reconciliation
 					input, plan := remainder.input, remainder.plan
 					if options.NativeFilesystem != nil {
 						input.Filesystem = options.NativeFilesystem
@@ -619,7 +622,7 @@ func executeWithDependencies(
 			}
 			if stateDirPlan.schedule.delegateSuffix != nil {
 				for _, order := range current.nativePlan.orders {
-					executionOptions.deferredNativeOrders = append(executionOptions.deferredNativeOrders, order.Sequence().ClassID())
+					executionOptions.deferredNativeOrders = append(executionOptions.deferredNativeOrders, selectedOrderSequenceKey(order))
 				}
 				executionOptions.afterDelegates = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error) {
 					qualification := requalificationInput()
@@ -645,8 +648,8 @@ func executeWithDependencies(
 					if err != nil {
 						return nativeSegmentResult{}, err
 					}
-					reconciliation := current.assessment.Reconciliation
 					current, currentAuthority, firstEffectRevisions, stateDirBoundaryValidated, revisionsValidated = updated.plan, updated.authority, updated.revisions, updated.stateDirBoundaryValidated, false
+					reconciliation := current.assessment.Reconciliation
 					input := remainder.input
 					if options.NativeFilesystem != nil {
 						input.Filesystem = options.NativeFilesystem

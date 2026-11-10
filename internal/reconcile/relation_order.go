@@ -50,6 +50,16 @@ type RelationOrderDecisionInput struct {
 	PendingRemovals []topology.SubjectID
 }
 
+// SelectedRelationOrderDecisionInput classifies the surviving rows of one
+// combined membership/order edit without replacing its original CAS evidence.
+type SelectedRelationOrderDecisionInput struct {
+	Target          target.Target
+	Scope           target.Scope
+	Constraint      hostrelation.RelationOrderConstraint
+	Selected        observerelation.SelectedSequenceEdit
+	PendingInstalls []topology.SubjectID
+}
+
 // BlockedRelationOrderDecisionInput records a selected physical sequence whose
 // host observation could not produce canonical current evidence.
 type BlockedRelationOrderDecisionInput struct {
@@ -71,6 +81,7 @@ type RelationOrderDecision struct {
 	sequence          observerelation.ObservedRelationSequence
 	sequenceID        hostrelation.PhysicalSequenceID
 	hasSequence       bool
+	selected          *observerelation.SelectedSequenceEdit
 	kind              RelationOrderDecisionKind
 	reason            RelationOrderReason
 	detail            string
@@ -84,6 +95,14 @@ type RelationOrderDecision struct {
 
 // NewRelationOrderDecision validates and classifies one physical sequence.
 func NewRelationOrderDecision(input RelationOrderDecisionInput) (RelationOrderDecision, error) {
+	return newRelationOrderDecision(input, input.Sequence.OrderedRows(), nil)
+}
+
+func newRelationOrderDecision(
+	input RelationOrderDecisionInput,
+	rows []observerelation.ObservedRelationRow,
+	selected *observerelation.SelectedSequenceEdit,
+) (RelationOrderDecision, error) {
 	selectedTarget, err := target.ParseTarget(string(input.Target))
 	if err != nil {
 		return RelationOrderDecision{}, fmt.Errorf("relation order target: %w", err)
@@ -128,13 +147,58 @@ func NewRelationOrderDecision(input RelationOrderDecisionInput) (RelationOrderDe
 		sequence:        input.Sequence,
 		sequenceID:      input.Sequence.SequenceID(),
 		hasSequence:     true,
+		selected:        selected,
 		pendingInstalls: pendingInstalls,
 		pendingRemovals: pendingRemovals,
 	}
-	if err := decision.classify(); err != nil {
+	if err := decision.classify(rows); err != nil {
 		return RelationOrderDecision{}, err
 	}
 	return decision, nil
+}
+
+// NewSelectedRelationOrderDecision uses the same classifier as ordinary order
+// decisions, with removal already accounted for in the pure planning baseline.
+// Pending installation preserves the already-known survivor precedence risks.
+func NewSelectedRelationOrderDecision(
+	input SelectedRelationOrderDecisionInput,
+) (RelationOrderDecision, error) {
+	full, ordered := input.Selected.Constraint()
+	if !ordered {
+		return RelationOrderDecision{}, fmt.Errorf("selected relation order requires an ordered sequence edit")
+	}
+	if err := input.Constraint.Validate(); err != nil {
+		return RelationOrderDecision{}, err
+	}
+	if input.Constraint.ClassID() != full.ClassID() ||
+		input.Constraint.MemberIdentityContract() != full.MemberIdentityContract() ||
+		input.Constraint.RuntimeMeaning() != full.RuntimeMeaning() {
+		return RelationOrderDecision{}, fmt.Errorf("selected relation order constraint differs from its sequence contract")
+	}
+	if err := input.Selected.Projection().Destination().ValidateScope(input.Scope); err != nil {
+		return RelationOrderDecision{}, err
+	}
+
+	fullMembers := full.Members()
+	position := 0
+	for _, member := range input.Constraint.Members() {
+		for position < len(fullMembers) && fullMembers[position] != member {
+			position++
+		}
+		if position == len(fullMembers) {
+			return RelationOrderDecision{}, fmt.Errorf("selected relation order constraint is not an order-preserving member projection")
+		}
+		position++
+	}
+
+	selected := input.Selected
+	return newRelationOrderDecision(RelationOrderDecisionInput{
+		Target:          input.Target,
+		Scope:           input.Scope,
+		Constraint:      input.Constraint,
+		Sequence:        input.Selected.Original(),
+		PendingInstalls: input.PendingInstalls,
+	}, input.Selected.SurvivingRows(), &selected)
 }
 
 // NewBlockedRelationOrderDecision constructs one typed observation block
@@ -187,7 +251,7 @@ func RelationOrderObservationFailureReason(err error) RelationOrderReason {
 	return OrderReasonObservationUnavailable
 }
 
-func (decision *RelationOrderDecision) classify() error {
+func (decision *RelationOrderDecision) classify(rows []observerelation.ObservedRelationRow) error {
 	members := decision.constraint.Members()
 	memberBySubject := make(map[topology.SubjectID]hostrelation.RelationOrderMember, len(members))
 	for _, member := range members {
@@ -196,7 +260,7 @@ func (decision *RelationOrderDecision) classify() error {
 
 	observedSubjects := make(map[topology.SubjectID]struct{}, len(members))
 	var extraSubjects []topology.SubjectID
-	for _, row := range decision.sequence.OrderedRows() {
+	for _, row := range rows {
 		subject, correlated := row.CorrelatedSubject()
 		if !correlated {
 			decision.foreignRows++
@@ -245,17 +309,22 @@ func (decision *RelationOrderDecision) classify() error {
 	case len(decision.missingMembers) != 0 || len(decision.pendingInstalls) != 0:
 		decision.kind = OrderConditionalAfterCarrierChange
 		decision.reason = OrderReasonPendingCarrierInstall
-		return nil
+		if decision.selected == nil {
+			return nil
+		}
 	}
 
 	order, precedenceChanges, err := observerelation.FixedSlotPermutation(
 		decision.constraint,
-		decision.sequence.OrderedRows(),
+		rows,
 	)
 	if err != nil {
 		return fmt.Errorf("plan fixed-slot relation order: %w", err)
 	}
 	decision.precedenceChanges = precedenceChanges
+	if decision.kind == OrderConditionalAfterCarrierChange {
+		return nil
+	}
 
 	if permutationChangesOrder(order) {
 		decision.kind = OrderNormalize
@@ -270,6 +339,9 @@ func (decision *RelationOrderDecision) classify() error {
 // Validate rejects a zero or forged order decision.
 func (decision RelationOrderDecision) Validate() error {
 	if !decision.hasSequence {
+		if decision.selected != nil {
+			return fmt.Errorf("blocked relation order decision carries selected sequence evidence")
+		}
 		rebuilt, err := NewBlockedRelationOrderDecision(BlockedRelationOrderDecisionInput{
 			Target:     decision.target,
 			Scope:      decision.scope,
@@ -286,19 +358,38 @@ func (decision RelationOrderDecision) Validate() error {
 		}
 		return nil
 	}
-	rebuilt, err := NewRelationOrderDecision(RelationOrderDecisionInput{
-		Target:          decision.target,
-		Scope:           decision.scope,
-		Constraint:      decision.constraint,
-		Sequence:        decision.sequence,
-		PendingInstalls: decision.pendingInstalls,
-		PendingRemovals: decision.pendingRemovals,
-	})
+	var rebuilt RelationOrderDecision
+	var err error
+	if decision.selected != nil {
+		if len(decision.pendingRemovals) != 0 {
+			return fmt.Errorf("selected relation order decision carries separate pending removals")
+		}
+		rebuilt, err = NewSelectedRelationOrderDecision(SelectedRelationOrderDecisionInput{
+			Target:          decision.target,
+			Scope:           decision.scope,
+			Constraint:      decision.constraint,
+			Selected:        *decision.selected,
+			PendingInstalls: decision.pendingInstalls,
+		})
+	} else {
+		rebuilt, err = NewRelationOrderDecision(RelationOrderDecisionInput{
+			Target:          decision.target,
+			Scope:           decision.scope,
+			Constraint:      decision.constraint,
+			Sequence:        decision.sequence,
+			PendingInstalls: decision.pendingInstalls,
+			PendingRemovals: decision.pendingRemovals,
+		})
+	}
 	if err != nil {
 		return err
 	}
 	if decision.kind != rebuilt.kind ||
 		decision.reason != rebuilt.reason ||
+		decision.sequenceID != rebuilt.sequenceID ||
+		decision.sequence.Authority() != rebuilt.sequence.Authority() ||
+		decision.sequence.Revision() != rebuilt.sequence.Revision() ||
+		!decision.sequence.SameOrdering(rebuilt.sequence) ||
 		!slices.Equal(decision.observedMembers, rebuilt.observedMembers) ||
 		!slices.Equal(decision.missingMembers, rebuilt.missingMembers) ||
 		decision.foreignRows != rebuilt.foreignRows ||

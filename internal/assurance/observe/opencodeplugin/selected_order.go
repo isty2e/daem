@@ -31,14 +31,18 @@ func (observation DocumentOrderObservation) WithRetiringRelations(retiring []Sco
 	return newSelectedDocumentView(observation.selection, observation.document, retiring)
 }
 
-func ReconstructRetirement(capability profile.ExtensionOrderCapability, document Document, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
+func ReconstructRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
 	if err := capability.Validate(); err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
 	if capability.Carrier() != desiredextension.CarrierOpenCodePlugin || !filepath.IsAbs(document.path) || filepath.Clean(document.path) != document.path {
 		return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode retirement requires its admitted capability and selected document")
 	}
-	selection := orderSelection{scope: capability.Scope(), directory: filepath.Dir(document.path), capability: capability}
+	protected := slices.Clone(desired)
+	slices.SortFunc(protected, func(left, right ScopedRelation) int {
+		return topology.CompareSubjectID(left.key.Subject(), right.key.Subject())
+	})
+	selection := orderSelection{scope: capability.Scope(), directory: filepath.Dir(document.path), capability: capability, relations: protected}
 	return newSelectedDocumentView(selection, document, retiring)
 }
 
@@ -46,6 +50,25 @@ func newSelectedDocumentView(selection orderSelection, document Document, retiri
 	desiredIdentities := make(map[hostrelation.HostLoadIdentity]bool)
 	for _, member := range selection.constraint.Members() {
 		desiredIdentities[member.HostLoadIdentity()] = true
+	}
+	desiredSubjects := make(map[topology.SubjectID]bool, len(selection.relations))
+	protectedIdentities := make(map[hostrelation.HostLoadIdentity]bool, len(selection.relations))
+	for _, relation := range selection.relations {
+		if err := relation.key.Validate(); err != nil {
+			return SelectedDocumentOrderView{}, err
+		}
+		if relation.scope != selection.scope || desiredSubjects[relation.key.Subject()] {
+			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection requires unique scope-matched subjects")
+		}
+		identity, err := opencodeconfig.HostLoadIdentity(string(relation.key.ExpectedRelation().SubjectKey()), filepath.Join(selection.directory, "opencode.json"))
+		if err != nil {
+			return SelectedDocumentOrderView{}, err
+		}
+		load := hostrelation.HostLoadIdentity(identity)
+		if protectedIdentities[load] {
+			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection has an ambiguous load identity")
+		}
+		desiredSubjects[relation.key.Subject()], protectedIdentities[load], desiredIdentities[load] = true, true, true
 	}
 	retained := slices.Clone(retiring)
 	slices.SortFunc(retained, func(left, right ScopedRelation) int {
@@ -68,7 +91,7 @@ func newSelectedDocumentView(selection orderSelection, document Document, retiri
 		load := hostrelation.HostLoadIdentity(identity)
 		_, desired := selection.exactSubjects[source]
 		_, repeatedSource := sources[source]
-		if desired || desiredIdentities[load] || repeatedSource || identities[load] {
+		if desired || desiredSubjects[relation.key.Subject()] || desiredIdentities[load] || repeatedSource || identities[load] {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode retirement overlaps desired or ambiguous source identity")
 		}
 		sources[source], identities[load] = relation.key.Subject(), true
@@ -121,7 +144,9 @@ func (view SelectedDocumentOrderView) Path() string        { return view.documen
 func (view SelectedDocumentOrderView) Scope() target.Scope { return view.selection.scope }
 
 func (view SelectedDocumentOrderView) SameSelection(other SelectedDocumentOrderView) bool {
-	if !view.selected.SameIntent(other.selected) || view.document.path != other.document.path || !maps.Equal(view.selection.exactSubjects, other.selection.exactSubjects) || len(view.retiring) != len(other.retiring) {
+	if !view.selected.SameIntent(other.selected) || view.document.path != other.document.path ||
+		!maps.Equal(view.selection.exactSubjects, other.selection.exactSubjects) ||
+		!slices.Equal(view.selection.relations, other.selection.relations) || len(view.retiring) != len(other.retiring) {
 		return false
 	}
 	for index, relation := range view.retiring {

@@ -274,7 +274,7 @@ func applyOrderScheduleFacts(classes []admittedOrderClass) []applyOrderScheduleF
 		result = append(result, applyOrderScheduleFact{
 			ref:              applyOrdinalScheduleReference("apply/relation-order", index),
 			classID:          class.classID,
-			requiresMutation: relationOrderMutationRequired(class.decisions) && !class.native,
+			requiresMutation: class.requiresMutation,
 		})
 	}
 	return result

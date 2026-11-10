@@ -1,7 +1,10 @@
 package relationhost
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -10,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
@@ -84,5 +88,47 @@ func TestSelectedEditsFilterActionClaimsAndRetainTheirExplicitCommandContext(t *
 	}
 	if roots := edits[0].DefinitionRoots(); len(roots) != 1 || roots[0] != root {
 		t.Fatal("retirement normalization lost its explicit selected definition root", roots)
+	}
+}
+
+func TestObserveOpenCodeRetirementEditsUsesClasslessNormalizerAndOriginalImage(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, ".opencode")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("{\n// retained comment\n\"plugin\":[\"retired@1\",[\"foreign@1\",{\"option\":true}]],\"theme\":\"dark\"\n}")
+	for _, name := range []string{"opencode.jsonc", "tui.jsonc"} {
+		if err := os.WriteFile(filepath.Join(directory, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner, err := stateauthority.New(pathtest.DarwinCaseSensitive(filepath.Join(root, "state.json")), filepath.Join(root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := selectedCarrierClaim(t, owner, settingsProfileKey(t, desiredextension.CarrierOpenCodePlugin, target.TargetOpenCode, target.ScopeProject, "retired@1"), "opencode.plugin-carrier", "retired")
+	edits, err := ObserveOpenCodeRetirementEdits(daempaths.Paths{ManifestRoot: root}, lock.File{}, target.ScopeProject, []durablecarrier.ManagedCarrierClaim{claim})
+	if err != nil || len(edits) != 2 {
+		t.Fatal("classless inventory did not retain every loaded document", len(edits), err)
+	}
+	for _, edit := range edits {
+		selected := edit.SelectedSequence()
+		if _, ordered := selected.Constraint(); ordered || len(selected.RemovedSlots()) != 1 || !edit.Changed() {
+			t.Fatal("classless removal fabricated order or missed an exact row")
+		}
+		completed, err := CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{edit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := string(completed.Expected().Content())
+		if strings.Contains(expected, "retired@1") || !strings.Contains(expected, "// retained comment") ||
+			!strings.Contains(expected, `["foreign@1",{"option":true}]`) || !strings.Contains(expected, `"theme":"dark"`) {
+			t.Fatal("classless normalizer lost foreign tuples, comments or siblings", expected)
+		}
+		current, err := os.ReadFile(edit.SelectedPath())
+		if err != nil || !bytes.Equal(current, content) {
+			t.Fatal("planning published its selected image", err)
+		}
 	}
 }

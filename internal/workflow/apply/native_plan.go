@@ -165,6 +165,9 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	}
 	var nativeOrders []relationhost.SelectedDocumentEdit
 	for _, order := range assessment.SequenceEdits {
+		if _, ordered := order.SelectedSequence().Constraint(); !ordered {
+			continue
+		}
 		alias := order.DocumentAddress()
 		for _, evidence := range assessment.NativeApproval {
 			member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())

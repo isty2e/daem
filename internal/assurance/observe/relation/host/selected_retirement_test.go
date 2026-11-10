@@ -218,6 +218,17 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 					}
 				})
 			}
+			for name, desired := range map[string][]opencodeplugin.ScopedRelation{
+				"same source after rename": {relationFor("renamed", "r@1", target.ScopeGlobal)},
+				"same load after rename":   {relationFor("renamed", "r@2", target.ScopeGlobal)},
+				"retained subject":         {relationFor("r", "different@1", target.ScopeGlobal)},
+			} {
+				t.Run("classless/"+name, func(t *testing.T) {
+					if _, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], desired, []opencodeplugin.ScopedRelation{retiring}); err == nil {
+						t.Fatal("classless retirement consumed a still-desired relation")
+					}
+				})
+			}
 		}
 		view, err := document.WithRetiringRelations([]opencodeplugin.ScopedRelation{retiring})
 		if err != nil {
@@ -239,7 +250,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 			t.Fatal("retirement mutated the base OpenCode observation")
 		}
 
-		pure, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], []opencodeplugin.ScopedRelation{retiring})
+		pure, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], relations[:1], []opencodeplugin.ScopedRelation{retiring})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -251,6 +262,10 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 		_, ordered := pure.SelectedSequence().Constraint()
 		if err != nil || ordered || !strings.Contains(string(completed.Expected().Content()), `"plugin":[["b@1",{"option":true}],"foreign@1","a@1"]`) {
 			t.Fatal("pure retirement imposed a desired permutation", err)
+		}
+		unprotected, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], nil, []opencodeplugin.ScopedRelation{retiring})
+		if err != nil || pure.SameSelection(unprotected) {
+			t.Fatal("desired retirement protection disappeared from selection intent", err)
 		}
 	}
 }

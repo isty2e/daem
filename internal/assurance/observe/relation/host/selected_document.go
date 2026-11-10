@@ -11,9 +11,13 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
+	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
+	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 // SelectedDocumentEdit owns one normalized planning observation and original
@@ -66,6 +70,10 @@ func (origin openCodeSelectedOrigin) definitionRoots() []string { return nil }
 
 func (edit SelectedDocumentEdit) Sequence() observerelation.ObservedRelationSequence {
 	return edit.selected.Original()
+}
+
+func (edit SelectedDocumentEdit) SelectedSequence() observerelation.SelectedSequenceEdit {
+	return edit.selected
 }
 
 func (edit SelectedDocumentEdit) DocumentAddress() aggregate.DocumentAddress { return edit.document }
@@ -172,17 +180,9 @@ func (observation OrderObservation) SelectedEdits(retiring []durablecarrier.Mana
 		result = append(result, edit)
 	} else if observation.openCode != nil {
 		for _, original := range observation.openCode.Documents() {
-			keys, err := retiringCorrelations(retiring, target.TargetOpenCode, original.Scope(), desiredextension.CarrierOpenCodePlugin)
+			relations, err := openCodeRetiringRelations(retiring, original.Scope())
 			if err != nil {
 				return nil, err
-			}
-			var relations []opencodeplugin.ScopedRelation
-			for _, key := range keys {
-				relation, err := opencodeplugin.NewScopedRelation(key, original.Scope())
-				if err != nil {
-					return nil, err
-				}
-				relations = append(relations, relation)
 			}
 			view, err := original.WithRetiringRelations(relations)
 			if err != nil {
@@ -198,6 +198,78 @@ func (observation OrderObservation) SelectedEdits(retiring []durablecarrier.Mana
 		return nil, fmt.Errorf("order observation has no admitted document normalizer")
 	}
 	return result, nil
+}
+
+// ObserveOpenCodeRetirementEdits prepares removal-only edits when no locked
+// order class remains. It uses the same inventory and exact-source normalizer
+// as ordered selected edits, without inventing a desired constraint.
+// Still-desired relations are protected without becoming an order class.
+func ObserveOpenCodeRetirementEdits(
+	paths daempaths.Paths,
+	locked lock.File,
+	scope target.Scope,
+	retiring []durablecarrier.ManagedCarrierClaim,
+) ([]SelectedDocumentEdit, error) {
+	relations, err := openCodeRetiringRelations(retiring, scope)
+	if err != nil || len(relations) == 0 {
+		return nil, err
+	}
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetOpenCode, scope, desiredextension.CarrierOpenCodePlugin)
+	if !admitted {
+		return nil, fmt.Errorf("OpenCode retirement has no admitted scope capability")
+	}
+	selection, err := targetselection.ForAvailableTargets([]target.Target{target.TargetOpenCode}, nil)
+	if err != nil {
+		return nil, err
+	}
+	records, err := selectedCarrierRecords(locked, nil, selection)
+	if err != nil {
+		return nil, err
+	}
+	var desired []opencodeplugin.ScopedRelation
+	for _, record := range records {
+		if record.scope != scope || record.carrier != desiredextension.CarrierOpenCodePlugin {
+			continue
+		}
+		relation, err := opencodeplugin.NewScopedRelation(record.key, scope)
+		if err != nil {
+			return nil, err
+		}
+		desired = append(desired, relation)
+	}
+	inventory, err := opencodeplugin.ReadInventory(opencodeplugin.InventoryInput{ManifestRoot: paths.ManifestRoot, Scope: scope})
+	if err != nil {
+		return nil, err
+	}
+	var edits []SelectedDocumentEdit
+	for _, document := range inventory.Documents() {
+		view, err := opencodeplugin.ReconstructRetirement(capability, document, desired, relations)
+		if err != nil {
+			return nil, err
+		}
+		edit, err := NewOpenCodeDocumentEdit(view)
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, edit)
+	}
+	return edits, nil
+}
+
+func openCodeRetiringRelations(retiring []durablecarrier.ManagedCarrierClaim, scope target.Scope) ([]opencodeplugin.ScopedRelation, error) {
+	keys, err := retiringCorrelations(retiring, target.TargetOpenCode, scope, desiredextension.CarrierOpenCodePlugin)
+	if err != nil {
+		return nil, err
+	}
+	var relations []opencodeplugin.ScopedRelation
+	for _, key := range keys {
+		relation, err := opencodeplugin.NewScopedRelation(key, scope)
+		if err != nil {
+			return nil, err
+		}
+		relations = append(relations, relation)
+	}
+	return relations, nil
 }
 
 func retiringCorrelations(claims []durablecarrier.ManagedCarrierClaim, selectedTarget target.Target, scope target.Scope, family desiredextension.Carrier) ([]observerelation.CorrelationKey, error) {
@@ -264,7 +336,9 @@ func CompleteSelectedImage(ctx context.Context, before aggregate.Document, limit
 		if err := edit.Validate(); err != nil {
 			return VerifiedSelectedImage{}, err
 		}
-		limits.MaximumBytes = min(limits.MaximumBytes, edit.maximumBytes)
+		if before.ContentSize() > edit.maximumBytes {
+			return VerifiedSelectedImage{}, fmt.Errorf("selected sequence original exceeds its host document byte limit")
+		}
 		if !before.Equal(edit.original) {
 			return VerifiedSelectedImage{}, fmt.Errorf("selected sequence does not describe the original document")
 		}

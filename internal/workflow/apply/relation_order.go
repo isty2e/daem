@@ -168,6 +168,7 @@ type relationOrderRunResult struct {
 	updated         bool
 	planFingerprint mutation.OperationFingerprint
 	observed        []observedOrderClass
+	nativeSequences []relationOrderSequenceKey
 }
 
 type observedOrderClass struct {
@@ -206,27 +207,6 @@ func prepareRelationOrderConvergence(
 			continue
 		}
 		matchedClasses++
-		if slices.Contains(options.deferredNativeOrders, constraint.ClassID()) {
-			for _, decision := range initial {
-				if decision.ClassID() == constraint.ClassID() {
-					freshDecisions = append(freshDecisions, decision)
-				}
-			}
-			continue
-		}
-		completed := false
-		if options.nativeOrderResult != nil {
-			for _, class := range options.nativeOrderResult.observed {
-				if len(class.decisions) != 0 && class.decisions[0].ClassID() == constraint.ClassID() {
-					freshDecisions = append(freshDecisions, class.decisions...)
-					completed = true
-					break
-				}
-			}
-		}
-		if completed {
-			continue
-		}
 		selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(
 			constraint.ClassID(),
 		)
@@ -253,6 +233,10 @@ func prepareRelationOrderConvergence(
 		observation, err := relationhost.ObserveOrder(orderInput)
 		if err != nil {
 			for _, sequenceID := range capability.PhysicalSequenceIDs() {
+				if retained, owned := completedOrDeferredOrderDecisions(initial, options, relationOrderSequenceKey{constraint.ClassID(), sequenceID}); owned {
+					freshDecisions = append(freshDecisions, retained...)
+					continue
+				}
 				blocked, blockErr := reconcile.NewBlockedRelationOrderDecision(
 					reconcile.BlockedRelationOrderDecisionInput{
 						Target:     selectedTarget,
@@ -283,10 +267,19 @@ func prepareRelationOrderConvergence(
 		if err != nil {
 			return relationOrderRunResult{}, err
 		}
-		freshDecisions = append(freshDecisions, classDecisions...)
+		ordinaryDecisions := make([]reconcile.RelationOrderDecision, 0, len(classDecisions))
+		for _, decision := range classDecisions {
+			key := relationOrderSequenceKey{decision.ClassID(), decision.SequenceID()}
+			if retained, owned := completedOrDeferredOrderDecisions(initial, options, key); owned {
+				freshDecisions = append(freshDecisions, retained...)
+			} else {
+				freshDecisions = append(freshDecisions, decision)
+				ordinaryDecisions = append(ordinaryDecisions, decision)
+			}
+		}
 		observed = append(observed, observedOrderClass{
 			observation: observation,
-			decisions:   classDecisions,
+			decisions:   ordinaryDecisions,
 		})
 	}
 	if matchedClasses != len(selectedClasses) {
@@ -296,6 +289,42 @@ func prepareRelationOrderConvergence(
 			len(selectedClasses),
 		)
 	}
+	return prepareObservedRelationOrders(ctx, reconciliation, freshDecisions, observed, options)
+}
+
+func completedOrDeferredOrderDecisions(
+	initial []reconcile.RelationOrderDecision,
+	options runOptions,
+	key relationOrderSequenceKey,
+) ([]reconcile.RelationOrderDecision, bool) {
+	if slices.Contains(options.deferredNativeOrders, key) {
+		for _, decision := range initial {
+			if decision.ClassID() == key.classID && decision.SequenceID() == key.sequenceID {
+				return []reconcile.RelationOrderDecision{decision}, true
+			}
+		}
+		return nil, true
+	}
+	if options.nativeOrderResult != nil {
+		for _, decision := range options.nativeOrderResult.reconciliation.RelationOrders() {
+			if decision.ClassID() == key.classID && decision.SequenceID() == key.sequenceID {
+				return []reconcile.RelationOrderDecision{decision}, true
+			}
+		}
+		if slices.Contains(options.nativeOrderResult.nativeSequences, key) {
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func prepareObservedRelationOrders(
+	ctx context.Context,
+	reconciliation reconcile.Result,
+	freshDecisions []reconcile.RelationOrderDecision,
+	observed []observedOrderClass,
+	options runOptions,
+) (relationOrderRunResult, error) {
 	fresh, err := reconciliation.WithRelationOrders(freshDecisions)
 	if err != nil {
 		return relationOrderRunResult{}, err
@@ -363,7 +392,7 @@ func runRelationOrderConvergence(
 		for _, completed := range options.nativeOrderResult.results {
 			found := false
 			for index, row := range result.results {
-				if row.sequenceID == completed.sequenceID {
+				if row.classID == completed.classID && row.sequenceID == completed.sequenceID {
 					result.results[index] = completed
 					found = true
 					break
@@ -389,7 +418,16 @@ func runRelationOrderConvergence(
 		if err != nil {
 			return result, err
 		}
-		plan, err := configrelation.NewOrderPlan(ctx, edits)
+		ordinary := make([]relationhost.SelectedDocumentEdit, 0, len(edits))
+		for _, edit := range edits {
+			for _, decision := range class.decisions {
+				if edit.Sequence().ClassID() == decision.ClassID() && edit.Sequence().SequenceID() == decision.SequenceID() {
+					ordinary = append(ordinary, edit)
+					break
+				}
+			}
+		}
+		plan, err := configrelation.NewOrderPlan(ctx, ordinary)
 		if err != nil {
 			return result, err
 		}

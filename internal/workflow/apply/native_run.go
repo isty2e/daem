@@ -41,7 +41,10 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	if err != nil {
 		return runResult{}, err
 	}
-	orders := options.nativeInput.Preparation.SequenceEdits()
+	orders := options.nativeOrderChecks
+	if orders == nil {
+		orders = options.nativeInput.Preparation.SequenceEdits()
+	}
 	var segment nativeSegmentResult
 	if len(orders) != 0 {
 		segment, err = executeNativeOrderedSegment(ctx, paths, environment, locked, selection, assessment.Reconciliation, *options.nativeInput, *options.applyEffectPlan, orders, options)
@@ -74,6 +77,9 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 }
 
 func executeNativeOrderedSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, reconciliation reconcile.Result, input nativeoperation.NativeApplyInput, plan applyprogram.Plan, orders []relationhost.SelectedDocumentEdit, options runOptions) (segment nativeSegmentResult, err error) {
+	if err := requireNativeSelectedActors(orders, input.Preparation.SequenceEdits()); err != nil {
+		return segment, err
+	}
 	options.nativeInput = &input
 	segment.orders, err = prepareNativeOrderConvergence(ctx, paths, locked, reconciliation, orders, options)
 	if err != nil {

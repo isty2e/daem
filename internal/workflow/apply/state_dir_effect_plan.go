@@ -298,12 +298,11 @@ func delegateWorks(actions []reconcile.DelegateAction) []operationplan.DelegateW
 }
 
 type admittedOrderClass struct {
-	target      target.Target
-	scope       target.Scope
-	classID     string
-	fingerprint string
-	decisions   []reconcile.RelationOrderDecision
-	native      bool
+	target           target.Target
+	scope            target.Scope
+	classID          string
+	fingerprint      string
+	requiresMutation bool
 }
 
 func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, error) {
@@ -314,7 +313,7 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 	works := make([]operationplan.OrderClassWork, 0, len(classes))
 	for _, class := range classes {
 		works = append(works, operationplan.OrderClassWork{
-			RequiresMutation: relationOrderMutationRequired(class.decisions) && !class.native,
+			RequiresMutation: class.requiresMutation,
 		})
 	}
 	return works, nil
@@ -350,22 +349,26 @@ func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) 
 		if _, ok := selected[string(selectedTarget)]; !ok {
 			continue
 		}
-		native := false
+		nativeSequences := make(map[relationOrderSequenceKey]bool)
 		if current.nativePlan != nil {
 			for _, order := range current.nativePlan.state.SequenceEdits() {
-				native = native || order.Sequence().ClassID() == constraint.ClassID()
+				nativeSequences[selectedOrderSequenceKey(order)] = true
 			}
 			for _, order := range current.nativePlan.orders {
-				native = native || order.Sequence().ClassID() == constraint.ClassID()
+				nativeSequences[selectedOrderSequenceKey(order)] = true
 			}
 		}
+		requiresMutation := false
+		for _, decision := range classDecisions {
+			key := relationOrderSequenceKey{decision.ClassID(), decision.SequenceID()}
+			requiresMutation = requiresMutation || decision.RequiresMutation() && !nativeSequences[key]
+		}
 		result = append(result, admittedOrderClass{
-			target:      selectedTarget,
-			scope:       capability.Scope(),
-			classID:     classID,
-			fingerprint: constraint.Fingerprint(),
-			decisions:   append([]reconcile.RelationOrderDecision(nil), classDecisions...),
-			native:      native,
+			target:           selectedTarget,
+			scope:            capability.Scope(),
+			classID:          classID,
+			fingerprint:      constraint.Fingerprint(),
+			requiresMutation: requiresMutation,
 		})
 	}
 	if len(result) != len(classes) {

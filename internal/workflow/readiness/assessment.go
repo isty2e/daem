@@ -328,6 +328,11 @@ func buildAssessment(
 			assessment.SequenceEdits = append(assessment.SequenceEdits, edits...)
 		}
 	}
+	edits, err := observeClasslessRetirementEdits(paths, locked, retiring)
+	if err != nil {
+		return Assessment{}, err
+	}
+	assessment.SequenceEdits = append(assessment.SequenceEdits, edits...)
 	return assessment, nil
 }
 
