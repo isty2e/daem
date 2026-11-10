@@ -150,6 +150,10 @@ func applyEnvelopeFor(
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
 	}
+	carrierFacts, err := commandCarrierScheduleFacts(current)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
 		ExecuteGates:             executeGates,
 		PrefixExecuteGates:       prefixGates,
@@ -160,7 +164,7 @@ func applyEnvelopeFor(
 			applyInput.CurrentState,
 			finalRelations,
 		),
-		CarrierRemovals:         carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
+		CarrierRemovals:         carrierScheduleWorks(carrierFacts),
 		GlobalCarrierRetirement: len(globalRetirements) != 0,
 		GlobalCarrierAdoption:   len(globalAdoptions) != 0,
 		OrderClasses:            orderClasses,
@@ -220,8 +224,14 @@ func hostRouteStatefileEffectPlanForWorks(
 func carrierRemovalStatefileEffectPlan(
 	actions []carrierabsence.Action,
 ) (statefileEffectPlan, error) {
+	return carrierRemovalStatefileEffectPlanForWorks(carrierWorks(actions))
+}
+
+func carrierRemovalStatefileEffectPlanForWorks(
+	works []operationplan.CarrierWork,
+) (statefileEffectPlan, error) {
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		CarrierRemovals: carrierWorks(actions),
+		CarrierRemovals: works,
 	})
 	if err != nil {
 		return statefileEffectPlan{}, err

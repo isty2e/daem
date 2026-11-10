@@ -268,6 +268,30 @@ func CommitPendingCarrierRemoval(
 	return next, pending, nil
 }
 
+// CommitRetiredProjectCarrierClaims settles selected, already-absent project
+// claims without manufacturing pending host attempts. The containing workflow
+// owns admission and the retained statefile authority.
+func CommitRetiredProjectCarrierClaims(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+	current durable.Snapshot,
+	claims []durablecarrier.ManagedCarrierClaim,
+	stateEncoder durable.SnapshotEncoder,
+) (durable.Snapshot, error) {
+	next, count, err := effectpreparation.AfterRetiredProjectCarrierClaims(current, claims)
+	if err != nil {
+		return durable.Snapshot{}, fmt.Errorf("retire project carrier claims: %w", err)
+	}
+	if count == 0 {
+		return durable.Snapshot{}, fmt.Errorf("retired project carrier claim selection is required")
+	}
+	if err := statefileoperation.CommitSnapshot(ctx, filesystem, authority, next, stateEncoder, "retired project carrier claims"); err != nil {
+		return durable.Snapshot{}, err
+	}
+	return next, nil
+}
+
 // CommitRetiredProjectCarrierRemoval atomically removes one exact project
 // claim and its E4 boundary after successful absent postcondition
 // classification.

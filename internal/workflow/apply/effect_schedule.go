@@ -209,9 +209,7 @@ func applyScheduleInputFor(
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
-	carrierRemovals, err := applyCarrierScheduleFacts(
-		current.assessment.Reconciliation.CarrierAbsences(),
-	)
+	carrierRemovals, err := commandCarrierScheduleFacts(current)
 	if err != nil {
 		return applyScheduleInput{}, err
 	}

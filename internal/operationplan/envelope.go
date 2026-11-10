@@ -60,10 +60,11 @@ type CarrierWork struct {
 	InvokesHost     bool
 	MutatesDirect   bool
 	VerifiesPending bool
+	RetiresProject  bool
 }
 
 func (work CarrierWork) qualifies() bool {
-	return work.InvokesHost || work.MutatesDirect || work.VerifiesPending
+	return work.InvokesHost || work.MutatesDirect || work.VerifiesPending || work.RetiresProject
 }
 
 // OrderClassWork is one admitted relation-order class after lock matching.
@@ -594,7 +595,7 @@ func relationOrderMayReclassify(work ApplyWork) bool {
 		}
 	}
 	for _, action := range work.CarrierRemovals {
-		if action.qualifies() {
+		if action.InvokesHost || action.MutatesDirect || action.VerifiesPending {
 			return true
 		}
 	}

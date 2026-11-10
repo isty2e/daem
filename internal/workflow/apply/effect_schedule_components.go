@@ -54,6 +54,7 @@ type applyCarrierScheduleMode uint8
 const (
 	applyCarrierScheduleNone applyCarrierScheduleMode = iota
 	applyCarrierScheduleNoOp
+	applyCarrierScheduleRetireProject
 	applyCarrierScheduleVerifyPending
 	applyCarrierScheduleHostRoute
 	applyCarrierScheduleDirectProjection
@@ -374,7 +375,8 @@ func compileApplyContinuationSchedule(
 func applyCarrierRemovalScheduleHasForward(removals []applyCarrierScheduleFact) bool {
 	for _, removal := range removals {
 		switch removal.mode {
-		case applyCarrierScheduleVerifyPending,
+		case applyCarrierScheduleRetireProject,
+			applyCarrierScheduleVerifyPending,
 			applyCarrierScheduleHostRoute,
 			applyCarrierScheduleDirectProjection:
 			return true
@@ -812,6 +814,16 @@ func compileApplyCarrierRemovalSchedule(
 	removal applyCarrierScheduleFact,
 ) operationplan.EffectNode {
 	switch removal.mode {
+	case applyCarrierScheduleRetireProject:
+		return operationplan.EffectSequence(
+			compileApplyCheckedStep(
+				builder,
+				removal.ref+"/forward",
+				operationplan.EffectStepForwardEffect,
+			),
+			statefile.checkedEnsure(removal.ref+"/statefile"),
+			compileApplyCarrierRetirementSchedule(builder, statefile, removal, false),
+		)
 	case applyCarrierScheduleVerifyPending:
 		return operationplan.EffectSequence(
 			compileApplyCheckedStep(
@@ -1565,9 +1577,34 @@ func (schedule *applyStatefileSchedule) publications(
 	)
 }
 
+type projectCarrierRetirementOwner uint8
+
+const (
+	projectCarrierRetirementCore projectCarrierRetirementOwner = iota + 1
+	projectCarrierRetirementContinuation
+)
+
+func commandCarrierScheduleFacts(current commandPlan) ([]applyCarrierScheduleFact, error) {
+	owner := projectCarrierRetirementCore
+	if current.nativePlan != nil {
+		owner = projectCarrierRetirementContinuation
+	}
+	return applyCarrierScheduleFactsForOwner(current.assessment.Reconciliation.CarrierAbsences(), owner)
+}
+
 func applyCarrierScheduleFacts(
 	actions []carrierabsence.Action,
 ) ([]applyCarrierScheduleFact, error) {
+	return applyCarrierScheduleFactsForOwner(actions, projectCarrierRetirementCore)
+}
+
+func applyCarrierScheduleFactsForOwner(
+	actions []carrierabsence.Action,
+	owner projectCarrierRetirementOwner,
+) ([]applyCarrierScheduleFact, error) {
+	if owner != projectCarrierRetirementCore && owner != projectCarrierRetirementContinuation {
+		return nil, fmt.Errorf("project carrier retirement owner is required")
+	}
 	works := carrierWorks(actions)
 	result := make([]applyCarrierScheduleFact, 0, len(actions))
 	for index := range actions {
@@ -1575,6 +1612,10 @@ func applyCarrierScheduleFacts(
 		switch {
 		case actions[index].StateOnly():
 			mode = applyCarrierScheduleNoOp
+			if owner == projectCarrierRetirementContinuation && actions[index].Scope() == target.ScopeProject {
+				mode = applyCarrierScheduleRetireProject
+				works[index].RetiresProject = true
+			}
 		case actions[index].VerifiesPendingRemoval():
 			mode = applyCarrierScheduleVerifyPending
 		case actions[index].InvokesHostRoute():
@@ -1596,6 +1637,14 @@ func applyCarrierScheduleFacts(
 		})
 	}
 	return result, nil
+}
+
+func carrierScheduleWorks(facts []applyCarrierScheduleFact) []operationplan.CarrierWork {
+	works := make([]operationplan.CarrierWork, len(facts))
+	for index, fact := range facts {
+		works[index] = fact.work
+	}
+	return works
 }
 
 func requireLegacyApplyDemandDominance(

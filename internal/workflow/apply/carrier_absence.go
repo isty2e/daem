@@ -237,6 +237,54 @@ func stateOnlyCarrierClaimRetirements(
 	return project, global, nil
 }
 
+func retireAlreadyAbsentProjectClaim(
+	ctx context.Context,
+	input carrierRemovalInput,
+	action carrierabsence.Action,
+	result *carrierRemovalResult,
+	execution *applyContinuationExecution,
+	ref string,
+) error {
+	if !action.StateOnly() || action.Scope() != target.ScopeProject {
+		return fmt.Errorf("project carrier retirement requires an already-absent project action")
+	}
+	if err := scheduledCarrierRemovalForward(execution, ref+"/forward", func() error {
+		if input.ValidateBeforeEffects == nil {
+			return fmt.Errorf("project carrier retirement effect validation is required")
+		}
+		return input.ValidateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
+	}, nil); err != nil {
+		return err
+	}
+	authority := input.StatefileAuthority
+	if authority == nil {
+		return fmt.Errorf("project carrier retirement statefile authority is required")
+	}
+	if err := scheduledCarrierRemovalEnsure(ctx, execution, ref+"/statefile", authority, nil); err != nil {
+		return err
+	}
+	if err := scheduledCarrierRemovalStatefileValidation(ctx, execution, ref+"/statefile/pre-retirement", authority, nil); err != nil {
+		return err
+	}
+	if err := scheduledCarrierRemovalStatefilePublication(execution, ref+"/statefile/retirement", func() error {
+		entry, err := authority.EntryForCommit()
+		if err != nil {
+			return err
+		}
+		input.markAttempted()
+		next, err := execute.CommitRetiredProjectCarrierClaims(ctx, filesystem(input), entry, result.State, []durablecarrier.ManagedCarrierClaim{action.Claim()}, input.stateEncoder())
+		if err != nil {
+			return err
+		}
+		result.State = next
+		result.ActionCount++
+		return nil
+	}, nil); err != nil {
+		return err
+	}
+	return scheduledCarrierRemovalStatefileValidation(ctx, execution, ref+"/statefile/post-retirement", authority, nil)
+}
+
 func retireClaim(
 	ctx context.Context,
 	input carrierRemovalInput,
