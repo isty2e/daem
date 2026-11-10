@@ -39,19 +39,69 @@ func TestKnownPhysicalDocumentsRetainTheirCanonicalRootAndRole(t *testing.T) {
 		}
 		matched := 0
 		for _, document := range documents {
-			if document.Target() == scenario.selected && document.Scope() == scenario.scope && document.RootRelativePath() == scenario.relative {
+			relative, directory := document.Coordinate().DirectoryChild()
+			if !directory {
+				t.Fatal("anchor document role became a file point", document)
+			}
+			if document.Target() == scenario.selected && document.Scope() == scenario.scope && relative == scenario.relative {
 				matched++
 				if document.RootReference() != scenario.reference || document.Class() != SharedConfiguration {
 					t.Fatal("physical document lost its constructor-checked role", document)
 				}
 			}
-			if document.RootRelativePath() == "unrelated.toml" {
+			if relative == "unrelated.toml" {
 				t.Fatal("directory enumeration invented a known role for a generic file")
 			}
 		}
 		if matched != 1 {
 			t.Fatal("known document was lost or duplicated", scenario.relative, matched)
 		}
+	}
+}
+
+func TestPointAliasBindingsRetainDirectoryEndpointProtectionRoles(t *testing.T) {
+	contracts, err := NativeRootContracts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		host                           target.Target
+		identity, alias, child, policy string
+	}{
+		{target.TargetClaudeCode, "claude-account", "~/.claude.json", ".claude.json", "claude-account-carrier-v1"},
+		{target.TargetAntigravityCLI, "antigravity-shared", "~/.gemini/config/mcp_config.json", "mcp_config.json", "antigravity-mcp-carrier-v1"},
+	} {
+		t.Run(scenario.identity, func(t *testing.T) {
+			destination, err := output.Parse(scenario.alias)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := RootBindingForAlias(AliasInput{Target: scenario.host, Scope: target.ScopeGlobal, Destination: destination})
+			if err != nil || binding.Coordinate() != PointSelf() {
+				t.Fatal("current endpoint lost point-self binding", binding, err)
+			}
+			anchor, err := output.NewRootReference(scenario.identity, scenario.identity+"-location-v1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(contracts, func(contract NativeRootContract) bool {
+				return contract.Reference() == anchor && contract.Envelope() == NativeEndpoints && slices.Equal(contract.Endpoints(), []string{scenario.child})
+			}) {
+				t.Fatal("point binding displaced the admitted directory endpoint envelope")
+			}
+			documents, err := KnownRootDocuments(anchor, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(documents, func(document DocumentSpec) bool {
+				child, directory := document.Coordinate().DirectoryChild()
+				return document.Validate() == nil && document.Target() == scenario.host && document.Scope() == target.ScopeGlobal &&
+					document.RootReference() == anchor && directory && child == scenario.child && document.PolicyID() == scenario.policy &&
+					document.Class() == SharedConfiguration
+			}) {
+				t.Fatal("point binding displaced the independently admitted anchor document role", documents)
+			}
+		})
 	}
 }
 

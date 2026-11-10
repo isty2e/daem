@@ -62,9 +62,21 @@ func TestRecordedPointPolicyDoesNotReinterpretTheDirectoryRevision(t *testing.T)
 	if err != nil || binding.Coordinate() != PointSelf() {
 		t.Fatal("recorded point policy was not admitted independently of current placement", err)
 	}
-	legacy, err := RootBindingForAlias(input)
+	current, err := RootBindingForAlias(input)
+	if err != nil || current != binding {
+		t.Fatal("current point binding differs from its recorded policy", current, err)
+	}
+	legacyRoot, err := output.NewRootReference("claude-account", "claude-account-location-v1")
 	if err != nil {
 		t.Fatal(err)
+	}
+	child, err := NewDirectoryChild(".claude.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := AdmitRecordedAliasBinding(input, legacyRoot, child, "claude-account-carrier-v1")
+	if err != nil || legacy.Coordinate() != child {
+		t.Fatal("retained directory policy was changed by point activation", legacy, err)
 	}
 	if _, err := AdmitRecordedAliasBinding(input, legacy.RootReference(), PointSelf(), legacy.PolicyID()); err == nil {
 		t.Fatal("an old directory binding became a file point")

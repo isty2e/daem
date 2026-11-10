@@ -25,19 +25,26 @@ func expectedObservations(extra ...configuration.Observation) []configuration.Ob
 
 func assertDocumentContract(t *testing.T, spec configuration.DocumentSpec, want documentExpectation) {
 	t.Helper()
+	coordinate := configuration.PointSelf()
+	if want.relative != "" {
+		var err error
+		coordinate, err = configuration.NewDirectoryChild(want.relative)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if spec.Destination().String() != want.alias || spec.RootReference().Identity() != want.root ||
-		spec.RootReference().LocatorPolicy() != want.locator || spec.RootRelativePath() != want.relative ||
+		spec.RootReference().LocatorPolicy() != want.locator || spec.Coordinate() != coordinate ||
 		spec.PolicyID() != want.policy || spec.Grammar() != want.grammar || spec.Class() != want.class ||
 		spec.ModePolicy() != configuration.PrivateCreation || !slices.Equal(spec.RequiredObservations(), want.observations) {
-		t.Fatalf("document contract differs: alias=%s root=%s locator=%s relative=%s policy=%s grammar=%s class=%s mode=%s observations=%v",
-			spec.Destination().String(), spec.RootReference().Identity(), spec.RootReference().LocatorPolicy(), spec.RootRelativePath(),
+		t.Fatalf("document contract differs: alias=%s root=%s locator=%s coordinate=%v policy=%s grammar=%s class=%s mode=%s observations=%v",
+			spec.Destination().String(), spec.RootReference().Identity(), spec.RootReference().LocatorPolicy(), spec.Coordinate(),
 			spec.PolicyID(), spec.Grammar(), spec.Class(), spec.ModePolicy(), spec.RequiredObservations())
 	}
 	binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()})
 	reference := binding.RootReference()
-	child, directory := binding.Coordinate().DirectoryChild()
-	if err != nil || binding.Validate() != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || !directory || child != want.relative || binding.PolicyID() != want.policy {
-		t.Fatalf("alias binding = %v/%s/%s, %v; want %s/%s/%s/%s", reference, child, binding.PolicyID(), err, want.root, want.locator, want.relative, want.policy)
+	if err != nil || binding.Validate() != nil || reference.Identity() != want.root || reference.LocatorPolicy() != want.locator || binding.Coordinate() != coordinate || binding.PolicyID() != want.policy {
+		t.Fatalf("alias binding = %v/%v/%s, %v; want %s/%s/%s/%s", reference, binding.Coordinate(), binding.PolicyID(), err, want.root, want.locator, want.relative, want.policy)
 	}
 	retained, err := configuration.AdmitRecordedAliasBinding(configuration.AliasInput{Target: spec.Target(), Scope: spec.Scope(), Destination: spec.Destination()}, reference, binding.Coordinate(), binding.PolicyID())
 	if err != nil || retained != binding {
@@ -361,13 +368,13 @@ func TestDedicatedAliasesOutsideNativeLayoutsDoNotInventGenericOwnership(t *test
 			"~/.codex/config.toml", "codex-home", "codex-home-location-v1", "config.toml", "codex-mcp-carrier-v1", configuration.TOML, configuration.SharedConfiguration, expectedObservations(configuration.CodexRuntimeLocations),
 		}},
 		{target.TargetClaudeCode, target.ScopeGlobal, documentExpectation{
-			"~/.claude.json", "claude-account", "claude-account-location-v1", ".claude.json", "claude-account-carrier-v1", configuration.JSON, configuration.SharedConfiguration, expectedObservations(),
+			"~/.claude.json", "claude-account", "claude-account-point-v2", "", "claude-account-carrier-v2", configuration.JSON, configuration.SharedConfiguration, expectedObservations(),
 		}},
 		{target.TargetClaudeCode, target.ScopeProject, documentExpectation{
 			".mcp.json", "project", "selected-project-v1", ".mcp.json", "claude-mcp-carrier-v1", configuration.JSON, configuration.SharedConfiguration, expectedObservations(),
 		}},
 		{target.TargetAntigravityCLI, target.ScopeGlobal, documentExpectation{
-			"~/.gemini/config/mcp_config.json", "antigravity-shared", "antigravity-shared-location-v1", "mcp_config.json", "antigravity-mcp-carrier-v1", configuration.JSON, configuration.SharedConfiguration, expectedObservations(),
+			"~/.gemini/config/mcp_config.json", "antigravity-shared", "antigravity-shared-point-v2", "", "antigravity-mcp-carrier-v2", configuration.JSON, configuration.SharedConfiguration, expectedObservations(),
 		}},
 	} {
 		destination, err := output.Parse(test.want.alias)

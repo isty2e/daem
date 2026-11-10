@@ -3,6 +3,7 @@
 package configuration
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"path"
@@ -115,7 +116,6 @@ type DocumentSpec struct {
 	target              target.Target
 	scope               target.Scope
 	nativePath          string
-	catalogPath         string
 	binding             AliasBinding
 	destination         output.Destination
 	grammar             Grammar
@@ -136,6 +136,12 @@ func RootBindingForAlias(input AliasInput) (AliasBinding, error) {
 	var root rootFact
 	var relative, policy string
 	if dedicated, matched := dedicatedAliasFor(input); matched {
+		switch dedicated.policy {
+		case "claude-account-carrier-v1":
+			return recordedAliasBinding(input, "claude-account-carrier-v2")
+		case "antigravity-mcp-carrier-v1":
+			return recordedAliasBinding(input, "antigravity-mcp-carrier-v2")
+		}
 		root, relative, policy = dedicated.root, dedicated.relative, dedicated.policy
 	} else {
 		layout, err := selectLayout(input.Target, input.Scope)
@@ -195,8 +201,12 @@ func DocumentSpecForAlias(input AliasInput) (DocumentSpec, error) {
 		return DocumentSpec{}, err
 	}
 	if dedicated, matched := dedicatedAliasFor(input); matched {
-		return buildDocument(DocumentInput{Target: input.Target, Scope: input.Scope, Path: dedicated.relative, Syntax: input.Syntax},
-			dedicated.root, dedicated.relative, input.Destination, dedicated.policy, dedicated.observations, true)
+		binding, err := RootBindingForAlias(input)
+		if err != nil {
+			return DocumentSpec{}, err
+		}
+		return buildBoundDocument(DocumentInput{Target: input.Target, Scope: input.Scope, Path: dedicated.relative, Syntax: input.Syntax},
+			binding, input.Destination, dedicated.observations, true)
 	}
 	layout, err := selectLayout(input.Target, input.Scope)
 	if err != nil {
@@ -209,13 +219,29 @@ func DocumentSpecForAlias(input AliasInput) (DocumentSpec, error) {
 	return NewDocumentSpec(DocumentInput{Target: input.Target, Scope: input.Scope, Path: nativePath, Syntax: input.Syntax})
 }
 
+func (alias dedicatedAliasFact) anchorDocumentSpec(syntax hostconfig.Syntax) (DocumentSpec, error) {
+	destination, err := output.Parse(alias.alias)
+	if err != nil {
+		return DocumentSpec{}, err
+	}
+	return buildDocument(DocumentInput{Target: alias.target, Scope: alias.scope, Path: alias.relative, Syntax: syntax},
+		alias.root, alias.relative, destination, alias.policy, alias.observations, true)
+}
+
 func buildDocument(input DocumentInput, root rootFact, catalogPath string, destination output.Destination, policy string, observations observationSet, outsideNativeLayout bool) (DocumentSpec, error) {
+	binding, err := newAliasBinding(root, catalogPath, policy)
+	if err != nil {
+		return DocumentSpec{}, err
+	}
+	return buildBoundDocument(input, binding, destination, observations, outsideNativeLayout)
+}
+
+func buildBoundDocument(input DocumentInput, binding AliasBinding, destination output.Destination, observations observationSet, outsideNativeLayout bool) (DocumentSpec, error) {
 	requested, err := hostconfig.ParseSyntax(string(input.Syntax))
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	binding, err := newAliasBinding(root, catalogPath, policy)
-	if err != nil {
+	if err := binding.Validate(); err != nil {
 		return DocumentSpec{}, err
 	}
 	rule, err := documentRuleFor(input.Target, input.Scope, input.Path, outsideNativeLayout)
@@ -227,7 +253,7 @@ func buildDocument(input DocumentInput, root rootFact, catalogPath string, desti
 		return DocumentSpec{}, err
 	}
 	spec := DocumentSpec{
-		target: input.Target, scope: input.Scope, nativePath: input.Path, catalogPath: catalogPath,
+		target: input.Target, scope: input.Scope, nativePath: input.Path,
 		binding: binding, destination: destination,
 		grammar: grammar, class: rule.class, mode: PrivateCreation,
 		observations: observations | rule.observations, slots: rule.slots, outsideNativeLayout: outsideNativeLayout,
@@ -270,13 +296,25 @@ func selectGrammar(known Grammar, nativePath string, requested hostconfig.Syntax
 func (spec DocumentSpec) Target() target.Target               { return spec.target }
 func (spec DocumentSpec) Scope() target.Scope                 { return spec.scope }
 func (spec DocumentSpec) RootReference() output.RootReference { return spec.binding.RootReference() }
-func (spec DocumentSpec) RootRelativePath() string            { return spec.catalogPath }
+func (spec DocumentSpec) Coordinate() RootCoordinate          { return spec.binding.Coordinate() }
 func (spec DocumentSpec) Destination() output.Destination     { return spec.destination }
 func (spec DocumentSpec) PolicyID() string                    { return spec.binding.PolicyID() }
 func (spec DocumentSpec) Grammar() Grammar                    { return spec.grammar }
 func (spec DocumentSpec) Class() DocumentClass                { return spec.class }
 func (spec DocumentSpec) ModePolicy() FileModePolicy          { return spec.mode }
 func (spec DocumentSpec) RequiredObservations() []Observation { return spec.observations.values() }
+
+func (spec DocumentSpec) Compare(other DocumentSpec) int {
+	left, right := spec.Coordinate(), other.Coordinate()
+	return cmp.Or(
+		spec.RootReference().Compare(other.RootReference()),
+		cmp.Compare(spec.target, other.target),
+		cmp.Compare(spec.scope, other.scope),
+		cmp.Compare(left.kind, right.kind),
+		cmp.Compare(left.child, right.child),
+		cmp.Compare(spec.PolicyID(), other.PolicyID()),
+	)
+}
 
 // RequireWriterGrammar allows only a producer language accepted by the physical
 // document. Existing bytes still pass the selected producer's own parser.
@@ -315,7 +353,17 @@ func (spec DocumentSpec) Validate() error {
 		syntax = hostconfig.Syntax(spec.grammar)
 	}
 	if spec.outsideNativeLayout {
-		canonical, err = DocumentSpecForAlias(AliasInput{Target: spec.target, Scope: spec.scope, Destination: spec.destination, Syntax: syntax})
+		input := AliasInput{Target: spec.target, Scope: spec.scope, Destination: spec.destination, Syntax: syntax}
+		if alias, present := dedicatedAliasFor(input); present {
+			anchor, anchorErr := alias.anchorDocumentSpec(syntax)
+			if anchorErr == nil && spec.binding == anchor.binding {
+				canonical = anchor
+			} else {
+				canonical, err = DocumentSpecForAlias(input)
+			}
+		} else {
+			canonical, err = DocumentSpecForAlias(input)
+		}
 	} else {
 		canonical, err = NewDocumentSpec(DocumentInput{Target: spec.target, Scope: spec.scope, Path: spec.nativePath, Syntax: syntax})
 	}

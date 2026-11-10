@@ -1,6 +1,8 @@
 package configuration
 
 import (
+	"fmt"
+
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 )
@@ -42,6 +44,14 @@ func (location AliasLocation) Validate() error {
 	if err := location.coordinate.Validate(); err != nil {
 		return err
 	}
+
+	// Native locator revisions fix coordinate kind; other root contracts keep
+	// their existing coordinate envelope.
+	point, err := NativeRootIsPoint(location.reference)
+	if err == nil && point != (location.coordinate.Kind() == CoordinatePointSelf) {
+		return fmt.Errorf("alias coordinate differs from its native locator kind")
+	}
+
 	if child, directory := location.coordinate.DirectoryChild(); directory {
 		return hostconfig.ValidateRelativePath(child)
 	}

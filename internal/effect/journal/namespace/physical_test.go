@@ -34,7 +34,8 @@ func TestNativeNamedProfileRulesDoNotChangeWithOwnCreationOrRemoval(t *testing.T
 	}
 	before := observe()
 	if !slices.ContainsFunc(before.PhysicalRoles(), func(role configuration.DocumentSpec) bool {
-		return role.RootRelativePath() == "work.config.toml" && role.Class() == configuration.SharedConfiguration
+		relative, directory := role.Coordinate().DirectoryChild()
+		return directory && relative == "work.config.toml" && role.Class() == configuration.SharedConfiguration
 	}) {
 		t.Fatal("a prospective named profile lost its actual shared role")
 	}
@@ -171,7 +172,8 @@ func TestNativePhysicalRolesFollowAnUnselectedHostDocumentLink(t *testing.T) {
 	}
 	roles := value.PhysicalRoles()
 	if !slices.ContainsFunc(roles, func(role configuration.DocumentSpec) bool {
-		return role.Target() == target.TargetPi && role.Scope() == target.ScopeGlobal && role.RootRelativePath() == "settings.json" && role.Class() == configuration.SharedConfiguration
+		relative, directory := role.Coordinate().DirectoryChild()
+		return directory && role.Target() == target.TargetPi && role.Scope() == target.ScopeGlobal && relative == "settings.json" && role.Class() == configuration.SharedConfiguration
 	}) {
 		t.Fatal("shared role was inferred only from the selected alias", roles)
 	}

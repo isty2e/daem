@@ -49,7 +49,11 @@ func (failure *NativeClaimRefusal) Error() string {
 		return fmt.Sprintf("native document %q is already managed at %s scope; resource %q cannot transfer that management to %s scope in the same apply", failure.address.AggregateRoot().String(), failure.previous, failure.resource, failure.address.Scope())
 	}
 	if failure.kind == NativeClaimPhysicalRole {
-		return fmt.Sprintf("host configuration resource %q cannot manage native document %q as declared: the same file is %s %q; %v", failure.resource, failure.address.AggregateRoot().String(), failure.role.Target(), failure.role.RootRelativePath(), failure.cause)
+		name, directory := failure.role.Coordinate().DirectoryChild()
+		if !directory {
+			name = failure.role.Destination().String()
+		}
+		return fmt.Sprintf("host configuration resource %q cannot manage native document %q as declared: the same file is %s %q; %v", failure.resource, failure.address.AggregateRoot().String(), failure.role.Target(), name, failure.cause)
 	}
 	return fmt.Sprintf("project resource %q cannot manage native document %q: that document is also global host configuration in the %s; project claims do not grant global write authority", failure.resource, failure.address.AggregateRoot().String(), configuration.NativeRootDescription(failure.global))
 }

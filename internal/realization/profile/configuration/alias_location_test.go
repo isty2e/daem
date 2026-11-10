@@ -43,3 +43,28 @@ func TestAliasLocationRetainsOnlyCanonicalRootAndDirectoryChildFacts(t *testing.
 		t.Fatal("structural coordinate imposed declaration spelling rules", physical, err)
 	}
 }
+
+func TestNativeAliasLocationMatchesItsLocatorCoordinateKind(t *testing.T) {
+	for _, identity := range []string{"claude-account", "antigravity-shared"} {
+		point, err := output.NewRootReference(identity, identity+"-point-v2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		directory, err := output.NewRootReference(identity, identity+"-location-v1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if location, err := configuration.NewPointAliasLocation(point); err != nil || location.Validate() != nil {
+			t.Fatal("point locator refused its self coordinate", location, err)
+		}
+		if location, err := configuration.NewAliasLocation(directory, "endpoint.json"); err != nil || location.Validate() != nil {
+			t.Fatal("directory anchor refused its child coordinate", location, err)
+		}
+		if location, err := configuration.NewAliasLocation(point, "sibling.json"); err == nil || location != (configuration.AliasLocation{}) {
+			t.Fatal("point locator acquired a directory-child coordinate", location, err)
+		}
+		if location, err := configuration.NewPointAliasLocation(directory); err == nil || location != (configuration.AliasLocation{}) {
+			t.Fatal("directory locator acquired a point-self coordinate", location, err)
+		}
+	}
+}

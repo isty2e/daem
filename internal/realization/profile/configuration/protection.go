@@ -1,7 +1,6 @@
 package configuration
 
 import (
-	"cmp"
 	"fmt"
 	"path"
 	"slices"
@@ -9,6 +8,7 @@ import (
 
 	"golang.org/x/text/cases"
 
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -481,19 +481,13 @@ func KnownRootDocuments(reference output.RootReference, names []string) ([]Docum
 		if selected != reference {
 			continue
 		}
-		destination, err := output.Parse(alias.alias)
-		if err != nil {
-			return nil, err
-		}
-		spec, err := DocumentSpecForAlias(AliasInput{Target: alias.target, Scope: alias.scope, Destination: destination})
+		spec, err := alias.anchorDocumentSpec(hostconfig.SyntaxDefault)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, spec)
 	}
-	slices.SortFunc(result, func(left, right DocumentSpec) int {
-		return cmp.Or(cmp.Compare(left.Target(), right.Target()), cmp.Compare(left.Scope(), right.Scope()), cmp.Compare(left.RootRelativePath(), right.RootRelativePath()), cmp.Compare(left.PolicyID(), right.PolicyID()))
-	})
+	slices.SortFunc(result, DocumentSpec.Compare)
 	return slices.Compact(result), nil
 }
 

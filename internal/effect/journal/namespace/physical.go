@@ -1,7 +1,6 @@
 package namespace
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -229,9 +228,7 @@ func (observer *physicalObserver) documents(ctx context.Context, aliases []Alias
 	}
 	slices.SortFunc(result.global, output.RootReference.Compare)
 	result.global = slices.Compact(result.global)
-	slices.SortFunc(result.roles, func(left, right configuration.DocumentSpec) int {
-		return cmp.Or(left.RootReference().Compare(right.RootReference()), cmp.Compare(left.Target(), right.Target()), cmp.Compare(left.Scope(), right.Scope()), cmp.Compare(left.RootRelativePath(), right.RootRelativePath()), cmp.Compare(left.PolicyID(), right.PolicyID()))
-	})
+	slices.SortFunc(result.roles, configuration.DocumentSpec.Compare)
 	result.roles = slices.Compact(result.roles)
 	return result, ctx.Err()
 }
@@ -308,14 +305,18 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 		// is formed. The route keeps outbound links associated with their names.
 		canonical := make([]string, 0, len(specs))
 		for _, spec := range specs {
-			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(filepath.Join(root.path, filepath.FromSlash(spec.RootRelativePath())), physicalwork.MaximumPhysicalPathDepth, observer.budget)
+			relative, directory := spec.Coordinate().DirectoryChild()
+			if !directory {
+				return result, failure(spec.Target(), ProtectionRegionIndeterminate, "", fmt.Errorf("native document role requires a directory-child coordinate"))
+			}
+			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(filepath.Join(root.path, filepath.FromSlash(relative)), physicalwork.MaximumPhysicalPathDepth, observer.budget)
 			if err != nil {
-				return result, failure(spec.Target(), ProtectionEndpointUnavailable, spec.RootRelativePath(), err)
+				return result, failure(spec.Target(), ProtectionEndpointUnavailable, relative, err)
 			}
 			entry, exact := route.Exact()
 			name, immediate := key.ImmediateChildName(entry)
 			if !exact || !immediate {
-				return result, failure(spec.Target(), ProtectionRegionIndeterminate, spec.RootRelativePath(), fmt.Errorf("native document name cannot be projected into its root key space"))
+				return result, failure(spec.Target(), ProtectionRegionIndeterminate, relative, fmt.Errorf("native document name cannot be projected into its root key space"))
 			}
 			canonical = append(canonical, name)
 		}
@@ -328,14 +329,18 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 		if err := ctx.Err(); err != nil {
 			return physicalDocumentFacts{}, err
 		}
-		endpoint, err := observeProtectionPath(filepath.Join(root.path, filepath.FromSlash(spec.RootRelativePath())), observer.budget)
+		relative, directory := spec.Coordinate().DirectoryChild()
+		if !directory {
+			return result, failure(spec.Target(), ProtectionRegionIndeterminate, "", fmt.Errorf("native document role requires a directory-child coordinate"))
+		}
+		endpoint, err := observeProtectionPath(filepath.Join(root.path, filepath.FromSlash(relative)), observer.budget)
 		if err != nil {
-			return result, failure(spec.Target(), ProtectionEndpointUnavailable, spec.RootRelativePath(), err)
+			return result, failure(spec.Target(), ProtectionEndpointUnavailable, relative, err)
 		}
 		for _, alias := range aliases {
 			relation := documentRoleRelation(endpoint, alias.observation)
 			if relation == protectionIndeterminate {
-				return result, failure(spec.Target(), ProtectionRegionIndeterminate, spec.RootRelativePath(), fmt.Errorf("native document role is normalization-sensitive"))
+				return result, failure(spec.Target(), ProtectionRegionIndeterminate, relative, fmt.Errorf("native document role is normalization-sensitive"))
 			}
 			if relation != protectionOverlap {
 				continue

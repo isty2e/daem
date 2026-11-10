@@ -47,7 +47,8 @@ func TestOrdinaryWritersMayUseANativeAliasSpelling(t *testing.T) {
 			t.Fatal(err)
 		}
 		nativePath, native := spec.NativePlacementPath()
-		if !native || spec.Destination().RootRole() != output.RootHome || spec.RootRelativePath() == spec.Destination().RelativePath() {
+		relative, directory := spec.Coordinate().DirectoryChild()
+		if !native || !directory || spec.Destination().RootRole() != output.RootHome || relative == spec.Destination().RelativePath() {
 			t.Fatal("an ordinary spelling was mistaken for a native-only resolution contract")
 		}
 		fromNative, err := configuration.NewDocumentSpec(configuration.DocumentInput{
