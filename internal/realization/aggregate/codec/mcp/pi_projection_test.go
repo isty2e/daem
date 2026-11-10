@@ -96,19 +96,10 @@ func TestPiMCPAdapterMutationPreservesUnownedDocumentContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
-	for _, expected := range []string{
-		`"settings": {`,
-		`"hostConfigDiscovery": false`,
-		`"imports": [`,
-		`"sibling": {`,
-		`"SECRET_CANARY"`,
-		`"context7": {`,
-		`"lifecycle": "lazy"`,
-	} {
-		if !strings.Contains(string(merged), expected) {
-			t.Fatalf("merged document = %s, want %q", merged, expected)
-		}
-	}
+	assertMCPJSONSubset(t, merged, `{
+		"settings":{"hostConfigDiscovery":false,"token":"SECRET_CANARY"},"imports":["./shared.json"],
+		"mcpServers":{"sibling":{"url":"https://example.invalid/mcp","auth":"SECRET_CANARY"},
+		"context7":{"lifecycle":"lazy"}}}`)
 
 	removed, err := operations.removeProjection(merged, "context7")
 	if err != nil {

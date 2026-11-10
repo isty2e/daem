@@ -1,14 +1,14 @@
 package mcpcodec
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
-	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/tailscale/hujson"
 )
 
 const piMCPAdapterLifecycleLazy = "lazy"
@@ -204,21 +204,9 @@ func admitPiMCPDocument(content []byte, spec mcpConfigSpec) error {
 		}
 		return nil
 	}
-	if !utf8.Valid(content) {
-		return mcpJSONHostDocumentError(spec, strictErr)
-	}
-	if err := admitPiMCPJSONCNesting(content, maximumMCPJSONDepth); err != nil {
-		return mcpJSONHostDocumentError(spec, err)
-	}
-	standardized, err := hujson.Standardize(content)
+	limits := configdocument.Limits{MaximumBytes: maximumDocumentBytes, MaximumDepth: maximumMCPJSONDepth}
+	standardized, err := configdocument.StandardJSON(context.Background(), content, configdocument.JSONC, limits)
 	if err != nil {
-		return mcpJSONHostDocumentError(spec, strictErr)
-	}
-	if err := jsonstrict.Validate(
-		standardized,
-		spec.label+" standardized config JSON",
-		maximumMCPJSONDepth,
-	); err != nil {
 		return mcpJSONHostDocumentError(spec, err)
 	}
 	var top map[string]json.RawMessage
@@ -234,69 +222,6 @@ func admitPiMCPDocument(content []byte, spec mcpConfigSpec) error {
 		spec.configPath,
 		"provider-valid JSONC cannot be mutated without losing comments or trailing commas",
 	)
-}
-
-func admitPiMCPJSONCNesting(content []byte, maximumDepth int) error {
-	const (
-		piJSONNormal uint8 = iota
-		piJSONString
-		piJSONLineComment
-		piJSONBlockComment
-	)
-	state := piJSONNormal
-	depth := 0
-	for index := 0; index < len(content); index++ {
-		character := content[index]
-		switch state {
-		case piJSONString:
-			switch character {
-			case '\\':
-				index++
-			case '"':
-				state = piJSONNormal
-			}
-		case piJSONLineComment:
-			if character == '\n' {
-				state = piJSONNormal
-			}
-		case piJSONBlockComment:
-			if character == '*' && index+1 < len(content) && content[index+1] == '/' {
-				state = piJSONNormal
-				index++
-			}
-		default:
-			switch character {
-			case '"':
-				state = piJSONString
-			case '/':
-				if index+1 >= len(content) {
-					continue
-				}
-				switch content[index+1] {
-				case '/':
-					state = piJSONLineComment
-					index++
-				case '*':
-					state = piJSONBlockComment
-					index++
-				}
-			case '{', '[':
-				depth++
-				if depth > maximumDepth {
-					return fmt.Errorf(
-						"%w: maximum=%d",
-						jsonstrict.ErrMaximumDepthExceeded,
-						maximumDepth,
-					)
-				}
-			case '}', ']':
-				if depth > 0 {
-					depth--
-				}
-			}
-		}
-	}
-	return nil
 }
 
 func decodePiMCPAdapterServerEntry(

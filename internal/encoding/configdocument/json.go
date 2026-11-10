@@ -5,29 +5,80 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tailscale/hujson"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
 
-func parseJSON(ctx context.Context, content []byte, syntax Syntax, limits Limits) (Value, []string, error) {
+type jsonSource struct {
+	tree     hujson.Value
+	comments []string
+}
+
+// StandardJSON uses the editor's JSON-family lexical rules to return strict
+// JSON. It preserves the caller's source and grants no editing authority.
+func StandardJSON(ctx context.Context, content []byte, syntax Syntax, limits Limits) ([]byte, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("configuration context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if syntax != JSON && syntax != JSONC && syntax != JSONLineComments {
+		return nil, fmt.Errorf("JSON-family syntax is required")
+	}
+	if err := limits.Validate(); err != nil {
+		return nil, err
+	}
+	if int64(len(content)) > limits.MaximumBytes {
+		return nil, ErrLimitExceeded
+	}
+	source, err := readJSONSource(ctx, content, syntax, limits)
+	if err != nil {
+		return nil, err
+	}
+	return source.standard(ctx, limits)
+}
+
+func readJSONSource(ctx context.Context, content []byte, syntax Syntax, limits Limits) (jsonSource, error) {
+	if !utf8.Valid(content) {
+		return jsonSource{}, ErrInvalidDocument
+	}
 	trivia, err := scanJSON(ctx, content, syntax, limits.MaximumDepth)
 	if err != nil {
-		return Value{}, nil, err
+		return jsonSource{}, err
 	}
 	if syntax == JSON && !json.Valid(content) {
-		return Value{}, nil, ErrInvalidDocument
+		return jsonSource{}, ErrInvalidDocument
 	}
 	tree, err := parseJSONTree(trivia.normalized)
 	if err != nil {
+		return jsonSource{}, err
+	}
+	return jsonSource{tree: tree, comments: trivia.comments}, nil
+}
+
+func (source jsonSource) standard(ctx context.Context, limits Limits) ([]byte, error) {
+	standard := source.tree.Clone()
+	standard.Standardize()
+	content := standard.Pack()
+	if err := jsonstrict.ValidateContext(ctx, content, "native configuration", limits.MaximumDepth); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+func parseJSON(ctx context.Context, content []byte, syntax Syntax, limits Limits) (Value, []string, error) {
+	source, err := readJSONSource(ctx, content, syntax, limits)
+	if err != nil {
 		return Value{}, nil, err
 	}
-	standard := tree.Clone()
-	standard.Standardize()
-	if err := jsonstrict.ValidateContext(ctx, standard.Pack(), "native configuration", limits.MaximumDepth); err != nil {
+	if _, err := source.standard(ctx, limits); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Value{}, nil, err
 		}
@@ -36,8 +87,8 @@ func parseJSON(ctx context.Context, content []byte, syntax Syntax, limits Limits
 		}
 		return Value{}, nil, ErrInvalidDocument
 	}
-	value, err := fromJSONTree(ctx, tree)
-	return value, trivia.comments, err
+	value, err := fromJSONTree(ctx, source.tree)
+	return value, source.comments, err
 }
 
 func parseJSONTree(content []byte) (hujson.Value, error) {

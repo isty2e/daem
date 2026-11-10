@@ -249,9 +249,9 @@ func TestClaudeProjectMCPProjectionMergeBlocksUnsupportedSameNameEntry(t *testin
 	if err != nil {
 		t.Fatalf("mergeClaudeProjectMCPServerProjection for new server returned error: %v", err)
 	}
-	if !containsAll(string(merged), `"context7": {`, `"headers": {}`, `"sibling": {`, `"type": "http"`) {
-		t.Fatalf("merged = %s, want unsupported siblings preserved when unmanaged", merged)
-	}
+	assertMCPJSONSubset(t, merged, `{"mcpServers":{
+		"context7":{"headers":{}},"sibling":{"type":"http","url":"https://example.invalid/mcp"},
+		"new-server":{"command":"npx"}}}`)
 }
 
 func TestClaudeProjectMCPProjectionRemoveBlocksUnsupportedSameNameEntry(t *testing.T) {

@@ -189,7 +189,8 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 	}
 
 	content := string(rendered.Document().Content())
-	for _, want := range []string{`"unmanaged": true`, `"sibling"`, `"alpha"`, `"gamma"`, `"new.js"`} {
+	assertMCPJSONSubset(t, rendered.Document().Content(), `{"unmanaged":true}`)
+	for _, want := range []string{`"sibling"`, `"alpha"`, `"gamma"`, `"new.js"`} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("rendered MCP document does not contain %q", want)
 		}

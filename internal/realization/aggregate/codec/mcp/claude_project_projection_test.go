@@ -57,16 +57,9 @@ func TestClaudeProjectMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T)
 	if err != nil {
 		t.Fatalf("mergeClaudeProjectMCPServerProjection returned error: %v", err)
 	}
-	for _, want := range []string{
-		`"theme": "dark"`,
-		`"sibling": {`,
-		`"context7": {`,
-		`"API_TOKEN": "${CONTEXT7_API_TOKEN}"`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertMCPJSONSubset(t, merged, `{"theme":"dark","mcpServers":{
+		"sibling":{"command":"node","args":["server.js"],"env":{"TOKEN":"${HOST_TOKEN}"}},
+		"context7":{"env":{"API_TOKEN":"${CONTEXT7_API_TOKEN}"}}}}`)
 
 	comparison, err := compareClaudeProjectMCPServerProjection(merged, projection)
 	if err != nil {
@@ -218,16 +211,8 @@ func TestClaudeProjectMCPProjectionTreatsOnlyManagedSubtreeAsOwned(t *testing.T)
 	if err != nil {
 		t.Fatalf("mergeClaudeProjectMCPServerProjection returned error: %v", err)
 	}
-	if !containsAll(
-		string(merged),
-		`"comment": {`,
-		`"keep": true`,
-		`"sibling": {`,
-		`"headers": {`,
-		`"context7": {`,
-	) {
-		t.Fatalf("merged = %s, want unknown top-level and sibling entries preserved", merged)
-	}
+	assertMCPJSONSubset(t, merged, `{"comment":{"keep":true},"mcpServers":{
+		"sibling":{"headers":{"Authorization":"Bearer secret"}},"context7":{"command":"npx"}}}`)
 }
 
 func TestClaudeProjectMCPProjectionCreatesMCPServersWithoutOwningSiblingNames(t *testing.T) {
@@ -297,7 +282,5 @@ func TestClaudeProjectMCPProjectionRemoveKeepsValidAggregateWhenLastServerRemove
 	if err != nil {
 		t.Fatalf("removeClaudeProjectMCPServerProjection returned error: %v", err)
 	}
-	if strings.TrimSpace(string(removed)) != "{\n  \"mcpServers\": {}\n}" {
-		t.Fatalf("removed = %s, want valid empty mcpServers aggregate", removed)
-	}
+	assertMCPJSONSubset(t, removed, `{"mcpServers":{}}`)
 }

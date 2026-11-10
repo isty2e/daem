@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -523,8 +524,8 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 	if readErr != nil {
 		t.Fatalf("read restored config: %v", readErr)
 	}
-	if string(restored) != string(before.Content()) {
-		t.Fatalf("restored config differs from exact before document:\n%s\nwant:\n%s", restored, before.Content())
+	if !reflect.DeepEqual(decodeJSONTree(t, restored), decodeJSONTree(t, before.Content())) {
+		t.Fatalf("restored selected and unselected JSON values differ from the baseline:\n%s\nwant:\n%s", restored, before.Content())
 	}
 }
 

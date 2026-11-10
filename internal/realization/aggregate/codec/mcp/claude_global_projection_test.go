@@ -121,20 +121,11 @@ func TestClaudeGlobalMCPProjectionMergeCompareAndPreserveUserSiblings(t *testing
 	if err != nil {
 		t.Fatalf("mergeClaudeGlobalMCPServerCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{
-		`"projects": {`,
-		`"project-shadow"`,
-		`"oauth": {`,
-		`"SECRET_CANARY"`,
-		`"sibling": {`,
-		`"context7": {`,
-		`"command": "npx"`,
-		`"API_TOKEN": "${CONTEXT7_API_TOKEN}"`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertMCPJSONSubset(t, merged, `{
+		"projects":{"/repo":{"mcpServers":{"context7":{"command":"project-shadow"}}}},
+		"oauth":{"refreshToken":"SECRET_CANARY"},"mcpServers":{
+		"sibling":{"url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer SECRET_CANARY"}},
+		"context7":{"command":"npx","env":{"API_TOKEN":"${CONTEXT7_API_TOKEN}"}}}}`)
 
 	comparison, err := compareClaudeGlobalMCPServerCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
@@ -164,9 +155,9 @@ func TestClaudeGlobalMCPProjectionRemovePreservesSiblingsAndProjects(t *testing.
 	if err != nil {
 		t.Fatalf("removeClaudeGlobalMCPServerProjection returned error: %v", err)
 	}
-	if !containsAll(string(removed), `"projects": {`, `"project-shadow"`, `"sibling": {`, `"url": "https://example.invalid/mcp"`) {
-		t.Fatalf("removed = %s, want sibling and project shadow preserved", removed)
-	}
+	assertMCPJSONSubset(t, removed, `{
+		"projects":{"/repo":{"mcpServers":{"context7":{"command":"project-shadow"}}}},
+		"mcpServers":{"sibling":{"url":"https://example.invalid/mcp"}}}`)
 	comparison, err := compareClaudeGlobalMCPServerProjection(removed, validClaudeGlobalMCPProjection("context7"))
 	if err != nil {
 		t.Fatalf("compareClaudeGlobalMCPServerProjection returned error: %v", err)

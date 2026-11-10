@@ -136,18 +136,9 @@ func TestOpenCodeProjectMCPProjectionMergeCompareAndPreserveSiblings(t *testing.
 	if err != nil {
 		t.Fatalf("mergeOpenCodeProjectMCPServerCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{
-		`"theme": "system"`,
-		`"sibling": {`,
-		`"url": "https://example.invalid/mcp"`,
-		`"context7": {`,
-		`"type": "local"`,
-		`"command": [`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertMCPJSONSubset(t, merged, `{"theme":"system","mcp":{
+		"sibling":{"url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer secret"}},
+		"context7":{"type":"local","command":["npx","-y","@upstash/context7-mcp"]}}}`)
 
 	comparison, err := compareOpenCodeProjectMCPServerCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
@@ -180,19 +171,10 @@ func TestOpenCodeGlobalMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T
 	if err != nil {
 		t.Fatalf("mergeOpenCodeGlobalMCPServerCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{
-		`"theme": "system"`,
-		`"sibling": {`,
-		`"url": "https://example.invalid/mcp"`,
-		`"context7": {`,
-		`"type": "local"`,
-		`"command": [`,
-		`"CHILD_TOKEN": "{env:SOURCE_TOKEN}"`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertMCPJSONSubset(t, merged, `{"theme":"system","mcp":{
+		"sibling":{"url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer SECRET_CANARY"}},
+		"context7":{"type":"local","command":["npx","-y","@upstash/context7-mcp"],
+		"environment":{"CHILD_TOKEN":"{env:SOURCE_TOKEN}"}}}}`)
 
 	comparison, err := compareOpenCodeGlobalMCPServerCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
@@ -224,9 +206,7 @@ func TestOpenCodeProjectMCPProjectionCreatesMCPParentAndRemovesOnlyManagedEntry(
 	if err != nil {
 		t.Fatalf("mergeOpenCodeProjectMCPServerCanonicalEntry returned error: %v", err)
 	}
-	if !containsAll(string(merged), `"model": "keep"`, `"mcp": {`, `"context7": {`) {
-		t.Fatalf("merged = %s, want top-level fields plus mcp/context7", merged)
-	}
+	assertMCPJSONSubset(t, merged, `{"model":"keep","mcp":{"context7":{"type":"local","command":["npx"]}}}`)
 
 	withSibling := []byte(`{
 	  "mcp": {
@@ -242,9 +222,8 @@ func TestOpenCodeProjectMCPProjectionCreatesMCPParentAndRemovesOnlyManagedEntry(
 	if strings.Contains(string(removed), `"context7":`) {
 		t.Fatalf("removed = %s, did not want managed server id", removed)
 	}
-	if !containsAll(string(removed), `"sibling": {`, `"url": "https://example.invalid/mcp"`, `"model": "keep"`) {
-		t.Fatalf("removed = %s, want sibling and top-level fields preserved", removed)
-	}
+	assertMCPJSONSubset(t, removed, `{"model":"keep","mcp":{
+		"sibling":{"url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer SECRET_CANARY"}}}}`)
 }
 
 func TestOpenCodeProjectMCPProjectionRejectsUnsupportedSameNameShapes(t *testing.T) {
