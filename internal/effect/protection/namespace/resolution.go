@@ -67,6 +67,10 @@ func (resolution Resolution) CaptureDocument(ctx context.Context, document owner
 		if err != nil {
 			return nil, rootedpath.Destination{}, err
 		}
+		path, err = rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+		if err != nil {
+			return nil, rootedpath.Destination{}, err
+		}
 		if err := requireNamespace(path, document.PathAuthority(), budget); err != nil {
 			return nil, rootedpath.Destination{}, err
 		}

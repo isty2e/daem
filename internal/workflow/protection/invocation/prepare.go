@@ -91,13 +91,13 @@ func PrepareInvocation(ctx context.Context, input InvocationInput, budget *physi
 			if err != nil {
 				return InvocationInput{}, err
 			}
-			observation, err := mutation.PrepareDirectoryEntryAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
+			observation, err := mutation.PrepareReferentAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
 			if err != nil {
 				return InvocationInput{}, err
 			}
 			target.bindings = append(target.bindings, invocationBinding{owner: binding.Owner(), observation: observation})
 			if len(target.bindings) == 1 {
-				target.layout, err = rootedpath.CaptureDirectoryEntryLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+				target.layout, err = rootedpath.CaptureReferentLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
 				if err != nil {
 					return InvocationInput{}, err
 				}

@@ -16,37 +16,52 @@ type DirectoryEntryObservationPlan struct {
 	path   string
 	depth  int
 	layout rootedpath.PathLayout
+	effect PathEffect
 }
 
 func PrepareDirectoryEntryAuthorityBounded(ctx context.Context, path string, depth int, budget PhysicalObservationBudget) (DirectoryEntryObservationPlan, error) {
+	return preparePathAuthorityBounded(ctx, path, PathEffectDirectoryEntry, depth, budget)
+}
+
+// PrepareReferentAuthorityBounded retains the source alias chain while observing
+// the selected referent's entry. It grants no mutation authority.
+func PrepareReferentAuthorityBounded(ctx context.Context, path string, depth int, budget PhysicalObservationBudget) (DirectoryEntryObservationPlan, error) {
+	return preparePathAuthorityBounded(ctx, path, PathEffectReferent, depth, budget)
+}
+
+func preparePathAuthorityBounded(ctx context.Context, path string, effect PathEffect, depth int, budget PhysicalObservationBudget) (DirectoryEntryObservationPlan, error) {
 	if ctx == nil || budget == nil {
 		return DirectoryEntryObservationPlan{}, fmt.Errorf("directory-entry preparation requires context and allocation")
 	}
 	if err := ctx.Err(); err != nil {
 		return DirectoryEntryObservationPlan{}, err
 	}
-	if err := validatePathObservation(path, PathEffectDirectoryEntry); err != nil {
+	if err := validatePathObservation(path, effect); err != nil {
 		return DirectoryEntryObservationPlan{}, err
 	}
 	absolute, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return DirectoryEntryObservationPlan{}, err
 	}
-	layout, err := rootedpath.CaptureDirectoryEntryLayoutBounded(absolute, depth, budget)
+	capture := rootedpath.CaptureDirectoryEntryLayoutBounded
+	if effect == PathEffectReferent {
+		capture = rootedpath.CaptureReferentLayoutBounded
+	}
+	layout, err := capture(absolute, depth, budget)
 	if err != nil {
 		return DirectoryEntryObservationPlan{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return DirectoryEntryObservationPlan{}, err
 	}
-	return DirectoryEntryObservationPlan{path: path, depth: depth, layout: layout}, nil
+	return DirectoryEntryObservationPlan{path: path, depth: depth, layout: layout, effect: effect}, nil
 }
 
 func (plan DirectoryEntryObservationPlan) ObserveBounded(ctx context.Context, budget PhysicalObservationBudget) (DirectoryEntryAuthorityObservation, error) {
 	if ctx == nil || budget == nil {
 		return DirectoryEntryAuthorityObservation{}, fmt.Errorf("directory-entry observation requires context and allocation")
 	}
-	identity, err := observePreparedPath(ctx, plan.path, PathEffectDirectoryEntry, plan.layout, plan.depth, budget)
+	identity, err := observePreparedPath(ctx, plan.path, plan.effect, plan.layout, plan.depth, budget)
 	if err != nil {
 		return DirectoryEntryAuthorityObservation{}, err
 	}
@@ -57,7 +72,7 @@ func (plan DirectoryEntryObservationPlan) ReserveObservation(budget PhysicalObse
 	if budget == nil {
 		return fmt.Errorf("directory-entry observation allocation is required")
 	}
-	return reservePreparedPath(plan.layout, PathEffectDirectoryEntry, plan.depth, budget)
+	return reservePreparedPath(plan.layout, plan.effect, plan.depth, budget)
 }
 
 func reservePreparedPath(layout rootedpath.PathLayout, effect PathEffect, depth int, budget PhysicalObservationBudget) error {

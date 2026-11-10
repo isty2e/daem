@@ -133,7 +133,7 @@ func (prepared *prospectiveInvocation) prepareDocument(ctx context.Context, memb
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
-		plan, err := mutation.PrepareDirectoryEntryAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
+		plan, err := mutation.PrepareReferentAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
@@ -143,7 +143,7 @@ func (prepared *prospectiveInvocation) prepareDocument(ctx context.Context, memb
 		}
 		document.target.bindings = append(document.target.bindings, invocationBinding{owner: intent.Owner(), observation: plan})
 		if len(document.target.bindings) == 1 {
-			document.target.layout, err = rootedpath.CaptureDirectoryEntryLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+			document.target.layout, err = rootedpath.CaptureReferentLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
 			if err != nil {
 				return prospectiveInvocationDocument{}, err
 			}
