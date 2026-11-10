@@ -138,6 +138,7 @@ func newPiNativePlacementOperations(placement aggregate.MCPPlacement) (MCPPlacem
 	decode := decodePiNativeServerEntry
 	return newMCPPlacementOperations(mcpPlacementOperationsInput{
 		placement: placement,
+		syntax:    spec.syntax,
 		foldMutations: func(content []byte, mutations []MCPProjectionMutation) ([]byte, error) {
 			return foldMCPJSONServerMutations(content, mutations, spec, decode)
 		},

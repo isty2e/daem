@@ -154,6 +154,14 @@ func (codec hookJSONCodec) ContractID() aggregate.CodecContractID { return codec
 
 func (hookJSONCodec) MaximumDocumentBytes() int64 { return hookdocument.MaximumBytes }
 
+func (codec hookJSONCodec) RewriteLayout(selection aggregate.Selection) (string, []output.KeyPath, error) {
+	contract, failure := codec.selectedHookContract(aggregate.AbsentDocument(), selection)
+	if failure != nil {
+		return "", nil, failure
+	}
+	return configdocument.JSON.String(), []output.KeyPath{contract.Address().KeyPath()}, nil
+}
+
 func (codec hookJSONCodec) ValidateContributions(contributions aggregate.ContributionSet) error {
 	decoded, err := codec.validatedHookContributions(contributions)
 	if err != nil {

@@ -2,9 +2,11 @@ package aggregate
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/outputtest"
 )
 
@@ -285,6 +287,10 @@ type protocolOnlyCodec struct{}
 func (protocolOnlyCodec) ContractID() CodecContractID { return "protocol-only-v1" }
 
 func (protocolOnlyCodec) MaximumDocumentBytes() int64 { return 1024 }
+func (protocolOnlyCodec) RewriteLayout(Selection) (string, []output.KeyPath, error) {
+	return "", nil, errors.New("test codec has no native rewrite layout")
+}
+
 func (protocolOnlyCodec) ValidateContributions(ContributionSet) error {
 	return nil
 }

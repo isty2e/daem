@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -75,6 +76,7 @@ type MCPProjectionCanonicalComparison struct {
 // MCPPlacementOperations binds one implemented placement to pure aggregate operations.
 type MCPPlacementOperations struct {
 	placement             aggregate.MCPPlacement
+	syntax                configdocument.Syntax
 	foldMutations         func([]byte, []MCPProjectionMutation) ([]byte, error)
 	restoreMutations      func([]byte, []MCPProjectionMutation, bool) ([]byte, bool, error)
 	verifyMutations       func([]byte, []MCPProjectionMutation) error
@@ -90,6 +92,7 @@ type MCPPlacementOperations struct {
 
 type mcpPlacementOperationsInput struct {
 	placement             aggregate.MCPPlacement
+	syntax                configdocument.Syntax
 	foldMutations         func([]byte, []MCPProjectionMutation) ([]byte, error)
 	restoreMutations      func([]byte, []MCPProjectionMutation, bool) ([]byte, bool, error)
 	verifyMutations       func([]byte, []MCPProjectionMutation) error
@@ -108,6 +111,7 @@ var implementedMCPPlacementOperationCatalog []MCPPlacementOperations
 func newMCPPlacementOperations(input mcpPlacementOperationsInput) (MCPPlacementOperations, error) {
 	operations := MCPPlacementOperations{
 		placement:             input.placement,
+		syntax:                input.syntax,
 		foldMutations:         input.foldMutations,
 		restoreMutations:      input.restoreMutations,
 		verifyMutations:       input.verifyMutations,
@@ -129,6 +133,9 @@ func newMCPPlacementOperations(input mcpPlacementOperationsInput) (MCPPlacementO
 func (operations MCPPlacementOperations) validate() error {
 	if err := operations.placement.Validate(); err != nil {
 		return fmt.Errorf("MCP placement operations placement: %w", err)
+	}
+	if _, err := configdocument.ParseSyntax(operations.syntax.String()); err != nil {
+		return fmt.Errorf("MCP placement operations syntax: %w", err)
 	}
 	if operations.foldMutations == nil {
 		return fmt.Errorf("MCP placement operations %q fold mutations operation is required", operations.placement.ID())
@@ -261,6 +268,7 @@ func MCPCodecContractImplemented(codecContractID aggregate.CodecContractID) bool
 func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 	return []MCPPlacementOperations{
 		mustMCPPlacementOperations(aggregate.MCPPlacementClaudeProject, mcpPlacementOperationsInput{
+			syntax:                claudeProjectMCPConfigSpec().syntax,
 			foldMutations:         foldClaudeProjectMCPProjectionMutations,
 			restoreMutations:      restoreClaudeProjectMCPProjectionMutations,
 			verifyMutations:       verifyClaudeProjectMCPProjectionMutations,
@@ -274,6 +282,7 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			parentPresent:         claudeProjectMCPServersParentPresent,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementClaudeGlobal, mcpPlacementOperationsInput{
+			syntax:                claudeGlobalMCPConfigSpec().syntax,
 			foldMutations:         foldClaudeGlobalMCPProjectionMutations,
 			restoreMutations:      restoreClaudeGlobalMCPProjectionMutations,
 			verifyMutations:       verifyClaudeGlobalMCPProjectionMutations,
@@ -287,6 +296,7 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			parentPresent:         claudeGlobalMCPServersParentPresent,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementAntigravityGlobal, mcpPlacementOperationsInput{
+			syntax:                antigravityGlobalMCPConfigSpec().syntax,
 			foldMutations:         foldAntigravityGlobalMCPProjectionMutations,
 			restoreMutations:      restoreAntigravityGlobalMCPProjectionMutations,
 			verifyMutations:       verifyAntigravityGlobalMCPProjectionMutations,
@@ -300,6 +310,7 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			parentPresent:         antigravityGlobalMCPServersParentPresent,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementOpenCodeProject, mcpPlacementOperationsInput{
+			syntax:                openCodeProjectMCPConfigSpec().syntax,
 			foldMutations:         foldOpenCodeProjectMCPProjectionMutations,
 			restoreMutations:      restoreOpenCodeProjectMCPProjectionMutations,
 			verifyMutations:       verifyOpenCodeProjectMCPProjectionMutations,
@@ -313,6 +324,7 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			parentPresent:         openCodeProjectMCPServersParentPresent,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementOpenCodeGlobal, mcpPlacementOperationsInput{
+			syntax:                openCodeGlobalMCPConfigSpec().syntax,
 			foldMutations:         foldOpenCodeGlobalMCPProjectionMutations,
 			restoreMutations:      restoreOpenCodeGlobalMCPProjectionMutations,
 			verifyMutations:       verifyOpenCodeGlobalMCPProjectionMutations,
@@ -326,6 +338,7 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			parentPresent:         openCodeGlobalMCPServersParentPresent,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementCodexProject, mcpPlacementOperationsInput{
+			syntax:                configdocument.TOML,
 			foldMutations:         foldCodexProjectMCPProjectionMutations,
 			restoreMutations:      restoreCodexProjectMCPProjectionMutations,
 			verifyMutations:       verifyCodexProjectMCPProjectionMutations,
@@ -339,6 +352,7 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			parentPresent:         codexProjectMCPServersParentPresent,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementCodexGlobal, mcpPlacementOperationsInput{
+			syntax:                configdocument.TOML,
 			foldMutations:         foldCodexGlobalMCPProjectionMutations,
 			restoreMutations:      restoreCodexGlobalMCPProjectionMutations,
 			verifyMutations:       verifyCodexGlobalMCPProjectionMutations,

@@ -39,6 +39,7 @@ func newPiMCPPlacementCodec(placementID aggregate.MCPPlacementID) piMCPPlacement
 
 func (codec piMCPPlacementCodec) operationsInput() mcpPlacementOperationsInput {
 	return mcpPlacementOperationsInput{
+		syntax:                codec.spec.syntax,
 		foldMutations:         codec.foldMutations,
 		restoreMutations:      codec.restoreMutations,
 		verifyMutations:       codec.verifyMutations,

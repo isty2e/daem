@@ -1,9 +1,11 @@
 package aggregatecodec
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -16,6 +18,10 @@ func (codec registryTestCodec) ContractID() aggregate.CodecContractID {
 }
 
 func (registryTestCodec) MaximumDocumentBytes() int64 { return 1024 }
+
+func (registryTestCodec) RewriteLayout(aggregate.Selection) (string, []output.KeyPath, error) {
+	return "", nil, errors.New("test codec has no native rewrite layout")
+}
 
 func (registryTestCodec) ValidateContributions(aggregate.ContributionSet) error {
 	return nil

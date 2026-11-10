@@ -53,6 +53,10 @@ func cloneDocument(document Document) Document {
 type Codec interface {
 	ContributionValidator
 	MaximumDocumentBytes() int64
+	// RewriteLayout validates a selection and returns a configdocument grammar
+	// name and non-root areas covering its keys. Areas bound recursive edits,
+	// not whole replacements; document presence and write authority stay outside.
+	RewriteLayout(Selection) (string, []output.KeyPath, error)
 	Read(Document, Selection) (Snapshot, *CodecFailure)
 	ClassifyContributionOccupancy(ProjectionState, ContributionSet) (ContributionOccupancySet, error)
 	Render(Document, Plan) (RenderedDocument, *CodecFailure)
