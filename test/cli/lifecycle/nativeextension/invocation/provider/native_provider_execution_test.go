@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
@@ -183,7 +185,7 @@ func TestNativePiAdapterProviderSuffixProcessLossDoesNotReplayInstall(t *testing
 				fixture.Require(t, "recover", "--dry-run")
 				fixture.Require(t, "recover", "--yes")
 				if boundary == "host" {
-					testkit.AssertFileContent(t, mcpPath, string(before))
+					requireRestoredMCPDocument(t, mcpPath, before)
 				}
 				fixture.Require(t, "apply", "--yes", "--json")
 				fixture.Require(t, "status", "--check", "--json")
@@ -218,7 +220,7 @@ func TestNativePiAdapterProviderSuffixReturnedErrorsKeepAttempt(t *testing.T) {
 			if boundary == "return-state-error" {
 				expectedCount = 2
 			} else {
-				testkit.AssertFileContent(t, mcpPath, string(before))
+				requireRestoredMCPDocument(t, mcpPath, before)
 			}
 			if result.ActionCount != expectedCount || len(result.Attempts) != 1 || result.Attempts[0].Class != "attempted_observed_present" || result.Attempts[0].ExitCode == nil || *result.Attempts[0].ExitCode != 0 {
 				t.Fatalf("MCP failure lost actual retained work or the completed provider: %s", stdout)
@@ -228,6 +230,26 @@ func TestNativePiAdapterProviderSuffixReturnedErrorsKeepAttempt(t *testing.T) {
 			testkit.AssertFileContent(t, fixture.Calls, "provider\nprovider\n")
 			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 		})
+	}
+}
+
+func requireRestoredMCPDocument(t *testing.T, path string, expected []byte) {
+	t.Helper()
+	actual, err := configdocument.Parse(t.Context(), testkit.ReadFile(t, path), configdocument.JSON, nativefixture.LifecycleLimits())
+	if err != nil {
+		t.Fatal("MCP restoration returned invalid JSON", err)
+	}
+	before, err := configdocument.Parse(t.Context(), expected, configdocument.JSON, nativefixture.LifecycleLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualRoot, _, err := actual.Lookup(output.KeyPath{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRoot, _, err := before.Lookup(output.KeyPath{})
+	if err != nil || !actualRoot.Equal(beforeRoot) {
+		t.Fatal("MCP restoration changed complete native document meaning", err)
 	}
 }
 
