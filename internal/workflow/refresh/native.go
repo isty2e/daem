@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -90,7 +89,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	if !present {
 		return nil, operation.Close()
 	}
-	documents, err := nativeconfig.PrepareInvocationDocuments(ctx, paths, input, sources)
+	documents, err := nativeconfig.PrepareInvocationDocuments(ctx, input, sources)
 	if err != nil {
 		return nil, err
 	}
@@ -106,12 +105,12 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	}
 	inputs := nativeRefreshInputs{environment: nativeOnly}
 	for _, namespace := range input.Documents.Evidence().Namespaces() {
-		for _, alias := range namespace.Addresses() {
-			path, err := physicalhostpath.NewResolver(paths).Resolve(alias.AggregateRoot(), input.Budget)
+		for _, alias := range namespace.Aliases() {
+			request, err := alias.PhysicalAuthorityRequest()
 			if err != nil {
 				return nil, err
 			}
-			inputs.requests = append(inputs.requests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(alias.Target()), Scope: string(alias.Scope())})
+			inputs.requests = append(inputs.requests, request)
 		}
 	}
 	physical, err := mutation.NewPhysicalAuthoritySet(inputs.requests...)

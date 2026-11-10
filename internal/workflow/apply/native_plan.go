@@ -307,6 +307,15 @@ func nativeStateDocuments(ctx context.Context, assessment readiness.Assessment, 
 	return documents, nil
 }
 
+func nativeAuthorityRequestFor(current commandPlan, address aggregate.DocumentAddress) (mutation.PhysicalAuthorityRequest, error) {
+	for _, evidence := range current.assessment.NativeApproval {
+		if slices.Contains(evidence.Aliases, address) {
+			return evidence.AuthorityRequest(address)
+		}
+	}
+	return mutation.PhysicalAuthorityRequest{}, fmt.Errorf("native authority has no selected document alias")
+}
+
 func nativeApplyInputFor(current commandPlan) (nativeoperation.NativeApplyInput, error) {
 	if current.nativePlan == nil || current.nativeOperation == nil {
 		return nativeoperation.NativeApplyInput{}, effectpreparation.ErrNativeOperationRequired

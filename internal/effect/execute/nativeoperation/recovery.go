@@ -17,7 +17,6 @@ import (
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
-	"github.com/isty2e/daem/internal/effect/mutation"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -77,11 +76,10 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	}
 	for _, group := range aliases {
 		for _, alias := range group {
-			path, err := options.Resolver(alias.AggregateRoot(), budget)
+			request, err := plan.DocumentAuthorityRequest(alias)
 			if err != nil {
 				return err
 			}
-			request := mutation.PhysicalAuthorityRequest{Path: path, Target: string(alias.Target()), Scope: string(alias.Scope())}
 			if !slices.Contains(authority.physicalAuthorityRequests, request) {
 				authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
 			}

@@ -17,6 +17,17 @@ type ApprovalEvidence struct {
 	Aliases    []aggregate.DocumentAddress
 	Authority  mutation.DirectoryEntryAuthorityObservation
 	Protection string
+	requests   map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
+}
+
+// AuthorityRequest retains qualified routing facts after observation resources
+// close. The request still requires the containing operation's current leases.
+func (evidence ApprovalEvidence) AuthorityRequest(alias aggregate.DocumentAddress) (mutation.PhysicalAuthorityRequest, error) {
+	request, present := evidence.requests[alias]
+	if !present {
+		return mutation.PhysicalAuthorityRequest{}, fmt.Errorf("native approval has no qualified authority request for the selected document")
+	}
+	return request, nil
 }
 
 func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
@@ -38,7 +49,15 @@ func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
 				return nil, err
 			}
 		}
-		result = append(result, ApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection})
+		requests := make(map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest)
+		for _, alias := range namespace.Aliases() {
+			request, err := alias.PhysicalAuthorityRequest()
+			if err != nil {
+				return nil, err
+			}
+			requests[alias.Address()] = request
+		}
+		result = append(result, ApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection, requests: requests})
 	}
 	return result, nil
 }

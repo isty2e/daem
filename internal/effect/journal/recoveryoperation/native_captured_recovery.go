@@ -67,7 +67,11 @@ func OpenCapturedNativeRecovery(ctx context.Context, captured journalpublication
 	if err != nil {
 		return nil, err
 	}
-	plan := NativeRecoveryPlan{source: *inventory.Active(), journal: journal, capture: nativeCaptureResult(*inventory.Active()), active: inventory.Active().PhysicalAuthority(), inventory: inv, assessment: observed.Facts(), registryScope: scope}
+	requests, err := nativeDocumentAuthorityRequests(qualified)
+	if err != nil {
+		return nil, err
+	}
+	plan := NativeRecoveryPlan{source: *inventory.Active(), journal: journal, capture: nativeCaptureResult(*inventory.Active()), active: inventory.Active().PhysicalAuthority(), inventory: inv, assessment: observed.Facts(), registryScope: scope, documentRequests: requests}
 	return &NativeRecoveryOperation{
 		plan: plan, captured: &captured, borrowedManifest: manifest,
 		profile:   Profile{StateCodec: codec, Codecs: options.Codecs, Budget: budget},

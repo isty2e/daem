@@ -2,6 +2,7 @@ package recoveryoperation
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +64,19 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 				}
 			}
 			plan := operation.Plan()
+			if !plan.SameExecutionAuthority(plan) {
+				t.Fatal("actual recovery plan did not retain its own execution authority")
+			}
+			changed := plan
+			changed.documentRequests = maps.Clone(plan.documentRequests)
+			for alias, request := range changed.documentRequests {
+				request.Path = filepath.Join(t.TempDir(), "different-native.json")
+				changed.documentRequests[alias] = request
+				break
+			}
+			if len(changed.documentRequests) == 0 || plan.SameExecutionAuthority(changed) {
+				t.Fatal("recovery accepted a different native authority route")
+			}
 			aliases, err := plan.DocumentWriteAliases()
 			if err != nil {
 				t.Fatal("live operation could not freeze document write facts", err)
@@ -76,6 +90,14 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 			}
 			if len(operation.Documents()) != 0 || operation.InitialAssessment().CleanBefore() {
 				t.Fatal("closed recovery exposed live documents or assessment")
+			}
+			for _, group := range aliases {
+				for _, alias := range group {
+					request, err := plan.DocumentAuthorityRequest(alias)
+					if err != nil || request.Path == "" {
+						t.Fatal("closing recovery lost its qualified native route", err)
+					}
+				}
 			}
 			input.requireUnchanged(t)
 			if _, err := os.Stat(residue); err != nil {

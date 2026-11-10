@@ -75,13 +75,13 @@ func PlanNativeReplacement(ctx context.Context, input NativeReplacementInput) (*
 		Result: cloneCommandResult(prepared.CommandResult),
 	}
 	for _, decision := range planned.assessment.Reconciliation.Aggregates() {
-		file, err := destinationResolver(planned.context.Paths).Resolve(decision.DocumentAddress().AggregateRoot(), planned.context.physicalBudget)
+		request, err := nativeAuthorityRequestFor(planned, decision.DocumentAddress())
 		if err != nil {
 			return nil, errors.Join(err, prepared.Close())
 		}
 		for _, projection := range decision.Projections() {
 			before, after := projection.Before(), projection.Expected()
-			row := NativeReplacementKey{Path: projection.Contract().Address().KeyPath(), File: file, CurrentPresent: before.Present()}
+			row := NativeReplacementKey{Path: projection.Contract().Address().KeyPath(), File: request.Path, CurrentPresent: before.Present()}
 			nativeSyntax, _ := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID())
 			syntax, err := configdocument.ParseSyntax(nativeSyntax)
 			if err != nil {

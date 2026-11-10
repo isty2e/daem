@@ -24,7 +24,6 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -404,12 +403,12 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	}
 	input.Registry = actualRegistry
 	for _, namespace := range work.documents.Evidence().Namespaces() {
-		for _, alias := range namespace.Addresses() {
-			path, err := input.Resolver(alias.AggregateRoot(), input.Budget)
+		for _, alias := range namespace.Aliases() {
+			request, err := alias.PhysicalAuthorityRequest()
 			if err != nil {
 				return ApplyResult{}, err
 			}
-			authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(alias.Target()), Scope: string(alias.Scope())})
+			authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
 		}
 	}
 	if err := bindNativeOrdinaryApply(ctx, input, work, authority); err != nil {

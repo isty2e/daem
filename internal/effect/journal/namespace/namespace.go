@@ -171,6 +171,22 @@ func (alias Alias) Address() aggregate.DocumentAddress { return alias.address }
 func (alias Alias) Observation() mutation.DirectoryEntryAuthorityObservation {
 	return alias.observation
 }
+
+// PhysicalAuthorityRequest selects the qualified alias entry and its referent
+// for the containing operation's leases. It grants no mutation capability.
+func (alias Alias) PhysicalAuthorityRequest() (mutation.PhysicalAuthorityRequest, error) {
+	if err := alias.address.Validate(); err != nil {
+		return mutation.PhysicalAuthorityRequest{}, err
+	}
+	if err := alias.observation.Validate(); err != nil {
+		return mutation.PhysicalAuthorityRequest{}, err
+	}
+	if alias.route == "" {
+		return mutation.PhysicalAuthorityRequest{}, fmt.Errorf("native authority requires its qualified alias route")
+	}
+	return mutation.PhysicalAuthorityRequest{Path: alias.route, Target: string(alias.address.Target()), Scope: string(alias.address.Scope())}, nil
+}
+
 func (alias Alias) Root() RootGrant                       { return alias.root }
 func (alias Alias) Location() configuration.AliasLocation { return alias.location }
 

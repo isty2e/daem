@@ -300,6 +300,9 @@ func TestZeroCustodyValuesCannotAuthorizeWork(t *testing.T) {
 	if _, err := namespace.WriterPath(); err == nil {
 		t.Fatal("zero namespace supplied a writer path")
 	}
+	if request, err := (Alias{}).PhysicalAuthorityRequest(); err == nil || request.Path != "" {
+		t.Fatal("zero alias supplied a physical authority request")
+	}
 	if _, present := (QualifiedRoots{}).Manifest(); present {
 		t.Fatal("zero roots supplied a manifest grant")
 	}

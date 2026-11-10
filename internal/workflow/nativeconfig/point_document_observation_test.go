@@ -129,6 +129,18 @@ func TestSelectedNativeObservationUsesQualifiedPointEndpoints(t *testing.T) {
 			if err != nil || path != wantPath {
 				t.Fatal("point writer did not use the captured endpoint spelling", path, err)
 			}
+			request, err := namespace.Aliases()[0].PhysicalAuthorityRequest()
+			if err != nil || request.Target != string(selected) || request.Scope != string(target.ScopeGlobal) {
+				t.Fatal("point authority request lost its selected consumer", request, err)
+			}
+			requested, err := os.Stat(request.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writer, err := os.Stat(wantPath)
+			if err != nil || !os.SameFile(requested, writer) {
+				t.Fatal("point authority request selected another file", request.Path, err)
+			}
 			pin := namespace.WriterPin()
 			reference, bound := pin.RootReference()
 			if !bound || pin.Coordinate() != configuration.PointSelf() {

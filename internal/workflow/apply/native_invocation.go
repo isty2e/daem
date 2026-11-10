@@ -80,7 +80,7 @@ func prepareNativeInvocations(ctx context.Context, current commandPlan, leases *
 	if !present {
 		return nil, fmt.Errorf("native invocation requires its retained document operation")
 	}
-	program.documents, err = nativeconfig.PrepareInvocationDocuments(ctx, current.context.Paths, native, current.assessment.NativeSources)
+	program.documents, err = nativeconfig.PrepareInvocationDocuments(ctx, native, current.assessment.NativeSources)
 	if err != nil {
 		return nil, err
 	}

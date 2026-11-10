@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -50,6 +51,37 @@ func TestNativeNamespaceFollowsAliasesOnlyIntoExplicitTrustedRoots(t *testing.T)
 		binding, known := alias.Binding()
 		if !known || binding.Validate() != nil || binding.Location() != alias.Location() || binding.RootReference() != alias.Root().RootReference() {
 			t.Fatal("forward observation lost its selected complete binding")
+		}
+		request, err := alias.PhysicalAuthorityRequest()
+		if err != nil || request.Target != string(alias.Address().Target()) || request.Scope != string(alias.Address().Scope()) {
+			t.Fatal("qualified alias lost its authority request", request, err)
+		}
+		wantPath := referent
+		if alias.Address().Scope() == target.ScopeProject {
+			wantPath = aliasPath
+		}
+		if request.Path != wantPath {
+			t.Fatal("alias authority lost its selected entry route", request.Path, wantPath)
+		}
+		authority, err := mutation.NewPhysicalAuthoritySet(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observations, err := authority.Namespaces()
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry, err := mutation.ObserveDirectoryEntryAuthority(wantPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entryCovered, referentCovered := false, false
+		for _, observed := range observations {
+			entryCovered = entryCovered || observed.Equal(entry)
+			referentCovered = referentCovered || observed.Equal(namespace.Observation())
+		}
+		if !entryCovered || !referentCovered {
+			t.Fatal("native authority did not cover both its alias entry and writer referent")
 		}
 	}
 	piAuthority, err := pi.Root.Authority()

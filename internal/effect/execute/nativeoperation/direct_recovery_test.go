@@ -175,6 +175,20 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 						return nil
 					},
 				}
+				if scope == target.ScopeGlobal {
+					aliases, err := native.DocumentAliases()
+					if err != nil || len(aliases) != 1 || len(aliases[0]) != 1 {
+						t.Fatal("order-only recovery lost its selected native alias", err)
+					}
+					resolve := options.Resolver
+					unrelated := filepath.Join(t.TempDir(), "unrelated-ordinary.json")
+					options.Resolver = func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (string, error) {
+						if destination == aliases[0][0].AggregateRoot() {
+							return unrelated, nil
+						}
+						return resolve(destination, budget)
+					}
+				}
 				if scope == target.ScopeProject && !committed {
 					denied := errors.New("explicit recovery authority refused")
 					refused := options

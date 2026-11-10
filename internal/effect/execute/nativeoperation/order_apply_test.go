@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -134,6 +135,47 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 				t.Fatal("successful order-only publication left recovery work", err)
 			}
 		})
+	}
+}
+
+func TestNativeApplyUsesSelectedAliasAuthorityInsteadOfOrdinaryResolution(t *testing.T) {
+	input, host, original := nativeOrderApplyInput(t, target.ScopeGlobal)
+	unrelated := filepath.Join(t.TempDir(), "ordinary.json")
+	outside := []byte(`{"unrelated":true}`)
+	if err := os.WriteFile(unrelated, outside, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input.Resolver = func(output.Destination, rootedpath.PhysicalTraversalBudget) (string, error) {
+		return unrelated, nil
+	}
+	plan, err := PrepareNativeApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := mutation.PhysicalAuthorityRequest{Path: host, Target: string(target.TargetPi), Scope: string(target.ScopeGlobal)}
+	options := nativeOrderApplyOptions(t)
+	validate := options.ValidatePhysicalAuthorityRequests
+	checked := false
+	options.ValidatePhysicalAuthorityRequests = func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
+		checked = true
+		if !slices.Contains(requests, want) {
+			return errors.New("native publication did not request its selected alias authority")
+		}
+		for _, request := range requests {
+			if request.Path == unrelated {
+				return errors.New("native publication requested an unrelated ordinary path")
+			}
+		}
+		return validate(ctx, requests)
+	}
+	if _, err := ApplyNativeWithEffectPlan(t.Context(), input, plan, options); err != nil || !checked {
+		t.Fatal("native writer did not execute under its own selected authority", err)
+	}
+	if actual, err := os.ReadFile(host); err != nil || bytes.Equal(actual, original) {
+		t.Fatal("the selected native writer did not publish its change", err)
+	}
+	if actual, err := os.ReadFile(unrelated); err != nil || !bytes.Equal(actual, outside) {
+		t.Fatal("native publication changed the unrelated ordinary file", err)
 	}
 }
 

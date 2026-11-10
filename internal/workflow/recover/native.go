@@ -126,15 +126,15 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 	}
 	for _, group := range aliases {
 		for _, alias := range group {
-			path, err := resolver.Resolve(alias.AggregateRoot(), budget)
+			request, err := plan.DocumentAuthorityRequest(alias)
 			if err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 			if _, write := writes[alias]; write {
-				if err := builder.AddDocumentWritePair(path, string(alias.Target()), string(alias.Scope())); err != nil {
+				if err := builder.AddDocumentWritePair(request.Path, request.Target, request.Scope); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}
-			} else if err := builder.AddPhysicalPair(path, mutation.AccessExclusive, string(alias.Target()), string(alias.Scope())); err != nil {
+			} else if err := builder.AddPhysicalPair(request.Path, mutation.AccessExclusive, request.Target, request.Scope); err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 		}

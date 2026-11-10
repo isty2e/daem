@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
@@ -34,15 +35,16 @@ import (
 // NativeRecoveryPlan retains immutable observations, not live root capabilities.
 // Execution must reopen and requalify the complete operation under its leases.
 type NativeRecoveryPlan struct {
-	source        journalinventory.ActiveJournal
-	journal       journalrecord.Native
-	capture       journalpublication.CaptureResult
-	active        journalinventory.ActiveJournalAuthority
-	inventory     recoverableInventoryAuthority
-	assessment    journalqualification.AssessmentFacts
-	registryScope ownership.DocumentScope
-	blocked       bool
-	cleanup       []recovery.RemovalCleanupObligation
+	source           journalinventory.ActiveJournal
+	journal          journalrecord.Native
+	capture          journalpublication.CaptureResult
+	active           journalinventory.ActiveJournalAuthority
+	inventory        recoverableInventoryAuthority
+	assessment       journalqualification.AssessmentFacts
+	registryScope    ownership.DocumentScope
+	documentRequests map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
+	blocked          bool
+	cleanup          []recovery.RemovalCleanupObligation
 }
 
 func (NativeRecoveryPlan) recoverablePlan()            {}
@@ -87,7 +89,7 @@ func (plan NativeRecoveryPlan) Classification() recovery.Classification {
 
 func (plan NativeRecoveryPlan) SameExecutionAuthority(other RecoverablePlan) bool {
 	typed, ok := other.(NativeRecoveryPlan)
-	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) {
+	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) || !maps.Equal(plan.documentRequests, typed.documentRequests) {
 		return false
 	}
 	scope := plan.registryScope
@@ -262,7 +264,11 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 	if err != nil {
 		return nil, err
 	}
-	operation.plan = NativeRecoveryPlan{source: *active, blocked: blocked, journal: journal, capture: nativeCaptureResult(*active), active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope}
+	requests, err := nativeDocumentAuthorityRequests(operation.qualified)
+	if err != nil {
+		return nil, err
+	}
+	operation.plan = NativeRecoveryPlan{source: *active, blocked: blocked, journal: journal, capture: nativeCaptureResult(*active), active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope, documentRequests: requests}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err
