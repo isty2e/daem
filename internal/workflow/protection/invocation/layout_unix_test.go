@@ -100,6 +100,33 @@ func prospectiveLayoutFixture(t *testing.T, fixture ownershiptest.PermissionReco
 		}
 		input.Leases = invocationFixtureLeases(t, fixture.Paths, input.Requests)
 	}
+	registry, err := fixture.Store.LoadProtectionRegistry(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, row := range beforeRows {
+		address, err := ownership.NewManagedAddress(fixture.Protection.Documents()[index].PathAuthority(), row.Contribution().Contract().Address().Footprint())
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim, err := ownership.NewActiveClaim(address, fixture.Owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current, present := registry.Exact(address); present {
+			if !current.Equal(claim) {
+				t.Fatal("fixture before state has a different ownership claim")
+			}
+			continue
+		}
+		replacement, _ := ownership.PresentClaim(claim)
+		registry, err = registry.Apply(address, ownership.NoClaim(), replacement)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	publishLayoutFixtureRegistry(t, fixture, registry)
+
 	before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedAggregates: beforeRows})
 	if err != nil {
 		t.Fatal(err)
