@@ -2,6 +2,7 @@ package readiness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -124,9 +126,25 @@ func TestNativeAggregatePreconditionsUseTheirOwnObservedDocument(t *testing.T) {
 					t.Fatal(err)
 				}
 				observations, err := observeAggregateDocuments(t.Context(), resolve, []aggregate.SubjectContribution{desired}, nil, selection, catalog,
-					nativeAssessmentSources{input: &NativeAssessmentInput{Documents: &documents}})
+					nativeAssessmentSources{input: &NativeAssessmentInput{Documents: &documents, Budget: fixture.observation.Budget}})
 				if err != nil || len(observations.preconditions) != 1 || observations.preconditions[0].Satisfied() != primaryExists {
 					t.Fatal("alternate-document precondition used the primary or a different epoch", observations.preconditions, err)
+				}
+
+				if primaryExists && retainAlternate {
+					otherPath := filepath.Join(t.TempDir(), "other.json")
+					requireNativePreparationFile(t, otherPath, []byte(`{}`))
+					differentAlternate := func(destination output.Destination) (string, error) {
+						if destination == alternate.AggregateRoot() {
+							return otherPath, nil
+						}
+						return resolve(destination)
+					}
+					observations, err := observeAggregateDocuments(t.Context(), differentAlternate, []aggregate.SubjectContribution{desired}, nil, selection, catalog,
+						nativeAssessmentSources{input: &NativeAssessmentInput{Documents: &documents, Budget: fixture.observation.Budget}})
+					if !errors.Is(err, errOrdinaryNativeSourceMismatch) || len(observations.evidence) != 0 || len(observations.failures) != 0 || len(observations.preconditions) != 0 {
+						t.Fatal("alternate-document source mismatch returned partial observations", observations, err)
+					}
 				}
 			})
 		}

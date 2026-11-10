@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -14,6 +15,8 @@ import (
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output/ownership"
 
@@ -45,6 +48,41 @@ func nativeAssessmentError(err error) error {
 		return fmt.Errorf("%s: %w", reconcile.ReasonOwnershipClaimMissing, err)
 	}
 	return err
+}
+
+var errOrdinaryNativeSourceMismatch = errors.New("source differs from its retained native namespace")
+
+func requireOrdinaryNativeSourceAgreement(ctx context.Context, resolver liveDestinationResolver, sources []nativeAssessmentSources, address aggregate.DocumentAddress) error {
+	logical := address.AggregateRoot()
+	if len(sources) == 0 || sources[0].input == nil || sources[0].input.Documents == nil {
+		return fmt.Errorf("ordinary document %q has no retained native namespace", logical)
+	}
+	input := sources[0].input
+	for _, namespace := range input.Documents.Evidence().Namespaces() {
+		if !slices.Contains(namespace.Addresses(), address) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		path, err := resolver(logical)
+		if err != nil {
+			return fmt.Errorf("resolve ordinary document %q: %w", logical, err)
+		}
+		referent, err := rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, input.Budget)
+		if err != nil {
+			return fmt.Errorf("resolve ordinary document referent %q: %w", logical, err)
+		}
+		observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(referent, physicalwork.MaximumPhysicalPathDepth, input.Budget)
+		if err != nil {
+			return fmt.Errorf("observe ordinary document source %q: %w", logical, err)
+		}
+		if !observed.Equal(namespace.Observation()) {
+			return fmt.Errorf("ordinary document %q: %w", logical, errOrdinaryNativeSourceMismatch)
+		}
+		return ctx.Err()
+	}
+	return fmt.Errorf("ordinary document %q has no retained native namespace", logical)
 }
 
 func prepareNativeAssessmentSources(ctx context.Context, input Input, before durable.Snapshot, epoch lockobserve.SourceEpoch) (nativeAssessmentSources, error) {

@@ -310,10 +310,18 @@ func observeAggregateDocuments(
 				selected.CodecContractID(),
 			)
 		}
+		if _, nativeCodec := aggregate.HostConfigSyntaxForCodec(selected.CodecContractID()); !nativeCodec && hasRetained {
+			if err := requireOrdinaryNativeSourceAgreement(ctx, liveDestinationResolver(resolver), native, address.DocumentAddress()); err != nil {
+				return aggregateDocumentObservations{}, err
+			}
+		}
 		for _, precondition := range preconditions {
 			var satisfied bool
 			preconditionDocument, _, retainedPrecondition := retainedNativeDocument(native, precondition.DocumentAddress())
 			if retainedPrecondition {
+				if err := requireOrdinaryNativeSourceAgreement(ctx, liveDestinationResolver(resolver), native, precondition.DocumentAddress()); err != nil {
+					return aggregateDocumentObservations{}, err
+				}
 				satisfied = preconditionDocument.Exists() != (precondition.Kind() == aggregate.OperationPreconditionDocumentAbsent)
 			} else {
 				satisfied, err = observeAggregatePrecondition(ctx, resolver, precondition)
