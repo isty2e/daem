@@ -165,6 +165,30 @@ func (view SelectedOrderView) OriginalDocument() aggregate.Document { return vie
 func (view SelectedOrderView) SettingsPath() string { return view.inventory.SettingsPath() }
 func (view SelectedOrderView) Scope() target.Scope  { return view.selection.scope }
 
+func (view SelectedOrderView) AfterRetiring(correlations []observerelation.CorrelationKey) (SelectedOrderView, error) {
+	if err := view.selected.Projection().Validate(); err != nil {
+		return SelectedOrderView{}, err
+	}
+	if len(correlations) == 0 {
+		return view, nil
+	}
+	selected := make([]observerelation.CorrelationKey, 0, len(view.retiring))
+	for _, relation := range view.retiring {
+		selected = append(selected, relation.key)
+	}
+	retained, err := observerelation.RemainingCorrelations(selected, correlations)
+	if err != nil {
+		return SelectedOrderView{}, err
+	}
+	var remaining []ScopedRelation
+	for _, relation := range view.retiring {
+		if _, keep := retained[relation.key]; keep {
+			remaining = append(remaining, relation)
+		}
+	}
+	return newSelectedOrderView(view.selection, view.inventory, remaining)
+}
+
 func (view SelectedOrderView) DefinitionRoots() []string {
 	seen := make(map[string]bool)
 	for _, relations := range [][]ScopedRelation{view.selection.relations, view.retiring} {

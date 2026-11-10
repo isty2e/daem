@@ -143,6 +143,30 @@ func (view SelectedDocumentOrderView) OriginalDocument() aggregate.Document {
 func (view SelectedDocumentOrderView) Path() string        { return view.document.path }
 func (view SelectedDocumentOrderView) Scope() target.Scope { return view.selection.scope }
 
+func (view SelectedDocumentOrderView) AfterRetiring(correlations []observerelation.CorrelationKey) (SelectedDocumentOrderView, error) {
+	if err := view.selected.Projection().Validate(); err != nil {
+		return SelectedDocumentOrderView{}, err
+	}
+	if len(correlations) == 0 {
+		return view, nil
+	}
+	selected := make([]observerelation.CorrelationKey, 0, len(view.retiring))
+	for _, relation := range view.retiring {
+		selected = append(selected, relation.key)
+	}
+	retained, err := observerelation.RemainingCorrelations(selected, correlations)
+	if err != nil {
+		return SelectedDocumentOrderView{}, err
+	}
+	var remaining []ScopedRelation
+	for _, relation := range view.retiring {
+		if _, keep := retained[relation.key]; keep {
+			remaining = append(remaining, relation)
+		}
+	}
+	return newSelectedDocumentView(view.selection, view.document, remaining)
+}
+
 func (view SelectedDocumentOrderView) SameSelection(other SelectedDocumentOrderView) bool {
 	if !view.selected.SameIntent(other.selected) || view.document.path != other.document.path ||
 		!maps.Equal(view.selection.exactSubjects, other.selection.exactSubjects) ||

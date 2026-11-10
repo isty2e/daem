@@ -78,6 +78,15 @@ func TestSelectedEditsFilterActionClaimsAndRetainTheirExplicitCommandContext(t *
 	if err != nil || len(edits) != 1 {
 		t.Fatal("selected action claims did not reach their document factory", err)
 	}
+	reservation, err := edits[0].AfterRetiringClaims(claims)
+	ordinary, ordinaryErr := base.SelectedEdits(nil)
+	if err != nil || ordinaryErr != nil || len(ordinary) != 1 || !reservation.SameMutation(ordinary[0]) || edits[0].SameIntent(reservation) {
+		t.Fatal("post-retirement reservation changed scope, context or the original CAS observation", err, ordinaryErr)
+	}
+	mismatch := selectedCarrierClaim(t, owner, settingsProfileKey(t, desiredextension.CarrierPiPackage, target.TargetPi, target.ScopeProject, "./changed"), "pi.package-carrier", "retired")
+	if _, err := edits[0].AfterRetiringClaims([]durablecarrier.ManagedCarrierClaim{mismatch}); err == nil {
+		t.Fatal("a replacement correlation retired the selected expectation")
+	}
 	completed, err := CompleteSelectedImage(t.Context(), edits[0].Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, edits)
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +122,10 @@ func TestObserveOpenCodeRetirementEditsUsesClasslessNormalizerAndOriginalImage(t
 		t.Fatal("classless inventory did not retain every loaded document", len(edits), err)
 	}
 	for _, edit := range edits {
+		reservation, err := edit.AfterRetiringClaims([]durablecarrier.ManagedCarrierClaim{claim})
+		if err != nil || reservation.Changed() || edit.SameIntent(reservation) || !reservation.Original().Equal(edit.Original()) || reservation.Sequence().Revision() != edit.Sequence().Revision() {
+			t.Fatal("classless retirement reservation changed its retained CAS image", err)
+		}
 		selected := edit.SelectedSequence()
 		if _, ordered := selected.Constraint(); ordered || len(selected.RemovedSlots()) != 1 || !edit.Changed() {
 			t.Fatal("classless removal fabricated order or missed an exact row")

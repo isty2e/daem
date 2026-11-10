@@ -77,6 +77,16 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil || edits[0].SameIntent(selected) {
 		t.Fatal("retirement did not enter its own factory-bound intent", err)
 	}
+	reservation, err := view.AfterRetiring([]observerelation.CorrelationKey{selectedRetirementKey(t, "pi.package-carrier", "r", "npm:r@1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := NewPiDocumentEdit(reservation)
+	fresh := selectedPiFixture(t, root, "pi.package-carrier", `{"packages":[{"source":"npm:b@1","autoload":false},"npm:foreign@1","npm:a@1"],"model":"slow"}`)
+	freshEdits, freshErr := fresh.SelectedEdits(nil)
+	if err != nil || freshErr != nil || len(freshEdits) != 1 || !projected.SameMutation(edits[0]) || !projected.SameIntent(freshEdits[0]) || projected.SameMutation(freshEdits[0]) || selected.SameIntent(freshEdits[0]) {
+		t.Fatal("retirement projection weakened fresh matching or replaced the original CAS baseline", err, freshErr)
+	}
 	completed, err := CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{selected})
 	if err != nil {
 		t.Fatal(err)
@@ -237,6 +247,14 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 		selected, err := NewOpenCodeDocumentEdit(view)
 		if err != nil || edits[index].SameIntent(selected) {
 			t.Fatal("retirement did not enter its own factory-bound intent", err)
+		}
+		reservation, err := view.AfterRetiring([]observerelation.CorrelationKey{selectedRetirementKey(t, "opencode.plugin-carrier", "r", "r@1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projected, err := NewOpenCodeDocumentEdit(reservation)
+		if err != nil || !projected.SameMutation(edits[index]) || selected.SameIntent(projected) {
+			t.Fatal("OpenCode reservation changed its normalized original or weakened same-phase intent", err)
 		}
 		completed, err := CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{selected})
 		if err != nil {

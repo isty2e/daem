@@ -8,6 +8,41 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
+func TestRemainingCorrelationsRequiresExactSelectedExpectations(t *testing.T) {
+	first := mustRelationObservationKey(t, mustRelationObservationSubject(t, topology.SubjectHostRelation, "first"))
+	second := mustRelationObservationKey(t, mustRelationObservationSubject(t, topology.SubjectHostRelation, "second"))
+	managed, err := hostrelation.NewManagedInstanceKey("replacement-managed-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := hostrelation.NewExpectedRelation(first.ExpectedRelation().SubjectKey(), managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := NewCorrelationKey(first.Subject(), expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, retired := range [][]CorrelationKey{{first}, {second}} {
+		remaining, err := RemainingCorrelations([]CorrelationKey{first, second}, retired)
+		if err != nil || len(remaining) != 1 {
+			t.Fatal("partial exact retirement was refused", err)
+		}
+		if _, retained := remaining[retired[0]]; retained {
+			t.Fatal("retirement kept its selected correlation")
+		}
+	}
+	for _, retired := range [][]CorrelationKey{{replacement}, {first, first}, {{}}} {
+		if remaining, err := RemainingCorrelations([]CorrelationKey{first, second}, retired); err == nil || remaining != nil {
+			t.Fatal("unselected or invalid retirement returned a partial selection", err)
+		}
+	}
+	remaining, err := RemainingCorrelations([]CorrelationKey{first, second}, []CorrelationKey{second, first})
+	if err != nil || len(remaining) != 0 {
+		t.Fatal("complete retirement depends on correlation order", err)
+	}
+}
+
 func TestNewBatchRejectsInvalidCorrelationFacts(t *testing.T) {
 	hostSubject := mustRelationObservationSubject(t, topology.SubjectHostRelation, "host")
 	resourceSubject := mustRelationObservationSubject(t, topology.SubjectResource, "resource")

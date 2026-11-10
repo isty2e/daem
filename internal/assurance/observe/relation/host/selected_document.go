@@ -35,6 +35,7 @@ type selectedDocumentOrigin interface {
 	same(selectedDocumentOrigin) bool
 	verify(observerelation.SelectedSequenceEdit, aggregate.Document) error
 	definitionRoots() []string
+	afterRetiring([]durablecarrier.ManagedCarrierClaim) (SelectedDocumentEdit, error)
 }
 
 type (
@@ -57,6 +58,18 @@ func (origin piSelectedOrigin) definitionRoots() []string {
 	return origin.observation.DefinitionRoots()
 }
 
+func (origin piSelectedOrigin) afterRetiring(claims []durablecarrier.ManagedCarrierClaim) (SelectedDocumentEdit, error) {
+	keys, err := retiringCorrelations(claims, target.TargetPi, origin.observation.Scope(), desiredextension.CarrierPiPackage)
+	if err != nil {
+		return SelectedDocumentEdit{}, err
+	}
+	view, err := origin.observation.AfterRetiring(keys)
+	if err != nil {
+		return SelectedDocumentEdit{}, err
+	}
+	return NewPiDocumentEdit(view)
+}
+
 func (origin openCodeSelectedOrigin) same(other selectedDocumentOrigin) bool {
 	value, same := other.(openCodeSelectedOrigin)
 	return same && origin.observation.SameSelection(value.observation)
@@ -67,6 +80,18 @@ func (origin openCodeSelectedOrigin) verify(edit observerelation.SelectedSequenc
 }
 
 func (origin openCodeSelectedOrigin) definitionRoots() []string { return nil }
+
+func (origin openCodeSelectedOrigin) afterRetiring(claims []durablecarrier.ManagedCarrierClaim) (SelectedDocumentEdit, error) {
+	keys, err := retiringCorrelations(claims, target.TargetOpenCode, origin.observation.Scope(), desiredextension.CarrierOpenCodePlugin)
+	if err != nil {
+		return SelectedDocumentEdit{}, err
+	}
+	view, err := origin.observation.AfterRetiring(keys)
+	if err != nil {
+		return SelectedDocumentEdit{}, err
+	}
+	return NewOpenCodeDocumentEdit(view)
+}
 
 func (edit SelectedDocumentEdit) Sequence() observerelation.ObservedRelationSequence {
 	return edit.selected.Original()
@@ -113,6 +138,18 @@ func (edit SelectedDocumentEdit) SameIntent(other SelectedDocumentEdit) bool {
 
 func (edit SelectedDocumentEdit) SameMutation(other SelectedDocumentEdit) bool {
 	return edit.SameIntent(other) && edit.original.Equal(other.original) && edit.selected.SameMutation(other.selected)
+}
+
+// AfterRetiringClaims projects a later reservation from selected exact claims.
+// It retains the original CAS image and does not prove that retirement occurred.
+// Claims outside this target, scope or carrier family are ignored; relevant
+// unselected or repeated expectations fail. Callers supply only claims whose
+// retirement precedes the reservation's binding phase.
+func (edit SelectedDocumentEdit) AfterRetiringClaims(claims []durablecarrier.ManagedCarrierClaim) (SelectedDocumentEdit, error) {
+	if err := edit.Validate(); err != nil {
+		return SelectedDocumentEdit{}, err
+	}
+	return edit.origin.afterRetiring(claims)
 }
 
 func NewPiDocumentEdit(view pipackage.SelectedOrderView) (SelectedDocumentEdit, error) {
