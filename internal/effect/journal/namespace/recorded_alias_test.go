@@ -107,7 +107,7 @@ func TestRecordedDirectoryAliasCannotUseAPointWitness(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = selected.Close() })
-	reference, err := configuration.RootReferenceForScope(target.TargetPi, target.ScopeGlobal)
+	reference, err := output.NewRootReference("pi-agent", "directory-fixture-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,5 +152,48 @@ func TestAliasInputRefusesCompetingLocationSources(t *testing.T) {
 	mixed.legacyLocation = mixed.binding.Location()
 	if err := validateAliasInputs(t.Context(), []aliasInput{mixed}); err == nil {
 		t.Fatal("a complete binding and policy-free location became one admitted input")
+	}
+}
+
+func TestBoundAliasCannotTransferItsPolicyToAnotherAddress(t *testing.T) {
+	address := nativeNamespaceAddress(t, target.TargetClaudeCode, target.ScopeGlobal, "~/.claude.json")
+	inputs, err := currentAliasInputs(t.Context(), []aggregate.DocumentAddress{address})
+	if err != nil || len(inputs) != 1 {
+		t.Fatal("current point binding was not admitted", err)
+	}
+	input := inputs[0]
+	if err := input.validateBinding(); err != nil {
+		t.Fatal(err)
+	}
+	input.address = nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/point.json")
+	if input.location().Validate() != nil {
+		t.Fatal("negative control did not retain a valid location")
+	}
+	if err := input.validateBinding(); err == nil {
+		t.Fatal("a valid point policy was transferred to an unrelated alias")
+	}
+
+	path := filepath.Join(t.TempDir(), "point.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := capturePointAliasFixture(t, path)
+	binding := inputs[0].binding
+	roots, err := (Roots{}).With(binding.RootReference(), fixture.selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := NewBoundWriterPin(binding.RootReference(), fixture.pin.Provenance(), configuration.PointSelf())
+	if err != nil {
+		t.Fatal(err)
+	}
+	positive := RecordedAlias{Address: address, Binding: binding}
+	if _, err := Reobserve(t.Context(), []RecordedAlias{positive}, roots, fixtureProtection(t), journalTestFilesystem(), imageBudget(t), pin); err != nil {
+		t.Fatal("positive point binding could not reach requalification", err)
+	}
+	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
+	negative := RecordedAlias{Address: input.address, Binding: binding}
+	if namespace, err := Reobserve(t.Context(), []RecordedAlias{negative}, roots, fixtureProtection(t), reader, imageBudget(t), pin); err == nil || namespace.Observation().Validate() == nil || len(reader.capabilities) != 0 {
+		t.Fatal("mismatched bound alias reached private capability observation", err)
 	}
 }

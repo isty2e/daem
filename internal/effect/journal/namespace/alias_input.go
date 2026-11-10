@@ -30,6 +30,18 @@ func (input aliasInput) location() configuration.AliasLocation {
 	return input.legacyLocation
 }
 
+func (input aliasInput) validateBinding() error {
+	address := input.address
+	if input.binding == (configuration.AliasBinding{}) {
+		return validateNativeDocumentRootRole(address, address.AggregateRoot().RootRole())
+	}
+	binding := input.binding
+	_, err := configuration.AdmitRecordedAliasBinding(configuration.AliasInput{
+		Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot(),
+	}, binding.RootReference(), binding.Coordinate(), binding.PolicyID())
+	return err
+}
+
 func currentAliasInputs(ctx context.Context, addresses []aggregate.DocumentAddress) ([]aliasInput, error) {
 	if _, err := journaldocument.AliasSet(ctx, addresses); err != nil {
 		return nil, err

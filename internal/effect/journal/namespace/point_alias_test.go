@@ -23,6 +23,39 @@ type pointAliasFixture struct {
 	pin       WriterPin
 }
 
+func TestSelectedNativeRootsMatchTheirLocatorKind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "point.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fixture := capturePointAliasFixture(t, path)
+	directory := nativeNamespaceRoot(t, filepath.Dir(path))
+	pointReference, err := output.NewRootReference("claude-account", "claude-account-point-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directoryReference, err := output.NewRootReference("claude-account", "claude-account-location-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		reference output.RootReference
+		selection RootSelection
+		valid     bool
+	}{
+		{pointReference, fixture.selected, true},
+		{directoryReference, directory, true},
+		{pointReference, directory, false},
+		{directoryReference, fixture.selected, false},
+	} {
+		roots, err := (Roots{}).With(scenario.reference, scenario.selection)
+		_, present := roots.Selection(scenario.reference)
+		if scenario.valid != (err == nil) || present != scenario.valid {
+			t.Fatal("native locator and retained selection acquired different kinds", scenario.reference, err)
+		}
+	}
+}
+
 func capturePointAliasFixture(t *testing.T, path string) pointAliasFixture {
 	t.Helper()
 	selected, err := CaptureEndpointRoot(t.Context(), [2]string{path, path}, imageBudget(t))

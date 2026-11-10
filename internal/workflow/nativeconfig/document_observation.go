@@ -204,11 +204,24 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		if _, supplied := roots.Selection(reference); supplied {
 			continue
 		}
-		location, err := locations.Resolve(reference)
+		point, err := configuration.NativeRootIsPoint(reference)
 		if err != nil {
 			return nil, err
 		}
-		selection, err := journalnamespace.CaptureRootSelector(ctx, location.Path(), budget)
+		var selection journalnamespace.RootSelection
+		if point {
+			candidates, candidateErr := locations.PointCandidates(reference)
+			if candidateErr != nil {
+				return nil, candidateErr
+			}
+			selection, err = journalnamespace.CaptureEndpointRoot(ctx, candidates, budget)
+		} else {
+			location, locationErr := locations.Resolve(reference)
+			if locationErr != nil {
+				return nil, locationErr
+			}
+			selection, err = journalnamespace.CaptureRootSelector(ctx, location.Path(), budget)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("observe selected native root %q without creating it: %w", reference.Identity(), err)
 		}

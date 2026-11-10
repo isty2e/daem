@@ -84,6 +84,9 @@ func (roots Roots) With(reference output.RootReference, selection RootSelection)
 	if reference.Identity() == configuration.ProjectRootIdentity && selection.endpoint != nil {
 		return Roots{}, fmt.Errorf("native manifest root requires a directory selection")
 	}
+	if point, err := configuration.NativeRootIsPoint(reference); err == nil && point != (selection.endpoint != nil) {
+		return Roots{}, fmt.Errorf("selected root kind contradicts its native locator contract")
+	}
 	for existing := range roots.selected {
 		if existing.Identity() == reference.Identity() && existing != reference {
 			return Roots{}, fmt.Errorf("selected root identity %q has conflicting locator contracts", reference.Identity())
@@ -452,7 +455,7 @@ func observeNativeAlias(ctx context.Context, input aliasInput, grants map[output
 		return Alias{}, "", err
 	}
 	address := input.address
-	if err := validateNativeDocumentRootRole(address, address.AggregateRoot().RootRole()); err != nil {
+	if err := input.validateBinding(); err != nil {
 		return Alias{}, "", err
 	}
 	location := input.location()
