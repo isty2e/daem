@@ -1,6 +1,8 @@
 package hookcodec_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -16,6 +18,51 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 	testscale "github.com/isty2e/daem/test/scale"
 )
+
+func TestHookCodecPreservesUnselectedNativeContentAndNoopBytes(t *testing.T) {
+	for _, placement := range aggregate.ImplementedHookPlacements() {
+		t.Run(string(placement.ID()), func(t *testing.T) {
+			codec, found := hookcodec.For(placement.CodecContractID())
+			if !found {
+				t.Fatal("hook placement has no codec")
+			}
+			desired := hookContributionSet(
+				t, placement,
+				hookContributionSpec{name: "stop", event: "Stop", command: "updated"},
+				hookContributionSpec{name: "keep", event: "PreToolUse", matcher: "Write", command: "keep"},
+			)
+			selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{desired.Contributions()[0].Contribution().Contract()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			foreign := `"foreign" : [1e+02,{"token":"\u0061"}]`
+			unchangedEvent := `"PreToolUse" : [{"matcher":"Write","hooks":[{"type":"command","command":"keep"}]}]`
+			original := aggregate.ExistingDocument([]byte(`{` + foreign + `,"hooks":{` + unchangedEvent + `,"Stop":[{"hooks":[{"type":"command","command":"original"}]}]}}`))
+			before, failure := codec.Read(original, selection)
+			if failure != nil {
+				t.Fatal(failure)
+			}
+			rendered := renderHookSet(t, codec, selection, original, desired)
+			restored, failure := codec.Restore(rendered, before)
+			if failure != nil {
+				t.Fatal(failure)
+			}
+			for _, document := range []aggregate.Document{rendered, restored.Document()} {
+				if !strings.Contains(string(document.Content()), foreign) || !strings.Contains(string(document.Content()), unchangedEvent) {
+					t.Fatalf("hook edit rewrote unchanged native content: %s", document.Content())
+				}
+			}
+			readBack, failure := codec.Read(restored.Document(), selection)
+			if failure != nil || !readBack.Equal(before) {
+				t.Fatal("hook restoration did not recover its selected baseline", failure)
+			}
+			stable := renderHookSet(t, codec, selection, rendered, desired)
+			if !bytes.Equal(stable.Content(), rendered.Content()) {
+				t.Fatal("no-op hook rendering changed native bytes")
+			}
+		})
+	}
+}
 
 func TestHookCodecFoldsSubjectSortedContributionsAndPreservesSiblings(t *testing.T) {
 	placement, codec, selection := hookCodecFixture(t)
@@ -48,10 +95,12 @@ func TestHookCodecFoldsSubjectSortedContributionsAndPreservesSiblings(t *testing
 		t.Fatalf("Render: %v", failure)
 	}
 	content := string(rendered.Document().Content())
-	for _, want := range []string{`"env": {`, `"TOKEN": "keep"`, `"hooks": {`, `"PreToolUse": [`, `"Stop": [`} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("rendered content missing %q:\n%s", want, content)
-		}
+	var host struct {
+		Env   map[string]string          `json:"env"`
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(rendered.Document().Content(), &host); err != nil || host.Env["TOKEN"] != "keep" || len(host.Hooks) != 2 || host.Hooks["PreToolUse"] == nil || host.Hooks["Stop"] == nil {
+		t.Fatalf("rendered hook set lost a selected event or sibling: %s (%v)", content, err)
 	}
 	if !rendered.Expected().States()[0].Present() {
 		t.Fatal("rendered expected projection is absent")
@@ -92,14 +141,22 @@ func TestHookCodecPartialAndFinalRemoval(t *testing.T) {
 	if failure != nil {
 		t.Fatalf("Render(partial): %v", failure)
 	}
-	if strings.Contains(string(partial.Document().Content()), `"command": "alpha"`) ||
-		!strings.Contains(string(partial.Document().Content()), `"command": "beta"`) {
-		t.Fatalf("partial content = %s", partial.Document().Content())
-	}
-
 	partialBefore, failure := codec.Read(partial.Document(), selection)
 	if failure != nil {
 		t.Fatalf("Read(partial): %v", failure)
+	}
+	occupancy, err := codec.ClassifyContributionOccupancy(partialBefore.States()[0], all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contribution := range all.Contributions() {
+		want := aggregate.ContributionAbsent
+		if contribution.SubjectID() == one.Contributions()[0].SubjectID() {
+			want = aggregate.ContributionPresent
+		}
+		if actual, covered := occupancy.State(contribution.SubjectID()); !covered || actual != want {
+			t.Fatal("partial hook removal changed the wrong contribution", actual, covered)
+		}
 	}
 	removeIntent, err := aggregate.NewProjectionIntent(partialBefore.States()[0], nil)
 	if err != nil {
@@ -396,7 +453,11 @@ func TestHookCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 		t.Fatalf("Restore: %v", failure)
 	}
 	content := string(restored.Document().Content())
-	if !strings.Contains(content, `"external": {`) || strings.Contains(content, `"hooks"`) {
+	var host struct {
+		External map[string]bool `json:"external"`
+		Hooks    json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(restored.Document().Content(), &host); err != nil || !host.External["keep"] || host.Hooks != nil {
 		t.Fatalf("restored content = %s", content)
 	}
 	if !restored.Expected().DocumentExisted() || restored.Expected().States()[0].Present() {

@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -36,7 +39,7 @@ targets = ["claude-code"]
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	testkit.AssertFileContent(t, filepath.Join(tempDir, ".claude/settings.json"), expectedSettings)
+	assertHookDocumentMeaning(t, filepath.Join(tempDir, ".claude/settings.json"), expectedSettings)
 
 	state, err := statefile.Load(t.Context(), statefilePath)
 	if err != nil {
@@ -311,6 +314,27 @@ render_to = "CLAUDE.md"
 	}
 	testkit.AssertHookAggregateStateMissing(t, finalState, "alpha", "claude-code", "project")
 	testkit.AssertHookAggregateStateMissing(t, finalState, "beta", "claude-code", "project")
+}
+
+func assertHookDocumentMeaning(t *testing.T, path, expected string) {
+	t.Helper()
+	limits := configdocument.Limits{MaximumBytes: hookdocument.MaximumBytes, MaximumDepth: hookdocument.MaximumDepth}
+	actual, err := configdocument.Parse(t.Context(), testkit.ReadFile(t, path), configdocument.JSON, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := configdocument.Parse(t.Context(), []byte(expected), configdocument.JSON, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualRoot, _, err := actual.Lookup(output.KeyPath{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, _, err := want.Lookup(output.KeyPath{})
+	if err != nil || !actualRoot.Equal(wantRoot) {
+		t.Fatal("hook document changed its expected complete native meaning", err)
+	}
 }
 
 func runHookApplyYes(t *testing.T, manifestPath string) string {

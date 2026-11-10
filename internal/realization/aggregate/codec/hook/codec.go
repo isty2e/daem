@@ -2,14 +2,17 @@ package hookcodec
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/topology"
@@ -360,7 +363,7 @@ func (codec hookJSONCodec) Render(document aggregate.Document, plan aggregate.Pl
 		delete(settings, "hooks")
 	}
 
-	candidate, failure := renderHookSettings(settings, false)
+	candidate, failure := renderHookSettings(document, settings, false)
 	if failure != nil {
 		return aggregate.RenderedDocument{}, failure
 	}
@@ -404,7 +407,7 @@ func (codec hookJSONCodec) Restore(document aggregate.Document, baseline aggrega
 	} else {
 		delete(settings, "hooks")
 	}
-	candidate, failure := renderHookSettings(settings, baseline.DocumentExisted())
+	candidate, failure := renderHookSettings(document, settings, baseline.DocumentExisted())
 	if failure != nil {
 		return aggregate.RenderedDocument{}, failure
 	}
@@ -597,7 +600,7 @@ func decodeCanonicalHookProjection(content string) (map[string][]hookGroup, erro
 	return hooks, nil
 }
 
-func renderHookSettings(settings map[string]json.RawMessage, preserveExistingEmpty bool) (aggregate.Document, *aggregate.CodecFailure) {
+func renderHookSettings(original aggregate.Document, settings map[string]json.RawMessage, preserveExistingEmpty bool) (aggregate.Document, *aggregate.CodecFailure) {
 	if len(settings) == 0 && !preserveExistingEmpty {
 		return aggregate.AbsentDocument(), nil
 	}
@@ -607,6 +610,30 @@ func renderHookSettings(settings map[string]json.RawMessage, preserveExistingEmp
 	}
 	if err := hookdocument.Validate(content); err != nil {
 		return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+	}
+	if original.Exists() {
+		ctx := context.Background()
+		limits := configdocument.Limits{MaximumBytes: hookdocument.MaximumBytes, MaximumDepth: hookdocument.MaximumDepth}
+		before, err := configdocument.Parse(ctx, original.Content(), configdocument.JSON, limits)
+		if err != nil {
+			return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+		}
+		after, err := configdocument.Parse(ctx, content, configdocument.JSON, limits)
+		if err != nil {
+			return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+		}
+		area, err := output.NewKeyPath("hooks")
+		if err != nil {
+			return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+		}
+		updated, err := configdocument.Project(ctx, before, []configdocument.Projection{{Document: after, Areas: []output.KeyPath{area}}})
+		if err != nil {
+			return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+		}
+		content = updated.Bytes()
+		if err := hookdocument.Validate(content); err != nil {
+			return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+		}
 	}
 	return aggregate.ExistingDocument(content), nil
 }
