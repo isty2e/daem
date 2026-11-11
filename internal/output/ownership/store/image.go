@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -12,7 +11,7 @@ import (
 // It does not establish filesystem correspondence or authorize publication.
 type RegistryImage struct {
 	registry   ownership.Registry
-	references map[pathauthority.Exact]pathauthority.Reference
+	references pathauthority.ReferenceTable
 }
 
 func NewRegistryImage(registry ownership.Registry, references []pathauthority.Reference) (RegistryImage, error) {
@@ -20,44 +19,26 @@ func NewRegistryImage(registry ownership.Registry, references []pathauthority.Re
 	if err != nil {
 		return RegistryImage{}, err
 	}
-	required := registryPathIdentities(canonical)
-	byIdentity := make(map[pathauthority.Exact]pathauthority.Reference, len(references))
-	for _, reference := range references {
-		if err := reference.Validate(); err != nil {
-			return RegistryImage{}, err
-		}
-		identity := reference.Identity()
-		if _, present := required[identity]; !present {
-			return RegistryImage{}, fmt.Errorf("path reference %q is not used by this registry", identity.Key())
-		}
-		if previous, present := byIdentity[identity]; present && !previous.Equal(reference) {
-			return RegistryImage{}, fmt.Errorf("registry path %q has conflicting recorded locators", identity.Key())
-		}
-		byIdentity[identity] = reference
+	table, err := pathauthority.NewReferenceTable(registryPathIdentities(canonical), references)
+	if err != nil {
+		return RegistryImage{}, fmt.Errorf("ownership registry path_references: %w", err)
 	}
-	for identity := range required {
-		if _, present := byIdentity[identity]; !present {
-			return RegistryImage{}, fmt.Errorf("registry path %q requires a recorded locator", identity.Key())
-		}
-	}
-	return RegistryImage{registry: canonical, references: byIdentity}, nil
+	return RegistryImage{registry: canonical, references: table}, nil
 }
 
-func registryPathIdentities(registry ownership.Registry) map[pathauthority.Exact]struct{} {
-	identities := make(map[pathauthority.Exact]struct{})
+func registryPathIdentities(registry ownership.Registry) []pathauthority.Exact {
+	var identities []pathauthority.Exact
 	for _, claim := range registry.Claims() {
-		identities[claim.Address().PathAuthority()] = struct{}{}
-		identities[claim.Owner().StatefileAuthority()] = struct{}{}
+		identities = append(identities, claim.Address().PathAuthority(), claim.Owner().StatefileAuthority())
 	}
 	addBinding := func(binding ownership.DocumentBinding) {
-		identities[binding.PathAuthority()] = struct{}{}
-		identities[binding.Owner().StatefileAuthority()] = struct{}{}
+		identities = append(identities, binding.PathAuthority(), binding.Owner().StatefileAuthority())
 	}
 	for _, binding := range registry.DocumentBindings() {
 		addBinding(binding)
 	}
 	for _, protection := range registry.PendingProtections() {
-		identities[protection.Owner().StatefileAuthority()] = struct{}{}
+		identities = append(identities, protection.Owner().StatefileAuthority())
 		for _, document := range protection.Documents() {
 			for _, binding := range document.Bindings() {
 				addBinding(binding)
@@ -70,24 +51,13 @@ func registryPathIdentities(registry ownership.Registry) map[pathauthority.Exact
 func (image RegistryImage) Registry() ownership.Registry { return image.registry }
 
 func (image RegistryImage) Validate() error {
-	if image.references == nil {
-		return fmt.Errorf("registry image is required")
-	}
-	return nil
+	return image.references.Validate()
 }
 
 func (image RegistryImage) Reference(identity pathauthority.Exact) (pathauthority.Reference, bool) {
-	reference, present := image.references[identity]
-	return reference, present
+	return image.references.Reference(identity)
 }
 
 func (image RegistryImage) References() []pathauthority.Reference {
-	references := make([]pathauthority.Reference, 0, len(image.references))
-	for _, reference := range image.references {
-		references = append(references, reference)
-	}
-	slices.SortFunc(references, func(left, right pathauthority.Reference) int {
-		return left.Identity().Compare(right.Identity())
-	})
-	return references
+	return image.references.References()
 }

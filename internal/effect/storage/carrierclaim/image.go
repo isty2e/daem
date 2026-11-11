@@ -2,7 +2,6 @@ package carrierclaim
 
 import (
 	"fmt"
-	"slices"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -12,7 +11,7 @@ import (
 // changing owner identity or granting live filesystem authority.
 type RegistryImage struct {
 	registry   durablecarrier.GlobalCarrierClaims
-	references map[pathauthority.Exact]pathauthority.Reference
+	references pathauthority.ReferenceTable
 }
 
 func NewRegistryImage(registry durablecarrier.GlobalCarrierClaims, references []pathauthority.Reference) (RegistryImage, error) {
@@ -20,51 +19,27 @@ func NewRegistryImage(registry durablecarrier.GlobalCarrierClaims, references []
 	if err != nil {
 		return RegistryImage{}, err
 	}
-	required := make(map[pathauthority.Exact]struct{})
+	var required []pathauthority.Exact
 	for _, claim := range canonical.Claims() {
-		required[claim.Owner().StatefileAuthority()] = struct{}{}
+		required = append(required, claim.Owner().StatefileAuthority())
 	}
-	values := make(map[pathauthority.Exact]pathauthority.Reference, len(references))
-	for _, reference := range references {
-		if err := reference.Validate(); err != nil {
-			return RegistryImage{}, err
-		}
-		identity := reference.Identity()
-		if _, present := required[identity]; !present {
-			return RegistryImage{}, fmt.Errorf("carrier reference %q has no owner", identity.Key())
-		}
-		if previous, present := values[identity]; present && !previous.Equal(reference) {
-			return RegistryImage{}, fmt.Errorf("carrier owner %q has conflicting locators", identity.Key())
-		}
-		values[identity] = reference
+	table, err := pathauthority.NewReferenceTable(required, references)
+	if err != nil {
+		return RegistryImage{}, fmt.Errorf("carrier claim registry path_references: %w", err)
 	}
-	for identity := range required {
-		if _, present := values[identity]; !present {
-			return RegistryImage{}, fmt.Errorf("carrier owner %q requires an access reference", identity.Key())
-		}
-	}
-	return RegistryImage{registry: canonical, references: values}, nil
+	return RegistryImage{registry: canonical, references: table}, nil
 }
 
 func (image RegistryImage) Validate() error {
-	if image.references == nil {
-		return fmt.Errorf("carrier registry image is uninitialized")
-	}
-	return nil
+	return image.references.Validate()
 }
 
 func (image RegistryImage) Registry() durablecarrier.GlobalCarrierClaims { return image.registry }
 
 func (image RegistryImage) Reference(identity pathauthority.Exact) (pathauthority.Reference, bool) {
-	reference, present := image.references[identity]
-	return reference, present
+	return image.references.Reference(identity)
 }
 
 func (image RegistryImage) References() []pathauthority.Reference {
-	values := make([]pathauthority.Reference, 0, len(image.references))
-	for _, reference := range image.references {
-		values = append(values, reference)
-	}
-	slices.SortFunc(values, func(left, right pathauthority.Reference) int { return left.Identity().Compare(right.Identity()) })
-	return values
+	return image.references.References()
 }

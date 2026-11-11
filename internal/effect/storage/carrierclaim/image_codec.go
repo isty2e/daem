@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	pathreferencecodec "github.com/isty2e/daem/internal/encoding/pathreference"
 )
@@ -27,15 +26,11 @@ func MarshalImage(image RegistryImage) ([]byte, error) {
 	for _, claim := range claims {
 		record.Claims = append(record.Claims, persistedClaim(claim))
 	}
-	values := image.References()
-	record.PathReferences = make([]pathreferencecodec.Record, len(values))
-	for index, reference := range values {
-		var err error
-		record.PathReferences[index], err = pathreferencecodec.Encode(reference)
-		if err != nil {
-			return nil, err
-		}
+	references, err := pathreferencecodec.EncodeTable(image.references)
+	if err != nil {
+		return nil, err
 	}
+	record.PathReferences = references
 	content, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return nil, err
@@ -67,21 +62,9 @@ func UnmarshalImage(content []byte) (RegistryImage, error) {
 	if err != nil {
 		return RegistryImage{}, err
 	}
-	if record.PathReferences == nil {
-		return RegistryImage{}, fmt.Errorf("carrier claim registry requires path_references array")
-	}
-	references := make([]pathauthority.Reference, len(record.PathReferences))
-	seen := make(map[pathauthority.Exact]struct{}, len(record.PathReferences))
-	for index, row := range record.PathReferences {
-		references[index], err = pathreferencecodec.Decode(row)
-		if err != nil {
-			return RegistryImage{}, fmt.Errorf("path_references[%d]: %w", index, err)
-		}
-		identity := references[index].Identity()
-		if _, present := seen[identity]; present {
-			return RegistryImage{}, fmt.Errorf("path_references[%d] repeats owner %q", index, identity.Key())
-		}
-		seen[identity] = struct{}{}
+	references, err := pathreferencecodec.DecodeTable(record.PathReferences)
+	if err != nil {
+		return RegistryImage{}, fmt.Errorf("carrier claim registry path_references: %w", err)
 	}
 	return NewRegistryImage(registry, references)
 }
