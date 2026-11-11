@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -235,6 +236,9 @@ func executeWithDependencies(
 	} else if !matches {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
 	}
+	if covered, err := leases.CoversPhysicalAuthority(currentAuthority.documentWrites); err != nil || !covered {
+		return disclose(current), staleApplyError(options.PlanWasDisclosed, err)
+	}
 	if err := preflightMCPEnvironmentSources(
 		ctx,
 		current.context.RuntimeEnvironment,
@@ -383,15 +387,11 @@ func executeWithDependencies(
 	}
 	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
 		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
-			matches, err := leases.DomainsMatchCurrent(ctx)
+			matches, err := leases.MatchCurrentPhysicalRequests(ctx, currentAuthority.documentWriteRequests...)
 			if err != nil || !matches {
 				return matches, err
 			}
 			covered, err := leases.CoversPhysicalAuthority(authority)
-			if err != nil || !covered {
-				return covered, err
-			}
-			covered, err = leases.CoversPhysicalAuthority(currentAuthority.documentWrites)
 			if err != nil || !covered {
 				return covered, err
 			}
@@ -400,13 +400,10 @@ func executeWithDependencies(
 	}
 	validatePhysicalAuthorityRequests := func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
 		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
-			matches, err := leases.MatchCurrentPhysicalRequests(ctx, requests...)
+			selected := slices.Concat(requests, currentAuthority.documentWriteRequests)
+			matches, err := leases.MatchCurrentPhysicalRequests(ctx, selected...)
 			if err != nil || !matches {
 				return matches, err
-			}
-			covered, err := leases.CoversPhysicalAuthority(currentAuthority.documentWrites)
-			if err != nil || !covered {
-				return covered, err
 			}
 			return true, currentAuthority.documentView.RequireProtectionClear()
 		})
@@ -757,6 +754,7 @@ func executeWithDependencies(
 	}
 	if providerPhase.rebound {
 		leases = providerPhase.leases
+		currentAuthority = providerPhase.authorityEvidence
 		firstEffectRevisions = providerPhase.firstEffectRevisions
 		stateDirBoundaryValidated, revisionsValidated = false, false
 		executionOptions.currentContinuation = providerPhase.currentContinuation

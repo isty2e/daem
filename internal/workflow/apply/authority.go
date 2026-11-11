@@ -21,7 +21,9 @@ import (
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains               []mutation.Domain
+	domains []mutation.Domain
+
+	// This capture binds the Registry view; effect guards re-observe plan requests.
 	documentWrites        mutation.PhysicalAuthoritySet
 	documentWriteRequests []mutation.PhysicalAuthorityRequest
 	metadataRequests      []mutation.PhysicalAuthorityRequest

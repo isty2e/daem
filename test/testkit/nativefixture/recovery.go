@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	clipkg "github.com/isty2e/daem/internal/cli"
@@ -546,6 +547,44 @@ func (store *nativeRecoveryStore) afterPublication(path string, expected []byte,
 	fmt.Fprintln(os.Stderr, RecoveryReceipt(path))
 	if path == store.host {
 		store.hostPublished = true
+	}
+	if store.boundary == "replace-host-with-symlink" && path == store.host && !store.failed {
+		store.failed = true
+		other := filepath.Join(filepath.Dir(path), "unselected-other.toml")
+		for _, destination := range []string{other, other + ".before"} {
+			if err := os.WriteFile(destination, expected, mode); err != nil {
+				return err
+			}
+			if err := os.Chmod(destination, mode); err != nil {
+				return err
+			}
+			past := time.Unix(1, 0)
+			if err := os.Chtimes(destination, past, past); err != nil {
+				return err
+			}
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		if err := os.Symlink(filepath.Base(other), path); err != nil {
+			return err
+		}
+		for _, destination := range []string{other, path} {
+			info, err := os.Lstat(destination)
+			if err != nil {
+				return err
+			}
+			stat, err := json.Marshal(info.Sys())
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(destination+".stat", stat, 0o600); err != nil {
+				return err
+			}
+			if err := os.Chmod(destination+".stat", 0o600); err != nil {
+				return err
+			}
+		}
 	}
 	if store.waitHost && !store.hostPublished {
 		// A suffix checkpoint must not exit at the prefix's state publication.
