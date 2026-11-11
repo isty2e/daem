@@ -17,7 +17,6 @@ import (
 	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
@@ -110,27 +109,25 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		}
 	}
 	resolver := destinationResolver(paths)
-	writeAliases, err := plan.DocumentWriteAliases()
+	writeIndexes, err := plan.DocumentWriteIndexes()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	writes := make(map[aggregate.DocumentAddress]struct{})
-	for _, group := range writeAliases {
-		for _, alias := range group {
-			writes[alias] = struct{}{}
-		}
+	writes := make(map[int]struct{}, len(writeIndexes))
+	for _, index := range writeIndexes {
+		writes[index] = struct{}{}
 	}
 	aliases, err := plan.DocumentAliases()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	for _, group := range aliases {
-		for _, alias := range group {
-			request, err := plan.DocumentAuthorityRequest(alias)
-			if err != nil {
-				return recoveryAuthorityEvidence{}, err
-			}
-			if _, write := writes[alias]; write {
+	for index := range aliases {
+		requests, err := plan.DocumentAuthorityRequests(index)
+		if err != nil {
+			return recoveryAuthorityEvidence{}, err
+		}
+		for _, request := range requests {
+			if _, write := writes[index]; write {
 				if err := builder.AddDocumentWritePair(request.Path, request.Target, request.Scope); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}

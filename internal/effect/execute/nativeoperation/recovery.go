@@ -74,12 +74,12 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	if err != nil {
 		return err
 	}
-	for _, group := range aliases {
-		for _, alias := range group {
-			request, err := plan.DocumentAuthorityRequest(alias)
-			if err != nil {
-				return err
-			}
+	for index := range aliases {
+		requests, err := plan.DocumentAuthorityRequests(index)
+		if err != nil {
+			return err
+		}
+		for _, request := range requests {
 			if !slices.Contains(authority.physicalAuthorityRequests, request) {
 				authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
 			}

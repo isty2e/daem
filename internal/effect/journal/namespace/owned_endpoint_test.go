@@ -1,6 +1,8 @@
 package namespace
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +15,127 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestRecordedOwnedEndpointRetainsItsParentIncarnation(t *testing.T) {
+	base := t.TempDir()
+	parent := filepath.Join(base, "source")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "owned.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	budget := imageBudget(t)
+	observation, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact, known := observation.Exact()
+	if !known {
+		t.Fatal("source identity is not exact")
+	}
+	fresh, err := CaptureOwnedEndpointRoot(t.Context(), path, exact, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = fresh.Close() })
+	provenance := pointWitnessProvenance(t, fresh, budget)
+	recorded, err := CaptureRecordedOwnedEndpointRoot(t.Context(), path, exact, provenance, budget)
+	if err != nil {
+		t.Fatal("unchanged owned source did not recapture", err)
+	}
+	t.Cleanup(func() { _ = recorded.Close() })
+	if recorded.Root != nil || recorded.endpoint.basis != endpointFromOwned || recorded.endpoint.alternative != "" {
+		t.Fatal("recorded source gained a directory grant or a current chooser")
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if value, err := CaptureRecordedOwnedEndpointRoot(cancelled, path, exact, provenance, budget); !errors.Is(err, context.Canceled) || value.capturedRoot() != nil {
+		t.Fatal("cancelled source capture returned retained authority", err)
+	}
+	if err := os.Rename(parent, parent+"-retired"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	current, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil || !current.MatchesRetainedExact(exact) {
+		t.Fatal("parent-replacement control changed the exact file-slot identity", err)
+	}
+	if value, err := CaptureRecordedOwnedEndpointRoot(t.Context(), path, exact, provenance, budget); err == nil || value.capturedRoot() != nil {
+		t.Fatal("recorded source accepted a different parent incarnation", err)
+	}
+	freshParent, err := CaptureOwnedEndpointRoot(t.Context(), path, exact, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = freshParent.Close() })
+	newParent, err := CaptureRecordedOwnedEndpointRoot(t.Context(), path, exact, pointWitnessProvenance(t, freshParent, budget), budget)
+	if err != nil {
+		t.Fatal("fresh parent control failed for the same file-slot identity", err)
+	}
+	t.Cleanup(func() { _ = newParent.Close() })
+}
+
+func TestMissingOwnedEndpointIsOnlyAnIdentityWitness(t *testing.T) {
+	base := t.TempDir()
+	parent := filepath.Join(base, "source")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "owned.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	budget := imageBudget(t)
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact, known := observed.Exact()
+	if !known {
+		t.Fatal("source identity is not exact")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, missingParent := range []bool{false, true} {
+		if missingParent {
+			if err := os.Remove(parent); err != nil {
+				t.Fatal(err)
+			}
+		}
+		selected, err := CaptureOwnedEndpointRoot(t.Context(), path, exact, budget)
+		if err != nil {
+			t.Fatal("missing source lost its metadata-retirement witness", err)
+		}
+		if selected.Root != nil || selected.endpoint == nil {
+			t.Fatal("missing source exposed a containing directory grant")
+		}
+		provenance := pointWitnessProvenance(t, selected, budget)
+		recorded, err := CaptureRecordedOwnedEndpointRoot(t.Context(), path, exact, provenance, budget)
+		if err != nil {
+			_ = selected.Close()
+			t.Fatal("missing source witness did not recapture", err)
+		}
+		if err := errors.Join(recorded.Close(), selected.Close()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("identity capture created a source file", err)
+		}
+		if missingParent {
+			if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("identity capture created a source parent", err)
+			}
+		}
+	}
+}
 
 func TestOwnedEndpointQualifiesOnlyItsRetainedPhysicalFile(t *testing.T) {
 	base := t.TempDir()

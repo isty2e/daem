@@ -9,7 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func (facts AssessmentFacts) documentWriteIndexes() ([]int, error) {
+func (facts AssessmentFacts) DocumentWriteIndexes() ([]int, error) {
 	records := facts.documents
 	if records.Len() != len(facts.stages) {
 		return nil, fmt.Errorf("native recovery document facts are incomplete")
@@ -48,7 +48,7 @@ func (assessment Assessment) RegistryScope() (ownership.DocumentScope, error) {
 	if assessment.facts.documents.Len() != assessment.qualified.Len() {
 		return ownership.DocumentScope{}, fmt.Errorf("live native namespace qualification is required before freezing scope")
 	}
-	indexes, err := assessment.facts.documentWriteIndexes()
+	indexes, err := assessment.facts.DocumentWriteIndexes()
 	if err != nil {
 		return ownership.DocumentScope{}, err
 	}
@@ -64,7 +64,7 @@ func (assessment Assessment) RegistryScope() (ownership.DocumentScope, error) {
 }
 
 func (facts AssessmentFacts) DocumentWriteAliases() ([][]aggregate.DocumentAddress, error) {
-	indexes, err := facts.documentWriteIndexes()
+	indexes, err := facts.DocumentWriteIndexes()
 	if err != nil {
 		return nil, err
 	}

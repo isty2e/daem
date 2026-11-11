@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"maps"
 	"path/filepath"
+	"slices"
 
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
@@ -42,7 +42,7 @@ type NativeRecoveryPlan struct {
 	inventory        recoverableInventoryAuthority
 	assessment       journalqualification.AssessmentFacts
 	registryScope    ownership.DocumentScope
-	documentRequests map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
+	documentRequests [][]mutation.PhysicalAuthorityRequest
 	blocked          bool
 	cleanup          []recovery.RemovalCleanupObligation
 }
@@ -89,7 +89,7 @@ func (plan NativeRecoveryPlan) Classification() recovery.Classification {
 
 func (plan NativeRecoveryPlan) SameExecutionAuthority(other RecoverablePlan) bool {
 	typed, ok := other.(NativeRecoveryPlan)
-	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) || !maps.Equal(plan.documentRequests, typed.documentRequests) {
+	if !ok || plan.blocked != typed.blocked || !plan.sameCleanup(typed) || plan.capture != typed.capture || !plan.active.Equal(typed.active) || !plan.inventory.equal(typed.inventory) || !slices.EqualFunc(plan.documentRequests, typed.documentRequests, slices.Equal[[]mutation.PhysicalAuthorityRequest]) {
 		return false
 	}
 	scope := plan.registryScope

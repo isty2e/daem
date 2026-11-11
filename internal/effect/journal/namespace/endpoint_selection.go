@@ -62,6 +62,19 @@ type retainedEndpoint struct {
 // CaptureOwnedEndpointRoot pins an independently selected historical file.
 // The exact value is identity evidence; callers must separately prove ownership.
 func CaptureOwnedEndpointRoot(ctx context.Context, selected string, expected pathauthority.Exact, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
+	return captureOwnedEndpointRoot(ctx, selected, expected, nil, budget)
+}
+
+// CaptureRecordedOwnedEndpointRoot checks both independently selected file
+// identity and its recorded parent incarnation without running a chooser.
+func CaptureRecordedOwnedEndpointRoot(ctx context.Context, selected string, expected pathauthority.Exact, parent rootedpath.AuthorityProvenance, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
+	if err := parent.Validate(); err != nil {
+		return RootSelection{}, err
+	}
+	return captureOwnedEndpointRoot(ctx, selected, expected, &parent, budget)
+}
+
+func captureOwnedEndpointRoot(ctx context.Context, selected string, expected pathauthority.Exact, recorded *rootedpath.AuthorityProvenance, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
 	if ctx == nil || budget == nil {
 		return RootSelection{}, fmt.Errorf("owned endpoint selection requires context and original allocation")
 	}
@@ -78,7 +91,12 @@ func CaptureOwnedEndpointRoot(ctx context.Context, selected string, expected pat
 	if err := requireOwnedEndpoint(ctx, resolved.physical, expected, budget); err != nil {
 		return RootSelection{}, err
 	}
-	parent, err := CaptureRoot(ctx, filepath.Dir(resolved.physical), budget)
+	var parent RootSelection
+	if recorded == nil {
+		parent, err = CaptureRoot(ctx, filepath.Dir(resolved.physical), budget)
+	} else {
+		parent, err = CaptureRecordedRoot(ctx, filepath.Dir(resolved.physical), *recorded, budget)
+	}
 	if err != nil {
 		return RootSelection{}, err
 	}

@@ -2,6 +2,7 @@ package recoveryoperation
 
 import (
 	"fmt"
+	"slices"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -25,18 +26,21 @@ func (plan NativeRecoveryPlan) DocumentWriteAliases() ([][]aggregate.DocumentAdd
 	return plan.assessment.DocumentWriteAliases()
 }
 
-// DocumentAuthorityRequest retains the qualified native route without retaining
-// its root capability or reinterpreting a portable alias during recovery.
-func (plan NativeRecoveryPlan) DocumentAuthorityRequest(alias aggregate.DocumentAddress) (mutation.PhysicalAuthorityRequest, error) {
-	request, present := plan.documentRequests[alias]
-	if !present {
-		return mutation.PhysicalAuthorityRequest{}, fmt.Errorf("native recovery has no qualified authority request for the selected document")
-	}
-	return request, nil
+func (plan NativeRecoveryPlan) DocumentWriteIndexes() ([]int, error) {
+	return plan.assessment.DocumentWriteIndexes()
 }
 
-func nativeDocumentAuthorityRequests(documents journalqualification.Documents) (map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest, error) {
-	requests := make(map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest)
+// DocumentAuthorityRequests retains every qualified selector route, including
+// coalesced witnesses, without retaining their live root capabilities.
+func (plan NativeRecoveryPlan) DocumentAuthorityRequests(group int) ([]mutation.PhysicalAuthorityRequest, error) {
+	if group < 0 || group >= len(plan.documentRequests) {
+		return nil, fmt.Errorf("native recovery has no qualified authority requests for the selected document")
+	}
+	return slices.Clone(plan.documentRequests[group]), nil
+}
+
+func nativeDocumentAuthorityRequests(documents journalqualification.Documents) ([][]mutation.PhysicalAuthorityRequest, error) {
+	requests := make([][]mutation.PhysicalAuthorityRequest, documents.Len())
 	for index := range documents.Len() {
 		namespace, present := documents.NamespaceAt(index)
 		if !present {
@@ -47,7 +51,7 @@ func nativeDocumentAuthorityRequests(documents journalqualification.Documents) (
 			if err != nil {
 				return nil, err
 			}
-			requests[alias.Address()] = request
+			requests[index] = append(requests[index], request)
 		}
 	}
 	return requests, nil
