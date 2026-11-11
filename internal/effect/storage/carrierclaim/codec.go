@@ -170,25 +170,36 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 
 func decodeCurrent(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 	var persisted registryDTO
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&persisted); err != nil {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("decode carrier claim registry: %w", err)
-	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err == nil {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry contains multiple JSON values")
-	} else if err != io.EOF {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("decode carrier claim registry trailer: %w", err)
+	if err := decodeRegistryJSON(content, &persisted); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	if persisted.Version != currentVersion {
 		return durablecarrier.GlobalCarrierClaims{}, unsupportedCarrierClaimRegistryVersion(persisted.Version)
 	}
-	if persisted.Claims == nil {
+	return canonicalClaims(persisted.Claims)
+}
+
+func decodeRegistryJSON(content []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("decode carrier claim registry: %w", err)
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err == nil {
+		return fmt.Errorf("carrier claim registry contains multiple JSON values")
+	} else if err != io.EOF {
+		return fmt.Errorf("decode carrier claim registry trailer: %w", err)
+	}
+	return nil
+}
+
+func canonicalClaims(records []claimDTO) (durablecarrier.GlobalCarrierClaims, error) {
+	if records == nil {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry requires claims array")
 	}
-	claims := make([]durablecarrier.ManagedCarrierClaim, 0, len(persisted.Claims))
-	for index, row := range persisted.Claims {
+	claims := make([]durablecarrier.ManagedCarrierClaim, 0, len(records))
+	for index, row := range records {
 		claim, err := row.canonical()
 		if err != nil {
 			return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("claims[%d]: %w", index, err)
