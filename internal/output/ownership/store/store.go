@@ -617,6 +617,12 @@ type file struct {
 	PendingProtections json.RawMessage         `json:"pending_protections,omitempty"`
 }
 
+type registryFactsRecord struct {
+	Claims             []claimRecord
+	DocumentBindings   []documentBindingRecord
+	PendingProtections json.RawMessage
+}
+
 type claimRecord struct {
 	PathAuthority      pathAuthorityRecord   `json:"path_authority"`
 	Footprint          footprintcodec.Record `json:"footprint"`
@@ -665,6 +671,12 @@ func decodeCurrent(content []byte) (ownership.Registry, error) {
 	if persisted.Version != currentVersion {
 		return ownership.Registry{}, unsupportedOwnershipRegistryVersion(persisted.Version)
 	}
+	return decodeRegistryFacts(registryFactsRecord{
+		Claims: persisted.Claims, DocumentBindings: persisted.DocumentBindings, PendingProtections: persisted.PendingProtections,
+	})
+}
+
+func decodeRegistryFacts(persisted registryFactsRecord) (ownership.Registry, error) {
 	if persisted.Claims == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry requires claims array")
 	}
@@ -773,14 +785,33 @@ func Marshal(registry ownership.Registry) ([]byte, error) {
 }
 
 func encode(registry ownership.Registry) ([]byte, error) {
+	facts, err := persistedRegistryFacts(registry)
+	if err != nil {
+		return nil, err
+	}
+	persisted := file{
+		Version: currentVersion, Claims: facts.Claims, DocumentBindings: facts.DocumentBindings, PendingProtections: facts.PendingProtections,
+	}
+	content, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode ownership registry: %w", err)
+	}
+	content = append(content, '\n')
+	if int64(len(content)) > maximumOwnershipRegistryBytes {
+		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
+	}
+	return content, nil
+}
+
+func persistedRegistryFacts(registry ownership.Registry) (registryFactsRecord, error) {
 	claims := registry.Claims()
 	sort.Slice(claims, func(left int, right int) bool {
 		return claims[left].Address().Less(claims[right].Address())
 	})
-	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims)), DocumentBindings: persistedDocumentBindings(registry.DocumentBindings())}
+	persisted := registryFactsRecord{Claims: make([]claimRecord, 0, len(claims)), DocumentBindings: persistedDocumentBindings(registry.DocumentBindings())}
 	protections, err := encodePendingProtections(registry.PendingProtections())
 	if err != nil {
-		return nil, err
+		return registryFactsRecord{}, err
 	}
 	persisted.PendingProtections = protections
 	for _, claim := range claims {
@@ -788,7 +819,7 @@ func encode(registry ownership.Registry) ([]byte, error) {
 		statefile := claim.Owner().StatefileAuthority()
 		footprint, err := footprintcodec.Encode(claim.Address().Footprint())
 		if err != nil {
-			return nil, err
+			return registryFactsRecord{}, err
 		}
 		persisted.Claims = append(persisted.Claims, claimRecord{
 			PathAuthority: pathAuthorityRecord{
@@ -805,13 +836,5 @@ func encode(registry ownership.Registry) ([]byte, error) {
 			OperationID:  claim.OperationID(),
 		})
 	}
-	content, err := json.MarshalIndent(persisted, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("encode ownership registry: %w", err)
-	}
-	content = append(content, '\n')
-	if int64(len(content)) > maximumOwnershipRegistryBytes {
-		return nil, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
-	}
-	return content, nil
+	return persisted, nil
 }
