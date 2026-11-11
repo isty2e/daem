@@ -107,7 +107,7 @@ func native17PointMetadata(t *testing.T, fixture nativeRecordFixture) native17Jo
 }
 
 func TestNative17CoalescedSelectorsRoundTripWithoutLosingEitherWitness(t *testing.T) {
-	fixture, wire, _ := carrierRecordFixture(t, true)
+	fixture, wire, images := carrierRecordFixture(t, true)
 	content, err := json.Marshal(wire)
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +131,11 @@ func TestNative17CoalescedSelectorsRoundTripWithoutLosingEitherWitness(t *testin
 	placement, err := roundTrip.documentPlacement(t.Context())
 	if err != nil || len(placement.BeforeAliases(0)) != 1 || len(placement.AfterAliases(0)) != 1 {
 		t.Fatal("coalesced metadata became multiple logical memberships", err)
+	}
+	loaded := reconstructCarrierImages(t, roundTrip, fixture, images)
+	group, present := loaded.At(0)
+	if !present || len(group.Claims().Before()) != 1 || len(group.Claims().After()) != 1 || len(group.Group().BeforeAliases()) != 1 || len(group.Group().AfterAliases()) != 1 {
+		t.Fatal("coalesced selectors did not complete as one physical claim transition")
 	}
 	slices.Reverse(wire.DocumentGroups[0].Aliases)
 	unsorted, err := json.Marshal(wire)

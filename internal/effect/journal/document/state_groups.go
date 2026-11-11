@@ -191,6 +191,11 @@ func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority,
 	if err := indexes.validateNativeBindingMembership(ctx, owner, allAliases, intents, allRoutes...); err != nil {
 		return nil, err
 	}
+	for _, group := range groups {
+		if err := group.validateUnpairedSourceRetention(ctx, indexes, allRoutes); err != nil {
+			return nil, err
+		}
+	}
 	if err := indexes.validateNativeGroupCoverage(ctx, groups, aliases, stateAliases); err != nil {
 		return nil, err
 	}

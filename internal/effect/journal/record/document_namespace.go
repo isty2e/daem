@@ -122,6 +122,18 @@ func (alias DocumentAlias) Binding() (configuration.AliasBinding, bool) {
 	return alias.facts.binding, alias.initialized && alias.facts.binding != (configuration.AliasBinding{})
 }
 
+// WriterPin retains this alias's recorded root witness, not a live grant.
+func (alias DocumentAlias) WriterPin() (journalnamespace.WriterPin, error) {
+	if !alias.initialized {
+		return journalnamespace.WriterPin{}, fmt.Errorf("recorded document alias is required")
+	}
+	binding, bound := alias.Binding()
+	if !bound {
+		return journalnamespace.WriterPin{}, fmt.Errorf("alias writer pin requires its recorded binding")
+	}
+	return journalnamespace.NewBoundWriterPin(binding.RootReference(), alias.facts.root, binding.Coordinate())
+}
+
 func (document Document) RequireWriterSpelling(path string) error {
 	if err := document.require(); err != nil {
 		return err

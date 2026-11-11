@@ -71,21 +71,21 @@ type CapturedNativeDocument struct {
 }
 
 func (document CapturedNativeDocument) valid() bool {
-	return document.captured != nil && document.captured.initialized && document.index >= 0 && document.index < document.captured.qualified.Records().Len()
+	return document.captured != nil && document.captured.initialized && document.index >= 0 && document.index < document.captured.qualified.Len()
 }
 
 func (document CapturedNativeDocument) loadedEvidence() (journalrecord.LoadedDocument, bool) {
 	if !document.valid() {
 		return journalrecord.LoadedDocument{}, false
 	}
-	return document.captured.qualified.Records().At(document.index)
+	return document.captured.qualified.DocumentAt(document.index)
 }
 
 func (captured CapturedNativeJournal) Documents() []CapturedNativeDocument {
 	if !captured.initialized {
 		return nil
 	}
-	result := make([]CapturedNativeDocument, captured.qualified.Records().Len())
+	result := make([]CapturedNativeDocument, captured.qualified.Len())
 	for index := range result {
 		result[index] = CapturedNativeDocument{captured: &captured, index: index}
 	}
@@ -133,7 +133,11 @@ func (document CapturedNativeDocument) SelectedSubjects(ctx context.Context) ([]
 	if !document.valid() || ctx == nil {
 		return nil, fmt.Errorf("captured native document and context are required")
 	}
-	recorded, err := document.captured.journal.DocumentAt(document.index)
+	recordIndex, present := document.captured.qualified.RecordIndex(document.index)
+	if !present {
+		return nil, fmt.Errorf("captured native document has no record index")
+	}
+	recorded, err := document.captured.journal.DocumentAt(recordIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +149,11 @@ func (document CapturedNativeDocument) Claims() (ownershipmutation.DocumentClaim
 	if !present {
 		return ownershipmutation.DocumentClaimTransition{}, false
 	}
-	recorded, err := document.captured.journal.DocumentAt(document.index)
+	recordIndex, present := document.captured.qualified.RecordIndex(document.index)
+	if !present {
+		return ownershipmutation.DocumentClaimTransition{}, false
+	}
+	recorded, err := document.captured.journal.DocumentAt(recordIndex)
 	if err != nil {
 		return ownershipmutation.DocumentClaimTransition{}, false
 	}
@@ -189,7 +197,11 @@ func (document CapturedNativeDocument) Removal() (recovery.DocumentRemoval, bool
 	if !document.valid() {
 		return recovery.DocumentRemoval{}, false, fmt.Errorf("captured native document is required")
 	}
-	record, err := document.captured.journal.DocumentAt(document.index)
+	recordIndex, present := document.captured.qualified.RecordIndex(document.index)
+	if !present {
+		return recovery.DocumentRemoval{}, false, fmt.Errorf("captured native document has no record index")
+	}
+	record, err := document.captured.journal.DocumentAt(recordIndex)
 	if err != nil {
 		return recovery.DocumentRemoval{}, false, err
 	}

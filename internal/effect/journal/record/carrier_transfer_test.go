@@ -240,6 +240,13 @@ func TestNative17CarrierRecordReconstructsPhysicalPhasesAndRefusesUnsplitClaims(
 			record.DocumentGroups[0].BindingIntents = record.DocumentGroups[1].BindingIntents
 			record.DocumentGroups[1].BindingIntents = []recoveryDocumentBindingIntent{}
 		},
+		"retained binding at source": func(record *native17JournalRecord) {
+			intent := record.DocumentGroups[1].BindingIntents[0]
+			intent.Before = recoveryDocumentBindingPhase{Kind: "exact", Authority: record.DocumentGroups[0].CapturedTarget.Authority}
+			intent.After = intent.Before
+			record.DocumentGroups[0].BindingIntents = []recoveryDocumentBindingIntent{intent}
+			record.DocumentGroups[1].BindingIntents = []recoveryDocumentBindingIntent{}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, bad, _ := carrierRecordFixture(t, false)
@@ -252,6 +259,27 @@ func TestNative17CarrierRecordReconstructsPhysicalPhasesAndRefusesUnsplitClaims(
 				t.Fatal("invalid carrier metadata returned a usable or partial operation", err)
 			}
 		})
+	}
+}
+
+func TestCarrierMetadataSealRefusesOwnedSourceRemovalContinuation(t *testing.T) {
+	for _, coalesced := range []bool{false, true} {
+		fixture, wire, _ := carrierRecordFixture(t, coalesced)
+		content, err := json.Marshal(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := journal.validateCarrierMetadata(t.Context()); err != nil {
+			t.Fatal("source projection retirement failed its positive control", err)
+		}
+		journal.record.DocumentGroups[0].Removal = &recoveryDocumentRemoval{}
+		if err := journal.validateCarrierMetadata(t.Context()); err == nil {
+			t.Fatal("owned source admitted file-removal continuation work")
+		}
 	}
 }
 

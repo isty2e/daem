@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
 	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
+	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -59,6 +60,9 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 		},
 		StateReader: func(ctx context.Context) (durable.Snapshot, error) {
 			return statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{Codec: stateCodec, PhysicalPathBudget: budget})
+		},
+		RawRegistry: func(ctx context.Context) (ownership.Registry, error) {
+			return ownershipstore.ReadProtectionRegistryBounded(ctx, paths.OwnershipRegistryPath, physicalwork.MaximumPhysicalPathDepth, budget)
 		},
 	}
 	return journal.PlanLoadOptions{

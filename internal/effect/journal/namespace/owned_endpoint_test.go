@@ -137,6 +137,44 @@ func TestMissingOwnedEndpointIsOnlyAnIdentityWitness(t *testing.T) {
 	}
 }
 
+func TestRecordedMissingOwnedParentRetainsItsExistingAncestor(t *testing.T) {
+	base := t.TempDir()
+	parent := filepath.Join(base, "later")
+	path := filepath.Join(parent, "owned.json")
+	budget := imageBudget(t)
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact, known := observed.Exact()
+	if !known {
+		t.Fatal("ASCII missing source did not retain exact identity")
+	}
+	missing, err := CaptureOwnedEndpointRoot(t.Context(), path, exact, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missing.Close()
+	provenance := pointWitnessProvenance(t, missing, budget)
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"later":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := CaptureRecordedOwnedEndpointRoot(t.Context(), path, exact, provenance, budget)
+	if err != nil {
+		t.Fatal("a later child invalidated its unchanged recorded ancestor", err)
+	}
+	defer recorded.Close()
+	if recorded.Root != nil || pointWitnessProvenance(t, recorded, budget) != provenance {
+		t.Fatal("later parent replaced the retained ancestor or gained a directory grant")
+	}
+	if content, err := os.ReadFile(path); err != nil || string(content) != `{"later":true}` {
+		t.Fatal("identity recapture changed the later file", err)
+	}
+}
+
 func TestOwnedEndpointQualifiesOnlyItsRetainedPhysicalFile(t *testing.T) {
 	base := t.TempDir()
 	path := filepath.Join(base, "owned.json")

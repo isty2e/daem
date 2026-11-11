@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -249,6 +250,42 @@ func TestCarrierTransferKeepsAnotherCurrentContributorsSourceCreation(t *testing
 	source.comparison = carrierComparisonDocuments(t, selection, aggregate.AbsentDocument(), aggregate.ExistingDocument([]byte(`{}`)), barSelection)
 	if _, err := ReconstructStateGroups(t.Context(), fixture.owner, state, selectionState(t, row), []StateGroupInput{source, targetInput}, transfer); err == nil {
 		t.Fatal("an empty after alias without current members authorized source creation")
+	}
+}
+
+func TestUnpairedCarrierRetirementDoesNotCreateOrDeleteItsFile(t *testing.T) {
+	selection, row, _ := carrierSelection(t)
+	fixture := documentClaimsForTest(t)
+	address := selection.DocumentAddress()
+	binding, err := configuration.OwnedMCPSourceBinding(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := NewAliasRoute(address, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeState, afterState := selectionState(t, row), selectionState(t)
+	for _, test := range []struct {
+		name          string
+		before, after aggregate.Document
+		refuse        bool
+	}{
+		{"existing projection retirement", aggregate.ExistingDocument([]byte(`{"mcpServers":{"search":{"type":"stdio","command":"node"}}}`)), aggregate.ExistingDocument([]byte(`{}`)), false},
+		{"already missing", aggregate.AbsentDocument(), aggregate.AbsentDocument(), false},
+		{"whole file deletion", aggregate.ExistingDocument([]byte(`{"mcpServers":{"search":{"type":"stdio","command":"node"}}}`)), aggregate.AbsentDocument(), true},
+		{"empty source creation", aggregate.AbsentDocument(), aggregate.ExistingDocument([]byte(`{}`)), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, err := NewBoundStateGroupInput(t.Context(), []AliasRoute{route}, []topology.SubjectID{row.Subject()}, carrierComparisonDocuments(t, selection, test.before, test.after), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			groups, err := ReconstructStateGroups(t.Context(), fixture.owner, beforeState, afterState, []StateGroupInput{input})
+			if (err != nil) != test.refuse || test.refuse && groups != nil {
+				t.Fatal("unpaired source root transition violated projection retirement", err)
+			}
+		})
 	}
 }
 

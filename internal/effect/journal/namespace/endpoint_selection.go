@@ -66,7 +66,7 @@ func CaptureOwnedEndpointRoot(ctx context.Context, selected string, expected pat
 }
 
 // CaptureRecordedOwnedEndpointRoot checks both independently selected file
-// identity and its recorded parent incarnation without running a chooser.
+// identity and its recorded ancestor incarnation without running a chooser.
 func CaptureRecordedOwnedEndpointRoot(ctx context.Context, selected string, expected pathauthority.Exact, parent rootedpath.AuthorityProvenance, budget rootedpath.PhysicalTraversalBudget) (RootSelection, error) {
 	if err := parent.Validate(); err != nil {
 		return RootSelection{}, err

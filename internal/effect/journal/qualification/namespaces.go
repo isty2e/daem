@@ -14,18 +14,28 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options ReadOptions, roots journalnamespace.Roots) ([]journalnamespace.DocumentNamespace, error) {
+	documents, err := journal.Documents()
+	if err != nil {
+		return nil, err
+	}
+	indexes := make([]int, len(documents))
+	for index := range indexes {
+		indexes[index] = index
+	}
+	return loadDemandedNamespaces(journal, ctx, options, roots, RecoveryRootDemand{count: len(documents), live: indexes, valid: true})
+}
+
+func loadDemandedNamespaces(journal journalrecord.Native, ctx context.Context, options ReadOptions, roots journalnamespace.Roots, demand RecoveryRootDemand) ([]journalnamespace.DocumentNamespace, error) {
 	if ctx == nil || options.Filesystem == nil || options.Budget == nil {
 		return nil, fmt.Errorf("qualified document read context, filesystem and shared budget are required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	documents, err := journal.Documents()
-	if err != nil {
 		return nil, err
 	}
 	expected, err := options.Rules.index()
@@ -44,12 +54,19 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 	if !present || manifest.RootReference() != manifestReference || !journal.MatchesManifestRoot(manifest.Provenance()) {
 		return nil, fmt.Errorf("native journal manifest root does not match the selected live root")
 	}
-	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(documents))
-	for _, record := range documents {
+	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(demand.live))
+	for _, index := range demand.live {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		recordedAliases := record.Aliases()
+		record, err := journal.DocumentAt(index)
+		if err != nil {
+			return nil, err
+		}
+		recordedAliases := demand.aliases(record)
+		if len(recordedAliases) == 0 {
+			return nil, fmt.Errorf("live document requires a current selector witness")
+		}
 		aliases := make([]journalnamespace.RecordedAlias, 0, len(recordedAliases))
 		for _, alias := range recordedAliases {
 			if err := ctx.Err(); err != nil {
@@ -72,6 +89,19 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		pin, err := record.WriterPin()
 		if err != nil {
 			return nil, err
+		}
+		if reference, bound := pin.RootReference(); demand.afterOnly && bound && configuration.NativeRootIsOwnedPoint(reference) {
+			for _, alias := range recordedAliases {
+				binding, bound := alias.Binding()
+				if !bound || configuration.NativeRootIsOwnedPoint(binding.RootReference()) {
+					continue
+				}
+				pin, err = alias.WriterPin()
+				if err != nil {
+					return nil, err
+				}
+				break
+			}
 		}
 		namespace, err := journalnamespace.Reobserve(ctx, aliases, roots, options.Protection, options.Filesystem, options.Budget, pin)
 		if err != nil {
@@ -99,9 +129,13 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 		if err := record.RequireRetainedNamespace(ctx, namespace.Observation()); err != nil {
 			return nil, err
 		}
-		currentAliases := make(map[aggregate.DocumentAddress]journalnamespace.Alias, len(namespace.Aliases()))
+		type selector struct {
+			address aggregate.DocumentAddress
+			root    output.RootReference
+		}
+		currentAliases := make(map[selector]journalnamespace.Alias, len(namespace.Aliases()))
 		for _, alias := range namespace.Aliases() {
-			currentAliases[alias.Address()] = alias
+			currentAliases[selector{alias.Address(), alias.Location().RootReference()}] = alias
 		}
 		for _, alias := range recordedAliases {
 			if err := ctx.Err(); err != nil {
@@ -111,7 +145,11 @@ func LoadNamespaces(journal journalrecord.Native, ctx context.Context, options R
 			if err != nil {
 				return nil, err
 			}
-			current, present := currentAliases[address]
+			location, err := alias.Location()
+			if err != nil {
+				return nil, err
+			}
+			current, present := currentAliases[selector{address, location.RootReference()}]
 			if !present || !alias.MatchesRoot(current.Root().Provenance()) {
 				return nil, fmt.Errorf("native document alias root incarnation changed")
 			}

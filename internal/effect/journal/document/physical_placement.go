@@ -161,13 +161,16 @@ func (indexes SnapshotIndexes) validateCarrierTransfers(ctx context.Context, tra
 }
 
 func (indexes SnapshotIndexes) validateCarrierFrontiers(ctx context.Context, groups []StateGroup, transfers []CarrierTransfer) error {
+	for index, group := range groups {
+		source := slices.ContainsFunc(group.routes, func(route AliasRoute) bool { return route.OwnedSource() }) || slices.ContainsFunc(transfers, func(transfer CarrierTransfer) bool { return transfer.source == index })
+		if source {
+			if err := indexes.after.validateSourceRootChange(ctx, group); err != nil {
+				return err
+			}
+		}
+	}
 	for _, transfer := range transfers {
 		source := groups[transfer.source]
-		if source.comparison.BeforeDocument().Exists() && !source.comparison.ExpectedDocument().Exists() {
-			return fmt.Errorf("MCP carrier transfer cannot delete its source document")
-		}
-		creationRequested := !source.comparison.BeforeDocument().Exists() && source.comparison.ExpectedDocument().Exists()
-		creationCovered := false
 		for _, row := range indexes.before.aggregates {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -189,14 +192,30 @@ func (indexes SnapshotIndexes) validateCarrierFrontiers(ctx context.Context, gro
 			if contract.Address().Document() == transfer.address && !groups[transfer.target].Covers(contract) {
 				return fmt.Errorf("carrier transfer target must cover every after MCP projection")
 			}
-			if slices.Contains(source.afterAliases, contract.Address().Document()) && source.Covers(contract) {
-				projection, present := source.comparison.ExpectedState().Projection(contract)
-				creationCovered = creationCovered || present && projection.Present()
-			}
-		}
-		if creationRequested && !creationCovered {
-			return fmt.Errorf("MCP retirement cannot create its source without another selected after projection")
 		}
 	}
 	return ctx.Err()
+}
+
+func (after SnapshotIndex) validateSourceRootChange(ctx context.Context, source StateGroup) error {
+	beforeExists, afterExists := source.comparison.BeforeDocument().Exists(), source.comparison.ExpectedDocument().Exists()
+	if beforeExists && !afterExists {
+		return fmt.Errorf("MCP carrier retirement cannot delete its source document")
+	}
+	if beforeExists || !afterExists {
+		return ctx.Err()
+	}
+	for _, row := range after.aggregates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		contract := row.Contribution().Contract()
+		if slices.Contains(source.afterAliases, contract.Address().Document()) && source.Covers(contract) {
+			projection, present := source.comparison.ExpectedState().Projection(contract)
+			if present && projection.Present() {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("MCP retirement cannot create its source without another selected after projection")
 }

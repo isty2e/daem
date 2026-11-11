@@ -117,7 +117,10 @@ func NativeActiveRecoveryPlan(selection RecoverablePlan) (NativeRecoveryPlan, bo
 }
 
 func (plan NativeRecoveryPlan) DocumentAliases() ([][]aggregate.DocumentAddress, error) {
-	return plan.journal.DocumentAliases()
+	if plan.blocked {
+		return plan.journal.DocumentAliases()
+	}
+	return plan.assessment.RootDemand().DocumentAliases(plan.journal)
 }
 
 func (plan NativeRecoveryPlan) RemovalIntents() ([]recovery.RemovalIntent, error) {
@@ -145,6 +148,7 @@ type NativeRecoveryOperation struct {
 	inventoryProfile     RecoveryInventoryProfile
 	resolver             func(output.Destination) (string, error)
 	ordinaryCapabilities journalnamespace.CapabilityResolver
+	demand               *journalqualification.RecoveryRootDemand
 }
 
 func (operation *NativeRecoveryOperation) Close() error {
@@ -204,28 +208,13 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 	if err != nil || !observed.Exact().Equal(journal.Owner().StatefileAuthority()) {
 		return nil, errors.Join(fmt.Errorf("native recovery state authority differs from its selected owner"), err)
 	}
-	ownedRoots, err := profile.OpenRoots(ctx, journal)
-	if err != nil {
-		return nil, err
-	}
-	roots := ownedRoots.Selection()
-	operation := &NativeRecoveryOperation{profile: profile, roots: roots, ownedRoots: ownedRoots, resolver: options.Resolver, inventoryProfile: RecoveryInventoryProfile{decoder: nativeRecoveryInventoryDecoder(options.StateCodec, profile.StateCodec)}}
+	operation := &NativeRecoveryOperation{profile: profile, resolver: options.Resolver, inventoryProfile: RecoveryInventoryProfile{decoder: nativeRecoveryInventoryDecoder(options.StateCodec, profile.StateCodec)}}
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, operation.Close())
 			result = nil
 		}
 	}()
-	ordinaryViews, err := journal.RecordedEntries()
-	if err != nil {
-		return nil, err
-	}
-	ordinaryCapabilities, ordinaryRoots, err := OpenOrdinaryRoots(ctx, ordinaryViews, options.Resolver, options.RootedCapability, profile.Budget)
-	if err != nil {
-		return nil, err
-	}
-	operation.retained = append(operation.retained, ordinaryRoots...)
-	operation.ordinaryCapabilities = ordinaryCapabilities
 	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(inventory.Active().OperationDir(), physicalwork.MaximumPhysicalPathDepth, profile.Budget)
 	if err != nil {
 		return nil, err
@@ -238,11 +227,59 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 		}
 	}()
 	active := inventory.Active()
+	read := journalqualification.ReadOptions{Protection: profile.Protection, Rules: journalqualification.RecordedRuleExpectations(), Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs}
+	var records journalrecord.LoadedDocuments
+	var raw ownership.Registry
+	ownedSource, err := journalHasOwnedSource(journal)
+	if err != nil {
+		return nil, err
+	}
+	if ownedSource && profile.RawRegistry != nil {
+		if profile.StateReader == nil {
+			return nil, fmt.Errorf("native root selection requires its selected state reader")
+		}
+		if err := journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, profile.Budget, active.PhysicalAuthority()); err != nil {
+			return nil, err
+		}
+		state, err := profile.StateReader(ctx)
+		if err != nil {
+			return nil, err
+		}
+		raw, err = profile.RawRegistry(ctx)
+		if err != nil {
+			return nil, err
+		}
+		records, err = journalqualification.LoadDocuments(journal, ctx, read)
+		if err != nil {
+			return nil, err
+		}
+		demand, err := journalqualification.DetermineRecoveryRootDemand(ctx, journal, records, state, raw)
+		if err != nil {
+			return nil, err
+		}
+		operation.demand = &demand
+	}
+	ownedRoots, err := profile.openRoots(ctx, journal, operation.demand, records, raw, options.Resolver)
+	if err != nil {
+		return nil, err
+	}
+	operation.ownedRoots, operation.roots = ownedRoots, ownedRoots.Selection()
+	ordinaryViews, err := journal.RecordedEntries()
+	if err != nil {
+		return nil, err
+	}
+	ordinaryCapabilities, ordinaryRoots, err := OpenOrdinaryRoots(ctx, ordinaryViews, options.Resolver, options.RootedCapability, profile.Budget)
+	if err != nil {
+		return nil, err
+	}
+	operation.retained = append(operation.retained, ordinaryRoots...)
+	operation.ordinaryCapabilities = ordinaryCapabilities
+	read.OrdinaryCapabilities = ordinaryCapabilities
 	blocked := false
 	assessment, err := journalqualification.ReadNativeSourceAssessment(ctx, *active, journalqualification.NativeReadOptions{
-		Documents: journalqualification.ReadOptions{Protection: profile.Protection, Rules: journalqualification.RecordedRuleExpectations(), Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs, OrdinaryCapabilities: ordinaryCapabilities},
-		Roots:     roots, State: profile.StateReader, Registry: options.OwnershipRegistry,
-		Resolver: options.Resolver,
+		Documents: read,
+		Roots:     operation.roots, State: profile.StateReader, Registry: options.OwnershipRegistry,
+		Resolver: options.Resolver, RawRegistry: profile.RawRegistry, RecoveryDemand: operation.demand,
 	})
 	if err != nil {
 		var phase *journalqualification.SelectedPhaseError
@@ -313,7 +350,7 @@ func (operation *NativeRecoveryOperation) Documents() []NativeRecoveryDocument {
 	if operation == nil || operation.closed {
 		return nil
 	}
-	result := make([]NativeRecoveryDocument, operation.qualified.Records().Len())
+	result := make([]NativeRecoveryDocument, operation.qualified.Len())
 	for index := range result {
 		result[index] = NativeRecoveryDocument{operation: operation, index: index}
 	}
@@ -335,7 +372,7 @@ func (document NativeRecoveryDocument) Comparison() journaldocument.Comparison {
 	if !document.valid() {
 		return journaldocument.Comparison{}
 	}
-	loaded, present := document.operation.qualified.Records().At(document.index)
+	loaded, present := document.operation.qualified.DocumentAt(document.index)
 	if !present {
 		return journaldocument.Comparison{}
 	}
@@ -369,7 +406,11 @@ func (document NativeRecoveryDocument) Removal() (recovery.DocumentRemoval, bool
 	if !document.valid() {
 		return recovery.DocumentRemoval{}, false, fmt.Errorf("live native recovery document is required")
 	}
-	doc, err := document.operation.plan.journal.DocumentAt(document.index)
+	recordIndex, present := document.operation.qualified.RecordIndex(document.index)
+	if !present {
+		return recovery.DocumentRemoval{}, false, fmt.Errorf("live native recovery document is required")
+	}
+	doc, err := document.operation.plan.journal.DocumentAt(recordIndex)
 	if err != nil {
 		return recovery.DocumentRemoval{}, false, err
 	}
@@ -391,5 +432,5 @@ func (plan NativeRecoveryPlan) CleanupReady(discharged []recovery.RemovalCleanup
 }
 
 func (document NativeRecoveryDocument) valid() bool {
-	return document.operation != nil && !document.operation.closed && document.index >= 0 && document.index < document.operation.qualified.Records().Len()
+	return document.operation != nil && !document.operation.closed && document.index >= 0 && document.index < document.operation.qualified.Len()
 }

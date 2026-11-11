@@ -20,6 +20,9 @@ func (journal Native) validateCarrierMetadata(ctx context.Context) error {
 			return err
 		}
 		for _, route := range bound {
+			if route.OwnedSource() && group.Removal != nil {
+				return fmt.Errorf("owned MCP source cannot carry document removal work")
+			}
 			carrier = carrier || route.OwnedSource()
 		}
 		for _, binding := range group.BindingIntents {
