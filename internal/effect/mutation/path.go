@@ -122,17 +122,7 @@ func CanonicalDirectoryEntryPathBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (string, error) {
-	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
-	if err != nil {
-		return "", err
-	}
-	identity, err := canonicalPathIdentityFromSelectionBounded(
-		path,
-		selection,
-		PathEffectDirectoryEntry,
-		maximumPhysicalDepth,
-		budget,
-	)
+	identity, err := canonicalDirectoryEntryPathIdentityBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return "", err
 	}
@@ -181,17 +171,7 @@ func CanonicalDirectoryEntryKeyBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (string, error) {
-	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
-	if err != nil {
-		return "", err
-	}
-	identity, err := canonicalPathIdentityFromSelectionBounded(
-		path,
-		selection,
-		PathEffectDirectoryEntry,
-		maximumPhysicalDepth,
-		budget,
-	)
+	identity, err := canonicalDirectoryEntryPathIdentityBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return "", err
 	}
@@ -204,6 +184,14 @@ func canonicalPathIdentity(path string, effect PathEffect) (canonicalPath, error
 		return canonicalPath{}, err
 	}
 	return canonicalPathIdentityFromSelection(path, selection, effect)
+}
+
+func canonicalDirectoryEntryPathIdentityBounded(path string, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (canonicalPath, error) {
+	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return canonicalPath{}, err
+	}
+	return canonicalPathIdentityFromSelectionBounded(path, selection, PathEffectDirectoryEntry, maximumPhysicalDepth, budget)
 }
 
 func canonicalPathIdentityFromSelection(

@@ -10,7 +10,7 @@ import (
 // PersistedDirectoryEntryAuthority is one immutable observation used to
 // compare durable keys with current directory-entry authority.
 type PersistedDirectoryEntryAuthority struct {
-	exact pathauthority.Exact
+	reference pathauthority.Reference
 }
 
 // DirectoryEntryAuthorityObservation is exactly one current path-authority
@@ -36,11 +36,7 @@ func (observation DirectoryEntryAuthorityObservation) Validate() error {
 // ObserveDirectoryEntryAuthority captures exact or explicitly provisional
 // authority without collapsing the two states.
 func ObserveDirectoryEntryAuthority(path string) (DirectoryEntryAuthorityObservation, error) {
-	selection, err := selectPath(path, PathEffectDirectoryEntry)
-	if err != nil {
-		return DirectoryEntryAuthorityObservation{}, err
-	}
-	identity, err := canonicalPathIdentityFromSelection(path, selection, PathEffectDirectoryEntry)
+	identity, err := canonicalPathIdentity(path, PathEffectDirectoryEntry)
 	if err != nil {
 		return DirectoryEntryAuthorityObservation{}, err
 	}
@@ -54,17 +50,7 @@ func ObserveDirectoryEntryAuthorityBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (DirectoryEntryAuthorityObservation, error) {
-	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
-	if err != nil {
-		return DirectoryEntryAuthorityObservation{}, err
-	}
-	identity, err := canonicalPathIdentityFromSelectionBounded(
-		path,
-		selection,
-		PathEffectDirectoryEntry,
-		maximumPhysicalDepth,
-		budget,
-	)
+	identity, err := canonicalDirectoryEntryPathIdentityBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return DirectoryEntryAuthorityObservation{}, err
 	}
@@ -140,17 +126,11 @@ func (observation DirectoryEntryAuthorityObservation) Equal(other DirectoryEntry
 // ObservePersistedDirectoryEntryAuthority captures the current canonical key
 // and filesystem-semantics witness in one observation epoch.
 func ObservePersistedDirectoryEntryAuthority(path string) (PersistedDirectoryEntryAuthority, error) {
-	observation, err := ObserveDirectoryEntryAuthority(path)
+	identity, err := canonicalPathIdentity(path, PathEffectDirectoryEntry)
 	if err != nil {
 		return PersistedDirectoryEntryAuthority{}, err
 	}
-	exact, ok := observation.Exact()
-	if !ok {
-		return PersistedDirectoryEntryAuthority{}, fmt.Errorf("path %q has provisional authority until its normalization-sensitive entry becomes visible", path)
-	}
-	return PersistedDirectoryEntryAuthority{
-		exact: exact,
-	}, nil
+	return persistedDirectoryEntryAuthority(path, identity)
 }
 
 // ObservePersistedDirectoryEntryAuthorityBounded captures exact persisted
@@ -160,27 +140,43 @@ func ObservePersistedDirectoryEntryAuthorityBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (PersistedDirectoryEntryAuthority, error) {
-	observation, err := ObserveDirectoryEntryAuthorityBounded(path, maximumPhysicalDepth, budget)
+	identity, err := canonicalDirectoryEntryPathIdentityBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return PersistedDirectoryEntryAuthority{}, err
 	}
-	exact, ok := observation.Exact()
-	if !ok {
+	return persistedDirectoryEntryAuthority(path, identity)
+}
+
+func persistedDirectoryEntryAuthority(path string, identity canonicalPath) (PersistedDirectoryEntryAuthority, error) {
+	if !identity.provisional.IsZero() {
 		return PersistedDirectoryEntryAuthority{}, fmt.Errorf(
 			"path %q has provisional authority until its normalization-sensitive entry becomes visible",
 			path,
 		)
 	}
-	return PersistedDirectoryEntryAuthority{exact: exact}, nil
+	exact, err := pathauthority.NewExact(identity.keyPath, string(identity.witness))
+	if err != nil {
+		return PersistedDirectoryEntryAuthority{}, fmt.Errorf("construct exact path authority: %w", err)
+	}
+	reference, err := pathauthority.NewReference(exact, identity.accessPath)
+	if err != nil {
+		return PersistedDirectoryEntryAuthority{}, err
+	}
+	return PersistedDirectoryEntryAuthority{reference: reference}, nil
 }
 
 // Exact returns the canonical key and observed versioned semantics.
 func (authority PersistedDirectoryEntryAuthority) Exact() pathauthority.Exact {
-	return authority.exact
+	return authority.reference.Identity()
+}
+
+// Reference retains the selected access spelling from the same observation epoch.
+func (authority PersistedDirectoryEntryAuthority) Reference() pathauthority.Reference {
+	return authority.reference
 }
 
 func (authority PersistedDirectoryEntryAuthority) validate() error {
-	if err := authority.exact.Validate(); err != nil {
+	if err := authority.reference.Validate(); err != nil {
 		return fmt.Errorf("current path authority: %w", err)
 	}
 	return nil

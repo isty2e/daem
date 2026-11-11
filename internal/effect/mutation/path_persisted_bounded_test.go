@@ -39,6 +39,9 @@ func TestDirectoryEntryAuthorityBoundedRequiresCapacityBeforeObservation(t *test
 	if _, err := ObserveDirectoryEntryAuthorityBounded(path, 256, exhausted); err == nil {
 		t.Fatal("bounded directory-entry authority accepted an exhausted budget")
 	}
+	if authority, err := ObservePersistedDirectoryEntryAuthorityBounded(path, 256, exhausted); err == nil || !authority.Reference().IsZero() {
+		t.Fatal("bounded persisted observation produced reference evidence without capacity", err)
+	}
 	if exhausted.visits != 0 {
 		t.Fatalf("failed authority observation charged %d visits, want atomic rejection", exhausted.visits)
 	}
@@ -71,6 +74,9 @@ func TestDirectoryEntryAuthorityBoundedRequiresCapacityBeforeObservation(t *test
 	}
 	if !boundedPersisted.Exact().Equal(unboundedPersisted.Exact()) {
 		t.Fatal("bounded persisted authority changed canonical path semantics")
+	}
+	if !boundedPersisted.Reference().Equal(unboundedPersisted.Reference()) {
+		t.Fatal("bounded persisted authority changed selected access spelling")
 	}
 	if persistedBudget.visits == 0 {
 		t.Fatal("bounded persisted authority performed no charged path work")
