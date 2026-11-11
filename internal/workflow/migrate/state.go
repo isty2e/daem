@@ -131,7 +131,7 @@ func PlanState(ctx context.Context, input StateInput) (*PreparedState, error) {
 		prepared.disclosure.Action = string(action)
 	} else {
 		if err := prepared.targetBarrier.Validate(ctx); err != nil {
-			return nil, fmt.Errorf("inspect migration destination (use daem migrate state --recover --dry-run for an interrupted migration): %w", err)
+			return nil, migrationDestinationError(err)
 		}
 		if err := prepared.loadTransfer(ctx); err != nil {
 			return nil, err
@@ -141,6 +141,14 @@ func PlanState(ctx context.Context, input StateInput) (*PreparedState, error) {
 		return nil, err
 	}
 	return prepared, nil
+}
+
+func migrationDestinationError(cause error) error {
+	if recoverygate.IsGlobalMetadataRefusal(cause) || recoverygate.IsCancellation(cause) {
+		return cause
+	}
+
+	return fmt.Errorf("inspect migration destination (use daem migrate state --recover --dry-run for an interrupted migration): %w", cause)
 }
 
 func authorityFor(paths daempaths.Paths) (stateauthority.Authority, error) {

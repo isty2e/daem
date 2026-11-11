@@ -86,6 +86,76 @@ func TestGlobalMetadataFenceBlocksForeignAndReservedExecution(t *testing.T) {
 	}
 }
 
+func TestGlobalMetadataRefusalPreservesScopeThroughLegacyUserSelection(t *testing.T) {
+	root := globalMetadataTestRoot(t)
+	paths := daempaths.Paths{
+		DataDir:            filepath.Join(root, "data"),
+		ManifestPath:       filepath.Join(root, "config", "daem.toml"),
+		StateDir:           filepath.Join(root, "state"),
+		StatefilePath:      filepath.Join(root, "state", "state.json"),
+		RecoveryDir:        filepath.Join(root, "state", "recovery"),
+		LegacyUserStateDir: filepath.Join(root, "legacy"),
+	}
+	legacy, err := paths.LegacyUserState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := NewEffectAuthority(t.Context(), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(legacy.StateDir, ".daem-tmp-local"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	recoverTransaction := leaveGlobalMetadataTransaction(t, paths)
+	for _, test := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "user selection", run: func() error { return RequireUserStateMigrated(t.Context(), paths) }},
+		{name: "observation", run: func() error { return Observe(t.Context(), paths) }},
+		{name: "file set planning", run: func() error { return RequireFileSetClear(t.Context(), paths) }},
+		{name: "effect planning", run: func() error { _, err := NewEffectAuthority(t.Context(), paths); return err }},
+		{name: "relocation source revalidation", run: func() error {
+			if err := source.Validate(t.Context()); err != nil {
+				return LegacyUserStateRecoveryError{StateDir: legacy.StateDir, Err: err}
+			}
+			return nil
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.run()
+			if !IsGlobalMetadataRefusal(err) || StateOf(err).Observed() {
+				t.Fatal("global refusal became a local recovery result", err)
+			}
+			var legacyError LegacyUserStateRecoveryError
+			if errors.As(err, &legacyError) && legacyError.Error() != legacyError.Err.Error() {
+				t.Fatal("global refusal was reinterpreted as legacy-user recovery", err)
+			}
+		})
+	}
+	recoverTransaction()
+	err = RequireUserStateMigrated(t.Context(), paths)
+	var local LegacyUserStateRecoveryError
+	if !errors.As(err, &local) || local.StateDir != legacy.StateDir || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
+		t.Fatal("local legacy recovery was lost after the global transaction cleared", err)
+	}
+}
+
+func TestLegacyUserRecoveryDisplayPreservesCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		cause error
+	}{{name: "canceled", cause: context.Canceled}, {name: "deadline", cause: context.DeadlineExceeded}} {
+		t.Run(test.name, func(t *testing.T) {
+			err := LegacyUserStateRecoveryError{StateDir: t.TempDir(), Err: test.cause}
+			if !IsCancellation(err) || err.Error() != test.cause.Error() {
+				t.Fatal("cancellation was reinterpreted as a legacy recovery request", err)
+			}
+		})
+	}
+}
+
 func TestGlobalMetadataAuthoritySharesPublisherLease(t *testing.T) {
 	for _, test := range []struct {
 		name  string

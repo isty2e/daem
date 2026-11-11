@@ -67,6 +67,10 @@ type LegacyUserStateRecoveryError struct {
 }
 
 func (err LegacyUserStateRecoveryError) Error() string {
+	if IsGlobalMetadataRefusal(err.Err) || IsCancellation(err.Err) {
+		return err.Err.Error()
+	}
+
 	if fileset.FileSetFenceKindOf(err.Err) != fileset.FileSetFenceClear {
 		return fmt.Sprintf("legacy metadata at %q requires recovery using the matching previous daem version and original command before migration; preserve the evidence: %v", err.StateDir, err.Err)
 	}
