@@ -15,6 +15,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -74,6 +75,9 @@ func Execute(
 		) {
 		return staleBeforeAttempt(result, errors.Join(mutation.StalePlanError{}, err))
 	}
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, execution.planned.paths); err != nil {
+		return staleBeforeAttempt(result, err)
+	}
 	if matches, revisionErr := execution.planned.revisions.MatchesCurrent(ctx); revisionErr != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, revisionErr)
 	} else if !matches {
@@ -101,6 +105,9 @@ func Execute(
 			))
 		}
 	}()
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, effectPaths); err != nil {
+		return staleBeforeAttempt(result, err)
+	}
 	if matches, matchErr := leases.DomainsMatchCurrent(ctx); matchErr != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, matchErr)
 	} else if !matches {

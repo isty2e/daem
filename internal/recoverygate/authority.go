@@ -65,6 +65,7 @@ type stateDirBarrierAuthority interface {
 	Validate(context.Context) error
 	RequireClear(context.Context) error
 	EnsureOwnedIncarnation(context.Context) (bool, error)
+	workBudget() stateDirPhysicalWorkBudget
 }
 
 // NewEffectAuthority fences legacy management, then captures the StateDir
@@ -74,6 +75,13 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 		return EffectAuthority{}, err
 	}
 	stateDir, err := CaptureStateDir(ctx, paths.StateDir)
+	if err != nil {
+		return EffectAuthority{}, err
+	}
+	if err := requireGlobalMetadataClear(ctx, paths, stateDir.workBudget()); err != nil {
+		return EffectAuthority{}, err
+	}
+	globalMarker, err := GlobalMetadataAuthorityPath(paths)
 	if err != nil {
 		return EffectAuthority{}, err
 	}
@@ -89,6 +97,7 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 	}{
 		{value: paths.RecoveryDir, access: mutation.AccessExclusive},
 		{value: paths.StateDir, access: stateDirAccess},
+		{value: globalMarker, access: mutation.AccessShared},
 	} {
 		for _, effect := range []mutation.PathEffect{
 			mutation.PathEffectDirectoryEntry,
@@ -163,6 +172,7 @@ func (authority EffectAuthority) RevisionRequests() []mutation.RevisionRequest {
 func (authority EffectAuthority) Equal(other EffectAuthority) bool {
 	return authority.paths.RecoveryDir == other.paths.RecoveryDir &&
 		authority.paths.StateDir == other.paths.StateDir &&
+		authority.paths.DataDir == other.paths.DataDir &&
 		authority.paths.LegacyUserStateDir == other.paths.LegacyUserStateDir &&
 		(authority.paths.LegacyUserStateDir == "" ||
 			(authority.paths.OwnershipRegistryPath == other.paths.OwnershipRegistryPath &&
@@ -190,6 +200,7 @@ func (authority EffectAuthority) IdentityFingerprint() (string, error) {
 		RecoveryDir     string
 		StateDir        string
 		State           string
+		DataDir         string
 		Legacy          string `json:",omitempty"`
 		OutputRegistry  string `json:",omitempty"`
 		CarrierRegistry string `json:",omitempty"`
@@ -197,6 +208,7 @@ func (authority EffectAuthority) IdentityFingerprint() (string, error) {
 		RecoveryDir:     authority.paths.RecoveryDir,
 		StateDir:        authority.paths.StateDir,
 		State:           stateDir,
+		DataDir:         authority.paths.DataDir,
 		Legacy:          authority.paths.LegacyUserStateDir,
 		OutputRegistry:  outputRegistry,
 		CarrierRegistry: carrierRegistry,
@@ -225,6 +237,9 @@ func validateBarrier(
 	paths daempaths.Paths,
 	stateDir stateDirBarrierAuthority,
 ) error {
+	if err := requireGlobalMetadataClear(ctx, paths, stateDir.workBudget()); err != nil {
+		return err
+	}
 	if stateDir.PresentAtCapture() {
 		if err := normalizeStateDirValidation(stateDir.Validate(ctx)); err != nil {
 			return err
@@ -524,6 +539,9 @@ func checkedForwardCount(value int, multiplier int) (int, error) {
 // published file-set marker that the owning workflow is about to recover.
 func (authority EffectAuthority) ValidateFileSetRecovery(ctx context.Context) error {
 	if err := authority.requireInitialized(); err != nil {
+		return err
+	}
+	if err := requireGlobalMetadataClear(ctx, authority.paths, authority.stateDir.workBudget()); err != nil {
 		return err
 	}
 	if err := normalizeStateDirValidation(authority.stateDir.Validate(ctx)); err != nil {

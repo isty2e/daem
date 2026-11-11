@@ -223,13 +223,16 @@ func observe(ctx context.Context, paths daempaths.Paths, budget rootedpath.Physi
 	if err := RequireUserStateMigrated(ctx, paths); err != nil {
 		return err
 	}
+	var operationBudget stateDirPhysicalWorkBudget = &stateDirOperationWorkBudget{}
+	if budget != nil {
+		operationBudget = adaptStateDirPhysicalWorkBudget(budget)
+	}
+	if err := requireGlobalMetadataClear(ctx, paths, operationBudget); err != nil {
+		return err
+	}
 	var stateDir StateDirAuthority
 	var stateDirErr error
-	if budget == nil {
-		stateDir, stateDirErr = CaptureStateDir(ctx, paths.StateDir)
-	} else {
-		stateDir, stateDirErr = CaptureStateDirBounded(ctx, paths.StateDir, physicalwork.MaximumPhysicalPathDepth, budget)
-	}
+	stateDir, stateDirErr = CaptureStateDirBounded(ctx, paths.StateDir, physicalwork.MaximumPhysicalPathDepth, operationBudget)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -257,12 +260,15 @@ func RequireClear(ctx context.Context, paths daempaths.Paths) error {
 	return Observe(ctx, paths)
 }
 
-// RequireFileSetClear fences legacy management, then observes only the selected
-// StateDir file-set fence. Lock planning, init planning, and authoring dry-run
+// RequireFileSetClear fences legacy management and shared metadata, then observes
+// the selected StateDir file-set fence. Lock planning, init planning, and authoring dry-run
 // do not inspect the selected RecoveryDir journals; joint refusal uses
 // RequireClear or EffectAuthority.
 func RequireFileSetClear(ctx context.Context, paths daempaths.Paths) error {
 	if err := RequireUserStateMigrated(ctx, paths); err != nil {
+		return err
+	}
+	if err := RequireGlobalMetadataClear(ctx, paths); err != nil {
 		return err
 	}
 	authority, err := CaptureStateDir(ctx, paths.StateDir)
@@ -274,11 +280,21 @@ func RequireFileSetClear(ctx context.Context, paths daempaths.Paths) error {
 
 // StateOf reconstructs the closed joint state through arbitrary error wrapping.
 func StateOf(err error) State {
+	// A global transaction is not either selected-owner recovery axis.
+	if IsGlobalMetadataRefusal(err) {
+		return State{}
+	}
 	var combined *jointError
 	if errors.As(err, &combined) {
 		return combined.observedState()
 	}
 	return standaloneState(err)
+}
+
+// IsBarrierRefusal includes global refusals that have no selected-owner axes.
+// Replanning cannot turn these causes into stale-plan retry instructions.
+func IsBarrierRefusal(err error) bool {
+	return IsGlobalMetadataRefusal(err) || StateOf(err).Observed()
 }
 
 // IsCancellation reports the highest-precedence barrier outcome.

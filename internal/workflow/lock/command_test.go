@@ -16,8 +16,30 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	locksnapshot "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
+	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
+
+func TestRunLockRefusesGlobalMetadataTransaction(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	manifestPath := filepath.Join(root, "daem.toml")
+	writeWorkflowTestFile(t, root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+	if _, err := RunLock(t.Context(), LockInput{ManifestPath: manifestPath}); !errors.Is(err, recoverygate.ErrGlobalMetadataFence) {
+		t.Fatal("lock bypassed the shared transaction", err)
+	}
+	for _, path := range []string{paths.StateDir, filepath.Join(root, "daem.lock.toml")} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("blocked lock changed project metadata", err)
+		}
+	}
+}
 
 func TestRunLockWithoutPersistentSourcesDoesNotCreateStateDir(t *testing.T) {
 	tempDir := t.TempDir()
@@ -366,6 +388,7 @@ func TestLockRevisionRequestsGuardReadReferentAndReplacedEntry(t *testing.T) {
 		manifestPath,
 		lockfilePath,
 		metadataTransactionPath,
+		filepath.Join(t.TempDir(), "shared-transaction"),
 		nil,
 		filepath.Join(t.TempDir(), ".daem"),
 		true,
@@ -422,6 +445,7 @@ func TestLockManifestEntryLeaseConflictsWithSymlinkReplacement(t *testing.T) {
 		manifestPath,
 		filepath.Join(root, "daem.lock.toml"),
 		filepath.Join(root, "metadata-transaction"),
+		filepath.Join(root, "shared-transaction"),
 		nil,
 		filepath.Join(root, ".daem"),
 		false,

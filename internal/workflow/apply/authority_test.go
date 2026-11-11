@@ -53,8 +53,8 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(evidence.domains) != 17 {
-		t.Fatalf("domain count = %d, want 17 with recovery, state-directory and Registry pairs", len(evidence.domains))
+	if len(evidence.domains) != 19 {
+		t.Fatalf("domain count = %d, want 19 with recovery, state-directory, shared metadata and Registry pairs", len(evidence.domains))
 	}
 	wantDocumentRequest := mutation.PhysicalAuthorityRequest{
 		Path:   filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
@@ -63,14 +63,18 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	if len(evidence.documentWriteRequests) != 1 || evidence.documentWriteRequests[0] != wantDocumentRequest {
 		t.Fatalf("compiled document requests = %#v, want %#v", evidence.documentWriteRequests, wantDocumentRequest)
 	}
-	if len(evidence.firstEffectRevisions) != 9 {
+	if len(evidence.firstEffectRevisions) != 11 {
 		t.Fatalf(
-			"first-effect revision count = %d, want 9: %#v",
+			"first-effect revision count = %d, want 11: %#v",
 			len(evidence.firstEffectRevisions),
 			evidence.firstEffectRevisions,
 		)
 	}
 	metadataTransactionPath, err := fileset.FileSetAuthorityPath(planned.context.Paths.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalMetadataPath, err := recoverygate.GlobalMetadataAuthorityPath(planned.context.Paths)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +111,8 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	}
 
 	want := map[mutation.RevisionRequest]bool{
+		mutation.NewBoundedContentRevisionRequest(globalMetadataPath, mutation.PathEffectDirectoryEntry):           false,
+		mutation.NewBoundedContentRevisionRequest(globalMetadataPath, mutation.PathEffectReferent):                 false,
 		mutation.NewBoundedContentRevisionRequest(planned.result.StatefilePath, mutation.PathEffectDirectoryEntry): false,
 		mutation.NewBoundedContentRevisionRequest(planned.result.StatefilePath, mutation.PathEffectReferent):       false,
 		mutation.NewBoundedContentRevisionRequest(

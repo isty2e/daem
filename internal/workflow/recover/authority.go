@@ -284,7 +284,10 @@ func buildActiveRecoveryAuthorityEvidence(
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	builder, err := newRecoveryAuthorityBuilder(paths)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	for _, effect := range []mutation.PathEffect{
 		mutation.PathEffectDirectoryEntry,
 		mutation.PathEffectReferent,
@@ -439,7 +442,10 @@ func buildCleanupRecoveryAuthorityEvidence(
 		filepath.Join(paths.RecoveryDir, authority.ResidueName()),
 		filepath.Join(paths.RecoveryDir, authority.GCName()),
 	}
-	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	builder, err := newRecoveryAuthorityBuilder(paths)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	for _, path := range recoveryPaths {
 		for _, effect := range []mutation.PathEffect{
 			mutation.PathEffectDirectoryEntry,
@@ -463,6 +469,18 @@ func buildCleanupRecoveryAuthorityEvidence(
 		domains:              domains,
 		authorityFingerprint: fingerprint,
 	}, nil
+}
+
+func newRecoveryAuthorityBuilder(paths daempaths.Paths) (*operationplan.Builder, error) {
+	marker, err := recoverygate.GlobalMetadataAuthorityPath(paths)
+	if err != nil {
+		return nil, err
+	}
+	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	if err := builder.AddLogicalPair(marker, mutation.AccessShared, mutation.AccessShared); err != nil {
+		return nil, err
+	}
+	return builder, nil
 }
 
 func lowerRecoveryAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {

@@ -311,6 +311,9 @@ func Execute(
 		execution.physicalPathBudget,
 	)
 	if err != nil {
+		if recoverygate.IsCancellation(err) || recoverygate.IsGlobalMetadataRefusal(err) {
+			return result, err
+		}
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	if current.plan.Blocked() || current.plan.HasErrors() {

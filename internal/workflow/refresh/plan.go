@@ -538,8 +538,7 @@ func isPreservedReplanCause(err error) bool {
 	if recoverygate.IsCancellation(err) {
 		return true
 	}
-	state := recoverygate.StateOf(err)
-	return state.Observed()
+	return recoverygate.IsBarrierRefusal(err)
 }
 
 func mapPreservedReplanCause(result CommandResult, err error) (CommandResult, error, bool) {

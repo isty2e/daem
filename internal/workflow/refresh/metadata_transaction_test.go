@@ -202,6 +202,25 @@ func TestRefreshExecutePreservesAbandonedFileSetResidueAfterPlanning(t *testing.
 	}
 }
 
+func TestRefreshExecutionPreservesGlobalMetadataRefusal(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", filepath.Join(t.TempDir(), "data"))
+	manifestPath := writeNoObserverRefreshFixture(t)
+	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath, ExtensionID: "formatter"}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = prepared.Close() })
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+	result, err := Execute(t.Context(), prepared, ExecuteOptions{})
+	if !errors.Is(err, recoverygate.ErrGlobalMetadataFence) || result.ReasonCode != ReasonMutationAuthority || result.Attempted {
+		t.Fatalf("shared metadata refusal became %q, attempted=%t: %v", result.ReasonCode, result.Attempted, err)
+	}
+}
+
 func TestRefreshPlanningFailsClosedOnUncanonicalizableStateDir(t *testing.T) {
 	manifestPath := writeNoObserverRefreshFixture(t)
 	paths, err := daempaths.Resolve(manifestPath)

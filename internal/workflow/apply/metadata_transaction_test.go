@@ -15,6 +15,7 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/recoverygate"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
 
 func TestApplyPlanningFailsClosedOnInterruptedMetadataTransaction(t *testing.T) {
@@ -49,6 +50,24 @@ func TestApplyExecutionRejectsMetadataTransactionStartedAfterPlanning(t *testing
 	_, err = ExecuteWithOptions(context.Background(), prepared, ExecuteOptions{})
 	if err == nil {
 		t.Fatal("ExecuteWithOptions succeeded after metadata transaction evidence appeared")
+	}
+}
+
+func TestApplyExecutionPreservesGlobalMetadataRefusal(t *testing.T) {
+	manifestPath, _ := applyMetadataTransactionFixture(t)
+	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = prepared.Close() })
+	paths := applyTestPaths(t, filepath.Dir(manifestPath))
+	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+	result, err := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{PlanWasDisclosed: true})
+	if !errors.Is(err, recoverygate.ErrGlobalMetadataFence) {
+		t.Fatal("execution lost the shared metadata refusal", err)
+	}
+	if reason := ClassifyFailure(err, result).Reason(); reason != FailureReasonApplyRefused {
+		t.Fatalf("shared metadata refusal became %q instead of apply refusal", reason)
 	}
 }
 

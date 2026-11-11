@@ -104,6 +104,17 @@ func Execute(ctx context.Context, prepared Prepared) (result protection.Result, 
 
 func recoveryDomains(prepared Prepared, eligibility map[string]error) ([]mutation.Domain, error) {
 	var domains []mutation.Domain
+	marker, err := recoverygate.GlobalMetadataAuthorityPath(prepared.paths)
+	if err != nil {
+		return nil, err
+	}
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: marker, Access: mutation.AccessShared, Effect: effect})
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
 	paths := []string{prepared.paths.OwnershipRegistryPath, prepared.paths.RecoveryDir, prepared.paths.StatefilePath}
 	for _, row := range prepared.rows {
 		for _, document := range row.Documents() {

@@ -14,8 +14,14 @@ import (
 
 func recoveryPaths(ctx context.Context, input PlanInput) (daempaths.Paths, error) {
 	paths, err := daempaths.Resolve(input.ManifestPath)
-	if err != nil || !input.LegacyUserState {
+	if err != nil {
 		return paths, err
+	}
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, paths); err != nil {
+		return daempaths.Paths{}, err
+	}
+	if !input.LegacyUserState {
+		return paths, nil
 	}
 	legacy, err := paths.LegacyUserState()
 	if err != nil {

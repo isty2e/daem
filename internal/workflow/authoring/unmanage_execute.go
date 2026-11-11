@@ -89,8 +89,9 @@ func recoverUnmanageFileSetBeforeRead(
 	}
 	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(
 		operationplan.MetadataDomainInput{
-			TargetPaths: targetPaths,
-			MarkerPath:  markerPath,
+			TargetPaths:     targetPaths,
+			MarkerPath:      markerPath,
+			TrailingDomains: barrier.Domains(),
 		},
 	))
 	if err != nil {

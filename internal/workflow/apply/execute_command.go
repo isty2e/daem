@@ -817,8 +817,7 @@ func staleApplyError(disclosed bool, cause error) error {
 	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 		return cause
 	}
-	state := recoverygate.StateOf(cause)
-	if state.Observed() {
+	if recoverygate.IsBarrierRefusal(cause) {
 		return cause
 	}
 	var stale error = mutation.StaleSnapshotError{}

@@ -148,6 +148,7 @@ func TestEnsureStateDirForEffectFaultMatrix(t *testing.T) {
 		root := t.TempDir()
 		stateDir := filepath.Join(root, ".daem")
 		authority, err := NewEffectAuthority(t.Context(), daempaths.Paths{
+			DataDir:     filepath.Join(t.TempDir(), "data"),
 			StateDir:    stateDir,
 			RecoveryDir: filepath.Join(stateDir, "recovery"),
 		})
@@ -168,6 +169,7 @@ func TestEnsureStateDirForEffectFaultMatrix(t *testing.T) {
 		root := t.TempDir()
 		stateDir := filepath.Join(root, ".daem")
 		authority, err := NewEffectAuthority(t.Context(), daempaths.Paths{
+			DataDir:     filepath.Join(t.TempDir(), "data"),
 			StateDir:    stateDir,
 			RecoveryDir: filepath.Join(stateDir, "recovery"),
 		})

@@ -19,6 +19,7 @@ func TestAbsentStateDirBarrierUsesTransferredCensusAuthority(t *testing.T) {
 	censusErr := errors.New("injected retained census failure")
 	stateDir := &absentBarrierAuthority{requireClearErr: censusErr}
 	err := validateBarrier(t.Context(), daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    filepath.Join(t.TempDir(), ".daem"),
 		RecoveryDir: filepath.Join(t.TempDir(), "recovery"),
 	}, stateDir)
@@ -61,6 +62,7 @@ func TestForwardEffectReservationRejectsCensusWorkBeforeProviderEffect(t *testin
 		t.Fatal(err)
 	}
 	paths := daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	}
@@ -103,6 +105,7 @@ func TestForwardEffectReservationRejectsHighCardinalityBeforeProviderEffect(t *t
 		t.Fatal(err)
 	}
 	paths := daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	}
@@ -160,6 +163,7 @@ func TestEffectAuthorityRejectsStateDirDirectoryReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	}
@@ -197,6 +201,10 @@ func (authority *absentBarrierAuthority) RequireClear(context.Context) error {
 
 func (*absentBarrierAuthority) EnsureOwnedIncarnation(context.Context) (bool, error) {
 	return false, nil
+}
+
+func (*absentBarrierAuthority) workBudget() stateDirPhysicalWorkBudget {
+	return &stateDirOperationWorkBudget{}
 }
 
 type forwardEffectPathBudget struct {
@@ -238,6 +246,7 @@ func TestEffectAuthorityCreatesStateDirBetweenPeerAuthorityValidations(t *testin
 	root := t.TempDir()
 	stateDir := filepath.Join(root, ".daem")
 	authority, err := NewEffectAuthority(t.Context(), daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	})
@@ -285,6 +294,7 @@ func TestEffectAuthorityDoesNotCreateStateDirAfterPeerValidationFailure(t *testi
 	root := t.TempDir()
 	stateDir := filepath.Join(root, ".daem")
 	authority, err := NewEffectAuthority(t.Context(), daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	})
@@ -309,6 +319,7 @@ func TestEffectAuthorityCreatesAndBindsFirstStateDirIncarnation(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, ".daem")
 	paths := daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	}

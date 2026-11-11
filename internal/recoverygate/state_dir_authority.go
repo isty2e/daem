@@ -612,6 +612,13 @@ func (authority StateDirAuthority) RequireClear(ctx context.Context) error {
 	return authority.requireClearWithBudget(ctx, authority.state.physicalWorkBudget)
 }
 
+func (authority StateDirAuthority) workBudget() stateDirPhysicalWorkBudget {
+	if authority.state == nil {
+		return nil
+	}
+	return authority.state.physicalWorkBudget
+}
+
 func (authority StateDirAuthority) requireClearWithBudget(
 	ctx context.Context,
 	physicalWorkBudget stateDirPhysicalWorkBudget,

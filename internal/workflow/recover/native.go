@@ -92,7 +92,10 @@ func nativeRecoveryOperationFingerprint(paths daempaths.Paths, plan journal.Nati
 }
 
 func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority, budget rootedpath.PhysicalTraversalBudget) (recoveryAuthorityEvidence, error) {
-	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	builder, err := newRecoveryAuthorityBuilder(paths)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	stateFingerprint, err := stateDir.IdentityFingerprint()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err

@@ -287,6 +287,7 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 	registry := fixture.globalClaims
 	stateDir := filepath.Dir(fixture.statePath)
 	barrier, err := recoverygate.NewEffectAuthority(t.Context(), daempaths.Paths{
+		DataDir:     filepath.Join(fixture.root, "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	})
