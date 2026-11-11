@@ -318,10 +318,10 @@ func TestNormalizeRejectsContradictoryWitnessesForOnePathKey(t *testing.T) {
 	store := mutationTestStore(t)
 	left := Domain{
 		kind: domainLogicalPath, access: AccessShared, canonicalPath: key,
-		pathWitness: "test-v1:ss", requestedPath: key, effect: PathEffectDirectoryEntry,
+		pathWitness: "darwin-case-v1:ss", requestedPath: key, effect: PathEffectDirectoryEntry,
 	}
 	right := left
-	right.pathWitness = "test-v1:si"
+	right.pathWitness = "darwin-case-v1:si"
 	if _, err := store.normalize([]Domain{left, right}); err == nil ||
 		!strings.Contains(err.Error(), "contradictory filesystem semantics") {
 		t.Fatalf("normalize error = %v, want contradictory semantics rejection", err)

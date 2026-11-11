@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -87,7 +86,7 @@ func PrepareInvocation(ctx context.Context, input InvocationInput, budget *physi
 		var target invocationDocument
 		for _, binding := range document.Bindings() {
 			paths := contexts[binding.Owner()]
-			path, err := physicalhostpath.NewResolver(paths).Resolve(binding.Destination(), budget)
+			path, err := namespace.ResolveBindingDestination(paths, binding.Destination(), binding.PathAuthority().Key(), budget)
 			if err != nil {
 				return InvocationInput{}, err
 			}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -63,7 +62,7 @@ func (resolution Resolution) CaptureDocument(ctx context.Context, document owner
 		if err != nil {
 			return nil, rootedpath.Destination{}, protection.Refusal(protection.ResolutionContextUnqualified, err)
 		}
-		path, err := physicalhostpath.NewResolver(contextPaths).Resolve(binding.Destination(), budget)
+		path, err := ResolveBindingDestination(contextPaths, binding.Destination(), binding.PathAuthority().Key(), budget)
 		if err != nil {
 			return nil, rootedpath.Destination{}, err
 		}

@@ -270,5 +270,5 @@ func (protection PendingProtection) Equal(other PendingProtection) bool {
 }
 
 func protectionPathsOverlap(left, right pathauthority.Exact) bool {
-	return left.Contains(right) || right.Contains(left)
+	return left.MayOverlap(right)
 }

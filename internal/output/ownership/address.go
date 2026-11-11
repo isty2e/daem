@@ -73,6 +73,15 @@ func (address ManagedAddress) Overlaps(other ManagedAddress) bool {
 	return address.footprint.Overlaps(other.footprint)
 }
 
+// MayOverlap also retains possible legacy namespace collisions for exclusion.
+// Unlike Overlaps, it is not evidence of a proven footprint intersection.
+func (address ManagedAddress) MayOverlap(other ManagedAddress) bool {
+	if address.path.Equal(other.path) {
+		return address.footprint.Overlaps(other.footprint)
+	}
+	return address.path.MayOverlap(other.path)
+}
+
 // Less reports deterministic canonical address order.
 func (address ManagedAddress) Less(other ManagedAddress) bool {
 	if !address.path.Equal(other.path) {

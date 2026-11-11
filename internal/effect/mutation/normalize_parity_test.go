@@ -277,7 +277,7 @@ func directMutationPathDomain(path string, kind domainKind, access AccessMode, t
 		kind:          kind,
 		access:        access,
 		canonicalPath: filepath.Clean(path),
-		pathWitness:   "test-synthetic-v1:",
+		pathWitness:   "exact-v1:",
 		requestedPath: filepath.Clean(path),
 		effect:        PathEffectDirectoryEntry,
 		target:        target,

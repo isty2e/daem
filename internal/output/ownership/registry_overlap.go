@@ -19,7 +19,7 @@ func (registry Registry) Overlapping(address ManagedAddress) ([]Claim, error) {
 	}
 	var result []Claim
 	for _, claim := range registry.claims {
-		if claim.Address().Overlaps(address) {
+		if claim.Address().MayOverlap(address) {
 			result = append(result, claim)
 		}
 	}
@@ -94,7 +94,7 @@ func (registry Registry) RequireWriteExclusion(owner stateauthority.Key, values 
 			return err
 		}
 		for _, claim := range claims {
-			if claim.Address().WholePath() && claim.Address().PathAuthority().Contains(physical) && claim.Owner().Key() != owner {
+			if claim.Address().WholePath() && claim.Address().PathAuthority().MayContain(physical) && claim.Owner().Key() != owner {
 				return &ForeignClaimError{Existing: claim}
 			}
 		}

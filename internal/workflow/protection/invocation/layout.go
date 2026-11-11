@@ -8,7 +8,6 @@ import (
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -123,13 +122,17 @@ func (prepared *prospectiveInvocation) prepareDocument(ctx context.Context, memb
 	if err != nil {
 		return prospectiveInvocationDocument{}, err
 	}
+	physicalPoint, err := member.Namespace().WriterPath()
+	if err != nil {
+		return prospectiveInvocationDocument{}, err
+	}
 	document := prospectiveInvocationDocument{intents: intents}
 	for _, intent := range intents {
 		paths, err := namespace.NewResolution(prepared.qualification.paths, prepared.owner).BindingContext(intent.Owner(), budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
-		path, err := physicalhostpath.NewResolver(paths).Resolve(intent.Destination(), budget)
+		path, err := namespace.ResolveBindingDestination(paths, intent.Destination(), physicalPoint, budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}

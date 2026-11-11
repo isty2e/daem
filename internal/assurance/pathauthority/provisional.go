@@ -46,21 +46,21 @@ func (provisional Provisional) Validate() error {
 	if err := validateWitness(provisional.candidateKey, provisional.candidateWitness); err != nil {
 		return fmt.Errorf("provisional candidate: %w", err)
 	}
-	if !strings.HasPrefix(provisional.candidateWitness, darwinCaseWitnessPrefix) {
+	if !isDarwinWitness(provisional.candidateWitness) {
 		return fmt.Errorf("provisional candidate requires Darwin path semantics")
 	}
 	if err := provisional.namespace.Validate(); err != nil {
 		return fmt.Errorf("provisional namespace: %w", err)
 	}
-	if !strings.HasPrefix(provisional.namespace.Witness(), darwinCaseWitnessPrefix) {
+	if !isDarwinWitness(provisional.namespace.Witness()) {
 		return fmt.Errorf("provisional namespace requires Darwin path semantics")
 	}
 	if !contains(provisional.namespace.Key(), provisional.candidateKey) ||
 		provisional.namespace.Key() == provisional.candidateKey {
 		return fmt.Errorf("provisional candidate must be below its exact namespace")
 	}
-	candidateModes := strings.TrimPrefix(provisional.candidateWitness, darwinCaseWitnessPrefix)
-	namespaceModes := strings.TrimPrefix(provisional.namespace.Witness(), darwinCaseWitnessPrefix)
+	candidateModes := darwinFilesystemModes(provisional.candidateWitness)
+	namespaceModes := darwinFilesystemModes(provisional.namespace.Witness())
 	if !strings.HasPrefix(candidateModes, namespaceModes) {
 		return fmt.Errorf("provisional candidate and namespace have contradictory ancestor semantics")
 	}
@@ -84,7 +84,7 @@ func (provisional Provisional) AdmitsExact(exact Exact) error {
 	if err := exact.Validate(); err != nil {
 		return fmt.Errorf("promoted exact authority: %w", err)
 	}
-	if exact.Witness() != provisional.candidateWitness {
+	if !isDarwinWitness(exact.Witness()) || darwinFilesystemModes(exact.Witness()) != darwinFilesystemModes(provisional.candidateWitness) {
 		return fmt.Errorf("promoted exact authority has different filesystem semantics")
 	}
 	if !contains(provisional.namespace.Key(), exact.Key()) ||
@@ -112,7 +112,8 @@ func (provisional Provisional) CandidateWithin(exact Exact) bool {
 	if provisional.Validate() != nil || exact.Validate() != nil {
 		return false
 	}
-	return contains(exact.Key(), provisional.candidateKey)
+	return contains(exact.Key(), provisional.candidateKey) ||
+		legacyContains(exact.Key(), exact.Witness(), provisional.candidateKey, provisional.candidateWitness)
 }
 
 // CouldEqual excludes incompatible promotion depth or stable ASCII components.
@@ -196,6 +197,10 @@ func (provisional Provisional) CouldOverlap(exact Exact) bool {
 	if exact.Contains(provisional.namespace) {
 		return true
 	}
+	if legacyContains(exact.Key(), exact.Witness(), provisional.namespace.Key(), provisional.namespace.Witness()) ||
+		legacyContains(provisional.namespace.Key(), provisional.namespace.Witness(), exact.Key(), exact.Witness()) {
+		return true
+	}
 	if !provisional.namespace.Contains(exact) {
 		return false
 	}
@@ -219,8 +224,24 @@ func (provisional Provisional) MatchesMissingExact(exact Exact) bool {
 	if provisional.Validate() != nil || exact.Validate() != nil {
 		return false
 	}
-	return provisional.candidateKey == exact.Key() &&
-		provisional.candidateWitness == exact.Witness()
+	if provisional.candidateKey == exact.Key() && provisional.candidateWitness == exact.Witness() {
+		return true
+	}
+	return strings.HasPrefix(exact.Witness(), darwinCaseWitnessPrefix) &&
+		strings.HasPrefix(provisional.candidateWitness, darwinNativeWitnessPrefix) &&
+		darwinFilesystemModes(provisional.candidateWitness) == darwinFilesystemModes(exact.Witness()) &&
+		darwinLegacyComparisonKey(provisional.candidateKey, provisional.candidateWitness) == exact.Key()
+}
+
+// LegacyComparisonKey indexes recorded comparison history, not an access path.
+func (provisional Provisional) LegacyComparisonKey() (string, bool) {
+	if strings.HasPrefix(provisional.candidateWitness, darwinCaseWitnessPrefix) {
+		return provisional.candidateKey, false
+	}
+	if !strings.HasPrefix(provisional.candidateWitness, darwinNativeWitnessPrefix) {
+		return "", false
+	}
+	return darwinLegacyComparisonKey(provisional.candidateKey, provisional.candidateWitness), true
 }
 
 // Equal reports equality of the complete provisional observation.

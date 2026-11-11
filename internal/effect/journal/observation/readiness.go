@@ -53,6 +53,15 @@ func nativeDocumentClaimBaseline(namespace journalnamespace.DocumentNamespace, o
 			return pathauthority.Exact{}, nil, fmt.Errorf("native history requires a current namespace observation")
 		}
 		previous := owned[missing.CandidateKey()]
+		if legacy, present := missing.LegacyComparisonKey(); present {
+			historical := owned[legacy]
+			if len(previous) != 0 && len(historical) != 0 {
+				return pathauthority.Exact{}, nil, fmt.Errorf("native history has ambiguous legacy and native namespaces")
+			}
+			if len(previous) == 0 {
+				previous = historical
+			}
+		}
 		if len(before) == 0 && len(previous) == 0 {
 			return pathauthority.Exact{}, nil, nil
 		}

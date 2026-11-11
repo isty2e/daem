@@ -237,7 +237,7 @@ func matchRetainedNativeObservation(record recoveryDocumentObservation, current 
 		if err != nil {
 			return err
 		}
-		if exact, known := current.Exact(); known && exact.Equal(expected) {
+		if exact, known := current.Exact(); known && (exact.Equal(expected) || exact.MatchesLegacyComparison(expected)) {
 			return nil
 		}
 		if missing, known := current.Provisional(); known && missing.MatchesMissingExact(expected) {

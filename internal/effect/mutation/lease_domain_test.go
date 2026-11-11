@@ -23,6 +23,14 @@ func TestNormalizeDomainsCoalescesModesAndPreservesSharedDescendant(t *testing.T
 	assertMutationTestDomainMode(t, normalized, pathKey(child.canonicalPath), AccessExclusive)
 }
 
+func TestNormalizeDomainsRejectsInvalidPathWitness(t *testing.T) {
+	domain := mutationTestLogicalDomain(t, filepath.Join(t.TempDir(), "resource"), AccessShared)
+	domain.pathWitness = "unsupported-filesystem-policy"
+	if normalized, err := mutationTestStore(t).normalize([]Domain{domain}); err == nil || normalized != nil {
+		t.Fatal("invalid authority produced mutation locks", normalized, err)
+	}
+}
+
 func TestNormalizeDomainsExclusiveAncestorSubsumesPathButKeepsHostIntent(t *testing.T) {
 	root := t.TempDir()
 	parent := mutationTestLogicalDomain(t, root, AccessExclusive)

@@ -95,7 +95,7 @@ func (registry Registry) Exact(address ManagedAddress) (Claim, bool) {
 	return Claim{}, false
 }
 
-// Conflict returns the first canonically ordered claim overlapping address.
+// Conflict returns the first canonically ordered claim possibly overlapping address.
 func (registry Registry) Conflict(address ManagedAddress) (Claim, bool) {
 	if address.Validate() != nil {
 		return Claim{}, false
@@ -113,7 +113,7 @@ func (registry Registry) ProvisionalAncestorConflict(candidate pathauthority.Pro
 	if candidate.Validate() != nil {
 		return Claim{}, false
 	}
-	if index, found := registry.overlaps.firstPhysicalAncestor(candidate.CandidateKey()); found {
+	if index, found := registry.overlaps.firstProvisional(candidate); found {
 		return registry.claims[index], true
 	}
 	return Claim{}, false
