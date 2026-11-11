@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -195,8 +196,12 @@ func validateLoadedStateAuthority(
 	snapshot durable.Snapshot,
 	authority mutation.PersistedDirectoryEntryAuthority,
 ) error {
+	return validateSnapshotStatefileIdentity(snapshot, authority.Exact())
+}
+
+func validateSnapshotStatefileIdentity(snapshot durable.Snapshot, authority pathauthority.Exact) error {
 	for index, pending := range snapshot.PendingCarrierInstalls() {
-		if !authority.Exact().Equal(pending.Owner().StatefileAuthority()) {
+		if !authority.Equal(pending.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"pending_carrier_installs[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
@@ -206,7 +211,7 @@ func validateLoadedStateAuthority(
 		}
 	}
 	for index, pending := range snapshot.PendingCarrierRemovals() {
-		if !authority.Exact().Equal(pending.Owner().StatefileAuthority()) {
+		if !authority.Equal(pending.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"pending_carrier_removals[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
@@ -216,7 +221,7 @@ func validateLoadedStateAuthority(
 		}
 	}
 	for index, claim := range snapshot.ManagedCarrierClaims() {
-		if !authority.Exact().Equal(claim.Owner().StatefileAuthority()) {
+		if !authority.Equal(claim.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"managed_carrier_claims[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,

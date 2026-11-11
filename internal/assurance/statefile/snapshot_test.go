@@ -1212,6 +1212,16 @@ func testV9CarrierIdentity(
 	sourceRef string,
 ) (durablecarrier.ManagedCarrierIdentity, realizationdelegate.Request) {
 	t.Helper()
+	return stateCarrierIdentity(t, name, sourceRef, target.ScopeProject)
+}
+
+func stateCarrierIdentity(
+	t *testing.T,
+	name string,
+	sourceRef string,
+	scope target.Scope,
+) (durablecarrier.ManagedCarrierIdentity, realizationdelegate.Request) {
+	t.Helper()
 	source, err := desiredextension.NewSourceRef(
 		desiredextension.SourceKindMarketplace,
 		sourceRef,
@@ -1223,7 +1233,7 @@ func testV9CarrierIdentity(
 		Name:    name,
 		Carrier: desiredextension.CarrierClaudeCodePlugin,
 		Target:  target.TargetClaudeCode,
-		Scope:   target.ScopeProject,
+		Scope:   scope,
 		Source:  source,
 	})
 	if err != nil {
