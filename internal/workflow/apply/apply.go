@@ -86,7 +86,8 @@ type runOptions struct {
 	afterNativeProviders              func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims, mutation.OperationFingerprint) (applyContinuationPlan, error)
 	afterHostRoutes                   func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
 	afterDelegates                    func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
-	persistenceCodec                  durable.SnapshotCodec
+	journalStateCodec                 durable.SnapshotCodec
+	physicalStateCodec                statefile.PhysicalCodec
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -104,9 +105,9 @@ func (options runOptions) markAttempted() {
 	}
 }
 
-func (options runOptions) stateCodec() durable.SnapshotCodec {
-	if options.persistenceCodec != nil {
-		return options.persistenceCodec
+func (options runOptions) journalCodec() durable.SnapshotCodec {
+	if options.journalStateCodec != nil {
+		return options.journalStateCodec
 	}
 	return statefile.Codec{}
 }
@@ -225,7 +226,8 @@ func runWithOptions(
 			ProjectRoot:                 options.projectRoot,
 			Codecs:                      aggregatecodec.Catalog(),
 			OwnershipRegistryBinder:     ownershipstore.BindRooted,
-			StateCodec:                  options.stateCodec(),
+			StateCodec:                  options.journalCodec(),
+			StatefileCodec:              options.physicalStateCodec,
 			Filesystem:                  filesystem,
 		}, execute.ApplyOptions{
 			Events:                              options.ExecuteEvents,
@@ -295,7 +297,8 @@ func runWithOptions(
 		ProjectRoot:                 options.projectRoot,
 		Codecs:                      aggregatecodec.Catalog(),
 		OwnershipRegistryBinder:     ownershipstore.BindRooted,
-		StateCodec:                  options.stateCodec(),
+		StateCodec:                  options.journalCodec(),
+		StatefileCodec:              options.physicalStateCodec,
 		Filesystem:                  filesystem,
 	}, execute.ApplyOptions{
 		Events:                              options.ExecuteEvents,

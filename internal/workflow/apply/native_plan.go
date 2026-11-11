@@ -39,6 +39,7 @@ type nativePlanInputs struct {
 	state          effectpreparation.NativeApplyStatePreparation
 	codecs         aggregate.CodecCatalog
 	stateCodec     durable.SnapshotCodec
+	statefileCodec statefile.PhysicalCodec
 	stateDocuments []aggregate.DocumentAddress
 	opaque         bool
 	prefix         effectpreparation.NativeApplyStatePreparation
@@ -139,11 +140,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			}
 		}
 	}
-	codecs, err := nativeconfig.Codecs(ctx)
-	if err != nil {
-		return err
-	}
-	codec, err := statefile.NewNativeCodec(codecs.Contributions())
+	codecs, codec, physicalCodec, err := nativePersistenceCodecs(ctx)
 	if err != nil {
 		return err
 	}
@@ -246,7 +243,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, orders: nativeOrders}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, statefileCodec: physicalCodec, stateDocuments: documents, orders: nativeOrders}
 	if opaque {
 		return prepareNativeInvocationRemainder(ctx, planned)
 	}
@@ -330,7 +327,7 @@ func nativeApplyInputFor(current commandPlan) (nativeoperation.NativeApplyInput,
 			CurrentState: current.assessment.CurrentState, GlobalCarrierClaims: current.assessment.GlobalCarrierClaims,
 			ManagedPathEvidence: current.assessment.ManagedPathEvidence,
 			Owner:               current.assessment.Owner, Ownership: current.assessment.Ownership, ProjectRoot: current.projectRoot,
-			Codecs: current.nativePlan.codecs, StateCodec: current.nativePlan.stateCodec, Filesystem: storagecommit.Adapter{}, OwnershipRegistryBinder: ownershipstore.BindRooted,
+			Codecs: current.nativePlan.codecs, StateCodec: current.nativePlan.stateCodec, StatefileCodec: current.nativePlan.statefileCodec, Filesystem: storagecommit.Adapter{}, OwnershipRegistryBinder: ownershipstore.BindRooted,
 		},
 		Preparation: current.nativePlan.state, Documents: *input.Documents, Registry: input.Registry, Budget: input.Budget, RecoveryCodecs: nativePersistenceCodecs,
 	}, nil
@@ -420,11 +417,15 @@ func applyOperationFingerprint(planned commandPlan, operationContext reconcile.O
 	return operationplan.NativeApplyOperationFingerprint(identity, facts)
 }
 
-func nativePersistenceCodecs(ctx context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error) {
+func nativePersistenceCodecs(ctx context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, statefile.PhysicalCodec, error) {
 	codecs, err := nativeconfig.Codecs(ctx)
 	if err != nil {
-		return aggregate.CodecCatalog{}, nil, err
+		return aggregate.CodecCatalog{}, nil, statefile.PhysicalCodec{}, err
 	}
 	codec, err := statefile.NewNativeCodec(codecs.Contributions())
-	return codecs, codec, err
+	if err != nil {
+		return aggregate.CodecCatalog{}, nil, statefile.PhysicalCodec{}, err
+	}
+	physicalCodec, err := statefile.NewPhysicalCodec(codec)
+	return codecs, codec, physicalCodec, err
 }

@@ -21,8 +21,8 @@ import (
 func TestSelectedStatefileReadRetainsAllocationAndEntryCustody(t *testing.T) {
 	store := &observedStatefileStore{Store: storagecommit.Adapter{}}
 	selected, _, budget := selectedStatefileFixture(t, store)
-	codec := statefile.Codec{}
-	content, err := codec.Encode(durable.EmptySnapshot())
+	codec := statefile.DefaultPhysicalCodec()
+	content, err := codec.EncodeState(durable.EmptySnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,13 +63,13 @@ func TestSelectedStatefileReadMissingAndUncertainBytes(t *testing.T) {
 	store := &observedStatefileStore{Store: storagecommit.Adapter{}}
 	selected, _, budget := selectedStatefileFixture(t, store)
 	remaining := budget.RemainingBytes()
-	state, err := selected.Read(t.Context(), statefile.Codec{}, budget)
+	state, err := selected.Read(t.Context(), statefile.DefaultPhysicalCodec(), budget)
 	if err != nil || !state.Equal(durable.EmptySnapshot()) || budget.RemainingBytes() != remaining {
 		t.Fatalf("missing statefile did not retain empty state and zero byte work: %v", err)
 	}
 
 	store.readFailure = errors.New("uncertain statefile read")
-	if _, err := selected.Read(t.Context(), statefile.Codec{}, budget); !errors.Is(err, store.readFailure) {
+	if _, err := selected.Read(t.Context(), statefile.DefaultPhysicalCodec(), budget); !errors.Is(err, store.readFailure) {
 		t.Fatalf("state reread error = %v, want injected read failure", err)
 	}
 	if remaining-budget.RemainingBytes() != min(remaining, recovery.MaximumRecoveryBackupFileBytes) {

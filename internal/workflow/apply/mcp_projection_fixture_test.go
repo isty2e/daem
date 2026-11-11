@@ -105,6 +105,9 @@ func (effects *standaloneStatefileEffects) ValidateStateDir(ctx context.Context)
 
 func applyDelegateRunOptions(t *testing.T, paths daempaths.Paths, options runOptions) runOptions {
 	t.Helper()
+	if options.physicalStateCodec.IsZero() {
+		options.physicalStateCodec = statefile.DefaultPhysicalCodec()
+	}
 	root, err := rootedpath.CaptureRoot(paths.ManifestRoot)
 	if err != nil {
 		t.Fatalf("CaptureRoot returned error: %v", err)

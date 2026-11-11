@@ -114,13 +114,13 @@ func (fixture *applyEventFixture) input(actions []applyEventAction) ApplyInput {
 		panic(err)
 	}
 	return ApplyInput{
-		Paths:                   fixture.paths,
-		Resolver:                destinationResolver(fixture.paths),
-		ManagedPathEffects:      effects,
-		ManagedPathEvidence:     evidence,
-		CurrentState:            fixture.current,
-		Payloads:                payloads,
-		StateCodec:              testStateCodec(),
+		Paths:               fixture.paths,
+		Resolver:            destinationResolver(fixture.paths),
+		ManagedPathEffects:  effects,
+		ManagedPathEvidence: evidence,
+		CurrentState:        fixture.current,
+		Payloads:            payloads,
+		StateCodec:          testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
 		Filesystem:              testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}

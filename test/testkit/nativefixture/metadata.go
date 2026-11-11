@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 func RequireLifecycleMetadata(t *testing.T, manifest string, managed bool) {
@@ -34,7 +35,7 @@ func RequireLifecycleMetadataForScope(t *testing.T, manifest string, managed boo
 	}
 
 	budget := physicalwork.NewCaptureBudget(nil)
-	state, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: budget})
+	state, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, codec), PhysicalPathBudget: budget})
 	if err != nil || state.ContainsHostConfig() != managed {
 		t.Fatal("persisted native ownership does not match the applied lifecycle", err)
 	}

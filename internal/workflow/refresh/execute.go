@@ -576,7 +576,7 @@ func Execute(
 							entry,
 							current.currentState,
 							[]durableattempt.HostRouteAttempt{record},
-							statefile.Codec{},
+							statefile.DefaultPhysicalCodec(),
 						)
 						return commitErr
 					},

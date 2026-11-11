@@ -61,7 +61,7 @@ func runPinTransition(
 				return entryErr
 			}
 			commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
-				return execute.CommitReservedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, options.stateCodec())
+				return execute.CommitReservedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, options.physicalStateCodec)
 			}
 			if budget == nil {
 				state, err = commit(entry)
@@ -145,7 +145,7 @@ func runPinTransition(
 			if entryErr != nil {
 				return state, claims, records, entryErr
 			}
-			state, err = execute.CommitCompletedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, correlation, options.stateCodec())
+			state, err = execute.CommitCompletedProjectPinTransition(ctx, storagecommit.Adapter{}, entry, state, transition, correlation, options.physicalStateCodec)
 		}
 		if err != nil {
 			return state, claims, records, fmt.Errorf("complete Pi pin transition management: %w", err)
@@ -159,7 +159,7 @@ func runPinTransition(
 	if err != nil {
 		return state, claims, records, err
 	}
-	state, err = execute.CommitHostRouteAttempts(ctx, storagecommit.Adapter{}, entry, state, records, options.stateCodec())
+	state, err = execute.CommitHostRouteAttempts(ctx, storagecommit.Adapter{}, entry, state, records, options.physicalStateCodec)
 	if err != nil {
 		return state, claims, records, err
 	}

@@ -58,7 +58,7 @@ type carrierRemovalInput struct {
 	StatePath                 string
 	SelectedRoot              string
 	Current                   durable.Snapshot
-	StateEncoder              durable.SnapshotEncoder
+	StatefileCodec            statefile.PhysicalCodec
 	GlobalClaims              durablecarrier.GlobalCarrierClaims
 	Actions                   []carrierabsence.Action
 	RelationAuthorityPaths    []observerelation.AuthorityPath
@@ -83,13 +83,6 @@ func (input carrierRemovalInput) markAttempted() {
 	if input.MarkExecutionAttempted != nil {
 		input.MarkExecutionAttempted()
 	}
-}
-
-func (input carrierRemovalInput) stateEncoder() durable.SnapshotEncoder {
-	if input.StateEncoder != nil {
-		return input.StateEncoder
-	}
-	return statefile.Codec{}
 }
 
 func (input carrierRemovalInput) closeBoundRemoval(
@@ -628,7 +621,7 @@ func runOne(
 				}
 				input.markAttempted()
 				commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
-					next, nextPending, err := execute.CommitPendingCarrierRemoval(ctx, filesystem(input), entry, result.State, result.GlobalClaims, action, baselines, input.stateEncoder())
+					next, nextPending, err := execute.CommitPendingCarrierRemoval(ctx, filesystem(input), entry, result.State, result.GlobalClaims, action, baselines, input.StatefileCodec)
 					if err == nil {
 						pending = nextPending
 					}
@@ -1119,7 +1112,7 @@ func persistAttempt(
 				entry,
 				result.State,
 				[]durableattempt.HostRouteAttempt{record},
-				input.stateEncoder(),
+				input.StatefileCodec,
 			)
 			if err != nil {
 				return fmt.Errorf("persist carrier removal attempt: %w", err)

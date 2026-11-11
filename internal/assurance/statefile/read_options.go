@@ -15,14 +15,14 @@ import (
 
 // ReadOptions binds filesystem loading to an operation-selected codec and path budget.
 type ReadOptions struct {
-	Codec              durable.SnapshotCodec
+	Codec              PhysicalCodec
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
 }
 
 // LoadOptionalWithOptions reads complete state with the selected codec. Missing
 // files and exact empty retirement records retain their ordinary empty meaning.
 func LoadOptionalWithOptions(ctx context.Context, path string, options ReadOptions) (durable.Snapshot, error) {
-	if ctx == nil || options.Codec == nil || options.PhysicalPathBudget == nil {
+	if ctx == nil || options.Codec.IsZero() || options.PhysicalPathBudget == nil {
 		return durable.Snapshot{}, fmt.Errorf("statefile context, selected codec and path budget are required")
 	}
 	if err := ctx.Err(); err != nil {
@@ -54,7 +54,7 @@ func LoadOptionalWithOptions(ctx context.Context, path string, options ReadOptio
 	if version == retiredStatefileVersion {
 		snapshot, err = decodeRetiredStatefile(content)
 	} else {
-		snapshot, err = options.Codec.Decode(content)
+		snapshot, err = options.Codec.DecodeState(content)
 	}
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("decode selected statefile: %w", err)

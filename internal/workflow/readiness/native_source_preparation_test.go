@@ -23,6 +23,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -152,7 +153,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Fatal(err)
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
-	loaded, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: budget})
+	loaded, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, codec), PhysicalPathBudget: budget})
 	if err != nil || !loaded.Equal(before) {
 		t.Fatal("actual native state did not retain its baseline", err)
 	}
@@ -356,7 +357,7 @@ func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T)
 		t.Fatal(err)
 	}
 	requireNativePreparationFile(t, fixture.paths.StatefilePath, content)
-	fixture.observation.Before, err = statefile.LoadOptionalWithOptions(t.Context(), fixture.paths.StatefilePath, statefile.ReadOptions{Codec: fixture.codec, PhysicalPathBudget: fixture.observation.Budget})
+	fixture.observation.Before, err = statefile.LoadOptionalWithOptions(t.Context(), fixture.paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.codec), PhysicalPathBudget: fixture.observation.Budget})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -281,8 +281,8 @@ func globalManagedPathRemovalInput(
 		ManagedPathEffects: []effectpreparation.ManagedPathEffect{effect}, ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
 		CurrentState: current, Owner: owner, Ownership: []observe.OwnershipObservation{ownershipObservation},
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
-		StateCodec:              testStateCodec(),
-		Filesystem:              testFilesystem(),
+		StateCodec:              testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
+		Filesystem: testFilesystem(),
 	}
 }
 

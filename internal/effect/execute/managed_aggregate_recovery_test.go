@@ -80,12 +80,12 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 		journalCapture, journalCaptureErr = readTreeBytes(paths.RecoveryDir)
 	})
 	_, err := ApplyWithOptions(context.Background(), ApplyInput{
-		Paths:                   paths,
-		Resolver:                destinationResolver(paths),
-		AggregateEffects:        effects,
-		CurrentState:            durable.EmptySnapshot(),
-		Codecs:                  testAggregateCodecs(),
-		StateCodec:              testStateCodec(),
+		Paths:            paths,
+		Resolver:         destinationResolver(paths),
+		AggregateEffects: effects,
+		CurrentState:     durable.EmptySnapshot(),
+		Codecs:           testAggregateCodecs(),
+		StateCodec:       testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
 		Filesystem:              testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
@@ -147,12 +147,12 @@ func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *test
 	}
 
 	_, err := ApplyWithOptions(context.Background(), ApplyInput{
-		Paths:                   paths,
-		Resolver:                destinationResolver(paths),
-		AggregateEffects:        effects,
-		CurrentState:            durable.EmptySnapshot(),
-		Codecs:                  testAggregateCodecs(),
-		StateCodec:              testStateCodec(),
+		Paths:            paths,
+		Resolver:         destinationResolver(paths),
+		AggregateEffects: effects,
+		CurrentState:     durable.EmptySnapshot(),
+		Codecs:           testAggregateCodecs(),
+		StateCodec:       testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
 		Filesystem:              testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
@@ -250,7 +250,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
 		AggregateEffects:    aggregateEffects,
 		CurrentState:        durable.EmptySnapshot(), Payloads: payloads,
-		Codecs: testAggregateCodecs(), StateCodec: testStateCodec(), Filesystem: testFilesystem(),
+		Codecs: testAggregateCodecs(), StateCodec: testStateCodec(), StatefileCodec: testPhysicalStateCodec(), Filesystem: testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		Events: func(event executionevent.Event) {
@@ -302,8 +302,8 @@ func TestApplyRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 		Resolver:         destinationResolver(paths),
 		AggregateEffects: effects,
 		CurrentState:     durable.EmptySnapshot(),
-		StateCodec:       testStateCodec(),
-		Filesystem:       testFilesystem(),
+		StateCodec:       testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
+		Filesystem: testFilesystem(),
 	}, ApplyOptions{})
 	if err == nil || !strings.Contains(err.Error(), "unsupported recovery aggregate codec") {
 		t.Fatalf("ApplyWithOptions error = %v, want missing aggregate codec rejection", err)
@@ -339,12 +339,12 @@ func TestRecoveryRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 	paths := managedAggregateTestPaths(root, dataDir)
 
 	_, err := ApplyWithOptions(context.Background(), ApplyInput{
-		Paths:                   paths,
-		Resolver:                destinationResolver(paths),
-		AggregateEffects:        effects,
-		CurrentState:            durable.EmptySnapshot(),
-		Codecs:                  testAggregateCodecs(),
-		StateCodec:              testStateCodec(),
+		Paths:            paths,
+		Resolver:         destinationResolver(paths),
+		AggregateEffects: effects,
+		CurrentState:     durable.EmptySnapshot(),
+		Codecs:           testAggregateCodecs(),
+		StateCodec:       testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
 		Filesystem:              testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
@@ -508,7 +508,7 @@ func TestApplyRollsBackMixedAggregateProjectionRowsAfterStatefileFailure(t *test
 	_, err = ApplyWithOptions(context.Background(), ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
 		AggregateEffects: effects, CurrentState: currentState, Codecs: testAggregateCodecs(),
-		StateCodec: testStateCodec(), Filesystem: testFilesystem(),
+		StateCodec: testStateCodec(), StatefileCodec: testPhysicalStateCodec(), Filesystem: testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{
 		commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
@@ -549,8 +549,8 @@ func TestAggregateCancellationAfterJournalLeavesHostUntouched(t *testing.T) {
 		AggregateEffects: effects,
 		CurrentState:     durable.EmptySnapshot(),
 		Codecs:           testAggregateCodecs(),
-		StateCodec:       testStateCodec(),
-		Filesystem:       testFilesystem(),
+		StateCodec:       testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
+		Filesystem: testFilesystem(),
 	}, ApplyOptions{
 		Events: func(event executionevent.Event) {
 			if event.Kind == executionevent.JournalCaptured {
@@ -594,12 +594,12 @@ func TestAggregateCancellationAfterVisibleBatchRollsBackEveryProjection(t *testi
 	paths := managedAggregateTestPaths(root, dataDir)
 	ctx, cancel := context.WithCancel(context.Background())
 	_, err := ApplyWithOptions(ctx, ApplyInput{
-		Paths:                   paths,
-		Resolver:                destinationResolver(paths),
-		AggregateEffects:        effects,
-		CurrentState:            durable.EmptySnapshot(),
-		Codecs:                  testAggregateCodecs(),
-		StateCodec:              testStateCodec(),
+		Paths:            paths,
+		Resolver:         destinationResolver(paths),
+		AggregateEffects: effects,
+		CurrentState:     durable.EmptySnapshot(),
+		Codecs:           testAggregateCodecs(),
+		StateCodec:       testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
 		Filesystem:              testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}, ApplyOptions{

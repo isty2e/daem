@@ -413,6 +413,7 @@ func TestPostApplyCarrierRemovalRejectsStaleGlobalRegistryWithoutLosingBaseline(
 		reconciliation,
 		observerelation.Batch{},
 		runOptions{
+			physicalStateCodec:        input.StatefileCodec,
 			HostRouteExecutor:         input.Executor,
 			CarrierRemovalAdapter:     input.Adapter,
 			CarrierRemovalObserver:    input.Observer,

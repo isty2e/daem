@@ -213,7 +213,7 @@ func newPathAuthorityApplyScenario(t *testing.T, spellings []string) pathAuthori
 		Paths: fixture.paths, Resolver: destinationResolver(fixture.paths),
 		ManagedPathEffects: effects, ManagedPathEvidence: evidence,
 		CurrentState: fixture.current, Payloads: payloadSet,
-		StateCodec: testStateCodec(), Filesystem: testFilesystem(),
+		StateCodec: testStateCodec(), StatefileCodec: testPhysicalStateCodec(), Filesystem: testFilesystem(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 	}
 	return pathAuthorityApplyScenario{

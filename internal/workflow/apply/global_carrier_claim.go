@@ -246,7 +246,7 @@ func commitObservedGlobalCarrierClaimWithContinuation(
 							entry,
 							current,
 							nextRegistry,
-							options.stateCodec(),
+							options.physicalStateCodec,
 						)
 						return entryErr
 					},

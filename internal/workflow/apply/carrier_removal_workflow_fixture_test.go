@@ -297,12 +297,13 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 	effects := &standaloneStatefileEffects{barrier: barrier}
 	fixture.validateStateDir = effects.ValidateStateDir
 	return carrierRemovalInput{
-		StatePath:    fixture.statePath,
-		SelectedRoot: fixture.root,
-		Current:      fixture.current,
-		GlobalClaims: fixture.globalClaims,
-		Actions:      []carrierabsence.Action{fixture.action},
-		ProjectRoot:  fixture.projectRoot,
+		StatefileCodec: statefile.DefaultPhysicalCodec(),
+		StatePath:      fixture.statePath,
+		SelectedRoot:   fixture.root,
+		Current:        fixture.current,
+		GlobalClaims:   fixture.globalClaims,
+		Actions:        []carrierabsence.Action{fixture.action},
+		ProjectRoot:    fixture.projectRoot,
 		Adapter: func(request executehostroute.RemovalRequest) (
 			subprocess.CommandAttemptRequest,
 			error,

@@ -42,6 +42,9 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 				if scope == target.ScopeProject && !committed {
 					input, ordinaryHost = nativeOrderWithOrdinaryMCP(t, input)
 				}
+				if scope == target.ScopeProject {
+					selectImageState(t, &input)
+				}
 				plan, err := PrepareNativeApplyEffectPlan(input)
 				if err != nil {
 					t.Fatal(err)
@@ -70,7 +73,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 							}
 						}
 
-						state, err := statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+						state, err := statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 						if err != nil {
 							return err
 						}
@@ -212,7 +215,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 							t.Fatal("refused explicit recovery changed its ordinary participant", err)
 						}
 					}
-					state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+					state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 					if err != nil || !state.Equal(input.CurrentState) {
 						t.Fatal("refused explicit recovery changed durable state", err)
 					}
@@ -248,7 +251,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 					}
 				}
 
-				state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+				state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 				if err != nil || !state.Equal(wantedState) {
 					t.Fatal("explicit recovery changed the selected durable state", err)
 				}
@@ -287,7 +290,7 @@ func nativeOrderRecoveryLoadOptions(t *testing.T, input NativeApplyInput, host s
 		t.Fatal(err)
 	}
 	readState := func(ctx context.Context) (durable.Snapshot, error) {
-		return statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: budget})
+		return statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: budget})
 	}
 	piRoot, err := configuration.RootReferenceForScope(target.TargetPi, target.ScopeGlobal)
 	if err != nil {
@@ -298,7 +301,7 @@ func nativeOrderRecoveryLoadOptions(t *testing.T, input NativeApplyInput, host s
 		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
 		NativeDocuments: &journal.Profile{
 			Protection: namespacetest.Reservations(t),
-			StateCodec: input.StateCodec, Codecs: input.Codecs, StateReader: readState, Budget: budget,
+			StateCodec: input.StateCodec, StatefileCodec: input.StatefileCodec, Codecs: input.Codecs, StateReader: readState, Budget: budget,
 			Manifest: input.Paths.ManifestRoot, ManifestPath: input.Owner.ManifestPath(),
 			Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
 			ResolveRoot: func(reference output.RootReference) (string, error) {

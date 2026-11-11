@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 func ExtensionCompletionState(t *testing.T, paths daempaths.Paths) durable.Snapshot {
@@ -21,7 +22,7 @@ func ExtensionCompletionState(t *testing.T, paths daempaths.Paths) durable.Snaps
 		t.Fatal(err)
 	}
 	state, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{
-		Codec: codec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil),
+		Codec: stateimage.Physical(t, codec), PhysicalPathBudget: physicalwork.NewCaptureBudget(nil),
 	})
 	if err != nil {
 		t.Fatal(err)

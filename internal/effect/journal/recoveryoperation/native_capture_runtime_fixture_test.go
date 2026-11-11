@@ -23,6 +23,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -107,7 +108,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 		requireWholeGroupWrite(t, host, original.Content(), 0o644)
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
-	actualBefore, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: fixture.codec, PhysicalPathBudget: budget})
+	actualBefore, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.codec), PhysicalPathBudget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,7 +40,7 @@ func observeNativeRuntime(ctx context.Context, captured journalpublication.Captu
 	return captured.AssessForward(ctx, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
-			return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+			return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 		},
 		Registry: store, Codecs: input.Codecs,
 	})

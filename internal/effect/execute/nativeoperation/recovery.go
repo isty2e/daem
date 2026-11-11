@@ -103,7 +103,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		return fmt.Errorf("native recovery has no admitted execution phase")
 	}
 	stateReader := func(ctx context.Context) (durable.Snapshot, error) {
-		return authority.projectStatefile.Read(ctx, operation.StateCodec(), budget)
+		return authority.projectStatefile.Read(ctx, operation.StatefileCodec(), budget)
 	}
 	semanticGuard := func(ctx context.Context) error {
 		state, err := stateReader(ctx)

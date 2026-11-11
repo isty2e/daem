@@ -30,7 +30,7 @@ func TestActionAttemptPendingInstallWriteAheadAndRetirement(t *testing.T) {
 		current,
 		owner,
 		[]reconciliation.RelationAction{action},
-		statefile.Codec{},
+		statefile.DefaultPhysicalCodec(),
 	)
 	if err != nil {
 		t.Fatalf("commitPendingCarrierInstalls returned error: %v", err)
@@ -49,7 +49,7 @@ func TestActionAttemptPendingInstallWriteAheadAndRetirement(t *testing.T) {
 		pending,
 		owner,
 		action,
-		statefile.Codec{},
+		statefile.DefaultPhysicalCodec(),
 	)
 	if err != nil {
 		t.Fatalf("commitRetiredPendingCarrierInstall returned error: %v", err)

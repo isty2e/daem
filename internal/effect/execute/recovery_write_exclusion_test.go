@@ -178,7 +178,7 @@ func TestOrdinarySelectedRestorationPreservesForeignSiblingOwnership(t *testing.
 			_, applyErr := ApplyWithOptions(t.Context(), ApplyInput{
 				Paths: paths, Resolver: destinationResolver(paths), AggregateEffects: effects,
 				CurrentState: durable.EmptySnapshot(), Codecs: testAggregateCodecs(),
-				StateCodec: testStateCodec(), Filesystem: testFilesystem(), OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+				StateCodec: testStateCodec(), StatefileCodec: testPhysicalStateCodec(), Filesystem: testFilesystem(), OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 			}, ApplyOptions{commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
 				return errors.New("indeterminate state commit")
 			}})

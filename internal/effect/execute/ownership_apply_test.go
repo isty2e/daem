@@ -831,8 +831,8 @@ func globalAggregateOwnershipInputAtHome(
 		Ownership:               ownershipEvidence,
 		Codecs:                  testAggregateCodecs(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
-		StateCodec:              testStateCodec(),
-		Filesystem:              testFilesystem(),
+		StateCodec:              testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
+		Filesystem: testFilesystem(),
 	}
 }
 

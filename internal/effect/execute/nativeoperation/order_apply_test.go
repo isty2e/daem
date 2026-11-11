@@ -102,7 +102,7 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 			if err != nil || info.Mode().Perm() != 0o644 {
 				t.Fatal("order-only publication changed host permissions", err)
 			}
-			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 			if err != nil || !state.Equal(input.Preparation.AfterState()) || !result.State.Equal(state) || result.ActionCount != 1 {
 				t.Fatal("order-only publication lost its actual committed state", err)
 			}
@@ -220,7 +220,7 @@ func TestNativeApplyRollsBackPiOrderAfterReturnedPublicationError(t *testing.T) 
 			if err != nil || info.Mode().Perm() != 0o644 {
 				t.Fatal("Pi rollback changed host permissions", err)
 			}
-			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 			if err != nil || !state.Equal(input.CurrentState) || !result.State.Equal(state) {
 				t.Fatal("Pi rollback changed the committed Before state", err)
 			}
@@ -387,6 +387,10 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	physicalCodec, err := statefile.NewPhysicalCodec(codec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	before := durable.EmptySnapshot()
 	view, err := order.WithRetiringRelations(nil)
 	if err != nil {
@@ -458,7 +462,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	}
 	return NativeApplyInput{
 		ApplyInput: execute.ApplyInput{
-			CurrentState: before, Owner: owner, Codecs: codecs, StateCodec: codec, Filesystem: testFilesystem(), ProjectRoot: manifest,
+			CurrentState: before, Owner: owner, Codecs: codecs, StateCodec: codec, StatefileCodec: physicalCodec, Filesystem: testFilesystem(), ProjectRoot: manifest,
 			Paths: execute.Paths{ManifestRoot: root, StateDir: root, StatefilePath: statePath, RecoveryDir: filepath.Join(root, "recovery"), DataDir: filepath.Join(root, "data"), OwnershipRegistryPath: registryPath},
 			Resolver: func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
 				if destination != alias.AggregateRoot() {
@@ -468,8 +472,8 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 			}, OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 		},
 		Preparation: prepared, Documents: documents, Registry: registry, Budget: budget,
-		RecoveryCodecs: func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error) {
-			return codecs, codec, nil
+		RecoveryCodecs: func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, statefile.PhysicalCodec, error) {
+			return codecs, codec, physicalCodec, nil
 		},
 	}, host, original
 }

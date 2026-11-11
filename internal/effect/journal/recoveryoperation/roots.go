@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -28,17 +29,18 @@ import (
 // owned points additionally require raw persistence corroboration before capture.
 // It contains no retained root or execution lease.
 type Profile struct {
-	StateCodec   durable.SnapshotCodec
-	Codecs       aggregate.CodecCatalog
-	Limits       configdocument.Limits
-	Manifest     string
-	ManifestPath string
-	ResolveRoot  func(output.RootReference) (string, error)
-	ResolvePoint func(output.RootReference, configuration.PointAlternative) (string, error)
-	Protection   journalnamespace.ReservationSelectors
-	Budget       *physicalwork.Budget
-	StateReader  durable.SnapshotReader
-	RawRegistry  func(context.Context) (ownership.Registry, error)
+	StateCodec     durable.SnapshotCodec
+	StatefileCodec statefile.PhysicalCodec
+	Codecs         aggregate.CodecCatalog
+	Limits         configdocument.Limits
+	Manifest       string
+	ManifestPath   string
+	ResolveRoot    func(output.RootReference) (string, error)
+	ResolvePoint   func(output.RootReference, configuration.PointAlternative) (string, error)
+	Protection     journalnamespace.ReservationSelectors
+	Budget         *physicalwork.Budget
+	StateReader    durable.SnapshotReader
+	RawRegistry    func(context.Context) (ownership.Registry, error)
 }
 
 type OwnedRoots struct {

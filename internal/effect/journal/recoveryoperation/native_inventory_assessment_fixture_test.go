@@ -29,6 +29,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 type nativeAssessmentGroup struct {
@@ -249,7 +250,7 @@ func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native
 	documents := setup.fixture.read
 	documents.Budget = imageBudget(t)
 	return setup.fixture.journal, journalqualification.NativeReadOptions{Documents: documents, Roots: setup.roots, Registry: registry, State: func(ctx context.Context) (durable.Snapshot, error) {
-		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: setup.fixture.codec, PhysicalPathBudget: documents.Budget})
+		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: stateimage.Physical(t, setup.fixture.codec), PhysicalPathBudget: documents.Budget})
 	}}
 }
 

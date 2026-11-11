@@ -29,6 +29,7 @@ import (
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 const (
@@ -196,7 +197,7 @@ func RequireRecoveryJournalState(t *testing.T, fixture RecoveryFixture, boundary
 	if err != nil || before.Equal(after) {
 		t.Fatal("producer journal has no distinct actual state transition", err)
 	}
-	current, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.Paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+	current, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.Paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, codec), PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -45,6 +45,10 @@ func testStateCodec() durable.SnapshotCodec {
 	return statefile.Codec{}
 }
 
+func testPhysicalStateCodec() statefile.PhysicalCodec {
+	return statefile.DefaultPhysicalCodec()
+}
+
 func testStateReader(path string) durable.SnapshotReader {
 	return func(ctx context.Context) (durable.Snapshot, error) {
 		return statefile.LoadOptional(ctx, path)

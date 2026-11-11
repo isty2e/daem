@@ -272,7 +272,7 @@ func retireAlreadyAbsentProjectClaim(
 			return err
 		}
 		input.markAttempted()
-		next, err := execute.CommitRetiredProjectCarrierClaims(ctx, filesystem(input), entry, result.State, []durablecarrier.ManagedCarrierClaim{action.Claim()}, input.stateEncoder())
+		next, err := execute.CommitRetiredProjectCarrierClaims(ctx, filesystem(input), entry, result.State, []durablecarrier.ManagedCarrierClaim{action.Claim()}, input.StatefileCodec)
 		if err != nil {
 			return err
 		}
@@ -351,7 +351,7 @@ func retireClaim(
 					entry,
 					result.State,
 					pending,
-					input.stateEncoder(),
+					input.StatefileCodec,
 				)
 			} else {
 				next, err = execute.CommitClearedGlobalCarrierRemovalPending(
@@ -360,7 +360,7 @@ func retireClaim(
 					entry,
 					result.State,
 					pending,
-					input.stateEncoder(),
+					input.StatefileCodec,
 				)
 			}
 			if err != nil {
@@ -473,7 +473,7 @@ func runAfterCarrierClaimRetirements(
 		StatePath:              stateResult.StatePath,
 		SelectedRoot:           paths.ManifestRoot,
 		Current:                stateResult.State,
-		StateEncoder:           options.stateCodec(),
+		StatefileCodec:         options.physicalStateCodec,
 		GlobalClaims:           nextGlobalClaims,
 		Actions:                reconciliation.CarrierAbsences(),
 		RelationAuthorityPaths: relationObservations.AuthorityPaths(),

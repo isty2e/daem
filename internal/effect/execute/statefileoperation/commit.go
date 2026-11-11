@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -32,13 +33,13 @@ func CommitSnapshot(
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
 	next durable.Snapshot,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 	label string,
 ) error {
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return fmt.Errorf("%s state codec is required", label)
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", label, err)
 	}

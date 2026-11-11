@@ -37,6 +37,10 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 	if err != nil {
 		return journal.PlanLoadOptions{}, err
 	}
+	physicalCodec, err := statefile.NewPhysicalCodec(stateCodec)
+	if err != nil {
+		return journal.PlanLoadOptions{}, err
+	}
 	budget, _ := physicalBudget.(*physicalwork.Budget)
 	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
 	if err != nil {
@@ -47,7 +51,7 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 		return journal.PlanLoadOptions{}, err
 	}
 	profile := &journal.Profile{
-		StateCodec: stateCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
+		StateCodec: stateCodec, StatefileCodec: physicalCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
 		Manifest: paths.ManifestRoot, ManifestPath: paths.ManifestPath, Budget: budget,
 		Protection:   protection,
 		ResolvePoint: locations.ResolvePoint,
@@ -59,7 +63,7 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 			return location.Path(), nil
 		},
 		StateReader: func(ctx context.Context) (durable.Snapshot, error) {
-			return statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{Codec: stateCodec, PhysicalPathBudget: budget})
+			return statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{Codec: physicalCodec, PhysicalPathBudget: budget})
 		},
 		RawRegistry: func(ctx context.Context) (ownership.Registry, error) {
 			return ownershipstore.ReadProtectionRegistryBounded(ctx, paths.OwnershipRegistryPath, physicalwork.MaximumPhysicalPathDepth, budget)

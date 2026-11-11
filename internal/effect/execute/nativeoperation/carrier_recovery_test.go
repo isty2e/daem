@@ -123,6 +123,10 @@ func newCarrierRecoveryFixture(t *testing.T, bound, reverse bool, shape carrierR
 	if err != nil {
 		t.Fatal(err)
 	}
+	physicalCodec, err := statefile.NewPhysicalCodec(codec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	projectionCodec, _ := codecs.Lookup(contract.CodecContractID())
 	row, _ := carrierMCPRow(t, originals[0], "search", codecs)
 	subject := row.Subject()
@@ -417,12 +421,12 @@ func newCarrierRecoveryFixture(t *testing.T, bound, reverse bool, shape carrierR
 		t.Fatal(err)
 	}
 	f.profile = journal.Profile{
-		StateCodec: codec, Codecs: codecs, Limits: limits, Manifest: manifest.SelectedPath, ManifestPath: owner.ManifestPath(), Budget: f.read.Budget, Protection: f.read.Protection,
+		StateCodec: codec, StatefileCodec: physicalCodec, Codecs: codecs, Limits: limits, Manifest: manifest.SelectedPath, ManifestPath: owner.ManifestPath(), Budget: f.read.Budget, Protection: f.read.Protection,
 		ResolvePoint: func(reference output.RootReference, alternative configuration.PointAlternative) (string, error) {
 			return f.target, nil
 		},
 		StateReader: func(ctx context.Context) (durable.Snapshot, error) {
-			return statefile.LoadOptionalWithOptions(ctx, f.statePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: f.read.Budget})
+			return statefile.LoadOptionalWithOptions(ctx, f.statePath, statefile.ReadOptions{Codec: physicalCodec, PhysicalPathBudget: f.read.Budget})
 		},
 		RawRegistry: func(ctx context.Context) (ownership.Registry, error) {
 			return ownershipstore.ReadProtectionRegistryBounded(ctx, f.registryPath, physicalwork.MaximumPhysicalPathDepth, f.read.Budget)

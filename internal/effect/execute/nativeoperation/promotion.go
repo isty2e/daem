@@ -18,7 +18,7 @@ func promoteNativeCapturedDocument(ctx context.Context, captured journalpublicat
 		NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Codecs: input.Codecs, Registry: store,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
-				return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+				return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 			},
 		},
 		RecordAuthority: authority.recoveryJournalRecord, StateCodec: input.StateCodec,

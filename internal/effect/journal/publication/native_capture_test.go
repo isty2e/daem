@@ -27,6 +27,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
@@ -118,7 +119,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 		requireWholeGroupWrite(t, host, original.Content(), 0o644)
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
-	actualBefore, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: fixture.codec, PhysicalPathBudget: budget})
+	actualBefore, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.codec), PhysicalPathBudget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +632,7 @@ func TestCaptureNativeJournalJoinsOrdinaryWorkWithoutInventingHistory(t *testing
 				t.Fatal(err)
 			}
 			requireWholeGroupWrite(t, input.paths.StatefilePath, input.stateBytes, 0o600)
-			before, err = statefile.LoadOptionalWithOptions(t.Context(), input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.batch.budget})
+			before, err = statefile.LoadOptionalWithOptions(t.Context(), input.paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, input.options.StateCodec), PhysicalPathBudget: input.batch.budget})
 			if err != nil {
 				t.Fatal(err)
 			}

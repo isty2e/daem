@@ -69,6 +69,28 @@ func TestRunWritesSelectedInstructionOutputAndStatefile(t *testing.T) {
 	assertNoApplyRecoveryArtifacts(t, paths)
 }
 
+func TestRunWithOptionsRefusesMissingPhysicalCodecForManagedPathChange(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := isolatedApplyTestPaths(t, root)
+	writeApplyFile(t, filepath.Join(root, "instructions", "AGENTS.md"), "shared instructions\n")
+	hash := hashApplyPath(t, filepath.Join(root, "instructions", "AGENTS.md"))
+	resources := applyInstructionConfig(t, "project", "instructions/AGENTS.md", "", targetpkg.TargetCodex)
+	locked := applyInstructionLockfile(t, "project", "local:instructions/AGENTS.md?mode=vendor", hash)
+	selection := applySelection(t, []string{"codex"})
+	var events []executionevent.Event
+	_, err := runWithOptions(t.Context(), paths, resources, locked, selection,
+		buildManagedApplyAssessment(t, paths, resources, locked, selection, false),
+		runOptions{ExecuteEvents: func(event executionevent.Event) { events = append(events, event) }})
+	if err == nil || len(events) != 0 {
+		t.Fatalf("missing physical selection did not refuse before execution: %v", err)
+	}
+	if _, err := os.Lstat(paths.StatefilePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing physical selection changed State", err)
+	}
+}
+
 func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +110,7 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 		locked,
 		selection,
 		buildManagedApplyAssessment(t, paths, resources, locked, selection, false),
-		runOptions{ExecuteEvents: func(event executionevent.Event) {
+		runOptions{physicalStateCodec: statefile.DefaultPhysicalCodec(), ExecuteEvents: func(event executionevent.Event) {
 			events = append(events, event)
 		}},
 	)
@@ -120,7 +142,7 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			locked,
 			selection,
 			assessment,
-			runOptions{applyEffectPlan: &applyprogram.Plan{}},
+			runOptions{physicalStateCodec: statefile.DefaultPhysicalCodec(), applyEffectPlan: &applyprogram.Plan{}},
 		)
 		if err == nil {
 			t.Fatal("runWithOptions accepted an unavailable prepared plan")
@@ -156,7 +178,7 @@ func TestRunWithOptionsThreadsPreparedEffectPlanThroughBothPayloadBranches(t *te
 			locked,
 			selection,
 			assessment,
-			runOptions{applyEffectPlan: &applyprogram.Plan{}},
+			runOptions{physicalStateCodec: statefile.DefaultPhysicalCodec(), applyEffectPlan: &applyprogram.Plan{}},
 		)
 		if err == nil {
 			t.Fatal("runWithOptions accepted an unavailable prepared plan")
@@ -202,6 +224,7 @@ func TestRunWithOptionsRejectsFinalRoutePlanMismatchBeforeStatefileAuthority(
 		selection,
 		assessment,
 		runOptions{
+			physicalStateCodec:   statefile.DefaultPhysicalCodec(),
 			preparedContinuation: applyContinuationPlan{finalRoutePlan: preparedRoutes},
 			currentContinuation:  applyContinuationPlan{finalRoutePlan: currentRoutes},
 			requireContinuation:  true,
@@ -250,6 +273,7 @@ func TestRunWithOptionsRejectsCarrierContinuationMismatchBeforeStatefileAuthorit
 		selection,
 		assessment,
 		runOptions{
+			physicalStateCodec:   statefile.DefaultPhysicalCodec(),
 			preparedContinuation: plan,
 			currentContinuation:  plan,
 			requireContinuation:  true,
@@ -294,7 +318,7 @@ func TestRunFinalValidationPrecedesJournalAndHostEffects(t *testing.T) {
 		locked,
 		selection,
 		buildManagedApplyAssessment(t, paths, resources, locked, selection, false),
-		runOptions{validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
+		runOptions{physicalStateCodec: statefile.DefaultPhysicalCodec(), validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 			validationCalls++
 			return wantErr
 		}},

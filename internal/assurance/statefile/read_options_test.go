@@ -19,6 +19,10 @@ func TestSelectedAndDefaultStatefileReadersPreserveNativeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	physicalCodec, err := NewPhysicalCodec(codec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	state, err := durable.NewSnapshot(durable.SnapshotInput{ManagedPaths: []durable.ManagedPathState{nativeDocumentCodecBaseline(t, target.TargetPi, target.ScopeGlobal, 0o600)}})
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +35,7 @@ func TestSelectedAndDefaultStatefileReadersPreserveNativeState(t *testing.T) {
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadOptionalWithOptions(t.Context(), path, ReadOptions{Codec: codec, PhysicalPathBudget: physicalwork.NewPathBudget()})
+	loaded, err := LoadOptionalWithOptions(t.Context(), path, ReadOptions{Codec: physicalCodec, PhysicalPathBudget: physicalwork.NewPathBudget()})
 	if err != nil || !loaded.Equal(state) {
 		t.Fatalf("selected filesystem reader lost complete native state: %v", err)
 	}
@@ -49,7 +53,11 @@ func TestSelectedStatefileReaderKeepsMissingRetiredAndFailureSemantics(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := ReadOptions{Codec: codec, PhysicalPathBudget: physicalwork.NewPathBudget()}
+	physicalCodec, err := NewPhysicalCodec(codec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := ReadOptions{Codec: physicalCodec, PhysicalPathBudget: physicalwork.NewPathBudget()}
 	path := filepath.Join(t.TempDir(), "state.json")
 	if snapshot, err := LoadOptionalWithOptions(t.Context(), path, options); err != nil || !snapshot.Equal(durable.EmptySnapshot()) {
 		t.Fatalf("missing selected state: %v", err)

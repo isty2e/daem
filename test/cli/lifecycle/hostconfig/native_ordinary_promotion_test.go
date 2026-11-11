@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
@@ -77,7 +78,7 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 				t.Fatal(err)
 			}
 			budget := physicalwork.NewCaptureBudget(nil)
-			state, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.Paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: budget})
+			state, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.Paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, codec), PhysicalPathBudget: budget})
 			if err != nil || len(state.ManagedPaths()) != 1 || len(state.ManagedAggregates()) != 1 {
 				t.Fatal("promoted state lost one family", err)
 			}

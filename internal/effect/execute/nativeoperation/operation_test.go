@@ -22,7 +22,7 @@ func TestOperationRetainsOriginalAllocationAndOwnsOnlyItsCapture(t *testing.T) {
 	if err := operation.bindProjectStatefile(input.Paths.ManifestRoot, input.Paths.StatefilePath); err != nil {
 		t.Fatal(err)
 	}
-	state, err := operation.projectStatefile.Read(t.Context(), input.StateCodec, input.Budget)
+	state, err := operation.projectStatefile.Read(t.Context(), input.StatefileCodec, input.Budget)
 	if err != nil || !state.Equal(input.CurrentState) {
 		t.Fatal("selected statefile did not retain the input allocation", err)
 	}

@@ -113,7 +113,11 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			current, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateCodec, PhysicalPathBudget: physicalwork.NewPathBudget()})
+			physicalCodec, err := statefile.NewPhysicalCodec(stateCodec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: physicalCodec, PhysicalPathBudget: physicalwork.NewPathBudget()})
 			if err != nil {
 				t.Fatal(err)
 			}

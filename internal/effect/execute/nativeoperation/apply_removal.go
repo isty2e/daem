@@ -17,10 +17,10 @@ import (
 )
 
 func prepareNativeApplyRemovals(ctx context.Context, captured journalpublication.CapturedNativeJournal, ordinary nativeOrdinaryApply, work nativeApplyWork, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryStore) (resultErr error) {
-	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
+	operation, err := journal.OpenCapturedNativeRecovery(ctx, captured, input.StateCodec, input.StatefileCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 		State: func(ctx context.Context) (durable.Snapshot, error) {
-			return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+			return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 		},
 	})
 	if err != nil {

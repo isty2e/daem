@@ -282,7 +282,7 @@ func runDelegatesAndPersistAttemptRecords(
 		entry,
 		current,
 		persistedAttempts,
-		options.stateCodec(),
+		options.physicalStateCodec,
 	)
 	if persistErr == nil {
 		persistErr = stateAuthority.Validate(ctx)

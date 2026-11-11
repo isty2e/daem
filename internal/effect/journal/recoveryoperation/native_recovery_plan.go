@@ -177,7 +177,7 @@ func (operation *NativeRecoveryOperation) Budget() *physicalwork.Budget {
 }
 
 func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.Paths, options PlanLoadOptions, inventory journalinventory.RootInventory) (result *NativeRecoveryOperation, resultErr error) {
-	if options.NativeDocuments == nil || options.NativeDocuments.Budget == nil || options.NativeDocuments.StateCodec == nil {
+	if options.NativeDocuments == nil || options.NativeDocuments.Budget == nil || options.NativeDocuments.StateCodec == nil || options.NativeDocuments.StatefileCodec.IsZero() {
 		return nil, fmt.Errorf("native recovery requires its selected profile and original physical allocation")
 	}
 	profile := *options.NativeDocuments

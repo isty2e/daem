@@ -178,7 +178,7 @@ func runDirectProjectionRemoval(
 				result.GlobalClaims,
 				action,
 				baselines,
-				input.stateEncoder(),
+				input.StatefileCodec,
 			)
 			if err != nil {
 				return err

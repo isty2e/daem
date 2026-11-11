@@ -10,6 +10,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
@@ -463,6 +464,7 @@ func executeWithDependencies(
 		carrierRemovalBaselineObserver = passiveCarrierRemovalBaselineObserver(current.context.Paths)
 	}
 	executionOptions := runOptions{
+		physicalStateCodec:             statefile.DefaultPhysicalCodec(),
 		ExecuteEvents:                  options.ExecuteEvents,
 		HostRouteExecutor:              options.HostRouteExecutor,
 		HostRouteObserver:              hostRouteObserver,
@@ -504,7 +506,8 @@ func executeWithDependencies(
 			native.ApplyInput.Filesystem = options.NativeFilesystem
 		}
 		executionOptions.nativeInput = &native
-		executionOptions.persistenceCodec = current.nativePlan.stateCodec
+		executionOptions.journalStateCodec = current.nativePlan.stateCodec
+		executionOptions.physicalStateCodec = current.nativePlan.statefileCodec
 		executionOptions.nativeInvocations = nativeInvocations
 		if !current.nativePlan.opaque {
 			executionOptions.nativeOrderChecks = current.nativePlan.orders

@@ -23,6 +23,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/readiness"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 type pointDocumentFixture struct {
@@ -378,7 +379,7 @@ func (fixture pointDocumentFixture) recorded(t *testing.T, spelling string) poin
 		Filesystem: filesystem, Budget: budget, Limits: DocumentLimits(), Codecs: codecs,
 	}
 	profile := recoveryoperation.Profile{
-		StateCodec: codec, Codecs: codecs, Limits: DocumentLimits(), Manifest: manifest.Provenance().PhysicalRoot(),
+		StateCodec: codec, StatefileCodec: stateimage.Physical(t, codec), Codecs: codecs, Limits: DocumentLimits(), Manifest: manifest.Provenance().PhysicalRoot(),
 		ResolvePoint: locations.ResolvePoint, Protection: protection, Budget: budget,
 	}
 	if err := fixture.operation.Close(); err != nil {

@@ -23,6 +23,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -179,7 +180,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					assessment, err := journalqualification.AssessNativeDocuments(journal, t.Context(), journalqualification.NativeReadOptions{
 						Documents: documents, Roots: fixture.roots, Registry: store,
 						State: func(ctx context.Context) (durable.Snapshot, error) {
-							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: fixture.envelope.codec, PhysicalPathBudget: documents.Budget})
+							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.envelope.codec), PhysicalPathBudget: documents.Budget})
 						},
 					})
 					if err != nil || assessment.Facts().Classification() != want || assessment.Facts().DocumentCount() != 1 || requireAssessedDocument(t, assessment, 0).Restoration().Changed() {

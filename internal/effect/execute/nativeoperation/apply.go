@@ -19,6 +19,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -40,7 +41,7 @@ type NativeApplyInput struct {
 	Registry    ownership.Registry
 	Budget      *physicalwork.Budget
 	// RecoveryCodecs reconstructs the same profile without inheriting forward cancellation.
-	RecoveryCodecs func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error)
+	RecoveryCodecs func(context.Context) (catalog aggregate.CodecCatalog, journalCodec durable.SnapshotCodec, statefileCodec statefile.PhysicalCodec, err error)
 }
 
 type nativeApplyWork struct {
@@ -374,7 +375,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		defer func() { resultErr = errors.Join(resultErr, execution.Finish(resultErr)) }()
 		return ApplyResult{ApplyResult: execute.ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}}, nil
 	}
-	stateContent, err := input.StateCodec.Encode(input.Preparation.AfterState())
+	if input.StatefileCodec.IsZero() {
+		return ApplyResult{}, fmt.Errorf("native statefile codec is required")
+	}
+	stateContent, err := input.StatefileCodec.EncodeState(input.Preparation.AfterState())
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -566,7 +570,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	if err := stateGate.ApplyEffect(func() error {
-		before, err := authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+		before, err := authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 		if err != nil || !before.Equal(input.CurrentState) {
 			return errors.Join(fmt.Errorf("native state changed before commit"), err)
 		}

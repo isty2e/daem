@@ -62,7 +62,7 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *claimoperation.St
 				NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 					Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 					State: func(ctx context.Context) (durable.Snapshot, error) {
-						return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+						return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 					},
 				},
 				RecordAuthority: authority.recoveryJournalRecord, StateCodec: input.StateCodec,
