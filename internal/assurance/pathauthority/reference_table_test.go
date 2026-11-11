@@ -100,3 +100,77 @@ func TestReferenceTableSeparatesSemanticsWitnesses(t *testing.T) {
 		}
 	}
 }
+
+func TestReferenceTableConvergenceRetainsPrunesAndRequiresNewEvidence(t *testing.T) {
+	root := t.TempDir()
+	var identities []pathauthority.Exact
+	var references []pathauthority.Reference
+	for _, name := range []string{"old", "retained", "added"} {
+		identity := pathtest.Exact(filepath.Join(root, name+".json"))
+		reference, err := pathauthority.NewReference(identity, filepath.Join(root, "Selected", name+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		identities = append(identities, identity)
+		references = append(references, reference)
+	}
+	current, err := pathauthority.NewReferenceTable(identities[:2], references[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextIDs := []pathauthority.Exact{identities[2], identities[1], identities[1]}
+	additions := []pathauthority.Reference{references[2]}
+	next, err := current.Converge(nextIDs, additions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := next.Reference(identities[0]); present || len(next.References()) != 2 {
+		t.Fatal("convergence retained a departed identity")
+	}
+	for _, expected := range references[1:] {
+		actual, present := next.Reference(expected.Identity())
+		if !present || !actual.Equal(expected) {
+			t.Fatal("convergence lost retained or added evidence")
+		}
+	}
+	additions[0] = pathauthority.Reference{}
+	repeated, err := next.Converge([]pathauthority.Exact{identities[1], identities[2]}, []pathauthority.Reference{references[1]})
+	if err != nil || len(repeated.References()) != 2 {
+		t.Fatal("same-table convergence was not idempotent", err)
+	}
+	for _, expected := range references[1:] {
+		actual, present := repeated.Reference(expected.Identity())
+		if !present || !actual.Equal(expected) {
+			t.Fatal("repeat convergence changed recorded evidence")
+		}
+	}
+	if actual, present := current.Reference(identities[0]); !present || !actual.Equal(references[0]) {
+		t.Fatal("successor mutated its current table")
+	}
+	replacement, err := pathauthority.NewReference(identities[1], filepath.Join(root, "Replacement.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		ids       []pathauthority.Exact
+		additions []pathauthority.Reference
+	}{
+		{name: "missing new evidence", ids: identities},
+		{name: "unrelated addition", ids: identities[:2], additions: references[2:]},
+		{name: "accidental replacement", ids: identities[:2], additions: []pathauthority.Reference{replacement}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := current.Converge(test.ids, test.additions); err == nil {
+				t.Fatal("incomplete or replacing successor was admitted")
+			}
+		})
+	}
+	empty, err := current.Converge(nil, nil)
+	if err != nil || empty.Validate() != nil || len(empty.References()) != 0 {
+		t.Fatal("complete retirement failed", err)
+	}
+	if _, err := (pathauthority.ReferenceTable{}).Converge(nil, nil); err == nil {
+		t.Fatal("uninitialized current table was treated as empty")
+	}
+}

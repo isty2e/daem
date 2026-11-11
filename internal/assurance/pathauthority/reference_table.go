@@ -49,6 +49,21 @@ func (table ReferenceTable) Validate() error {
 	return nil
 }
 
+// Converge retains surviving evidence and admits additions through the complete
+// table contract. It neither replaces recorded locators nor qualifies them.
+func (table ReferenceTable) Converge(identities []Exact, additions []Reference) (ReferenceTable, error) {
+	if err := table.Validate(); err != nil {
+		return ReferenceTable{}, err
+	}
+	references := append([]Reference(nil), additions...)
+	for _, identity := range identities {
+		if reference, present := table.Reference(identity); present {
+			references = append(references, reference)
+		}
+	}
+	return NewReferenceTable(identities, references)
+}
+
 func (table ReferenceTable) Reference(identity Exact) (Reference, bool) {
 	reference, present := table.values[identity]
 	return reference, present
