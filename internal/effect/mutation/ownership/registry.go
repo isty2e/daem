@@ -20,6 +20,8 @@ type RegistryReader interface {
 }
 
 // RegistryStore applies exact ownership transitions to one durable registry.
+// Convergence selects successor members from an operation's observed reference
+// pool; supplied references cannot change facts or replace retained locators.
 type RegistryStore interface {
 	RegistryReader
 	Path() string

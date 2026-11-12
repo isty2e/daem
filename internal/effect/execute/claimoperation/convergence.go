@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -14,6 +15,7 @@ func Prepare(
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
 	gate applyprogram.VisibilityGate,
+	references ...pathauthority.Reference,
 ) error {
 	if len(transitions) == 0 {
 		return nil
@@ -30,7 +32,7 @@ func Prepare(
 		return err
 	}
 	return executeClaimConvergence(ctx, registryStore, convergence, gate,
-		"validate ownership claim preparation", "prepare ownership claim", "accept prepared ownership claim", nil)
+		"validate ownership claim preparation", "prepare ownership claim", "accept prepared ownership claim", nil, references...)
 }
 
 func Finalize(
@@ -110,6 +112,7 @@ func executeClaimConvergence(
 	commitDetail string,
 	acceptDetail string,
 	acceptSuccessor func(context.Context, ownership.Registry) error,
+	references ...pathauthority.Reference,
 ) error {
 	if registryStore == nil {
 		return fmt.Errorf("ownership registry is unavailable")
@@ -120,7 +123,7 @@ func executeClaimConvergence(
 	var next ownership.Registry
 	if err := gate.ApplyEffect(func() error {
 		var convergeErr error
-		next, convergeErr = registryStore.Converge(ctx, convergence)
+		next, convergeErr = registryStore.Converge(ctx, convergence, references...)
 		return convergeErr
 	}); err != nil {
 		return fmt.Errorf("%s: %w", commitDetail, err)

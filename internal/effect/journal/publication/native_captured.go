@@ -12,6 +12,7 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -61,6 +62,17 @@ func (captured CapturedNativeJournal) Owner() stateauthority.Authority {
 
 func (captured CapturedNativeJournal) ActiveJournalAuthority() journalinventory.ActiveJournalAuthority {
 	return captured.active
+}
+
+// References returns runtime lookup evidence, not fields added to the journal.
+func (captured CapturedNativeJournal) References() []pathauthority.Reference {
+	references := append([]pathauthority.Reference(nil), captured.publication.references...)
+	for _, document := range captured.Documents() {
+		if reference, exact := document.Namespace().Observation().Reference(); exact {
+			references = append(references, reference)
+		}
+	}
+	return references
 }
 
 // CapturedNativeDocument is a read-only projection of one published group. Its

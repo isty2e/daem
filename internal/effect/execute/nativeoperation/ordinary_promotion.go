@@ -91,7 +91,7 @@ func promoteNativeOrdinaryAcquires(ctx context.Context, state *claimoperation.St
 			if err != nil {
 				return err
 			}
-			_, err = store.ConvergeRegistry(ctx, claims, bindings)
+			_, err = store.ConvergeRegistry(ctx, claims, bindings, authority.registryReferences(*captured)...)
 			return err
 		}); err != nil {
 			return ownershipmutation.ClaimTransition{}, false, err

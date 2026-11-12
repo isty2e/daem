@@ -18,6 +18,7 @@ type PersistedDirectoryEntryAuthority struct {
 type DirectoryEntryAuthorityObservation struct {
 	exact       pathauthority.Exact
 	provisional pathauthority.Provisional
+	locator     string
 }
 
 // Validate rejects zero, ambiguous, or invalid directory-entry authority.
@@ -28,7 +29,17 @@ func (observation DirectoryEntryAuthorityObservation) Validate() error {
 		return fmt.Errorf("directory-entry authority must contain exactly one exact or provisional observation")
 	}
 	if hasExact {
-		return observation.exact.Validate()
+		if err := observation.exact.Validate(); err != nil {
+			return err
+		}
+		if observation.locator != "" {
+			_, err := pathauthority.NewReference(observation.exact, observation.locator)
+			return err
+		}
+		return nil
+	}
+	if observation.locator != "" {
+		return fmt.Errorf("provisional directory-entry authority cannot supply exact lookup spelling")
 	}
 	return observation.provisional.Validate()
 }
@@ -71,7 +82,7 @@ func directoryEntryAuthorityObservation(
 	if err != nil {
 		return DirectoryEntryAuthorityObservation{}, fmt.Errorf("construct exact path authority: %w", err)
 	}
-	observation := DirectoryEntryAuthorityObservation{exact: exact}
+	observation := DirectoryEntryAuthorityObservation{exact: exact, locator: identity.accessPath}
 	if err := observation.Validate(); err != nil {
 		return DirectoryEntryAuthorityObservation{}, err
 	}
@@ -81,6 +92,16 @@ func directoryEntryAuthorityObservation(
 // Exact returns exact authority when the entry is normalization-stable.
 func (observation DirectoryEntryAuthorityObservation) Exact() (pathauthority.Exact, bool) {
 	return observation.exact, !observation.exact.IsZero()
+}
+
+// Reference returns lookup evidence only when the exact observation retained it.
+// Provisional and comparison-only projections do not supply a locator.
+func (observation DirectoryEntryAuthorityObservation) Reference() (pathauthority.Reference, bool) {
+	if observation.exact.IsZero() || !observation.provisional.IsZero() || observation.locator == "" {
+		return pathauthority.Reference{}, false
+	}
+	reference, err := pathauthority.NewReference(observation.exact, observation.locator)
+	return reference, err == nil
 }
 
 func (observation DirectoryEntryAuthorityObservation) NamespaceKey() string {
@@ -154,13 +175,13 @@ func persistedDirectoryEntryAuthority(path string, identity canonicalPath) (Pers
 			path,
 		)
 	}
-	exact, err := pathauthority.NewExact(identity.keyPath, string(identity.witness))
-	if err != nil {
-		return PersistedDirectoryEntryAuthority{}, fmt.Errorf("construct exact path authority: %w", err)
-	}
-	reference, err := pathauthority.NewReference(exact, identity.accessPath)
+	observation, err := directoryEntryAuthorityObservation(identity)
 	if err != nil {
 		return PersistedDirectoryEntryAuthority{}, err
+	}
+	reference, present := observation.Reference()
+	if !present {
+		return PersistedDirectoryEntryAuthority{}, fmt.Errorf("path %q has no observed access spelling", path)
 	}
 	return PersistedDirectoryEntryAuthority{reference: reference}, nil
 }

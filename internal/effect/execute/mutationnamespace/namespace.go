@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -24,13 +26,14 @@ type Namespace struct {
 }
 
 type namespaceState struct {
-	resolver  Resolver
-	phase     *physicalwork.TraversalPhase
-	project   *rootedpath.CapturedRoot
-	authority rootedpath.Authority
-	globals   map[output.Destination]Destination
-	retained  []*rootedpath.CapturedRoot
-	closed    bool
+	resolver   Resolver
+	phase      *physicalwork.TraversalPhase
+	project    *rootedpath.CapturedRoot
+	authority  rootedpath.Authority
+	globals    map[output.Destination]Destination
+	retained   []*rootedpath.CapturedRoot
+	references []pathauthority.Reference
+	closed     bool
 }
 
 // Destination retains canonical address facts, not an independently usable descriptor.
@@ -55,6 +58,26 @@ func New(resolver Resolver, phase *physicalwork.TraversalPhase) (Namespace, erro
 
 func (namespace Namespace) available() bool {
 	return namespace.state != nil && !namespace.state.closed
+}
+
+func (namespace Namespace) RetainObservation(observation mutation.DirectoryEntryAuthorityObservation) error {
+	if !namespace.available() {
+		return fmt.Errorf("mutation namespace is unavailable")
+	}
+	if err := observation.Validate(); err != nil {
+		return err
+	}
+	if reference, present := observation.Reference(); present {
+		namespace.state.references = append(namespace.state.references, reference)
+	}
+	return nil
+}
+
+func (namespace Namespace) References() []pathauthority.Reference {
+	if !namespace.available() {
+		return nil
+	}
+	return slices.Clone(namespace.state.references)
 }
 
 func (namespace Namespace) BindProject(root, borrowed *rootedpath.CapturedRoot) error {
@@ -209,7 +232,12 @@ func (namespace Namespace) bindGlobal(logical output.Destination) error {
 		_ = root.Close()
 		return err
 	}
-	if _, err := mutation.CanonicalDirectoryEntryKeyBounded(path, physicalwork.MaximumPhysicalPathDepth, state.phase); err != nil {
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, state.phase)
+	if err != nil {
+		_ = root.Close()
+		return err
+	}
+	if err := namespace.RetainObservation(observed); err != nil {
 		_ = root.Close()
 		return err
 	}

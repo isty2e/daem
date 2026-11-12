@@ -11,6 +11,8 @@ import (
 
 // Converge publishes one canonical successor using the convergence's exact
 // expected-or-target matching. Document fragments must match a complete phase.
+// The reference pool may include other observed operation paths; only successor
+// members can enter the persisted image.
 func (store Store) Converge(
 	ctx context.Context,
 	convergence ownership.ClaimConvergence,
@@ -79,6 +81,12 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 	if !claimsChanged && !bindingsChanged {
 		return next, nil
 	}
+	if current.references.Validate() == nil {
+		references, err = projectRegistryReferences(next, references)
+		if err != nil {
+			return ownership.Registry{}, err
+		}
+	}
 	content, err := current.encodeSuccessor(ctx, next, references, observations)
 	if err != nil {
 		return ownership.Registry{}, err
@@ -105,4 +113,21 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 		return ownership.Registry{}, fmt.Errorf("commit ownership registry convergence: %w", err)
 	}
 	return next, nil
+}
+
+func projectRegistryReferences(registry ownership.Registry, pool []pathauthority.Reference) ([]pathauthority.Reference, error) {
+	required := make(map[pathauthority.Exact]struct{})
+	for _, identity := range RequiredReferenceIdentities(registry) {
+		required[identity] = struct{}{}
+	}
+	var selected []pathauthority.Reference
+	for _, reference := range pool {
+		if err := reference.Validate(); err != nil {
+			return nil, fmt.Errorf("ownership operation reference pool: %w", err)
+		}
+		if _, member := required[reference.Identity()]; member {
+			selected = append(selected, reference)
+		}
+	}
+	return selected, nil
 }

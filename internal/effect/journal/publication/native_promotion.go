@@ -7,6 +7,7 @@ import (
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -25,6 +26,7 @@ type nativePublicationContext struct {
 	budget               *physicalwork.Budget
 	resolver             func(output.Destination) (string, error)
 	ordinaryCapabilities journalnamespace.CapabilityResolver
+	references           []pathauthority.Reference
 }
 
 func reloadNativeCapture(ctx context.Context, directory, operationID, fingerprint string, batch NativeDocumentObservationBatch, after durable.Snapshot, options CaptureOptions) (CapturedNativeJournal, error) {

@@ -21,6 +21,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
@@ -78,6 +79,7 @@ type ApplyInput struct {
 	Payloads                    payload.PayloadSet
 	ConfirmedRelationActions    []reconciliation.RelationAction
 	Owner                       stateauthority.Authority
+	OwnerReference              pathauthority.Reference
 	Ownership                   []observe.OwnershipObservation
 	ProjectRoot                 *rootedpath.CapturedRoot
 	Codecs                      aggregate.CodecCatalog
@@ -295,6 +297,13 @@ func applyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	mutationAuthority.ownerReference = input.OwnerReference
+	if !input.OwnerReference.IsZero() {
+		mutationAuthority.ownerReference, err = statefile.SelectStatefileReference(input.StatefileCodec.StatefileReference(), input.OwnerReference)
+		if err != nil {
+			return ApplyResult{}, errors.Join(err, mutationAuthority.close())
+		}
+	}
 	defer func() {
 		if closeErr := options.closeAuthority(mutationAuthority); closeErr != nil {
 			resultErr = errors.Join(
@@ -462,6 +471,7 @@ func applyWithOptions(
 		registryStore,
 		ownershipState.Transitions(),
 		ownershipPreparationGate,
+		mutationAuthority.registryReferences()...,
 	); err != nil {
 		return ApplyResult{}, settlePreHostApplyFailure(
 			ctx,

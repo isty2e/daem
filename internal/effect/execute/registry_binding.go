@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -17,6 +18,14 @@ type ownershipRegistryBinding struct {
 	destination rootedpath.Destination
 	store       ownershipmutation.RegistryStore
 	controlled  bool
+}
+
+func (authority *mutationAuthority) registryReferences() []pathauthority.Reference {
+	references := authority.destinations.References()
+	if !authority.ownerReference.IsZero() {
+		references = append(references, authority.ownerReference)
+	}
+	return references
 }
 
 func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {

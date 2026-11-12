@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
@@ -46,6 +47,7 @@ type mutationAuthority struct {
 	preparedRetirement         *journal.RetirementContinuation
 	ownershipRegistry          *ownershipRegistryBinding
 	ownershipRegistryBinder    ownershipmutation.RootedRegistryBinder
+	ownerReference             pathauthority.Reference
 	ownsCapturedRoot           bool
 }
 

@@ -178,6 +178,56 @@ func TestLookupEvidenceDoesNotSelectTheLegacyOwnershipOutputFormat(t *testing.T)
 	}
 }
 
+func TestLocatedConvergenceProjectsTheOperationReferencePool(t *testing.T) {
+	root := canonicalTestRoot(t)
+	store := mustStore(t, filepath.Join(root, "claims.json"))
+	before := writeLocatedOwnership(t, store.Path(), ownership.EmptyRegistry(), nil)
+	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "document.json"), "")
+	document := observedStoreReference(t, claim.Address().Path())
+	owner := observedStoreReference(t, claim.Owner().StatefileKey())
+	other := observedStoreReference(t, filepath.Join(root, "unrelated.json"))
+	addition, err := ownership.NewClaimConvergence([]ownership.ClaimChange{mustStoreClaimChange(t, claim.Address(), ownership.NoClaim(), storeClaimValue(t, claim))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong := mustImageReference(t, document.Identity(), filepath.Join(root, "wrong.json"))
+	for _, pool := range [][]pathauthority.Reference{
+		{owner, other},
+		{document, wrong, owner, other},
+		{document, owner, {}},
+	} {
+		if _, err := store.Converge(t.Context(), addition, pool...); err == nil {
+			t.Fatal("a pool admitted missing, conflicting or malformed evidence")
+		}
+		content, err := os.ReadFile(store.Path())
+		if err != nil || !bytes.Equal(content, before) {
+			t.Fatal("refused pool changed the registry", err)
+		}
+	}
+	pool := []pathauthority.Reference{document, owner, other}
+	if _, err := store.Converge(t.Context(), addition, pool...); err != nil {
+		t.Fatal(err)
+	}
+	image := readLocatedOwnership(t, store.Path())
+	if len(image.References()) != 2 {
+		t.Fatal("convergence persisted paths outside the successor")
+	}
+	if _, present := image.Reference(other.Identity()); present {
+		t.Fatal("unrelated observation became a stored reference")
+	}
+	removal, err := ownership.NewClaimConvergence([]ownership.ClaimChange{mustStoreClaimChange(t, claim.Address(), storeClaimValue(t, claim), ownership.NoClaim())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Converge(t.Context(), removal, pool...); err != nil {
+		t.Fatal("a retained operation pool prevented removal-to-empty", err)
+	}
+	image = readLocatedOwnership(t, store.Path())
+	if len(image.References()) != 0 || len(image.Registry().Claims()) != 0 {
+		t.Fatal("empty successor retained departed reference evidence")
+	}
+}
+
 func TestRootedLocatedStoreRetainsImageAcrossProtectionAndRemoval(t *testing.T) {
 	root := canonicalTestRoot(t)
 	path := filepath.Join(root, "claims.json")

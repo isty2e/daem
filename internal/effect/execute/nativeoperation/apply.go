@@ -387,6 +387,13 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, authority.close()) }()
+	if !input.OwnerReference.IsZero() {
+		input.OwnerReference, err = statefile.SelectStatefileReference(input.StatefileCodec.StatefileReference(), input.OwnerReference)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+	}
+	authority.ownerReference = input.OwnerReference
 	if err := authority.bindProjectStatefile(input.Paths.ManifestRoot, input.Paths.StatefilePath); err != nil {
 		return ApplyResult{}, err
 	}
@@ -489,7 +496,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, retiring.Close()) }()
-	if err := run("apply/native-ownership-preparation", func() error { _, err := store.ConvergeRegistry(ctx, preparation, emptyBindings); return err }); err != nil {
+	if err := run("apply/native-ownership-preparation", func() error {
+		_, err := store.ConvergeRegistry(ctx, preparation, emptyBindings, authority.registryReferences(captured)...)
+		return err
+	}); err != nil {
 		return result, settle(err)
 	}
 	for index := range work.mutating {
@@ -517,7 +527,9 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			}); err != nil {
 				return result, settle(err)
 			}
-			if err := run(prefix+"/claims", func() error { return reserveNativePromotedDocument(ctx, store, captured.Documents()[index]) }); err != nil {
+			if err := run(prefix+"/claims", func() error {
+				return reserveNativePromotedDocument(ctx, store, captured.Documents()[index], authority.registryReferences(captured)...)
+			}); err != nil {
 				return result, settle(err)
 			}
 		}
