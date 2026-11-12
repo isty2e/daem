@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -46,6 +47,14 @@ func registryPathIdentities(registry ownership.Registry) []pathauthority.Exact {
 		}
 	}
 	return identities
+}
+
+// RequiredReferenceIdentities exposes the image's complete membership in stable
+// identity order, without selecting locators or granting access to those keys.
+func RequiredReferenceIdentities(registry ownership.Registry) []pathauthority.Exact {
+	identities := registryPathIdentities(registry)
+	slices.SortFunc(identities, pathauthority.Exact.Compare)
+	return slices.Compact(identities)
 }
 
 func (image RegistryImage) Registry() ownership.Registry { return image.registry }

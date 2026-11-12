@@ -2,6 +2,7 @@ package carrierclaim
 
 import (
 	"fmt"
+	"slices"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -19,15 +20,27 @@ func NewRegistryImage(registry durablecarrier.GlobalCarrierClaims, references []
 	if err != nil {
 		return RegistryImage{}, err
 	}
-	var required []pathauthority.Exact
-	for _, claim := range canonical.Claims() {
-		required = append(required, claim.Owner().StatefileAuthority())
-	}
-	table, err := pathauthority.NewReferenceTable(required, references)
+	table, err := pathauthority.NewReferenceTable(registryPathIdentities(canonical), references)
 	if err != nil {
 		return RegistryImage{}, fmt.Errorf("carrier claim registry path_references: %w", err)
 	}
 	return RegistryImage{registry: canonical, references: table}, nil
+}
+
+func registryPathIdentities(registry durablecarrier.GlobalCarrierClaims) []pathauthority.Exact {
+	var identities []pathauthority.Exact
+	for _, claim := range registry.Claims() {
+		identities = append(identities, claim.Owner().StatefileAuthority())
+	}
+	return identities
+}
+
+// RequiredReferenceIdentities exposes every required owner in stable identity
+// order, without selecting locators or granting access to those keys.
+func RequiredReferenceIdentities(registry durablecarrier.GlobalCarrierClaims) []pathauthority.Exact {
+	identities := registryPathIdentities(registry)
+	slices.SortFunc(identities, pathauthority.Exact.Compare)
+	return slices.Compact(identities)
 }
 
 func (image RegistryImage) Validate() error {
