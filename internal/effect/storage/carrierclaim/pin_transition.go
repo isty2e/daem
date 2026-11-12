@@ -35,13 +35,13 @@ func (store Store) commitPinTransition(ctx context.Context, expected, next durab
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
-	if !current.Equal(expected) {
+	if !current.registry.Equal(expected) {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry changed since confirmed observation")
 	}
-	if current.Equal(next) {
-		return current, nil
+	if current.registry.Equal(next) {
+		return current.registry, nil
 	}
-	if err := store.commitRegistry(ctx, next, identity, exists); err != nil {
+	if err := store.commitRegistry(ctx, current, next, nil, identity, exists); err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	return next, nil

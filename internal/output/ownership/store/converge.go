@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
@@ -14,29 +14,33 @@ import (
 func (store Store) Converge(
 	ctx context.Context,
 	convergence ownership.ClaimConvergence,
+	references ...pathauthority.Reference,
 ) (ownership.Registry, error) {
 	bindings, err := ownership.NewDocumentBindingConvergence(nil)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return store.ConvergeRegistry(ctx, convergence, bindings)
+	return store.ConvergeRegistry(ctx, convergence, bindings, references...)
 }
 
 // ConvergeRegistry settles claims and document bindings in one guarded write.
 // A refusal in either family publishes neither successor.
+// Located images require explicit lookup evidence for newly required identities;
+// surviving recorded locators are retained.
 func (store Store) ConvergeRegistry(
 	ctx context.Context,
 	claims ownership.ClaimConvergence,
 	bindings ownership.DocumentBindingConvergence,
+	references ...pathauthority.Reference,
 ) (ownership.Registry, error) {
 	observations, err := store.newPathAuthorityObservationSession()
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return store.convergeRegistry(ctx, claims, bindings, observations)
+	return store.convergeRegistry(ctx, claims, bindings, observations, references)
 }
 
-func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, observations *pathAuthorityObservationSession) (ownership.Registry, error) {
+func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, observations *pathAuthorityObservationSession, references []pathauthority.Reference) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
 	}
@@ -50,7 +54,7 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 		return ownership.Registry{}, err
 	}
 
-	current, expectedEntry, exists, capability, err := store.loadForConvergence(ctx, claims.ExpectedRemovals(), observations)
+	current, expectedEntry, exists, capability, err := store.loadForUpdate(ctx, claims.ExpectedRemovals(), observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -61,7 +65,7 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 		}
 	}()
 
-	next, claimsChanged, err := claims.Apply(current)
+	next, claimsChanged, err := claims.Apply(current.registry)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -75,7 +79,7 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 	if !claimsChanged && !bindingsChanged {
 		return next, nil
 	}
-	content, err := encode(next)
+	content, err := current.encodeSuccessor(ctx, next, references, observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -101,24 +105,4 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 		return ownership.Registry{}, fmt.Errorf("commit ownership registry convergence: %w", err)
 	}
 	return next, nil
-}
-
-func (store Store) loadForConvergence(
-	ctx context.Context,
-	removals []ownership.Claim,
-	observations *pathAuthorityObservationSession,
-) (
-	ownership.Registry,
-	storagecommit.EntryIdentity,
-	bool,
-	rootedpath.CommitCapability,
-	error,
-) {
-	if store.root != nil {
-		return store.loadRootedForCommit(ctx, removals, observations)
-	}
-	if len(removals) != 0 {
-		return store.loadForClaimRemovals(ctx, removals)
-	}
-	return store.loadForCommit(ctx)
 }

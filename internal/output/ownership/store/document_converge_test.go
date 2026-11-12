@@ -138,7 +138,7 @@ func TestDocumentRegistryCommitReadRejectsInterveningReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	current, identity, exists, capability, err := fixture.store.loadRootedForCommit(t.Context(), fixture.claims.ExpectedRemovals(), observations)
-	if err != nil || !exists || capability == nil || !current.Equal(fixture.before) {
+	if err != nil || !exists || capability == nil || !current.registry.Equal(fixture.before) {
 		t.Fatalf("rooted commit read lost its snapshot: %v", err)
 	}
 	consumed := false

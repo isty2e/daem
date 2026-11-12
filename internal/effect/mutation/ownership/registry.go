@@ -3,6 +3,7 @@ package ownership
 import (
 	"context"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
@@ -22,11 +23,12 @@ type RegistryReader interface {
 type RegistryStore interface {
 	RegistryReader
 	Path() string
-	Converge(context.Context, outputownership.ClaimConvergence) (outputownership.Registry, error)
+	Converge(context.Context, outputownership.ClaimConvergence, ...pathauthority.Reference) (outputownership.Registry, error)
 	ConvergeRegistry(
 		context.Context,
 		outputownership.ClaimConvergence,
 		outputownership.DocumentBindingConvergence,
+		...pathauthority.Reference,
 	) (outputownership.Registry, error)
 }
 

@@ -73,14 +73,14 @@ func (store Store) LoadPendingProtections(ctx context.Context) ([]ownership.Pend
 // LoadProtectionRegistry reads recorded comparison facts without qualifying
 // unrelated claim paths. Permission recovery must qualify its own live targets.
 func (store Store) LoadProtectionRegistry(ctx context.Context) (ownership.Registry, error) {
-	registry, _, _, capability, err := store.loadForProtection(ctx)
+	document, _, _, capability, err := store.loadForProtection(ctx)
 	if capability != nil {
 		err = errors.Join(err, capability.Close())
 	}
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return registry, nil
+	return document.registry, nil
 }
 
 func (store Store) TransitionProtection(ctx context.Context, owner stateauthority.Authority, transition ownership.ProtectionTransition) (ownership.Registry, error) {
@@ -101,7 +101,7 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 		}
 	}()
 
-	next, changed, err := current.ApplyProtection(owner, transition)
+	next, changed, err := current.registry.ApplyProtection(owner, transition)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -114,7 +114,7 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 	if err := store.validateProtectionSeparation(ctx, next); err != nil {
 		return ownership.Registry{}, err
 	}
-	content, err := encode(next)
+	content, err := current.encodeSuccessor(ctx, next, nil, nil)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -145,12 +145,12 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 
 // This read authenticates the registry artifact, not its referenced claim paths.
 // Protection recovery requalifies only its own frozen targets at the effect edge.
-func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, storagecommit.EntryIdentity, bool, rootedpath.CommitCapability, error) {
+func (store Store) loadForProtection(ctx context.Context) (registryDocument, storagecommit.EntryIdentity, bool, rootedpath.CommitCapability, error) {
 	if ctx == nil {
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("ownership registry context is required")
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("ownership registry context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, err
 	}
 	var (
 		content    []byte
@@ -162,7 +162,7 @@ func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, s
 	if store.root != nil {
 		capability, err = store.root.AcquireBounded(store.destination, store.maximumPhysicalDepth, store.physicalWorkBudget)
 		if err != nil {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
+			return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, err
 		}
 		if _, accountsPayload := store.physicalWorkBudget.(mutation.PhysicalObservationBudget); accountsPayload {
 			content, mode, identity, err = storagecommit.ReadRootedRegularFileWithWorkBudget(ctx, capability, maximumOwnershipRegistryBytes)
@@ -183,17 +183,17 @@ func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, s
 		}
 	}
 	if errors.Is(err, fs.ErrNotExist) {
-		return ownership.EmptyRegistry(), storagecommit.EntryIdentity{}, false, capability, nil
+		return registryDocument{registry: ownership.EmptyRegistry()}, storagecommit.EntryIdentity{}, false, capability, nil
 	}
 	if err == nil && mode.Perm()&0o077 != 0 {
 		err = fmt.Errorf("ownership registry %q permissions %04o expose authority metadata", store.path, mode.Perm())
 	}
-	var registry ownership.Registry
+	var document registryDocument
 	if err == nil {
-		registry, err = decode(content)
+		document, err = decodeRegistryDocument(content)
 	}
 	if err == nil {
-		err = store.validateProtectionSeparation(ctx, registry)
+		err = store.validateProtectionSeparation(ctx, document.registry)
 	}
 	if err == nil {
 		err = ctx.Err()
@@ -202,9 +202,9 @@ func (store Store) loadForProtection(ctx context.Context) (ownership.Registry, s
 		if capability != nil {
 			err = errors.Join(err, capability.Close())
 		}
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("read ownership protection: %w", err)
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("read ownership protection: %w", err)
 	}
-	return registry, identity, true, capability, nil
+	return document, identity, true, capability, nil
 }
 
 func (store Store) validateProtectionSeparation(ctx context.Context, registry ownership.Registry) error {

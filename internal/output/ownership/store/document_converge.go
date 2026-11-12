@@ -15,7 +15,7 @@ var _ ownershipmutation.DocumentRegistryStore = Store{}
 
 // ConvergeForDocuments uses missing-history comparison for the selected owner,
 // not new mutation authority. Both successors share the same rooted snapshot CAS.
-func (store Store) ConvergeForDocuments(ctx context.Context, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, owner stateauthority.Authority, missing []pathauthority.Provisional, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (ownership.Registry, error) {
+func (store Store) ConvergeForDocuments(ctx context.Context, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, owner stateauthority.Authority, missing []pathauthority.Provisional, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget, references ...pathauthority.Reference) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("document registry convergence context is required")
 	}
@@ -29,5 +29,5 @@ func (store Store) ConvergeForDocuments(ctx context.Context, claims ownership.Cl
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return store.convergeRegistry(ctx, claims, bindings, observations)
+	return store.convergeRegistry(ctx, claims, bindings, observations, references)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -152,11 +153,20 @@ func migrationDestinationError(cause error) error {
 }
 
 func authorityFor(paths daempaths.Paths) (stateauthority.Authority, error) {
+	authority, _, err := locatedAuthorityFor(paths)
+	return authority, err
+}
+
+func locatedAuthorityFor(paths daempaths.Paths) (stateauthority.Authority, pathauthority.Reference, error) {
 	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
 	if err != nil {
-		return stateauthority.Authority{}, err
+		return stateauthority.Authority{}, pathauthority.Reference{}, err
 	}
-	return stateauthority.New(observed.Exact(), paths.ManifestPath)
+	authority, err := stateauthority.New(observed.Exact(), paths.ManifestPath)
+	if err != nil {
+		return stateauthority.Authority{}, pathauthority.Reference{}, err
+	}
+	return authority, observed.Reference(), nil
 }
 
 func (prepared *PreparedState) loadTransfer(ctx context.Context) error {

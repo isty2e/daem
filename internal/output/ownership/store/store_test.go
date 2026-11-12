@@ -359,7 +359,7 @@ func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
 			want:    "use the daem version that wrote it",
 		},
 		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
-		{name: "future version", content: fmt.Sprintf(`{"version":%d,"claims":[],"future":true}`, currentVersion+1), want: "written by a newer daem"},
+		{name: "future version", content: fmt.Sprintf(`{"version":%d,"claims":[],"future":true}`, locatedRegistryVersion+1), want: "written by a newer daem"},
 		{
 			name:    "case-variant empty override",
 			content: `{"version":1,"claims":[{"path":"legacy"}],"CLAIMS":[]}`,

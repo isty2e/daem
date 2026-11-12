@@ -233,19 +233,11 @@ func decodePersistedRegistryForClaimRemovals(
 	expected []ownership.Claim,
 	observations *pathAuthorityObservationSession,
 ) (ownership.Registry, error) {
-	registry, err := decode(content)
+	document, err := decodePersistedDocument(ctx, content, expected, observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	if err := validateCurrentAuthoritiesForClaimRemovals(
-		ctx,
-		registry,
-		expected,
-		observations,
-	); err != nil {
-		return ownership.Registry{}, err
-	}
-	return registry, nil
+	return document.registry, nil
 }
 
 func validateCurrentAuthorities(ctx context.Context, registry ownership.Registry) error {
@@ -263,6 +255,21 @@ func validateCurrentAuthoritiesForClaimRemovals(
 	expected []ownership.Claim,
 	observations *pathAuthorityObservationSession,
 ) error {
+	return (registryDocument{registry: registry}).validateAuthorities(ctx, expected, observations)
+}
+
+func decodePersistedDocument(ctx context.Context, content []byte, expected []ownership.Claim, observations *pathAuthorityObservationSession) (registryDocument, error) {
+	document, err := decodeRegistryDocument(content)
+	if err != nil {
+		return registryDocument{}, err
+	}
+	if err := document.validateAuthorities(ctx, expected, observations); err != nil {
+		return registryDocument{}, err
+	}
+	return document, nil
+}
+
+func (document registryDocument) validateAuthorities(ctx context.Context, expected []ownership.Claim, observations *pathAuthorityObservationSession) error {
 	if observations == nil {
 		return fmt.Errorf("ownership path-authority observation session is required")
 	}
@@ -273,13 +280,14 @@ func validateCurrentAuthoritiesForClaimRemovals(
 	for _, claim := range expected {
 		selectedForRemoval[claim] = struct{}{}
 	}
-	for index, claim := range registry.Claims() {
+	for index, claim := range document.registry.Claims() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		_, selected := selectedForRemoval[claim]
+		locator := document.locator(claim.Address().PathAuthority())
 		if selected || observations.admitsMissingDocumentClaim(claim) {
-			observed, err := observations.observe(claim.Address().Path())
+			observed, err := observations.observe(locator)
 			if err != nil {
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
 			}
@@ -287,32 +295,35 @@ func validateCurrentAuthoritiesForClaimRemovals(
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
 			}
 		} else {
-			currentPath, err := observations.observePersisted(claim.Address().Path())
+			currentPath, err := observations.observePersisted(locator)
 			if err != nil {
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
 			}
 			if !currentPath.Equal(claim.Address().PathAuthority()) {
 				return fmt.Errorf(
-					"ownership registry claims[%d] path authority %q with semantics %q is not current; observed %q with semantics %q",
+					"ownership registry claims[%d] path authority %q with semantics %q is not current via locator %q; observed %q with semantics %q",
 					index,
 					claim.Address().Path(),
 					claim.Address().PathAuthority().Witness(),
+					locator,
 					currentPath.Key(),
 					currentPath.Witness(),
 				)
 			}
 		}
 
-		currentStatefile, err := observations.observePersisted(claim.Owner().StatefileKey())
+		stateLocator := document.locator(claim.Owner().StatefileAuthority())
+		currentStatefile, err := observations.observePersisted(stateLocator)
 		if err != nil {
 			return fmt.Errorf("observe ownership registry claims[%d] statefile authority: %w", index, err)
 		}
 		if !currentStatefile.Equal(claim.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
-				"ownership registry claims[%d] statefile authority %q with semantics %q is not current; observed %q with semantics %q",
+				"ownership registry claims[%d] statefile authority %q with semantics %q is not current via locator %q; observed %q with semantics %q",
 				index,
 				claim.Owner().StatefileKey(),
 				claim.Owner().StatefileAuthority().Witness(),
+				stateLocator,
 				currentStatefile.Key(),
 				currentStatefile.Witness(),
 			)
@@ -530,6 +541,7 @@ func (store Store) Apply(
 	address ownership.ManagedAddress,
 	expected ownership.ClaimValue,
 	replacement ownership.ClaimValue,
+	references ...pathauthority.Reference,
 ) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
@@ -538,7 +550,11 @@ func (store Store) Apply(
 		return ownership.Registry{}, err
 	}
 
-	current, expectedEntry, exists, capability, err := store.loadForCommit(ctx)
+	observations, err := store.newPathAuthorityObservationSession()
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	current, expectedEntry, exists, capability, err := store.loadForUpdate(ctx, nil, observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -548,14 +564,14 @@ func (store Store) Apply(
 			_ = capability.Close()
 		}
 	}()
-	next, err := current.Apply(address, expected, replacement)
+	next, err := current.registry.Apply(address, expected, replacement)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
 	if expected.Equal(replacement) {
 		return next, nil
 	}
-	content, err := encode(next)
+	content, err := current.encodeSuccessor(ctx, next, references, observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -578,36 +594,6 @@ func (store Store) Apply(
 		return ownership.Registry{}, fmt.Errorf("commit ownership registry: %w", err)
 	}
 	return next, nil
-}
-
-func (store Store) loadForCommit(
-	ctx context.Context,
-) (
-	ownership.Registry,
-	storagecommit.EntryIdentity,
-	bool,
-	rootedpath.CommitCapability,
-	error,
-) {
-	if store.root != nil {
-		observations, observationErr := store.newPathAuthorityObservationSession()
-		if observationErr != nil {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, observationErr
-		}
-		return store.loadRootedForCommit(ctx, nil, observations)
-	}
-	identity, err := storagecommit.CaptureEntryIdentity(ctx, store.path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return ownership.EmptyRegistry(), storagecommit.EntryIdentity{}, false, nil, nil
-		}
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("capture ownership registry identity: %w", err)
-	}
-	registry, err := store.Load(ctx)
-	if err != nil {
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
-	}
-	return registry, identity, true, nil, nil
 }
 
 type file struct {

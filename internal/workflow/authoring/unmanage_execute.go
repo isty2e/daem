@@ -248,6 +248,16 @@ func commitUnmanageCandidate(
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
+	if matches, err := revisions.MatchesCurrent(ctx); err != nil {
+		return UnmanageExtensionResult{}, err
+	} else if !matches {
+		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
+	}
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return UnmanageExtensionResult{}, err
+	} else if !matches {
+		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
+	}
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -275,9 +285,16 @@ func fileTargets(ctx context.Context, current unmanageCandidate) ([]fileset.File
 	if err != nil {
 		return nil, fmt.Errorf("marshal unmanage statefile: %w", err)
 	}
-	registryContent, err := carrierclaim.Marshal(current.nextRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("marshal unmanage carrier registry: %w", err)
+	var registryContent []byte
+	if current.registryChanged {
+		store, err := carrierclaim.New(current.document.Paths.CarrierClaimRegistryPath)
+		if err != nil {
+			return nil, err
+		}
+		registryContent, err = store.PrepareRewrite(ctx, current.beforeRegistry, current.nextRegistry)
+		if err != nil {
+			return nil, fmt.Errorf("prepare unmanage carrier registry: %w", err)
+		}
 	}
 	specs := []struct {
 		path    string

@@ -521,7 +521,7 @@ func TestStoreStaleLastConsumerCommitCannotEraseConcurrentClaim(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("load stale registry = (%#v, %#v, %t, %v)", stale, staleIdentity, exists, err)
 	}
-	staleEmpty, changed, err := stale.WithoutClaim(first)
+	staleEmpty, changed, err := stale.registry.WithoutClaim(first)
 	if err != nil || !changed {
 		t.Fatalf("derive stale last-consumer transition = (%#v, %t, %v)", staleEmpty, changed, err)
 	}
@@ -529,7 +529,7 @@ func TestStoreStaleLastConsumerCommitCannotEraseConcurrentClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.commitRegistry(t.Context(), staleEmpty, staleIdentity, true); err == nil {
+	if err := store.commitRegistry(t.Context(), stale, staleEmpty, nil, staleIdentity, true); err == nil {
 		t.Fatal("stale last-consumer commit succeeded")
 	}
 	current, err := store.Load(t.Context())
@@ -695,7 +695,7 @@ func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
 			want:    "use the daem version that wrote it",
 		},
 		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
-		{name: "future version", content: `{"version":3,"claims":[],"future":true}`, want: "written by a newer daem"},
+		{name: "future version", content: `{"version":4,"claims":[],"future":true}`, want: "written by a newer daem"},
 		{
 			name:    "case-variant empty override",
 			content: `{"version":1,"claims":[{"owner":{"statefile_key":"/tmp/state.json"}}],"CLAIMS":[]}`,

@@ -330,18 +330,20 @@ func (store *countingOwnershipRegistryStore) Path() string {
 func (store *countingOwnershipRegistryStore) Converge(
 	ctx context.Context,
 	convergence ownership.ClaimConvergence,
+	references ...pathauthority.Reference,
 ) (ownership.Registry, error) {
 	bindings, err := ownership.NewDocumentBindingConvergence(nil)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	return store.ConvergeRegistry(ctx, convergence, bindings)
+	return store.ConvergeRegistry(ctx, convergence, bindings, references...)
 }
 
 func (store *countingOwnershipRegistryStore) ConvergeRegistry(
 	_ context.Context,
 	claims ownership.ClaimConvergence,
 	bindings ownership.DocumentBindingConvergence,
+	_ ...pathauthority.Reference,
 ) (ownership.Registry, error) {
 	store.convergences++
 	next, _, err := claims.Apply(store.registry)

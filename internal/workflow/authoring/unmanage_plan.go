@@ -25,6 +25,7 @@ type unmanageCandidate struct {
 	localPaths      []string
 	nextState       durable.Snapshot
 	stateChanged    bool
+	beforeRegistry  durablecarrier.GlobalCarrierClaims
 	nextRegistry    durablecarrier.GlobalCarrierClaims
 	registryChanged bool
 	selected        selection
@@ -164,6 +165,7 @@ func buildUnmanageCandidate(
 		localPaths:      localPaths,
 		nextState:       nextState,
 		stateChanged:    stateChanged,
+		beforeRegistry:  registry,
 		nextRegistry:    nextRegistry,
 		registryChanged: registryChanged,
 		selected:        selected,

@@ -19,5 +19,5 @@ type DocumentRegistryReader interface {
 // Operation leases, phase admission and host authority remain caller-owned.
 type DocumentRegistryStore interface {
 	DocumentRegistryReader
-	ConvergeForDocuments(context.Context, outputownership.ClaimConvergence, outputownership.DocumentBindingConvergence, stateauthority.Authority, []pathauthority.Provisional, int, rootedpath.PhysicalTraversalBudget) (outputownership.Registry, error)
+	ConvergeForDocuments(context.Context, outputownership.ClaimConvergence, outputownership.DocumentBindingConvergence, stateauthority.Authority, []pathauthority.Provisional, int, rootedpath.PhysicalTraversalBudget, ...pathauthority.Reference) (outputownership.Registry, error)
 }
