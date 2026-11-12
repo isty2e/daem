@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -25,34 +23,20 @@ const (
 
 // Load reads current state or one exact empty retired statefile into canonical durable state.
 func Load(ctx context.Context, path string) (durable.Snapshot, error) {
-	content, err := readStatefile(ctx, path)
+	state, err := LoadPhysical(ctx, path)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	snapshot, err := decodePersisted(ctx, content)
-	if err != nil {
-		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
-	}
-	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
-	if err != nil {
-		return durable.Snapshot{}, fmt.Errorf("canonicalize statefile authority key: %w", err)
-	}
-	if err := validateLoadedStateAuthority(snapshot, authority); err != nil {
-		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
-	}
-	return snapshot, nil
+	return state.Snapshot(), nil
 }
 
 // LoadOptional reads admissible persisted state or returns the canonical empty snapshot.
 func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
-	snapshot, err := Load(ctx, path)
-	if err == nil {
-		return snapshot, nil
+	state, err := LoadOptionalPhysical(ctx, path)
+	if err != nil {
+		return durable.Snapshot{}, fmt.Errorf("read statefile: %w", err)
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return durable.EmptySnapshot(), nil
-	}
-	return durable.Snapshot{}, fmt.Errorf("read statefile: %w", err)
+	return state.Snapshot(), nil
 }
 
 // Decode decodes one strict current or explicitly supported legacy state JSON value.

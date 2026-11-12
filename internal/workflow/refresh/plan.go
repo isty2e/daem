@@ -300,10 +300,11 @@ func planAtPathsWithBarrier(
 	); err != nil {
 		return refusedPlan(result, ReasonLockUnavailable, err, "run daem lock for the selected manifest")
 	}
-	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
+	physicalState, err := statefile.LoadOptionalPhysical(ctx, paths.StatefilePath)
 	if err != nil {
 		return refusedPlan(result, ReasonMutationAuthority, err, "repair or remove the invalid statefile before retrying")
 	}
+	currentState := physicalState.Snapshot()
 
 	selected, err := selectExtension(environment.Extensions(), input)
 	if err != nil {
@@ -419,20 +420,21 @@ func planAtPathsWithBarrier(
 	result.Route.ExecutionSubject = command.disclosure.ExecutionSubject()
 	result.ResultClass = ResultPlanned
 	planned := plan{
-		result:            result,
-		paths:             paths,
-		lockfile:          locked,
-		subject:           subject,
-		contract:          contract,
-		settingsProfile:   settingsProfile,
-		routeRequest:      routeRequest,
-		operationContract: operationContract,
-		command:           command,
-		preObservation:    preObservation,
-		authorityPaths:    authorityPaths,
-		pinClaimRegistry:  pinClaimRegistry,
-		currentState:      currentState,
-		timeout:           timeout,
+		result:             result,
+		paths:              paths,
+		lockfile:           locked,
+		subject:            subject,
+		contract:           contract,
+		settingsProfile:    settingsProfile,
+		routeRequest:       routeRequest,
+		operationContract:  operationContract,
+		command:            command,
+		preObservation:     preObservation,
+		authorityPaths:     authorityPaths,
+		pinClaimRegistry:   pinClaimRegistry,
+		currentState:       currentState,
+		physicalStateCodec: physicalState.Codec(),
+		timeout:            timeout,
 	}
 	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState, settingsProfile)
 	if err != nil {

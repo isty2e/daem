@@ -16,6 +16,7 @@ import (
 // for one readiness decision. The zero value is intentionally not an epoch.
 type PersistenceEpoch struct {
 	currentState        durable.Snapshot
+	physicalStateCodec  statefile.PhysicalCodec
 	globalCarrierClaims durablecarrier.GlobalCarrierClaims
 	physicalBudget      *physicalwork.Budget
 	initialized         bool
@@ -27,6 +28,21 @@ func NewPersistenceEpochWithBudget(currentState durable.Snapshot, globalCarrierC
 	epoch := NewPersistenceEpoch(currentState, globalCarrierClaims)
 	epoch.physicalBudget = budget
 	return epoch
+}
+
+// NewPersistenceEpochWithPhysicalState retains the physical selection from the
+// same State read as the canonical facts, without rereading or replenishing work.
+func NewPersistenceEpochWithPhysicalState(state statefile.PhysicalState, claims durablecarrier.GlobalCarrierClaims, budget *physicalwork.Budget) PersistenceEpoch {
+	epoch := NewPersistenceEpochWithBudget(state.Snapshot(), claims, budget)
+	epoch.physicalStateCodec = state.Codec()
+	return epoch
+}
+
+func (epoch PersistenceEpoch) PhysicalStateCodec(template statefile.PhysicalCodec) (statefile.PhysicalCodec, error) {
+	if !epoch.initialized {
+		return statefile.PhysicalCodec{}, fmt.Errorf("readiness persistence epoch is not initialized")
+	}
+	return template.ForObservedState(epoch.physicalStateCodec)
 }
 
 func (epoch PersistenceEpoch) Snapshot() (durable.Snapshot, error) {
@@ -53,6 +69,7 @@ func NewPersistenceEpoch(
 ) PersistenceEpoch {
 	return PersistenceEpoch{
 		currentState:        currentState,
+		physicalStateCodec:  statefile.DefaultPhysicalCodec(),
 		globalCarrierClaims: globalCarrierClaims,
 		initialized:         true,
 	}
@@ -62,7 +79,7 @@ func loadPersistenceEpoch(
 	ctx context.Context,
 	paths daempaths.Paths,
 ) (PersistenceEpoch, error) {
-	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
+	state, err := statefile.LoadOptionalPhysical(ctx, paths.StatefilePath)
 	if err != nil {
 		return PersistenceEpoch{}, err
 	}
@@ -78,7 +95,7 @@ func loadPersistenceEpoch(
 	if err != nil {
 		return PersistenceEpoch{}, err
 	}
-	return NewPersistenceEpoch(currentState, globalCarrierClaims), nil
+	return NewPersistenceEpochWithPhysicalState(state, globalCarrierClaims, nil), nil
 }
 
 func (epoch PersistenceEpoch) facts() (

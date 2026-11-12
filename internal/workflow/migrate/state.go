@@ -57,6 +57,7 @@ type PreparedState struct {
 	from               stateauthority.Authority
 	targetStatefileKey string
 	snapshot           durable.Snapshot
+	stateCodec         statefile.PhysicalCodec
 	outputs            ownership.Registry
 	carriers           carrier.GlobalCarrierClaims
 	disclosure         StateDisclosure
@@ -202,10 +203,11 @@ func (prepared *PreparedState) loadTransfer(ctx context.Context) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	prepared.snapshot, err = statefile.LoadOptional(ctx, prepared.legacy.StatefilePath)
+	physicalState, err := statefile.LoadOptionalPhysical(ctx, prepared.legacy.StatefilePath)
 	if err != nil {
 		return err
 	}
+	prepared.snapshot, prepared.stateCodec = physicalState.Snapshot(), physicalState.Codec()
 	if err := prepared.validateSnapshotProvenance(); err != nil {
 		return err
 	}

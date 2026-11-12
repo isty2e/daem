@@ -460,8 +460,12 @@ func executeWithDependencies(
 	if carrierRemovalBaselineObserver == nil {
 		carrierRemovalBaselineObserver = passiveCarrierRemovalBaselineObserver(current.context.Paths)
 	}
+	physicalStateCodec, err := current.context.PersistenceEpoch.PhysicalStateCodec(statefile.DefaultPhysicalCodec())
+	if err != nil {
+		return current.result, err
+	}
 	executionOptions := runOptions{
-		physicalStateCodec:             statefile.DefaultPhysicalCodec(),
+		physicalStateCodec:             physicalStateCodec,
 		ExecuteEvents:                  options.ExecuteEvents,
 		HostRouteExecutor:              options.HostRouteExecutor,
 		HostRouteObserver:              hostRouteObserver,

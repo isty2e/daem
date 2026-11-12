@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -17,6 +18,23 @@ import (
 func TestStateRelocationRetainsLocatedRegistryEvidenceForForeignOwners(t *testing.T) {
 	paths, legacy := migrationFixture(t)
 	foreignOutput, foreignCarrier, installed := seedClaims(t, paths, legacy)
+	sourceState, err := statefile.Load(t.Context(), legacy.StatefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceObservation, err := mutation.ObservePersistedDirectoryEntryAuthority(legacy.StatefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceImage, err := statefile.NewStateImage(sourceState, sourceObservation.Reference())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceBytes, err := statefile.MarshalImage(sourceImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, legacy.StatefilePath, sourceBytes)
 	from, err := authorityFor(legacy)
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +127,14 @@ func TestStateRelocationRetainsLocatedRegistryEvidenceForForeignOwners(t *testin
 	to, err := authorityFor(paths)
 	if err != nil {
 		t.Fatal(err)
+	}
+	stateBytes, err := os.ReadFile(paths.StatefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateAfter, err := statefile.UnmarshalImage(stateBytes)
+	if err != nil || !stateAfter.Reference().Identity().Equal(to.StatefileAuthority()) {
+		t.Fatal("state relocation downgraded its image or retained the retired self reference", err)
 	}
 	for _, lookup := range []func(pathauthority.Exact) (pathauthority.Reference, bool){outputAfter.Reference, carrierAfter.Reference} {
 		if retained, present := lookup(foreignReference.Identity()); !present || !retained.Equal(foreignReference) {

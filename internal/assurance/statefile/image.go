@@ -32,3 +32,21 @@ func (image StateImage) Validate() error {
 func (image StateImage) Snapshot() durable.Snapshot { return image.snapshot }
 
 func (image StateImage) Reference() pathauthority.Reference { return image.reference }
+
+// SelectStatefileReference retains same-identity recorded spelling. A move to a
+// different observed namespace selects fresh evidence, not the old access path.
+// The caller owns fresh qualification; references do not grant filesystem access.
+func SelectStatefileReference(recorded, observed pathauthority.Reference) (pathauthority.Reference, error) {
+	if err := observed.Validate(); err != nil {
+		return pathauthority.Reference{}, err
+	}
+	if !recorded.IsZero() {
+		if err := recorded.Validate(); err != nil {
+			return pathauthority.Reference{}, err
+		}
+		if recorded.Identity().Equal(observed.Identity()) {
+			return recorded, nil
+		}
+	}
+	return observed, nil
+}

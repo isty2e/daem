@@ -144,6 +144,10 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
+	physicalCodec, err = planned.context.PersistenceEpoch.PhysicalStateCodec(physicalCodec)
+	if err != nil {
+		return err
+	}
 	stateInput := effectpreparation.NativeApplyStateInput{
 		Before: assessment.CurrentState, ManagedPaths: assessment.Reconciliation.ManagedPaths(),
 		Aggregates: assessment.Reconciliation.Aggregates(), StateCodec: codec,

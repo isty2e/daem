@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -281,7 +280,7 @@ func fileTargets(ctx context.Context, current unmanageCandidate) ([]fileset.File
 	if err := current.lockfile.target.Validate(ctx); err != nil {
 		return nil, err
 	}
-	stateContent, err := statefile.Marshal(current.nextState)
+	stateContent, err := current.stateCodec.EncodeState(current.nextState)
 	if err != nil {
 		return nil, fmt.Errorf("marshal unmanage statefile: %w", err)
 	}

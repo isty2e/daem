@@ -40,7 +40,7 @@ func LoadPersistenceEpochWithBudget(ctx context.Context, paths daempaths.Paths, 
 	if err != nil {
 		return readiness.PersistenceEpoch{}, err
 	}
-	state, err := statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{
+	state, err := statefile.LoadOptionalPhysicalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{
 		Codec: physicalCodec, PhysicalPathBudget: budget,
 	})
 	if err != nil {
@@ -54,5 +54,5 @@ func LoadPersistenceEpochWithBudget(ctx context.Context, paths daempaths.Paths, 
 	if err != nil {
 		return readiness.PersistenceEpoch{}, err
 	}
-	return readiness.NewPersistenceEpochWithBudget(state, claims, budget), nil
+	return readiness.NewPersistenceEpochWithPhysicalState(state, claims, budget), nil
 }

@@ -8,7 +8,6 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -576,7 +575,7 @@ func Execute(
 							entry,
 							current.currentState,
 							[]durableattempt.HostRouteAttempt{record},
-							statefile.DefaultPhysicalCodec(),
+							current.physicalStateCodec,
 						)
 						return commitErr
 					},

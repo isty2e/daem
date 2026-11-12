@@ -24,6 +24,7 @@ type unmanageCandidate struct {
 	lockfile        LockfileChange
 	localPaths      []string
 	nextState       durable.Snapshot
+	stateCodec      statefile.PhysicalCodec
 	stateChanged    bool
 	beforeRegistry  durablecarrier.GlobalCarrierClaims
 	nextRegistry    durablecarrier.GlobalCarrierClaims
@@ -66,10 +67,11 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, err
 	}
-	state, err := statefile.LoadOptional(ctx, document.Paths.StatefilePath)
+	physicalState, err := statefile.LoadOptionalPhysical(ctx, document.Paths.StatefilePath)
 	if err != nil {
 		return unmanageCandidate{}, err
 	}
+	state := physicalState.Snapshot()
 	registryStore, err := carrierclaim.New(document.Paths.CarrierClaimRegistryPath)
 	if err != nil {
 		return unmanageCandidate{}, err
@@ -164,6 +166,7 @@ func buildUnmanageCandidate(
 		lockfile:        lockfile,
 		localPaths:      localPaths,
 		nextState:       nextState,
+		stateCodec:      physicalState.Codec(),
 		stateChanged:    stateChanged,
 		beforeRegistry:  registry,
 		nextRegistry:    nextRegistry,

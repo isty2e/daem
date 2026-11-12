@@ -10,6 +10,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -285,7 +286,11 @@ func (compiler *planCompiler) addState(ctx context.Context, path string, referen
 		if err != nil {
 			return err
 		}
-		if !recorded.IsZero() && recorded.Identity().Equal(reference.Identity()) {
+		reference, err = statefile.SelectStatefileReference(recorded, reference)
+		if err != nil {
+			return err
+		}
+		if !recorded.IsZero() && recorded.Equal(reference) {
 			reference, err = compiler.qualify.retainRecorded(ctx, recorded)
 			if err != nil {
 				return err

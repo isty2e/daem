@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/target"
@@ -74,5 +76,39 @@ func TestUnmanageRetainsLocatedForeignCarrierEvidence(t *testing.T) {
 	}
 	if references := after.References(); len(references) != 1 || !references[0].Equal(foreignReference) {
 		t.Fatal("unmanage lost foreign locator evidence or retained the released owner")
+	}
+}
+
+func TestUnmanageProjectClaimPreservesItsLocatedStateEnvelope(t *testing.T) {
+	root := t.TempDir()
+	configureUnmanageTestHomes(t, root)
+	paths := unmanageTestPaths(t, root)
+	writeUnmanageFile(t, paths.ManifestPath, []byte("version = 1\ntargets = [\"claude-code\"]\n"))
+	fixture := newUnmanageTestFixture(t, "context7", "context7@official", target.ScopeProject)
+	claim := unmanageTestClaim(t, fixture, unmanageTestOwner(t, paths))
+	snapshot, err := durable.NewSnapshot(durable.SnapshotInput{ManagedCarrierClaims: []durablecarrier.ManagedCarrierClaim{claim}, NativeDocumentCommit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := statefile.NewStateImage(snapshot, observed.Reference())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := statefile.MarshalImage(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeUnmanageFile(t, paths.StatefilePath, content)
+	result, err := UnmanageExtension(t.Context(), UnmanageExtensionRequest{ManifestPath: paths.ManifestPath, ID: "context7", Scope: target.ScopeProject, Mode: UnmanageModeWrite})
+	if err != nil || result.StatefileStatus != UnmanageStateStatusWritten {
+		t.Fatal("located project unmanage failed", err)
+	}
+	after, err := statefile.UnmarshalImage(readUnmanageFile(t, paths.StatefilePath))
+	if err != nil || !after.Reference().Equal(observed.Reference()) || after.Snapshot().NativeDocumentCommit() != 4 || len(after.Snapshot().ManagedCarrierClaims()) != 0 {
+		t.Fatal("unmanage downgraded its State image or changed unrelated State facts", err)
 	}
 }

@@ -169,7 +169,11 @@ func (prepared *PreparedState) afterImages(ctx context.Context, to stateauthorit
 	if err != nil {
 		return nil, err
 	}
-	stateContent, err := statefile.Marshal(snapshot)
+	stateCodec, err := prepared.stateCodec.ForDestination(reference)
+	if err != nil {
+		return nil, err
+	}
+	stateContent, err := stateCodec.EncodeState(snapshot)
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,10 @@ import (
 // Codec implements the canonical durable snapshot codec with the current statefile schema.
 type Codec struct{}
 
+func (Codec) physicalImageFacts(ctx context.Context) (snapshotCodec, error) {
+	return currentSnapshotCodec(ctx)
+}
+
 var _ durable.SnapshotCodec = Codec{}
 
 // Encode renders one canonical Snapshot as deterministic statefile JSON.
@@ -55,6 +59,10 @@ func currentSnapshotCodec(ctx context.Context) (snapshotCodec, error) {
 type snapshotCodec struct {
 	contributions   aggregate.ContributionCatalog
 	nativeDocuments bool
+}
+
+func (codec snapshotCodec) physicalImageFacts(context.Context) (snapshotCodec, error) {
+	return codec, nil
 }
 
 func (codec snapshotCodec) Encode(snapshot durable.Snapshot) ([]byte, error) {
