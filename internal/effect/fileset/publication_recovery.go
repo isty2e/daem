@@ -1,10 +1,8 @@
 package fileset
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"slices"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -73,7 +71,7 @@ func loadQualifiedPublication(ctx context.Context, root string, expected Publica
 }
 
 func samePublicationIntent(left, right PublicationIntent) bool {
-	return bytes.Equal(left.selection, right.selection) && slices.Equal(left.targets, right.targets)
+	return left.Equal(right)
 }
 
 func (plan *publicationPlan) inspect(ctx context.Context, revision string) (RecoveryDisposition, error) {

@@ -11,6 +11,7 @@ import (
 
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -161,6 +162,14 @@ func (authority EffectAuthority) Domains() []mutation.Domain {
 	return append([]mutation.Domain(nil), authority.domains...)
 }
 
+// SelectedPaths returns the original command selection, not a discovered owner.
+func (authority EffectAuthority) SelectedPaths() (daempaths.Paths, error) {
+	if err := authority.requireInitialized(); err != nil {
+		return daempaths.Paths{}, err
+	}
+	return authority.paths, nil
+}
+
 // RevisionRequests returns owned recovery and legacy-management revision requests.
 // Selected StateDir object identity is retained separately by this authority.
 func (authority EffectAuthority) RevisionRequests() []mutation.RevisionRequest {
@@ -240,12 +249,26 @@ func validateBarrier(
 	if err := requireGlobalMetadataClear(ctx, paths, stateDir.workBudget()); err != nil {
 		return err
 	}
+	return validateLocalBarrierTail(ctx, paths, stateDir, nil)
+}
+
+func validateLocalBarrierTail(
+	ctx context.Context,
+	paths daempaths.Paths,
+	stateDir stateDirBarrierAuthority,
+	budget rootedpath.PhysicalTraversalBudget,
+) error {
 	if stateDir.PresentAtCapture() {
 		if err := normalizeStateDirValidation(stateDir.Validate(ctx)); err != nil {
 			return err
 		}
 	}
-	journalErr := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir)
+	var journalErr error
+	if budget == nil {
+		journalErr = journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir)
+	} else {
+		journalErr = journal.RequireNoInterruptedApplyBounded(ctx, paths.RecoveryDir, budget)
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

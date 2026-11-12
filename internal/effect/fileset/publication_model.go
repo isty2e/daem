@@ -1,6 +1,7 @@
 package fileset
 
 import (
+	"bytes"
 	"cmp"
 	"fmt"
 	"io/fs"
@@ -178,6 +179,12 @@ func NewPublicationIntent(selection []byte, targets []PublicationTarget) (Public
 func (intent PublicationIntent) Selection() []byte { return slices.Clone(intent.selection) }
 
 func (intent PublicationIntent) Targets() []PublicationTarget { return slices.Clone(intent.targets) }
+
+// Equal compares the complete selection and canonical target facts.
+func (intent PublicationIntent) Equal(other PublicationIntent) bool {
+	return intent.Validate() == nil && other.Validate() == nil &&
+		bytes.Equal(intent.selection, other.selection) && slices.Equal(intent.targets, other.targets)
+}
 
 func (intent PublicationIntent) Validate() error {
 	if len(intent.selection) == 0 || len(intent.targets) == 0 {
