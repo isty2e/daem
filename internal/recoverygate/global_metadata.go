@@ -42,7 +42,7 @@ func requireGlobalMetadataClear(ctx context.Context, paths daempaths.Paths, budg
 	if budget == nil {
 		return fmt.Errorf("global metadata physical work budget is required")
 	}
-	err := fileset.ObserveClearFenceAt(ctx, paths.GlobalMetadataDir(), defaultStateDirMaximumPhysicalDepth, budget)
+	err := fileset.ObserveClearPublicationFenceAt(ctx, paths.GlobalMetadataDir(), defaultStateDirMaximumPhysicalDepth, budget)
 	if cancellation := cancellationCause(ctx.Err(), err); cancellation != nil {
 		return cancellation
 	}

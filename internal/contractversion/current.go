@@ -15,6 +15,10 @@ const MetadataTransaction = 3
 // commit-point after-image.
 const MetadataTransactionReference = 4
 
+// MetadataTransactionIntent identifies file-set evidence with a retained
+// containing intent and sized before/after target facts.
+const MetadataTransactionIntent = 5
+
 // StateRelocation identifies a retired statefile's authority-transfer receipt.
 const StateRelocation = 1
 

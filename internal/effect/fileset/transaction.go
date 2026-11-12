@@ -313,6 +313,8 @@ func requireClearFileSetAtCanonicalPathVersion(
 			maximumPhysicalDepth,
 			physicalWorkBudget,
 		)
+	} else if version == contractversion.MetadataTransactionIntent {
+		markerErr = loadPublicationFenceMarker(ctx, activeMarkerPath)
 	} else {
 		_, markerErr = loadMarkerAtCanonicalPath(ctx, activeMarkerPath)
 	}

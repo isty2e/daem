@@ -163,6 +163,24 @@ func ObserveClearFenceAt(
 	)
 }
 
+// ObserveClearPublicationFenceAt recognizes legacy-3 and containing-intent-5
+// markers without opening the intent or target paths. It charges the ordinary
+// marker census and grants no recovery or selection authority.
+func ObserveClearPublicationFenceAt(
+	ctx context.Context,
+	evidenceRoot string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	return requireClearFileSetAtCanonicalPathVersion(
+		ctx,
+		evidenceRoot,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		contractversion.MetadataTransactionIntent,
+	)
+}
+
 // ObserveClearFenceAt4 validates a generation-4 marker and every retained
 // evidence image while charging the caller-owned fence budget.
 func ObserveClearFenceAt4(

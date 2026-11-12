@@ -381,22 +381,10 @@ func loadMarkerAtCanonicalPathVersionWithBudget(
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
 ) (transactionMarker, []byte, error) {
-	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumMarkerBytes)
+	content, err := readMarkerContent(ctx, canonicalPath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return transactionMarker{}, nil, fmt.Errorf("%w: %w", errFileSetMarkerAbsent, err)
-		}
 		return transactionMarker{}, nil, err
 	}
-	if mode := snapshot.Mode().Perm(); mode != transactionEvidenceMode {
-		return transactionMarker{}, nil, fmt.Errorf(
-			"file-set transaction marker %q permissions are %04o, want %04o",
-			canonicalPath,
-			mode,
-			transactionEvidenceMode,
-		)
-	}
-	content := snapshot.Content()
 	envelope, err := jsonstrict.DecodeVersionEnvelope(
 		content,
 		"file-set transaction marker",
@@ -406,36 +394,76 @@ func loadMarkerAtCanonicalPathVersionWithBudget(
 	if err != nil {
 		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
+	if err := markerVersionError(envelope); err != nil {
+		return transactionMarker{}, nil, err
+	}
+	marker, err := decodeValidatedMarkerContent(canonicalPath, content, expectedVersion, maximumPhysicalDepth, physicalWorkBudget)
+	if err != nil {
+		return transactionMarker{}, nil, err
+	}
+	return marker, content, nil
+}
+
+func readMarkerContent(ctx context.Context, canonicalPath string) ([]byte, error) {
+	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumMarkerBytes)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %w", errFileSetMarkerAbsent, err)
+		}
+		return nil, err
+	}
+	if mode := snapshot.Mode().Perm(); mode != transactionEvidenceMode {
+		return nil, fmt.Errorf(
+			"file-set transaction marker %q permissions are %04o, want %04o",
+			canonicalPath,
+			mode,
+			transactionEvidenceMode,
+		)
+	}
+	return snapshot.Content(), nil
+}
+
+func markerVersionError(envelope jsonstrict.VersionEnvelope) error {
 	switch envelope.Disposition {
 	case jsonstrict.VersionLegacy:
-		return transactionMarker{}, nil, fmt.Errorf(
+		return fmt.Errorf(
 			"unsupported legacy file-set transaction marker version %d; use the daem version that wrote it to recover before upgrading and do not delete the transaction evidence",
 			envelope.Version,
 		)
 	case jsonstrict.VersionFuture:
-		return transactionMarker{}, nil, fmt.Errorf(
+		return fmt.Errorf(
 			"unsupported file-set transaction marker version %d; it was written by a newer daem, so upgrade daem before recovery and do not delete the transaction evidence",
 			envelope.Version,
 		)
 	}
+	return nil
+}
+
+func decodeValidatedMarkerContent(
+	canonicalPath string,
+	content []byte,
+	expectedVersion int,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) (transactionMarker, error) {
 	if err := validateMarkerPresence(content, expectedVersion); err != nil {
-		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	var marker transactionMarker
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&marker); err != nil {
-		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	var extra json.RawMessage
 	if err := decoder.Decode(&extra); err == nil {
-		return transactionMarker{}, nil, fmt.Errorf("file-set transaction marker %q contains multiple JSON values", canonicalPath)
+		return transactionMarker{}, fmt.Errorf("file-set transaction marker %q contains multiple JSON values", canonicalPath)
 	} else if err != io.EOF {
-		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	if expectedVersion == contractversion.MetadataTransactionReference {
 		if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
-			return transactionMarker{}, nil, fmt.Errorf("generation-4 file-set marker requires a path depth and shared work budget")
+			return transactionMarker{}, fmt.Errorf("generation-4 file-set marker requires a path depth and shared work budget")
 		}
 		if err := validateMarkerForVersionWithBudget(
 			canonicalPath,
@@ -444,12 +472,12 @@ func loadMarkerAtCanonicalPathVersionWithBudget(
 			maximumPhysicalDepth,
 			physicalWorkBudget,
 		); err != nil {
-			return transactionMarker{}, nil, err
+			return transactionMarker{}, err
 		}
 	} else if err := validateMarkerForVersion(canonicalPath, marker, expectedVersion); err != nil {
-		return transactionMarker{}, nil, err
+		return transactionMarker{}, err
 	}
-	return marker, content, nil
+	return marker, nil
 }
 
 func validateMarkerPresence(content []byte, version int) error {
