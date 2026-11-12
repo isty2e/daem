@@ -124,6 +124,21 @@ func TestPublicationIntentBoundsCapturedBeforeBytes(t *testing.T) {
 	}
 }
 
+func TestPublicationIntentRejectsNestedNamespacesAcrossLexicalSiblings(t *testing.T) {
+	root := t.TempDir()
+	image := publicationImageForTest(t, []byte("After"))
+	var targets []PublicationTarget
+	for _, path := range []string{filepath.Join(root, "a"), filepath.Join(root, "a-b"), filepath.Join(root, "a", "c")} {
+		targets = append(targets, publicationTargetForTest(t, path, AbsentPublicationImage(), image))
+	}
+	if _, err := NewPublicationIntent([]byte("selection"), targets); err == nil {
+		t.Fatal("an interleaved lexical sibling hid an ancestor target")
+	}
+	if _, err := NewPublicationIntent([]byte("selection"), targets[:2]); err != nil {
+		t.Fatal("a shared string prefix became an ancestor namespace", err)
+	}
+}
+
 func publicationImageForTest(t *testing.T, content []byte) PublicationImage {
 	t.Helper()
 	image, err := NewPublicationImage(content, 0o600)

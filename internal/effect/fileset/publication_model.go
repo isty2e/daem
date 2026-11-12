@@ -115,7 +115,8 @@ func (target PublicationTarget) Validate() error {
 
 // PublicationIntent owns the mechanical target facts and an opaque semantic
 // selection. Record validation neither reserves physical work nor grants access.
-// Targets are stored in lexical path order, independently of their input order.
+// Targets have non-nested path spellings and are stored in lexical path order,
+// independently of their input order.
 type PublicationIntent struct {
 	selection []byte
 	targets   []PublicationTarget
@@ -145,6 +146,18 @@ func NewPublicationIntent(selection []byte, targets []PublicationTarget) (Public
 	for index := 1; index < len(canonical); index++ {
 		if canonical[index-1].path == canonical[index].path {
 			return PublicationIntent{}, fmt.Errorf("publication target %q appears more than once", canonical[index].path)
+		}
+	}
+	for _, target := range canonical {
+		prefix := strings.TrimSuffix(target.path, string(filepath.Separator)) + string(filepath.Separator)
+		index, _ := slices.BinarySearchFunc(canonical, prefix, func(target PublicationTarget, path string) int {
+			return cmp.Compare(target.path, path)
+		})
+		if index < len(canonical) && canonical[index].path == target.path {
+			index++
+		}
+		if index < len(canonical) && strings.HasPrefix(canonical[index].path, prefix) {
+			return PublicationIntent{}, fmt.Errorf("publication targets contain nested namespaces")
 		}
 	}
 	var beforeBytes int64

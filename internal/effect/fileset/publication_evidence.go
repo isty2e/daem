@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 // PublicationIntentEvidenceView is a verified, immutable containing-record
@@ -14,6 +16,8 @@ type PublicationIntentEvidenceView struct {
 	evidenceRoot   string
 	markerRevision string
 	intent         PublicationIntent
+	headerSize     int64
+	intentSize     int64
 }
 
 func (view PublicationIntentEvidenceView) MarkerRevision() string    { return view.markerRevision }
@@ -72,10 +76,10 @@ func ReadPublicationBeforeEvidence5(
 	image := view.intent.targets[index].before
 	var content []byte
 	if image.exists {
-		content, _, err = readEvidenceImageWithBudget(
+		content, err = readPublicationEvidenceImage(
 			ctx,
 			filepath.Join(transactionDir(view.evidenceRoot), publicationBackupName(index)),
-			"publication Before image", 0, image.hash, image.size,
+			"publication Before image", image.hash, image.size,
 			maximumPhysicalDepth, physicalWorkBudget,
 		)
 		if canceled := ctx.Err(); canceled != nil {
@@ -133,8 +137,20 @@ func readPublicationIntentEvidence(
 	physicalWorkBudget PhysicalWorkBudget,
 ) (PublicationIntentEvidenceView, error) {
 	path := markerPath(canonicalRoot)
-	if err := admitFileSetFenceObservation(path, maximumPhysicalDepth, physicalWorkBudget, 1, maximumMarkerBytes); err != nil {
-		return PublicationIntentEvidenceView{}, err
+	if physicalWorkBudget != nil {
+		depth, err := fileSetAbsolutePathWork(path, maximumPhysicalDepth)
+		if err != nil {
+			return PublicationIntentEvidenceView{}, wrapFileSetAccessUnprovable(err)
+		}
+		work, err := storagecommit.MaximumFileSnapshotWork(depth, maximumMarkerBytes)
+		if err != nil {
+			return PublicationIntentEvidenceView{}, wrapFileSetAccessUnprovable(err)
+		}
+		if err := admitFileSetFenceWork(physicalWorkBudget, fileSetPhysicalWork{
+			pathComponents: work.PathWork(), entries: work.EntryWork(), bytes: work.ByteWork(),
+		}); err != nil {
+			return PublicationIntentEvidenceView{}, err
+		}
 	}
 	header, err := readMarkerContent(ctx, path)
 	if err != nil {
@@ -144,11 +160,10 @@ func readPublicationIntentEvidence(
 	if err != nil {
 		return PublicationIntentEvidenceView{}, err
 	}
-	body, _, err := readEvidenceImageWithBudget(
+	body, err := readPublicationEvidenceImage(
 		ctx,
 		filepath.Join(transactionDir(canonicalRoot), publicationIntentFile),
 		"publication intent",
-		0,
 		marker.intentHash,
 		marker.intentSize,
 		maximumPhysicalDepth,
@@ -161,7 +176,36 @@ func readPublicationIntentEvidence(
 	if err != nil {
 		return PublicationIntentEvidenceView{}, err
 	}
-	return PublicationIntentEvidenceView{evidenceRoot: canonicalRoot, markerRevision: hashBytes(header), intent: intent}, nil
+	return PublicationIntentEvidenceView{
+		evidenceRoot: canonicalRoot, markerRevision: hashBytes(header), intent: intent,
+		headerSize: int64(len(header)), intentSize: marker.intentSize,
+	}, nil
+}
+
+func readPublicationEvidenceImage(
+	ctx context.Context,
+	path, name, expectedHash string,
+	expectedSize int64,
+	maximumPhysicalDepth int,
+	budget PhysicalWorkBudget,
+) ([]byte, error) {
+	if budget != nil {
+		depth, err := fileSetAbsolutePathWork(path, maximumPhysicalDepth)
+		if err != nil {
+			return nil, wrapFileSetAccessUnprovable(err)
+		}
+		work, err := publicationEvidenceImageReadWork(depth, expectedSize)
+		if err != nil {
+			return nil, wrapFileSetAccessUnprovable(err)
+		}
+		if err := admitFileSetFenceWork(budget, work); err != nil {
+			return nil, err
+		}
+	}
+	// Gen5 has admitted the complete read projection; retain the shared integrity
+	// checks without charging its older static census convention a second time.
+	content, _, err := readEvidenceImageWithBudget(ctx, path, name, 0, expectedHash, expectedSize, maximumPhysicalDepth, nil)
+	return content, err
 }
 
 func encodePublicationEvidence(intent PublicationIntent) (body, header []byte, err error) {

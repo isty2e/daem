@@ -121,6 +121,40 @@ func TestPublicationEvidenceAdmitsMarkerAndBodyBeforeTheirReads(t *testing.T) {
 	}
 }
 
+func TestPublicationEvidenceChargesSnapshotAndImageTraversals(t *testing.T) {
+	root, intent, revision := publicationBeforeEvidenceFixture(t)
+	prefix := &fenceObservationBudget{}
+	if _, err := canonicalStateDirBounded(root, mutationfs.MaximumPhysicalPathDepth, prefix); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(transactionDir(root), publicationIntentFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	depth, err := fileSetAbsolutePathWork(markerPath(root), mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, before := range []bool{false, true} {
+		budget := &fenceObservationBudget{}
+		wantPaths, wantEntries := prefix.paths+5*depth, prefix.entries+2
+		wantBytes := prefix.bytes + maximumMarkerBytes + int64(len(body))
+		if before {
+			_, err = ReadPublicationBeforeEvidence5(t.Context(), root, intent.targets[0].path, revision,
+				mutationfs.MaximumPhysicalPathDepth, budget)
+			wantPaths += 3 * depth
+			wantEntries++
+			wantBytes += intent.targets[0].before.size
+		} else {
+			_, err = ReadPublicationIntentEvidence5(t.Context(), root, mutationfs.MaximumPhysicalPathDepth, budget)
+		}
+		if err != nil || budget.paths != wantPaths || budget.entries != wantEntries || budget.bytes != wantBytes {
+			t.Fatalf("evidence read work: before=%v got=%+v want=(%d,%d,%d): %v",
+				before, budget, wantPaths, wantEntries, wantBytes, err)
+		}
+	}
+}
+
 type publicationReadAdmissionBudget struct {
 	fenceObservationBudget
 	onWork func(entries int, payloadBytes int64) error
