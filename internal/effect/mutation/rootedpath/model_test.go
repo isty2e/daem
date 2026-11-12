@@ -164,6 +164,9 @@ func TestDestinationBindsRelativePathToExactlyOneRootAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantValidationWork := 2*rootDepth + 2
+	if work, err := destination.RootValidationWork(); err != nil || work != rootDepth {
+		t.Fatalf("root validation work = %d, err=%v, want %d", work, err, rootDepth)
+	}
 	if work, err := destination.ParentChainValidationWork(); err != nil || work != wantValidationWork {
 		t.Fatalf("parent-chain validation work = %d, err=%v, want %d", work, err, wantValidationWork)
 	}
@@ -184,6 +187,9 @@ func TestDestinationBindsRelativePathToExactlyOneRootAuthority(t *testing.T) {
 	}
 	if _, err := (Destination{root: authority}).ParentChainValidationWork(); !hasFailureKind(err, FailureInvalidDestination) {
 		t.Fatalf("contradictory parent-chain work error = %v, want %s", err, FailureInvalidDestination)
+	}
+	if _, err := (Destination{root: authority}).RootValidationWork(); !hasFailureKind(err, FailureInvalidDestination) {
+		t.Fatalf("contradictory root work error = %v, want %s", err, FailureInvalidDestination)
 	}
 }
 
