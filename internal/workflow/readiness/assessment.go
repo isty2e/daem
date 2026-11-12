@@ -7,6 +7,8 @@ import (
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -47,6 +49,7 @@ type Assessment struct {
 	RelationObservations   relationobserve.Batch
 	SequenceEdits          []relationhost.SelectedDocumentEdit
 	Owner                  stateauthority.Authority
+	OwnerReference         pathauthority.Reference
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
 	NativeSources          []lockobserve.NativeSourceObservation
@@ -226,12 +229,11 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe managed paths: %w", err)
 	}
-	var owner stateauthority.Authority
-	var ownershipObservations []observe.OwnershipObservation
+	var ownershipResult ownershipobserve.Result
 	if len(native) != 0 && native[0].input != nil && native[0].input.Documents != nil {
-		owner, ownershipObservations, err = nativeOwnershipObservations(ctx, paths, liveDestinationResolver(resolver), managedInputs, aggregateInputs, currentState, selection, native[0].input)
+		ownershipResult, err = nativeOwnershipObservations(ctx, paths, liveDestinationResolver(resolver), managedInputs, aggregateInputs, currentState, selection, native[0].input)
 	} else {
-		owner, ownershipObservations, err = buildOwnershipObservations(
+		ownershipResult, err = buildOwnershipObservations(
 			ctx,
 			paths,
 			liveDestinationResolver(resolver),
@@ -300,8 +302,9 @@ func buildAssessment(
 		managedInputs:          managedInputs,
 		aggregateInputs:        aggregateInputs,
 		managedEvidence:        managedEvidence,
-		owner:                  owner,
-		ownershipObservations:  ownershipObservations,
+		owner:                  ownershipResult.Owner,
+		ownerReference:         ownershipResult.OwnerReference,
+		ownershipObservations:  ownershipResult.Observations,
 		mcpEffective:           mcpEffective,
 		relationObservations:   relationObservations,
 		providerObservations:   providerObservations,

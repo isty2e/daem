@@ -36,6 +36,15 @@ func DefaultPhysicalCodec() PhysicalCodec { return PhysicalCodec{codec: Codec{}}
 
 func (codec PhysicalCodec) IsZero() bool { return codec.codec == nil }
 
+// StatefileReference returns successor lookup evidence, not effect authority.
+// Legacy or unobserved physical encodings have no selected reference.
+func (codec PhysicalCodec) StatefileReference() pathauthority.Reference {
+	if codec.selection == nil {
+		return pathauthority.Reference{}
+	}
+	return codec.selection.after
+}
+
 func (codec PhysicalCodec) EncodeState(snapshot durable.Snapshot) ([]byte, error) {
 	if codec.IsZero() {
 		return nil, fmt.Errorf("physical state codec is required")

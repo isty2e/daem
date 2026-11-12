@@ -198,7 +198,7 @@ func commitGlobalCarrierAdoptions(
 				if err != nil {
 					return current, 0, err
 				}
-				observed, persistErr := store.UpsertAllIfCurrent(ctx, current, adoptions)
+				observed, persistErr := store.UpsertAllIfCurrent(ctx, current, adoptions, options.ownerReferences...)
 				next, persistErr := globalCarrierClaimsAfterPersistence(
 					current,
 					successor,

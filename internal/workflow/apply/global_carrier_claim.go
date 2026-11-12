@@ -196,6 +196,7 @@ func commitObservedGlobalCarrierClaimWithContinuation(
 							ctx,
 							registry,
 							[]durablecarrier.ManagedCarrierClaim{claim},
+							options.ownerReferences...,
 						)
 						result, persistErr = globalCarrierClaimsAfterPersistence(
 							registry,

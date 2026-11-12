@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
@@ -88,6 +89,7 @@ type runOptions struct {
 	afterDelegates                    func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
 	journalStateCodec                 durable.SnapshotCodec
 	physicalStateCodec                statefile.PhysicalCodec
+	ownerReferences                   []pathauthority.Reference
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool

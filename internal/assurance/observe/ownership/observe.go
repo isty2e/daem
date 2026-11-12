@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -43,8 +44,9 @@ type ManagedPathInput struct {
 
 // Result contains the selected state authority and global managed-address observations.
 type Result struct {
-	Owner        stateauthority.Authority
-	Observations []observe.OwnershipObservation
+	Owner          stateauthority.Authority
+	OwnerReference pathauthority.Reference
+	Observations   []observe.OwnershipObservation
 }
 
 // Build resolves and canonicalizes global output identities without mutating the registry.
@@ -137,7 +139,7 @@ func Build(input Input) (Result, error) {
 	for _, key := range keys {
 		observations = append(observations, byKey[key])
 	}
-	return Result{Owner: owner, Observations: observations}, nil
+	return Result{Owner: owner, OwnerReference: statefileAuthority.Reference(), Observations: observations}, nil
 }
 
 func validateRegistryStateAuthority(

@@ -158,7 +158,8 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 		StatePath: input.Paths.StatefilePath, CurrentState: before, GlobalCarrierClaims: claims,
 		Reconciliation: result, AggregateEvidence: observations.evidence, AggregateFailures: observations.failures,
 		Owner: input.Native.Owner, Ownership: ownership, SelectedTargets: targets,
-		NativeSources: []lockobserve.NativeSourceObservation{source}, NativeApproval: selectedNativeReplacementApproval(inputs, allApproval),
+		OwnerReference: input.Native.OwnerReference,
+		NativeSources:  []lockobserve.NativeSourceObservation{source}, NativeApproval: selectedNativeReplacementApproval(inputs, allApproval),
 		nativeRegistry: input.Native.Registry,
 	}, nil
 }

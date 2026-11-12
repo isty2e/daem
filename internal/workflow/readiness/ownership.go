@@ -5,9 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
-	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -23,14 +21,14 @@ func buildOwnershipObservations(
 	aggregateProjections []aggregate.ProjectionAddress,
 	currentState durable.Snapshot,
 	selection targetselection.Selection,
-) (stateauthority.Authority, []observe.OwnershipObservation, error) {
+) (ownershipobserve.Result, error) {
 	registryStore, err := ownershipstore.New(paths.OwnershipRegistryPath)
 	if err != nil {
-		return stateauthority.Authority{}, nil, fmt.Errorf("open ownership registry: %w", err)
+		return ownershipobserve.Result{}, fmt.Errorf("open ownership registry: %w", err)
 	}
 	registry, err := registryStore.Load(ctx)
 	if err != nil {
-		return stateauthority.Authority{}, nil, err
+		return ownershipobserve.Result{}, err
 	}
 	result, err := ownershipobserve.Build(ownershipobserve.Input{
 		Paths:           paths,
@@ -43,9 +41,9 @@ func buildOwnershipObservations(
 		Registry:        registry,
 	})
 	if err != nil {
-		return stateauthority.Authority{}, nil, err
+		return ownershipobserve.Result{}, err
 	}
-	return result.Owner, result.Observations, nil
+	return result, nil
 }
 
 type liveDestinationResolver func(output.Destination) (string, error)

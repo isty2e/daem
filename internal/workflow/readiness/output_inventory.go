@@ -88,7 +88,7 @@ func AssessOutputInventory(
 	if err != nil {
 		return OutputInventoryAssessment{}, fmt.Errorf("observe output inventory paths: %w", err)
 	}
-	owner, ownership, err := buildOwnershipObservations(
+	ownershipResult, err := buildOwnershipObservations(
 		ctx,
 		input.Paths,
 		liveDestinationResolver(input.Resolver),
@@ -110,8 +110,8 @@ func AssessOutputInventory(
 		managedInputs:   managedInputs,
 		aggregateInputs: aggregateInputs,
 		managedEvidence: managedEvidence,
-		owner:           owner,
-		ownership:       ownership,
+		owner:           ownershipResult.Owner,
+		ownership:       ownershipResult.Observations,
 		codecs:          input.Codecs,
 	})
 }

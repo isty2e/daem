@@ -262,6 +262,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	}
 	native := &readiness.NativeAssessmentInput{
 		Documents: &documents, Registry: registry.actual, Owner: owner, Budget: budget,
+		OwnerReference: stateAuthority.Reference(),
 	}
 	if operation != nil {
 		operation.native = native

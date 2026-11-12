@@ -7,12 +7,12 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -31,10 +31,11 @@ import (
 // NativeAssessmentInput borrows observation-only facts for this assessment.
 // The caller keeps the batch's selected roots and pending allocation alive.
 type NativeAssessmentInput struct {
-	Documents *journalpublication.NativeDocumentObservationBatch
-	Registry  ownership.Registry
-	Owner     stateauthority.Authority
-	Budget    *physicalwork.Budget
+	Documents      *journalpublication.NativeDocumentObservationBatch
+	Registry       ownership.Registry
+	Owner          stateauthority.Authority
+	OwnerReference pathauthority.Reference
+	Budget         *physicalwork.Budget
 }
 
 type nativeAssessmentSources struct {
@@ -162,13 +163,13 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 	return facts, nil
 }
 
-func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, resolver liveDestinationResolver, managed managedPathPlanningInputs, aggregates managedAggregatePlanningInputs, before durable.Snapshot, selection targetselection.Selection, native *NativeAssessmentInput) (stateauthority.Authority, []observe.OwnershipObservation, error) {
+func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, resolver liveDestinationResolver, managed managedPathPlanningInputs, aggregates managedAggregatePlanningInputs, before durable.Snapshot, selection targetselection.Selection, native *NativeAssessmentInput) (ownershipobserve.Result, error) {
 	if err := requireNativeAggregatePermissions(aggregates.desired, native.Documents); err != nil {
-		return stateauthority.Authority{}, nil, err
+		return ownershipobserve.Result{}, err
 	}
 	projection, err := native.Documents.Evidence().Ownership(ctx)
 	if err != nil {
-		return stateauthority.Authority{}, nil, err
+		return ownershipobserve.Result{}, err
 	}
 	var ordinaryProjections []aggregate.ProjectionAddress
 	var nativeProjections []aggregate.ProjectionAddress
@@ -195,10 +196,10 @@ func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, res
 		Selection: selection, Registry: native.Registry,
 	})
 	if err != nil {
-		return stateauthority.Authority{}, nil, err
+		return ownershipobserve.Result{}, err
 	}
 	if !ordinary.Owner.Equal(native.Owner) {
-		return stateauthority.Authority{}, nil, fmt.Errorf("state authority changed during native assessment")
+		return ownershipobserve.Result{}, fmt.Errorf("state authority changed during native assessment")
 	}
 	result := ordinary.Observations
 	for _, address := range nativeProjections {
@@ -207,11 +208,13 @@ func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, res
 		}
 		observed, err := projection.Global(ctx, address.Document(), address.Footprint())
 		if err != nil {
-			return stateauthority.Authority{}, nil, err
+			return ownershipobserve.Result{}, err
 		}
 		result = append(result, observed)
 	}
-	return native.Owner, result, nil
+	ordinary.Owner = native.Owner
+	ordinary.Observations = result
+	return ordinary, nil
 }
 
 func retainedNativeDocument(native []nativeAssessmentSources, address aggregate.DocumentAddress) (aggregate.Document, *recovery.PermissionMode, bool) {

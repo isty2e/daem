@@ -11,6 +11,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
@@ -464,8 +465,13 @@ func executeWithDependencies(
 	if err != nil {
 		return current.result, err
 	}
+	ownerReference, err := statefile.SelectStatefileReference(physicalStateCodec.StatefileReference(), current.assessment.OwnerReference)
+	if err != nil {
+		return current.result, fmt.Errorf("select carrier-owner lookup evidence: %w", err)
+	}
 	executionOptions := runOptions{
 		physicalStateCodec:             physicalStateCodec,
+		ownerReferences:                []pathauthority.Reference{ownerReference},
 		ExecuteEvents:                  options.ExecuteEvents,
 		HostRouteExecutor:              options.HostRouteExecutor,
 		HostRouteObserver:              hostRouteObserver,
