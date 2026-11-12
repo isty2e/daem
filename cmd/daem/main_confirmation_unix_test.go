@@ -129,6 +129,22 @@ func TestMainConfirmationPTYCtrlCInterruptsBlockedRead(t *testing.T) {
 	assertPTYApplyNotMutated(t, manifestPath)
 }
 
+func TestMainConfirmationPTYHangupCancelsWithoutEffects(t *testing.T) {
+	manifestPath := writePTYApplyFixture(t)
+	process := startConfirmationPTYProcess(t, manifestPath, nil, true, true)
+	process.WaitForOutput(t, "Proceed with apply? [y/N]:")
+	if err := process.command.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	if err := process.master.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if exitCode := process.Wait(t); exitCode != 129 {
+		t.Fatalf("exit code = %d, want 129", exitCode)
+	}
+	assertPTYApplyNotMutated(t, manifestPath)
+}
+
 func TestConfirmationPTYHelperProcess(t *testing.T) {
 	if os.Getenv(confirmationPTYHelperMode) == "" {
 		return

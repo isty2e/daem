@@ -2025,6 +2025,7 @@ fails the command.
 | Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
 | Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
 | Interrupted by `SIGTERM` | completed or partial stable output | bounded interruption diagnostic | `143` |
+| Interrupted by `SIGHUP` | completed or partial stable output, if the terminal remains writable | bounded interruption diagnostic, if deliverable | `129` |
 
 Stable confirmation disclosures are written to stdout; prompts and bounded
 cancellation diagnostics are written to stderr. Human warnings that belong to
@@ -2033,7 +2034,7 @@ to withhold raw subprocess/protocol output, authentication material, headers and
 known secret inputs. The [credential-detection non-goal](#presentation-flags) does not
 relax those rules or promise detection of arbitrary secrets in free-form text.
 
-First `SIGINT`/`SIGTERM` records exit identity and cancels the operation. A
+First `SIGINT`/`SIGTERM`/`SIGHUP` records exit identity and cancels the operation. A
 later signal arms a bounded emergency exit, preserving the first exit code and
 ongoing TERM-to-KILL cleanup window; completed cancellation returns immediately.
 Context cancellation without an OS signal supplies no signal exit identity.

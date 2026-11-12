@@ -17,7 +17,7 @@ func runWithSignalLifecycle(run func(context.Context) int) int {
 	defer cancel()
 
 	signals := make(chan os.Signal, 2)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	stopLoop := make(chan struct{})
 	loopDone := make(chan os.Signal, 1)
 	go func() {
@@ -79,6 +79,8 @@ func signalExitCode(received os.Signal) int {
 		return 130
 	case syscall.SIGTERM:
 		return 143
+	case syscall.SIGHUP:
+		return 129
 	default:
 		return 1
 	}

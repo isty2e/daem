@@ -24,6 +24,7 @@ func TestSignalLifecyclePreservesFirstSignalExitCode(t *testing.T) {
 	}{
 		{name: "SIGINT", signal: os.Interrupt, wantExit: 130},
 		{name: "SIGTERM", signal: syscall.SIGTERM, wantExit: 143},
+		{name: "SIGHUP", signal: syscall.SIGHUP, wantExit: 129},
 	}
 
 	for _, test := range tests {
@@ -50,6 +51,8 @@ func TestSignalLifecycleSecondSignalForcesFirstSignalExitCode(t *testing.T) {
 		{name: "SIGTERM then SIGINT", first: syscall.SIGTERM, second: os.Interrupt, wantExit: 143},
 		{name: "SIGINT then SIGINT", first: os.Interrupt, second: os.Interrupt, wantExit: 130},
 		{name: "SIGTERM then SIGTERM", first: syscall.SIGTERM, second: syscall.SIGTERM, wantExit: 143},
+		{name: "SIGHUP then SIGTERM", first: syscall.SIGHUP, second: syscall.SIGTERM, wantExit: 129},
+		{name: "SIGTERM then SIGHUP", first: syscall.SIGTERM, second: syscall.SIGHUP, wantExit: 143},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
