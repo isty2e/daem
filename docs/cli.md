@@ -21,7 +21,8 @@ or [Use An Existing Environment](migration.md).
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
   [`apply`](#apply),
-  [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
+  [`recover`](#recover), [`migrate state`](#migrate-state),
+  [`migrate metadata`](#migrate-metadata), [`doctor`](#doctor),
   [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
 - [Authoring JSON](#authoring-json), [progress](#progress),
   [streams and exit codes](#streams-and-exit-codes),
@@ -47,6 +48,7 @@ or [Use An Existing Environment](migration.md).
 | Reconcile | `apply` | Reconcile the locked environment. |
 | Reconcile | `recover` | Recover one operation or finish its retained journal cleanup. |
 | Management authority | `migrate state` | Move the default user manifest's legacy state authority or recover that migration. |
+| Management metadata | `migrate metadata` | Convert recorded management formats or recover that conversion without reinstalling outputs. |
 
 `help`, `-h`, `--help`, and `--version` are meta surfaces. Use
 `daem help <command>` and `daem help <group> <resource>` for progressively
@@ -184,12 +186,13 @@ Commands use effect-tiered modes:
 | Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `lock` | write | preview | rejected |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
+| Management metadata | `migrate metadata` | three-stream TTY confirmation | preview | non-interactive execution |
 
 An empty host/runtime plan does not prompt; an already completed state migration
 also needs no new prompt. Skipping a prompt does not waive command admission:
 a bare state-migration repeat still requires terminal stdin/stdout/stderr;
 non-interactive repeats use `--dry-run` or `--yes`. JSON cannot share an
-interactive prompt, so host/runtime and state-migration JSON require `--dry-run`
+interactive prompt, so host/runtime, state-migration and metadata-conversion JSON require `--dry-run`
 or `--yes`.
 
 Interactive authorization uses three distinct process streams: stdin accepts
@@ -314,6 +317,7 @@ flags.
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `recover` | `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--verbose`, `--yes` |
 | `migrate state` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--yes` |
+| `migrate metadata` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--reference`, `--yes` |
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
@@ -342,6 +346,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | confirmed `apply` | Apply result | `24` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
+| `migrate metadata` | Management metadata conversion | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
@@ -1693,6 +1698,57 @@ repeat, `1` for refusal/execution failure, and `2` for invalid arguments or
 missing non-interactive authorization. With JSON selected, planning errors use
 the common CLI failure family rather than a migration result. No legacy
 management to transfer is a refusal, not a new empty state.
+
+## `migrate metadata`
+
+```bash
+daem migrate metadata [--manifest <path>] [--reference <path> ...]
+  [--recover] [--dry-run|--yes] [--json]
+```
+
+Preview or convert the selected State and the shared registries' reachable
+management metadata together. This records filesystem access locations alongside
+comparison identities. It does not change the manifest, lockfile, installed
+outputs or host packages, and does not relocate user State or repair ownership
+conflicts. A converted format requires a daem version that understands it.
+
+```bash
+daem migrate metadata --dry-run
+daem migrate metadata --yes
+```
+
+Preview is read-only. Execution uses terminal confirmation or `--yes` and checks
+the plan again before publication. The disclosed State and target lists describe
+the whole checked transaction scope, not just files to rewrite. Already-converted
+files can be unchanged, and absent files remain absent.
+
+Some legacy identities lack a provable access location. `--reference` supplies a
+lookup path that you assert belonged to a recorded identity; repeat the option
+for multiple paths. The preview shows both your input and its observed spelling.
+Daem checks the current identity match, but this does not prove that the path was
+the historical location. This input cannot replace a recorded locator or change
+an owner's identity. An unresolved participating record can prevent this explicit
+conversion; the refusal is not permission to delete management metadata.
+
+An interrupted conversion can affect other workspaces using the same data
+directory. Inspect it with `daem migrate metadata --recover --dry-run`, then
+authorize the disclosed recovery with `daem migrate metadata --recover --yes`.
+Recovery uses the recorded original selection, even when `--manifest` selects a
+different workspace sharing that data directory. Keep the original HOME/XDG
+environment. `--recover` cannot be combined with new `--reference` inputs.
+Repeating completed recovery reports `none` without writing.
+
+JSON uses `schema_version = 1`, `mode`, `action`, `manifest_path`, `data_dir`,
+`statefiles` and `targets`. `manifest_path` identifies the original selection in
+recovery; `targets` includes unchanged and absent namespaces. Supplied paths add
+`reference_assertions`, each with `input_path`, `identity_key`, `witness` and
+`observed_path`. Conversion reports `convert`, `converted` or `already_converted`;
+recovery reports `rollback`, `finalize` or `none`. An execution failure retains the
+planned action and adds `error`; it is not a successful conversion result.
+Planning failures use the common CLI error envelope. Successful previews,
+execution and no-op repeats exit `0`; refusals and execution failures exit `1`; invalid arguments or
+missing non-interactive authorization exit `2`. JSON requires `--dry-run` or
+`--yes`, which are mutually exclusive.
 
 ## `doctor`
 

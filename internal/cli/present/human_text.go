@@ -12,9 +12,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/authoring"
@@ -270,6 +272,9 @@ func FailureDiagnosticFromError(err error) FailureDiagnostic {
 	if err == nil {
 		return FailureDiagnostic{}
 	}
+	if diagnostic, recognized := GlobalMetadataFailureDiagnostic(err); recognized {
+		return diagnostic
+	}
 	if operation, ok := err.(authoring.OperationError); ok && operation.Phase == authoring.OperationPhaseBuildLockfile && operation.Err != nil {
 		return FailureDiagnosticFromError(operation.Err)
 	}
@@ -308,6 +313,26 @@ func FailureDiagnosticFromError(err error) FailureDiagnostic {
 		return NewFailureDiagnostic(err.Error()).WithGuidance(guidance)
 	}
 	return NewFailureDiagnostic(err.Error())
+}
+
+func GlobalMetadataFailureDiagnostic(err error) (FailureDiagnostic, bool) {
+	if !recoverygate.IsGlobalMetadataRefusal(err) || recoverygate.IsCancellation(err) {
+		return FailureDiagnostic{}, false
+	}
+	diagnostic := NewFailureDiagnostic(err.Error())
+	var purpose string
+	switch fileset.ObserveFileSetFence(err).Kind() {
+	case fileset.FileSetFencePublishedTransaction:
+		purpose = "to inspect the interrupted metadata conversion before recovery"
+	case fileset.FileSetFenceInvalidEvidence:
+		purpose = "to inspect the recorded metadata conversion evidence diagnostic"
+	case fileset.FileSetFenceAccessUnprovable:
+		return diagnostic.WithGuidance(InstructionGuidance("restore access to the data directory's metadata and ensure it is a directory; preserve its contents before retrying")), true
+	default:
+		return diagnostic.WithGuidance(InstructionGuidance("resolve the reported metadata observation failure before retrying; preserve its files and transaction evidence")), true
+	}
+	guidance, _ := CommandGuidance([]string{"daem", "migrate", "metadata", "--recover", "--dry-run"}, purpose)
+	return diagnostic.WithGuidance(guidance), true
 }
 
 // NativePlanningFailureDiagnostic is called only by an effect-free planning

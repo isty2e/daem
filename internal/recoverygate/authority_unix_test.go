@@ -18,11 +18,16 @@ import (
 func TestAbsentStateDirBarrierUsesTransferredCensusAuthority(t *testing.T) {
 	censusErr := errors.New("injected retained census failure")
 	stateDir := &absentBarrierAuthority{requireClearErr: censusErr}
-	err := validateBarrier(t.Context(), daempaths.Paths{
+	paths := daempaths.Paths{
 		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    filepath.Join(t.TempDir(), ".daem"),
 		RecoveryDir: filepath.Join(t.TempDir(), "recovery"),
-	}, stateDir)
+	}
+	globalRoot, err := captureGlobalMetadataRoot(t.Context(), paths, stateDir.workBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateBarrier(t.Context(), paths, globalRoot, stateDir)
 	if !errors.Is(err, censusErr) {
 		t.Fatalf("validateBarrier error = %v, want retained census failure", err)
 	}

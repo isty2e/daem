@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -20,10 +21,11 @@ import (
 // planning-time StateDir namespace/object identity through one forward
 // operation's durable or host effect phases.
 type EffectAuthority struct {
-	paths     daempaths.Paths
-	stateDir  StateDirAuthority
-	domains   []mutation.Domain
-	revisions []mutation.RevisionRequest
+	paths              daempaths.Paths
+	globalMetadataRoot string
+	stateDir           StateDirAuthority
+	domains            []mutation.Domain
+	revisions          []mutation.RevisionRequest
 }
 
 // forwardEffectPlan is the State Barrier lowering of compiled semantic demand
@@ -79,10 +81,14 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 	if err != nil {
 		return EffectAuthority{}, err
 	}
-	if err := requireGlobalMetadataClear(ctx, paths, stateDir.workBudget()); err != nil {
+	globalRoot, err := captureGlobalMetadataRoot(ctx, paths, stateDir.workBudget())
+	if err != nil {
 		return EffectAuthority{}, err
 	}
-	globalMarker, err := GlobalMetadataAuthorityPath(paths)
+	if err := requireCanonicalGlobalMetadataClear(ctx, globalRoot, stateDir.workBudget()); err != nil {
+		return EffectAuthority{}, err
+	}
+	globalMarker, err := fileset.FileSetAuthorityPath(globalRoot)
 	if err != nil {
 		return EffectAuthority{}, err
 	}
@@ -150,10 +156,11 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 		)
 	}
 	return EffectAuthority{
-		paths:     paths,
-		stateDir:  stateDir,
-		domains:   domains,
-		revisions: revisions,
+		paths:              paths,
+		globalMetadataRoot: globalRoot,
+		stateDir:           stateDir,
+		domains:            domains,
+		revisions:          revisions,
 	}, nil
 }
 
@@ -180,6 +187,7 @@ func (authority EffectAuthority) RevisionRequests() []mutation.RevisionRequest {
 // incarnation.
 func (authority EffectAuthority) Equal(other EffectAuthority) bool {
 	return authority.paths.RecoveryDir == other.paths.RecoveryDir &&
+		authority.globalMetadataRoot == other.globalMetadataRoot &&
 		authority.paths.StateDir == other.paths.StateDir &&
 		authority.paths.DataDir == other.paths.DataDir &&
 		authority.paths.LegacyUserStateDir == other.paths.LegacyUserStateDir &&
@@ -206,21 +214,23 @@ func (authority EffectAuthority) IdentityFingerprint() (string, error) {
 		carrierRegistry = authority.paths.CarrierClaimRegistryPath
 	}
 	canonical, err := json.Marshal(struct {
-		RecoveryDir     string
-		StateDir        string
-		State           string
-		DataDir         string
-		Legacy          string `json:",omitempty"`
-		OutputRegistry  string `json:",omitempty"`
-		CarrierRegistry string `json:",omitempty"`
+		RecoveryDir        string
+		StateDir           string
+		State              string
+		DataDir            string
+		GlobalMetadataRoot string
+		Legacy             string `json:",omitempty"`
+		OutputRegistry     string `json:",omitempty"`
+		CarrierRegistry    string `json:",omitempty"`
 	}{
-		RecoveryDir:     authority.paths.RecoveryDir,
-		StateDir:        authority.paths.StateDir,
-		State:           stateDir,
-		DataDir:         authority.paths.DataDir,
-		Legacy:          authority.paths.LegacyUserStateDir,
-		OutputRegistry:  outputRegistry,
-		CarrierRegistry: carrierRegistry,
+		RecoveryDir:        authority.paths.RecoveryDir,
+		StateDir:           authority.paths.StateDir,
+		State:              stateDir,
+		DataDir:            authority.paths.DataDir,
+		GlobalMetadataRoot: authority.globalMetadataRoot,
+		Legacy:             authority.paths.LegacyUserStateDir,
+		OutputRegistry:     outputRegistry,
+		CarrierRegistry:    carrierRegistry,
 	})
 	if err != nil {
 		return "", fmt.Errorf("fingerprint recovery effect authority: %w", err)
@@ -238,15 +248,16 @@ func (authority EffectAuthority) Validate(ctx context.Context) error {
 	if err := RequireUserStateMigrated(ctx, authority.paths); err != nil {
 		return err
 	}
-	return validateBarrier(ctx, authority.paths, authority.stateDir)
+	return validateBarrier(ctx, authority.paths, authority.globalMetadataRoot, authority.stateDir)
 }
 
 func validateBarrier(
 	ctx context.Context,
 	paths daempaths.Paths,
+	globalRoot string,
 	stateDir stateDirBarrierAuthority,
 ) error {
-	if err := requireGlobalMetadataClear(ctx, paths, stateDir.workBudget()); err != nil {
+	if err := requireCanonicalGlobalMetadataClear(ctx, globalRoot, stateDir.workBudget()); err != nil {
 		return err
 	}
 	return validateLocalBarrierTail(ctx, paths, stateDir, nil)
@@ -332,6 +343,7 @@ func (authority EffectAuthority) EnsureStateDirForEffect(
 func ensureReservedStateDirForEffect(
 	ctx context.Context,
 	paths daempaths.Paths,
+	globalRoot string,
 	stateDir *StateDirExecutionAuthority,
 	validatePeer func(context.Context) error,
 ) (bool, error) {
@@ -347,7 +359,7 @@ func ensureReservedStateDirForEffect(
 	if err := validatePeer(ctx); err != nil {
 		return false, err
 	}
-	if err := validateBarrier(ctx, paths, stateDir); err != nil {
+	if err := validateBarrier(ctx, paths, globalRoot, stateDir); err != nil {
 		return false, err
 	}
 	created, err := stateDir.EnsureOwnedIncarnation(ctx)
@@ -357,7 +369,7 @@ func ensureReservedStateDirForEffect(
 	if err := validatePeer(ctx); err != nil {
 		return created, err
 	}
-	if err := validateBarrier(ctx, paths, stateDir); err != nil {
+	if err := validateBarrier(ctx, paths, globalRoot, stateDir); err != nil {
 		return created, err
 	}
 	return created, nil
@@ -431,7 +443,7 @@ func (authority *ForwardEffectAuthority) Validate(ctx context.Context) error {
 	if err := authority.consume(&authority.remainingBarriers, "recovery barrier validation"); err != nil {
 		return err
 	}
-	return validateBarrier(ctx, authority.authority.paths, authority.stateDir)
+	return validateBarrier(ctx, authority.authority.paths, authority.authority.globalMetadataRoot, authority.stateDir)
 }
 
 // ValidateStateDir consumes one reserved StateDir-only identity check.
@@ -465,6 +477,7 @@ func (authority *ForwardEffectAuthority) EnsureStateDirForEffect(
 	return ensureReservedStateDirForEffect(
 		ctx,
 		authority.authority.paths,
+		authority.authority.globalMetadataRoot,
 		authority.stateDir,
 		validatePeer,
 	)
@@ -564,7 +577,7 @@ func (authority EffectAuthority) ValidateFileSetRecovery(ctx context.Context) er
 	if err := authority.requireInitialized(); err != nil {
 		return err
 	}
-	if err := requireGlobalMetadataClear(ctx, authority.paths, authority.stateDir.workBudget()); err != nil {
+	if err := requireCanonicalGlobalMetadataClear(ctx, authority.globalMetadataRoot, authority.stateDir.workBudget()); err != nil {
 		return err
 	}
 	if err := normalizeStateDirValidation(authority.stateDir.Validate(ctx)); err != nil {
@@ -578,7 +591,7 @@ func (authority EffectAuthority) ValidateFileSetRecovery(ctx context.Context) er
 }
 
 func (authority EffectAuthority) requireInitialized() error {
-	if len(authority.domains) == 0 || len(authority.revisions) == 0 {
+	if authority.globalMetadataRoot == "" || len(authority.domains) == 0 || len(authority.revisions) == 0 {
 		return fmt.Errorf("recovery effect authority is uninitialized")
 	}
 	return nil

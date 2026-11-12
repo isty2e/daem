@@ -125,7 +125,7 @@ func (value *referenceQualification) require(ctx context.Context, expected patha
 	if result.IsZero() {
 		observed, err := mutation.ObserveLegacyReferenceBounded(ctx, expected, mutationfs.MaximumPhysicalPathDepth, value.budget)
 		if err != nil {
-			return pathauthority.Reference{}, fmt.Errorf("identity %q lacks provable access evidence; explicit metadata diagnosis or independently verified repair is required: %w", expected.Key(), errors.Join(append(causes, err)...))
+			return pathauthority.Reference{}, fmt.Errorf("identity %q lacks provable access evidence; preview daem migrate metadata --reference PATH --dry-run with an asserted historical lookup path: %w", expected.Key(), errors.Join(append(causes, err)...))
 		}
 		result = observed.Reference()
 	}

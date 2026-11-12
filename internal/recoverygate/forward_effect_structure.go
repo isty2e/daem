@@ -292,7 +292,7 @@ func (authority EffectAuthority) lowerForwardPlan(
 		return loweredForwardPlan{}, err
 	}
 	if fileSetCensuses != 0 {
-		census, err := fileset.MaximumFenceCensusWork(authority.paths.GlobalMetadataDir(), defaultStateDirMaximumPhysicalDepth)
+		census, err := fileset.MaximumFenceCensusWork(authority.globalMetadataRoot, defaultStateDirMaximumPhysicalDepth)
 		if err != nil {
 			return loweredForwardPlan{}, err
 		}

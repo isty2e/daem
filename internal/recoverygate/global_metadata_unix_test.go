@@ -156,6 +156,102 @@ func TestLegacyUserRecoveryDisplayPreservesCancellation(t *testing.T) {
 	}
 }
 
+func TestGlobalMetadataReservationAndValidationRetainTheSelectedRoot(t *testing.T) {
+	root := globalMetadataTestRoot(t)
+	physical := filepath.Join(root, "physical", "nested", "data")
+	other := filepath.Join(root, "other")
+	for _, directory := range []string{physical, other} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(physical, alias); err != nil {
+		t.Fatal(err)
+	}
+	paths := daempaths.Paths{DataDir: alias, StateDir: filepath.Join(root, ".daem"), RecoveryDir: filepath.Join(root, ".daem", "recovery")}
+	authority, err := NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalPaths := paths
+	physicalPaths.DataDir = physical
+	physicalAuthority, err := NewEffectAuthority(t.Context(), physicalPaths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := forwardEffectPlan{BarrierValidationCalls: 1}
+	aliasWork, err := authority.lowerForwardPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalWork, err := physicalAuthority.lowerForwardPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliasWork.planned.stateWork != physicalWork.planned.stateWork || aliasWork.planned.totalWork != physicalWork.planned.totalWork {
+		t.Fatalf("one physical namespace received spelling-dependent reservations: alias=%+v physical=%+v", aliasWork.work, physicalWork.work)
+	}
+	forward, err := authority.ReserveForwardEffects(operationplan.NewDemand(1, 1, 0, "", 0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var builder operationplan.EffectStructureBuilder
+	structure, err := builder.Compile(builder.Step("barrier", operationplan.EffectStepValidateBarrier))
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := authority.ReserveForwardEffectExecution(structure, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := execution.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	before, err := authority.IdentityFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, alias); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := fresh.IdentityFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authority.Equal(fresh) || before == after {
+		t.Fatal("a changed metadata selection retained the old authority identity")
+	}
+	metadatatx.WriteInterrupted(t, physicalPaths.GlobalMetadataDir())
+	for name, validate := range map[string]func(context.Context) error{
+		"captured": authority.Validate,
+		"reserved": forward.Validate,
+		"cursor": func(ctx context.Context) error {
+			return execution.ValidateBarrier(ctx, "barrier")
+		},
+		"ensure": func(ctx context.Context) error {
+			created, err := forward.EnsureStateDirForEffect(ctx, func(context.Context) error { return nil })
+			if created {
+				t.Fatal("a blocked authority created the selected StateDir")
+			}
+			return err
+		},
+	} {
+		if err := validate(t.Context()); !errors.Is(err, ErrGlobalMetadataFence) || !errors.Is(err, fileset.ErrInterruptedFileSetTransaction) {
+			t.Fatalf("%s validation followed a retargeted alias rather than its lease selection: %v", name, err)
+		}
+	}
+}
+
 func TestGlobalMetadataAuthoritySharesPublisherLease(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -226,8 +322,9 @@ func TestGlobalMetadataAuthoritySharesPublisherLease(t *testing.T) {
 				t.Fatal("peer lease failed for an unrelated reason", err)
 			}
 			metadatatx.WriteInterrupted(t, publisherPaths.GlobalMetadataDir())
-			if err := Observe(t.Context(), paths); !errors.Is(err, ErrGlobalMetadataFence) {
-				t.Fatal("census spelling bypassed the global marker", err)
+			if err := Observe(t.Context(), paths); !errors.Is(err, ErrGlobalMetadataFence) ||
+				!errors.Is(err, fileset.ErrInterruptedFileSetTransaction) || errors.Is(err, fileset.ErrFileSetEvidenceInvalid) {
+				t.Fatal("census spelling changed the valid interrupted transaction classification", err)
 			}
 		})
 	}

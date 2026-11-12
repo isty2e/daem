@@ -38,6 +38,7 @@ exit-code behavior.
   [pending Pi pin change](#a-pi-pin-change-is-pending),
   [Pi removal not converged](#pi-package-removal-did-not-converge).
 - Interrupted work: [apply](#apply-was-interrupted),
+  [management metadata conversion](#management-metadata-conversion-was-interrupted),
   [manifest metadata update](#manifest-metadata-update-was-interrupted),
   [journal from an earlier boot](#recovery-journal-from-an-earlier-boot).
 - Other limits: [old durable schemas](#pre-10-durable-authority-schemas),
@@ -459,6 +460,40 @@ but `daem recover` has no legal plan for GC-only residue and later commands are
 not blocked. Daem does not automatically sweep the directory after restart
 because the hidden name alone grants no deletion authority. Do not delete it
 solely from its name.
+
+## Management Metadata Conversion Was Interrupted
+
+If a command reports a global metadata boundary with an interrupted transaction
+or invalid recorded conversion evidence, inspect that evidence through daem:
+
+```bash
+daem migrate metadata --recover --dry-run
+daem migrate metadata --recover --yes
+```
+
+Review the first result before running the second command. Keep the same HOME/XDG
+environment and data directory. Recovery identifies the recorded original
+manifest; another workspace sharing the data directory can inspect and complete
+it. The ordinary `daem recover` command handles apply journals, not this metadata
+conversion. Do not delete transaction evidence to unblock other workspaces.
+If the recovery preview refuses damaged evidence, preserve its diagnostic and
+the recorded files rather than guessing a repair. See
+[`migrate metadata`](cli.md#migrate-metadata) for conversion and recovery inputs.
+
+The same boundary can also be refused because metadata is inaccessible, its
+identity cannot be established, or an observation limit or unexplained residue
+was encountered. These errors do not establish that conversion was interrupted.
+Follow the reported cause: restore directory access when required and preserve
+the metadata and evidence before retrying. Do not delete them to bypass the
+boundary.
+
+Automatic removal of markerless staging residue is unsupported, including in
+the shared metadata directory. A forced stop before transaction evidence is
+published can leave such residue and block other workspaces using the same data
+directory. `migrate metadata --recover` needs a published marker; a reserved
+filename alone does not establish ownership or make cleanup safe. Preserve the
+residue and diagnostic for analysis rather than removing it by prefix. See the
+[markerless-residue guidance below](#manifest-metadata-update-was-interrupted).
 
 ## Manifest Metadata Update Was Interrupted
 

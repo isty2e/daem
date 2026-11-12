@@ -48,6 +48,7 @@ type commandOptions struct {
 	refreshPlanOptions    refreshworkflow.PlanOptions
 	refreshExecuteOptions refreshworkflow.ExecuteOptions
 	stateMigrationPlan    func(context.Context, migrateworkflow.StateInput) (*migrateworkflow.PreparedState, error)
+	metadataMigrationPlan func(context.Context, migrateworkflow.MetadataInput) (*migrateworkflow.PreparedMetadata, error)
 	platformAdmission     platformsupport.Admission
 	platformObserver      platformworkflow.RuntimeObserver
 	buildIdentity         buildidentity.Identity

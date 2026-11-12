@@ -37,6 +37,7 @@ const (
 	ApplyResultJSON        = 24
 	RecoveryJSON           = 10
 	StateMigrationJSON     = 1
+	MetadataMigrationJSON  = 1
 	DoctorJSON             = 2
 	MCPProbeJSON           = 1
 	ExtensionRefreshJSON   = 4

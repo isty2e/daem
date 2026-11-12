@@ -16,6 +16,7 @@ import (
 type ForwardEffectExecution struct {
 	cursor                *operationplan.EffectCursor
 	paths                 daempaths.Paths
+	globalMetadataRoot    string
 	stateDir              *StateDirExecutionAuthority
 	descendantReservation *StateDirDescendantReservation
 	descendant            *StateDirDescendantAuthority
@@ -49,6 +50,7 @@ func (authority EffectAuthority) ReserveForwardEffectExecution(
 	return &ForwardEffectExecution{
 		cursor:                structure.Begin(),
 		paths:                 authority.paths,
+		globalMetadataRoot:    authority.globalMetadataRoot,
 		stateDir:              reservation.Execution(),
 		descendantReservation: descendantReservation,
 	}, nil
@@ -73,7 +75,7 @@ func (execution *ForwardEffectExecution) ValidateBarrier(
 	if err := execution.consume(stepID, operationplan.EffectStepValidateBarrier); err != nil {
 		return err
 	}
-	return validateBarrier(ctx, execution.paths, execution.stateDir)
+	return validateBarrier(ctx, execution.paths, execution.globalMetadataRoot, execution.stateDir)
 }
 
 // ValidateStateDir consumes the exact retained-incarnation checkpoint before
@@ -101,6 +103,7 @@ func (execution *ForwardEffectExecution) EstablishStateDir(
 	return ensureReservedStateDirForEffect(
 		ctx,
 		execution.paths,
+		execution.globalMetadataRoot,
 		execution.stateDir,
 		validatePeer,
 	)
@@ -125,6 +128,7 @@ func (execution *ForwardEffectExecution) ConsumeForwardEffect(
 		return ensureReservedStateDirForEffect(
 			ctx,
 			execution.paths,
+			execution.globalMetadataRoot,
 			execution.stateDir,
 			validatePeer,
 		)

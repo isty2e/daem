@@ -57,8 +57,13 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 		}
 		return nil
 	case "migrate":
-		if len(args) > 1 && args[1] == "state" {
-			return prepareMigrateStateInvocation(args[2:], stdout, stderr, options)
+		if len(args) > 1 {
+			switch args[1] {
+			case "state":
+				return prepareMigrateStateInvocation(args[2:], stdout, stderr, options)
+			case "metadata":
+				return prepareMigrateMetadataInvocation(args[2:], stdout, stderr, options)
+			}
 		}
 		return nil
 	case "list":

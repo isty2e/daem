@@ -484,6 +484,11 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 	}
 	if stage == applyFailurePlanning || stage == applyFailureExecution {
 		failure := applyworkflow.ClassifyFailure(err, result)
+		if failure.Phase() == applyworkflow.FailurePhasePreflight {
+			if diagnostic, globalMetadata := clipresent.GlobalMetadataFailureDiagnostic(err); globalMetadata {
+				return diagnostic, failure.Reason()
+			}
+		}
 		if stage == applyFailurePlanning {
 			if cause, ok := applyInputErrorCause(err, failure); ok {
 				return clipresent.FailureDiagnosticFromError(cause), failure.Reason()

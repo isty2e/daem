@@ -33,21 +33,49 @@ func RequireGlobalMetadataClear(ctx context.Context, paths daempaths.Paths) erro
 }
 
 func requireGlobalMetadataClear(ctx context.Context, paths daempaths.Paths, budget stateDirPhysicalWorkBudget) error {
+	root, err := captureGlobalMetadataRoot(ctx, paths, budget)
+	if err != nil {
+		return err
+	}
+	return requireCanonicalGlobalMetadataClear(ctx, root, budget)
+}
+
+func captureGlobalMetadataRoot(ctx context.Context, paths daempaths.Paths, budget stateDirPhysicalWorkBudget) (string, error) {
+	if err := requireBarrierContext(ctx); err != nil {
+		return "", err
+	}
+	if err := validateGlobalMetadataRoot(paths.DataDir); err != nil {
+		return "", err
+	}
+	if budget == nil {
+		return "", fmt.Errorf("global metadata physical work budget is required")
+	}
+	root, err := fileset.CanonicalStateDirBounded(paths.GlobalMetadataDir(), defaultStateDirMaximumPhysicalDepth, budget)
+	if cancellation := cancellationCause(ctx.Err(), err); cancellation != nil {
+		return "", cancellation
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w at %q: %w", ErrGlobalMetadataFence, paths.GlobalMetadataDir(), err)
+	}
+	return root, nil
+}
+
+func requireCanonicalGlobalMetadataClear(ctx context.Context, root string, budget stateDirPhysicalWorkBudget) error {
 	if err := requireBarrierContext(ctx); err != nil {
 		return err
 	}
-	if err := validateGlobalMetadataRoot(paths.DataDir); err != nil {
+	if err := validateGlobalMetadataRoot(root); err != nil {
 		return err
 	}
 	if budget == nil {
 		return fmt.Errorf("global metadata physical work budget is required")
 	}
-	err := fileset.ObserveClearPublicationFenceAt(ctx, paths.GlobalMetadataDir(), defaultStateDirMaximumPhysicalDepth, budget)
+	err := fileset.ObserveClearPublicationFenceAt(ctx, root, defaultStateDirMaximumPhysicalDepth, budget)
 	if cancellation := cancellationCause(ctx.Err(), err); cancellation != nil {
 		return cancellation
 	}
 	if err != nil {
-		return fmt.Errorf("%w at %q: %w", ErrGlobalMetadataFence, paths.GlobalMetadataDir(), err)
+		return fmt.Errorf("%w at %q: %w", ErrGlobalMetadataFence, root, err)
 	}
 	return nil
 }

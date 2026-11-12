@@ -1,5 +1,5 @@
-// Package migrate coordinates explicit user-state authority transfer without
-// changing declarations, installed content, or host-owned package state.
+// Package migrate coordinates explicit metadata format conversion and user-state
+// authority transfer without reinstalling managed outputs.
 package migrate
 
 import (
