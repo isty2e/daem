@@ -101,11 +101,11 @@ package's user/XDG roots and ignore ambient `GOENV`, `GOFLAGS` and workspace
 selection. Repository, tooling and scale checks remain separate. Inspect selected
 packages with `tools/test.sh packages <lane>`.
 
-Full and race lanes give each package a 25-minute test deadline. This covers the
-cumulative CLI recovery scenarios on slower native and race runners; individual
-test assertions, real filesystem operations and package selection are unchanged.
-Native and race CI jobs allow 55 minutes for package scheduling and the remaining
-checks. Other lanes retain their existing deadlines.
+Full and race lanes give each package a 25-minute test deadline for cumulative
+CLI recovery scenarios on native and race runners. Job deadlines in the
+[CI](.github/workflows/ci.yml) and
+[release](.github/workflows/release-artifact.yml) workflows also allow time for
+package scheduling and the checks or artifact construction that follow testing.
 
 When raising the Go toolchain, preview the standard modernizers with
 `go fix -diff ./...`, review the proposed source changes, and run `go fix ./...`
