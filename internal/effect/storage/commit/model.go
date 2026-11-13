@@ -270,11 +270,39 @@ func NewRootedEntryRename(
 // RootedEntryCleanup is one exact identity-guarded removal under retained-root
 // authority. It does not create an intermediate tombstone.
 type RootedEntryCleanup struct {
-	path         string
-	expected     EntryIdentity
-	capability   rootedpath.CommitCapability
-	removalNames *mutationfs.LogicalRemovalNames
-	limits       mutationfs.TreeTraversalLimits
+	path           string
+	expected       EntryIdentity
+	capability     rootedpath.CommitCapability
+	removalNames   *mutationfs.LogicalRemovalNames
+	limits         mutationfs.TreeTraversalLimits
+	emptyDirectory bool
+}
+
+// NewRootedEmptyDirectoryCleanup admits one exact empty directory, including a
+// reserved basename. Namespace ownership is supplied by the caller's protocol;
+// this operation can never remove descendants.
+func NewRootedEmptyDirectoryCleanup(capability rootedpath.CommitCapability, expected EntryIdentity) (RootedEntryCleanup, error) {
+	if expected.kind != entryKindDirectory {
+		return RootedEntryCleanup{}, fmt.Errorf("empty directory cleanup requires directory identity")
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(0, 0, 0)
+	if err != nil {
+		return RootedEntryCleanup{}, err
+	}
+	request, err := newRootedEntryCleanup(capability, expected, nil, limits)
+	if err != nil {
+		return RootedEntryCleanup{}, err
+	}
+	request.emptyDirectory = true
+	return request, nil
+}
+
+func (request RootedEntryCleanup) validateEmptyDirectory() error {
+	if request.emptyDirectory && (request.expected.kind != entryKindDirectory ||
+		request.limits.MaximumEntries() != 0 || request.limits.MaximumDepth() != 0 || request.limits.MaximumBytes() != 0) {
+		return fmt.Errorf("empty directory cleanup must not admit descendants")
+	}
+	return nil
 }
 
 // NewRootedEntryCleanup constructs exact cleanup of a regular file or

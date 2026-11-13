@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,6 +113,74 @@ func TestSnapshotRootedDirectoryEntriesAdmitsExactReservedArtifact(t *testing.T)
 		entries[0].Name() != "journal.json" ||
 		entries[0].Kind() != mutationfs.EntryKindFile {
 		t.Fatalf("entries = %#v, want exact journal entry", entries)
+	}
+}
+
+func TestRootedDirectoryBatchSeparatesPartialAndCompleteCoverage(t *testing.T) {
+	root := canonicalTempDir(t)
+	path := filepath.Join(root, "selected")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		writeTestFile(t, filepath.Join(path, name), name, 0o600)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "selected")
+	defer capability.Close()
+
+	for _, limit := range []int{0, 2, 3} {
+		snapshot, more, err := SnapshotRootedDirectoryBatch(t.Context(), capability, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.Entries()) != limit || more != (limit < 3) || snapshot.RootMode() != 0o700 || !snapshot.RootOwnedByInvoker() {
+			t.Fatal("batch lost its coverage or root facts", limit, more, snapshot)
+		}
+	}
+	if _, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 2); err == nil {
+		t.Fatal("complete snapshot silently accepted hidden entries")
+	}
+	if _, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 0); err == nil {
+		t.Fatal("complete snapshot accepted root-only observation as complete")
+	}
+	complete, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 3)
+	if err != nil || len(complete.Entries()) != 3 {
+		t.Fatal("batch consumed the capability or changed complete observation", err)
+	}
+}
+
+func TestDirectoryPrefixRequiresEOFOrAnOverflowEntry(t *testing.T) {
+	for _, count := range []int{2, 3, 1} {
+		remaining := count
+		observedEOF := false
+		read := func(maximum int) ([]string, error) {
+			if maximum <= 0 {
+				t.Fatal("prefix requested an unbounded read")
+			}
+			if remaining == 0 {
+				observedEOF = true
+				return nil, io.EOF
+			}
+			remaining--
+			return []string{fmt.Sprint(remaining)}, nil
+		}
+		names, more, err := readDirectoryPrefix(t.Context(), read, 2)
+		if err != nil || len(names) != min(2, count) || more != (count > 2) || !more && !observedEOF {
+			t.Fatal("short read was mistaken for exhaustive coverage", count, names, more, observedEOF, err)
+		}
+	}
+	failed := errors.New("reader failed after a short result")
+	first := true
+	_, _, err := readDirectoryPrefix(t.Context(), func(int) ([]string, error) {
+		if first {
+			first = false
+			return []string{"observed"}, nil
+		}
+		return nil, failed
+	}, 2)
+	if !errors.Is(err, failed) {
+		t.Fatal("short result hid a later observation failure", err)
 	}
 }
 

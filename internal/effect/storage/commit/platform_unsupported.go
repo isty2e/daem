@@ -303,6 +303,12 @@ func SnapshotRootedDirectoryEntries(
 	return mutationfs.DirectorySnapshot{}, newUnsupportedPlatformFailure(path)
 }
 
+// SnapshotRootedDirectoryBatch reports no supported observation on this platform.
+func SnapshotRootedDirectoryBatch(ctx context.Context, capability rootedpath.CommitCapability, maximumEntries int) (mutationfs.DirectorySnapshot, bool, error) {
+	snapshot, err := SnapshotRootedDirectoryEntries(ctx, capability, maximumEntries)
+	return snapshot, false, err
+}
+
 // SnapshotRootedDirectory returns unsupported_guarantee without reading.
 func SnapshotRootedDirectory(
 	_ context.Context,

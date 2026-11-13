@@ -317,6 +317,13 @@ func SnapshotRootedDirectoryEntries(
 	return snapshotWindowsDirectoryEntries(ctx, capability, "", maximumEntries)
 }
 
+// SnapshotRootedDirectoryBatch currently uses the complete Windows observation.
+// An oversized or unsupported root is reported as uninspected, never truncated.
+func SnapshotRootedDirectoryBatch(ctx context.Context, capability rootedpath.CommitCapability, maximumEntries int) (mutationfs.DirectorySnapshot, bool, error) {
+	snapshot, err := SnapshotRootedDirectoryEntries(ctx, capability, maximumEntries)
+	return snapshot, false, err
+}
+
 // CommitFile publishes one private, flushed Windows file stage through an
 // identity-guarded same-parent rename.
 func CommitFile(ctx context.Context, request FileCommit) error {
