@@ -23,36 +23,47 @@ import (
 )
 
 func TestNativeCaptureRegistrySelectedAbsenceIsNotMissingSelection(t *testing.T) {
-	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "create", nil, []byte("after"))
-	input, _ := captureOwnershipFixture(t, fixture)
-	input.registry = nil
-	if result, err := input.prepare(t.Context()); err == nil || result != nil {
-		t.Fatal("project-only native capture treated no selected reader as empty state")
+	for _, scenario := range []struct{ name, path string }{
+		{name: "ascii", path: "prompts/example.md"},
+		{name: "unicode", path: "prompts/Caf\u00e9.md"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := wholeGroupFixtureAtPath(t, target.TargetPi, target.ScopeProject, "create", scenario.path, nil, []byte("after"))
+			input, _ := captureOwnershipFixture(t, fixture)
+			input.registry = nil
+			if result, err := input.prepare(t.Context()); err == nil || result != nil {
+				t.Fatal("project-only native capture treated no selected reader as empty state")
+			}
+			registryPath := filepath.Join(t.TempDir(), "ownership.json")
+			root, destination, err := rootedpath.CaptureDestination(registryPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = root.Close() })
+			input.registry, err = ownershipstore.BindRooted(root, destination, physicalwork.MaximumPhysicalPathDepth, input.budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := input.prepare(t.Context())
+			if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 1 {
+				t.Fatalf("selected rooted absence did not admit project binding acquisition: %v", err)
+			}
+			binding := prepared[0].Bindings()[0]
+			if _, present := binding.Before().Get(); present || !binding.Owner().ExactEqual(input.owner) || binding.Destination() != fixture.namespace.Addresses()[0].AggregateRoot() {
+				t.Fatal("selected empty registry did not acquire the document for its exact owner")
+			}
+			if _, err := os.Lstat(registryPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("capture preparation published a registry: %v", err)
+			}
+			if err := root.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if result, err := input.prepare(t.Context()); err == nil || result != nil {
+				t.Fatal("failed selected registry read was replaced by empty state")
+			}
+			fixture.requireUnchangedHost(t)
+		})
 	}
-	registryPath := filepath.Join(t.TempDir(), "ownership.json")
-	root, destination, err := rootedpath.CaptureDestination(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	input.registry, err = ownershipstore.BindRooted(root, destination, physicalwork.MaximumPhysicalPathDepth, input.budget)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := input.prepare(t.Context())
-	if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 1 || prepared[0].Claims() != nil {
-		t.Fatalf("selected rooted absence did not admit project binding acquisition: %v", err)
-	}
-	if _, err := os.Lstat(registryPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("capture preparation published a registry: %v", err)
-	}
-	if err := root.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if result, err := input.prepare(t.Context()); err == nil || result != nil {
-		t.Fatal("failed selected registry read was replaced by empty state")
-	}
-	fixture.requireUnchangedHost(t)
 }
 
 func TestNativeCaptureRegistryChecksAcquisitionAgainstForeignClaims(t *testing.T) {

@@ -363,6 +363,11 @@ func (fixture wholeGroupTestFixture) tryRecordForGroups(t *testing.T, groups []j
 
 func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope, action string, original, desired []byte) wholeGroupTestFixture {
 	t.Helper()
+	return wholeGroupFixtureAtPath(t, selected, scope, action, "prompts/Caf\u00e9.md", original, desired)
+}
+
+func wholeGroupFixtureAtPath(t *testing.T, selected target.Target, scope target.Scope, action, nativePath string, original, desired []byte) wholeGroupTestFixture {
+	t.Helper()
 	envelope := nativeJournalFixture(t)
 	manifest := nativeNamespaceRoot(t, t.TempDir())
 	host := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "global"))
@@ -372,7 +377,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	} else {
 		roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, host)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: "prompts/Caf\u00e9.md", Ownership: "document"})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: nativePath, Ownership: "document"})
 	if err != nil {
 		t.Fatal(err)
 	}
