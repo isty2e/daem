@@ -43,15 +43,15 @@ func MaximumFlatRootedTreePublicationWork(
 	parentDepth := strings.Count(destination.Relative().Path(), "/")
 	entries := limits.MaximumEntries()
 	maximumInt := int(^uint(0) >> 1)
-	if entries > (maximumInt-2)/24 || parentDepth > (maximumInt-13)/2 ||
+	if entries > (maximumInt-2)/26 || parentDepth > (maximumInt-13)/2 ||
 		limits.MaximumBytes() > (math.MaxInt64-3)/9 {
 		return FlatRootedTreePublicationWork{}, fmt.Errorf("flat tree publication work overflows")
 	}
 
 	// Population visits N entries. Capture, five whole seals, sync and modes
-	// visit 16N; failure normalization and removal visit at most 7N. The main
+	// visit 16N; failure normalization and removal visit at most 9N. The main
 	// and cleanup paths each have one terminating overflow-name probe.
-	entryWork := 24*entries + 2
+	entryWork := 26*entries + 2
 	// Include source reads and writes (2S), content capture/sync/modes and
 	// failure normalization (4S), and removal's size accounting (3S). Content
 	// and source overflow probes can consume at most three extra bytes.

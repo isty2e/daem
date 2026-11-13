@@ -17,13 +17,17 @@ func MaximumRootedEntryRenamePathWork(destination rootedpath.Destination) (int, 
 	if err != nil {
 		return 0, err
 	}
-	// Parent opening may validate each intermediate handle; eight complete
-	// seals cover validation, expected-entry opening and both moved checks.
+	// Parent opening and each seal may revalidate the root for every
+	// intermediate handle. Eight complete passes cover opening and moved checks.
 	parents, err := treePublicationWorkProduct(strings.Count(destination.Relative().Path(), "/"), r)
 	if err != nil {
 		return 0, err
 	}
-	chains, err := treePublicationWorkProduct(8, w)
+	chainWork, err := treePublicationWorkSum(w, parents)
+	if err != nil {
+		return 0, err
+	}
+	chains, err := treePublicationWorkProduct(8, chainWork)
 	if err != nil {
 		return 0, err
 	}
@@ -31,5 +35,5 @@ func MaximumRootedEntryRenamePathWork(destination rootedpath.Destination) (int, 
 	if err != nil {
 		return 0, err
 	}
-	return treePublicationWorkSum(parents, chains, roots)
+	return treePublicationWorkSum(chains, roots)
 }

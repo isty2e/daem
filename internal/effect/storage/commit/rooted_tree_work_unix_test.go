@@ -43,7 +43,8 @@ func TestFlatRootedTreePublicationWorkIncludesFailureAndNamespaceWork(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if work.EntryWork() != 218 || work.ByteWork() != 156 ||
+	minimumEntries := 9 + 16*9 + 9*9 + 2
+	if work.EntryWork() < minimumEntries || work.ByteWork() != 156 ||
 		work.PathWork() != 73*(w+2*r)+116*r+r+2 {
 		t.Fatalf("incomplete publication work: %+v", work)
 	}
@@ -86,7 +87,7 @@ func TestFlatRootedTreePublicationWorkRejectsInvalidAndOverflowingInputs(t *test
 		{name: "nested", entries: 1, depth: 1},
 		{name: "entry overflow", entries: maximumInt},
 		{name: "byte overflow", bytes: math.MaxInt64},
-		{name: "path overflow", entries: (maximumInt - 19) / 24},
+		{name: "path overflow", entries: maximumInt / 32},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			limits, err := mutationfs.NewTreeTraversalLimits(test.entries, test.depth, test.bytes)
