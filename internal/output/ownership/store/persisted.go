@@ -18,6 +18,10 @@ type registryDocument struct {
 	references pathauthority.ReferenceTable
 }
 
+func emptyLocatedRegistryDocument() registryDocument {
+	return registryDocument{registry: ownership.EmptyRegistry(), references: pathauthority.EmptyReferenceTable()}
+}
+
 // PrepareRewrite prepares a FileSet successor without publishing it. The caller
 // must hold the complete leases and recheck its physical revisions afterward.
 func (store Store) PrepareRewrite(ctx context.Context, expected, next ownership.Registry, references ...pathauthority.Reference) (content []byte, returnErr error) {

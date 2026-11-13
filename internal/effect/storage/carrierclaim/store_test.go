@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -34,7 +35,7 @@ func TestStoreUpsertRoundTripsSharedClaimsAndIsIdempotent(t *testing.T) {
 	first := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "first"))
 	second := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "second"))
 
-	afterFirst, err := store.Upsert(t.Context(), first)
+	afterFirst, err := store.Upsert(t.Context(), first, observedCarrierReference(t, first.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func TestStoreUpsertRoundTripsSharedClaimsAndIsIdempotent(t *testing.T) {
 	if err != nil || !again.Equal(afterFirst) {
 		t.Fatalf("idempotent upsert = (%#v, %v)", again, err)
 	}
-	afterSecond, err := store.Upsert(t.Context(), second)
+	afterSecond, err := store.Upsert(t.Context(), second, observedCarrierReference(t, second.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +71,14 @@ func TestStoreLoadRejectsStaleStatefileSemanticsWitness(t *testing.T) {
 		t.Fatal(err)
 	}
 	claim := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "owner"))
-	if _, err := store.Upsert(t.Context(), claim); err != nil {
+	if _, err := store.Upsert(t.Context(), claim, observedCarrierReference(t, claim.Owner().StatefileKey())); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var persisted registryDTO
+	var persisted registryImageRecord
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatal(err)
 	}
@@ -86,6 +87,11 @@ func TestStoreLoadRejectsStaleStatefileSemanticsWitness(t *testing.T) {
 		record.Witness = pathtest.Exact(record.Key).Witness()
 	} else {
 		record.Witness = pathtest.DarwinCaseSensitive(record.Key).Witness()
+	}
+	for index := range persisted.PathReferences {
+		if persisted.PathReferences[index].Key == record.Key {
+			persisted.PathReferences[index].SemanticsWitness = record.Witness
+		}
 	}
 	mutated, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
@@ -119,6 +125,8 @@ func TestStoreUpsertAllCommitsOneAtomicIdempotentBatch(t *testing.T) {
 	after, err := store.UpsertAll(
 		t.Context(),
 		[]durablecarrier.ManagedCarrierClaim{second, first},
+		observedCarrierReference(t, first.Owner().StatefileKey()),
+		observedCarrierReference(t, second.Owner().StatefileKey()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -160,11 +168,11 @@ func TestStoreUpsertAllIfCurrentRejectsStaleRegistryWithoutPartialBatch(t *testi
 		filepath.Join(root, "adopted"),
 		durablecarrier.ClaimProvenanceExplicitlyAdoptedObserved,
 	)
-	expected, err := store.Upsert(t.Context(), retained)
+	expected, err := store.Upsert(t.Context(), retained, observedCarrierReference(t, retained.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	actual, err := store.Upsert(t.Context(), concurrent)
+	actual, err := store.Upsert(t.Context(), concurrent, observedCarrierReference(t, concurrent.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,10 +331,10 @@ func TestStoreRemoveRetainsOtherConsumers(t *testing.T) {
 	}
 	first := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "first"))
 	second := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "second"))
-	if _, err := store.Upsert(t.Context(), first); err != nil {
+	if _, err := store.Upsert(t.Context(), first, observedCarrierReference(t, first.Owner().StatefileKey())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Upsert(t.Context(), second); err != nil {
+	if _, err := store.Upsert(t.Context(), second, observedCarrierReference(t, second.Owner().StatefileKey())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -355,6 +363,9 @@ func TestStoreRetireAllIfCurrentCommitsOneExactBatch(t *testing.T) {
 	current, err := store.UpsertAll(
 		t.Context(),
 		[]durablecarrier.ManagedCarrierClaim{retained, first, second},
+		observedCarrierReference(t, retained.Owner().StatefileKey()),
+		observedCarrierReference(t, first.Owner().StatefileKey()),
+		observedCarrierReference(t, second.Owner().StatefileKey()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -399,11 +410,11 @@ func TestStoreRetireAllIfCurrentRejectsInvalidStaleAndCancelledBatchesBeforeComm
 	}
 	first := testGlobalClaim(t, "alpha", "alpha@official", filepath.Join(root, "first"))
 	concurrent := testGlobalClaim(t, "beta", "beta@official", filepath.Join(root, "concurrent"))
-	expected, err := store.Upsert(t.Context(), first)
+	expected, err := store.Upsert(t.Context(), first, observedCarrierReference(t, first.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := store.Upsert(t.Context(), concurrent)
+	current, err := store.Upsert(t.Context(), concurrent, observedCarrierReference(t, concurrent.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +467,7 @@ func TestStoreRetireAllIfCurrentPreservesDeterminateAndIndeterminateCommitFacts(
 		t.Fatal(err)
 	}
 	claim := testGlobalClaim(t, "context7", "context7@official", root)
-	current, err := store.Upsert(t.Context(), claim)
+	current, err := store.Upsert(t.Context(), claim, observedCarrierReference(t, claim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +524,7 @@ func TestStoreStaleLastConsumerCommitCannotEraseConcurrentClaim(t *testing.T) {
 	}
 	first := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "first"))
 	second := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "second"))
-	if _, err := store.Upsert(t.Context(), first); err != nil {
+	if _, err := store.Upsert(t.Context(), first, observedCarrierReference(t, first.Owner().StatefileKey())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,7 +536,7 @@ func TestStoreStaleLastConsumerCommitCannotEraseConcurrentClaim(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("derive stale last-consumer transition = (%#v, %t, %v)", staleEmpty, changed, err)
 	}
-	if _, err := store.Upsert(t.Context(), second); err != nil {
+	if _, err := store.Upsert(t.Context(), second, observedCarrierReference(t, second.Owner().StatefileKey())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -556,7 +567,7 @@ func TestStoreIndeterminatePostCommitErrorIsIdempotentlyRecoverable(t *testing.T
 		}
 		return sentinel
 	}
-	if _, err := store.Upsert(t.Context(), claim); !errors.Is(err, sentinel) {
+	if _, err := store.Upsert(t.Context(), claim, observedCarrierReference(t, claim.Owner().StatefileKey())); !errors.Is(err, sentinel) {
 		t.Fatalf("Upsert error = %v, want injected failure", err)
 	}
 	loaded, err := store.Load(t.Context())
@@ -732,6 +743,15 @@ func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
 	if !strings.Contains(string(current), `"version": 2`) {
 		t.Fatalf("guarded write did not replace retired schema with current schema:\n%s", current)
 	}
+}
+
+func observedCarrierReference(t *testing.T, path string) pathauthority.Reference {
+	t.Helper()
+	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observed.Reference()
 }
 
 func testGlobalClaim(

@@ -57,7 +57,7 @@ func TestNativePiLastKeyRetirementFollowsInvocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				state, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+				state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 				if err != nil || state.ContainsHostConfig() {
 					t.Fatal("last native key remained managed after its suffix", err)
 				}
@@ -112,7 +112,7 @@ func TestNativePiRetiringMissingDocumentNeedsNoDummyProtection(t *testing.T) {
 	if err != nil || len(registry.PendingProtections()) != 0 {
 		t.Fatal("an absent retiring document manufactured safety work", err)
 	}
-	state, err := statefile.Decode(testkit.ReadFile(t, fixture.LaunchState))
+	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.LaunchState))
 	if err != nil || len(state.PendingCarrierInstalls()) != 1 || !state.ContainsHostConfig() {
 		t.Fatal("unprotected invocation lost correlation or its retiring baseline", err)
 	}

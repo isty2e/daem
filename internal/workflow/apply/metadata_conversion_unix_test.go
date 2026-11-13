@@ -13,13 +13,72 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/target"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/ownershiptest"
 )
+
+func TestApplyCreatesCarrierImageWhileLegacyStateConversionDefers(t *testing.T) {
+	root, manifest, lockfile, _, locked, subject := writeApplyClaudePluginCarrierCommandFixtureForScope(t, target.ScopeGlobal)
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	paths := applyTestPaths(t, root)
+	if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := statefile.Marshal(durable.EmptySnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.StatefilePath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ownershiptest.WritePendingDocumentProtection(t, manifest, filepath.Join(root, "unrelated.json"))
+	registryBefore, err := os.ReadFile(paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	present := exactClaudeCarrierObservations(t, locked, subject, target.ScopeGlobal)
+	prepared, err := PlanWrite(t.Context(), CommandInput{
+		ManifestPath: manifest, LockfilePath: lockfile, RelationObservations: &present, ManageUnmanagedMatches: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	budget, err := physicalwork.NewBudget(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadataconversion.Prepare(t.Context(), prepared.lifecycle.planned.barrier, budget, nil); err == nil {
+		t.Fatal("foreign protection did not defer conversion")
+	}
+	result, err := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{RelationObservations: &present})
+	if err != nil || result.ActionCount != 1 || len(result.HostRouteAttempts) != 0 {
+		t.Fatal("global state-only adoption did not complete", err, result)
+	}
+	content, err := os.ReadFile(paths.CarrierClaimRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := carrierclaimstore.UnmarshalImage(content)
+	if err != nil || len(image.Registry().Claims()) != 1 || len(image.References()) != 1 {
+		t.Fatal("new carrier registry did not retain complete lookup evidence", err)
+	}
+	if current, err := os.ReadFile(paths.StatefilePath); err != nil || !bytes.Equal(current, legacy) {
+		t.Fatal("conversion deferral changed the legacy State", err)
+	}
+	if current, err := os.ReadFile(paths.OwnershipRegistryPath); err != nil || !bytes.Equal(current, registryBefore) {
+		t.Fatal("adoption changed unrelated pending protection", err)
+	}
+}
 
 func TestApplyConvertsEligibleMetadataBeforeItsExistingReplan(t *testing.T) {
 	for _, test := range []struct {
@@ -112,8 +171,34 @@ func TestApplyConvertsEligibleMetadataBeforeItsExistingReplan(t *testing.T) {
 				}
 			}
 			lockAndExecute(true)
-			legacy, err := os.ReadFile(paths.StatefilePath)
+			initial, err := os.ReadFile(paths.StatefilePath)
 			if err != nil {
+				t.Fatal(err)
+			}
+			image, err := statefile.UnmarshalImage(initial)
+			if err != nil {
+				t.Fatal("fresh apply did not write a located State image", err)
+			}
+			legacy, err := statefile.Marshal(image.Snapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.StatefilePath, legacy, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if content, err := os.ReadFile(paths.OwnershipRegistryPath); err == nil {
+				image, err := ownershipstore.UnmarshalImage(content)
+				if err != nil {
+					t.Fatal("fresh apply did not write a located ownership image", err)
+				}
+				content, err = ownershipstore.Marshal(image.Registry())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(paths.OwnershipRegistryPath, content, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if !os.IsNotExist(err) {
 				t.Fatal(err)
 			}
 			var version struct{ Version int }

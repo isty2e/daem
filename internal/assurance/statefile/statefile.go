@@ -65,10 +65,14 @@ func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, err
 		return durable.Snapshot{}, err
 	}
 	switch version {
-	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion:
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion:
 		codec, err := currentSnapshotCodec(ctx)
 		if err != nil {
 			return durable.Snapshot{}, err
+		}
+		if version == locatedSnapshotVersion {
+			image, err := unmarshalImage(content, codec)
+			return image.Snapshot(), err
 		}
 		return decodeSupported(content, version, codec)
 	case retiredStatefileVersion:

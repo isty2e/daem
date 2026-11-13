@@ -104,7 +104,7 @@ func (store Store) loadForUpdate(
 	)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return registryDocument{registry: ownership.EmptyRegistry()}, storagecommit.EntryIdentity{}, false, nil, nil
+			return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, nil, nil
 		}
 		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 			"read ownership registry: %w",

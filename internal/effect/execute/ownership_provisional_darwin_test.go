@@ -252,7 +252,8 @@ func globalManagedPathRemovalInput(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), claimValue); err != nil {
+	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), claimValue,
+		mustObservedPathReference(t, paths.StatefilePath), pathAuthority.Reference()); err != nil {
 		t.Fatalf("seed ownership claim: %v", err)
 	}
 	ownershipObservation, err := observe.NewExactOwnershipObservationFromLegacy(
@@ -279,7 +280,8 @@ func globalManagedPathRemovalInput(
 	return hostPath, logicalHostPath, ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
 		ManagedPathEffects: []effectpreparation.ManagedPathEffect{effect}, ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
-		CurrentState: current, Owner: owner, Ownership: []observe.OwnershipObservation{ownershipObservation},
+		CurrentState: current, Owner: owner, OwnerReference: mustObservedPathReference(t, paths.StatefilePath),
+		Ownership:               []observe.OwnershipObservation{ownershipObservation},
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 		StateCodec:              testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
 		Filesystem: testFilesystem(),
@@ -345,6 +347,8 @@ func TestProvisionalGlobalOwnershipRejectsAliasOfClaimThatBecomesCurrent(t *test
 		address,
 		ownership.NoClaim(),
 		oldClaimValue,
+		aliasAuthority.Reference(),
+		mustObservedPathReference(t, foreignOwner.StatefileKey()),
 	); err != nil {
 		t.Fatalf("seed old alias claim: %v", err)
 	}
@@ -641,7 +645,8 @@ func seedForeignClaimForVisibleProvisionalOutput(
 	if err != nil {
 		return ownership.Claim{}, err
 	}
-	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), value); err != nil {
+	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), value,
+		pathAuthority.Reference(), mustObservedPathReference(t, owner.StatefileKey())); err != nil {
 		return ownership.Claim{}, err
 	}
 	return claim, nil

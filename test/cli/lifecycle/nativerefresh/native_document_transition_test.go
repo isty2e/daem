@@ -78,7 +78,7 @@ func (f nativeDocumentTransitionFixture) applyWhole(t *testing.T) {
 	t.Helper()
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes", "--json")
 	testkit.AssertFileContent(t, f.Destination, f.original)
-	snapshot, err := statefile.Decode(testkit.ReadFile(t, f.Paths.StatefilePath))
+	snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
 	if err != nil || len(snapshot.ManagedPaths()) != 1 {
 		t.Fatal("real whole producer did not persist its native baseline", err)
 	}
@@ -119,7 +119,7 @@ func TestNativeDocumentRealProducerThenKeyNarrowing(t *testing.T) {
 				content := testkit.ReadFile(t, f.Destination)
 				nativefixture.RequireSharedValues(t, f.syntax, content, f.changed, true)
 				nativefixture.RequireSharedValues(t, f.syntax, content, f.released, true)
-				snapshot, err := statefile.Decode(testkit.ReadFile(t, f.Paths.StatefilePath))
+				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
 				if err != nil || len(snapshot.ManagedPaths()) != 0 || len(snapshot.ManagedAggregates()) != 2 {
 					t.Fatal("narrowing lost key state or retained whole ownership", err)
 				}
@@ -318,7 +318,7 @@ func TestNativeDocumentNarrowingNoNewCustody(t *testing.T) {
 					}
 					nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
 					testkit.AssertFileContent(t, f.Destination, external)
-					snapshot, err := statefile.Decode(testkit.ReadFile(t, f.Paths.StatefilePath))
+					snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
 					count := 1
 					if variant == "empty-release" {
 						count = 0
@@ -461,7 +461,7 @@ func prepareNativeKeyToWholeFixture(t *testing.T, selected target.Target, scope 
 	}
 	f.narrow(t, f.retained)
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes", "--manage-existing")
-	before, err := statefile.Decode(testkit.ReadFile(t, f.Paths.StatefilePath))
+	before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
 	if err != nil || len(before.ManagedPaths()) != 0 || len(before.ManagedAggregates()) != 1 {
 		t.Fatal("real keyed producer did not establish the adoption baseline", err)
 	}
@@ -496,7 +496,7 @@ func TestNativeDocumentKeyToWholeMatchingAdoption(t *testing.T) {
 				}
 				testkit.AssertFileContent(t, f.Destination, f.original)
 				stateBytes := testkit.ReadFile(t, f.Paths.StatefilePath)
-				state, err := statefile.Decode(stateBytes)
+				state, err := statefile.DecodePersistedFacts(t.Context(), stateBytes)
 				if err != nil || len(state.ManagedAggregates()) != 0 || len(state.ManagedPaths()) != 1 || state.ManagedPaths()[0].ContentHash() != artifact.HashFileContent([]byte(f.original)) {
 					t.Fatal("whole adoption lost its actual baseline or retained key ownership", err)
 				}
@@ -599,7 +599,7 @@ func TestNativeDocumentKeyToWholeRecovery(t *testing.T) {
 					if boundary == "before-state" && !bytes.Equal(beforeState, testkit.ReadFile(t, f.Paths.StatefilePath)) {
 						t.Fatal("pre-state crash committed the whole baseline")
 					}
-					crashed, err := statefile.Decode(testkit.ReadFile(t, f.Paths.StatefilePath))
+					crashed, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -609,7 +609,7 @@ func TestNativeDocumentKeyToWholeRecovery(t *testing.T) {
 						t.Fatal("adoption recovery dry-run changed retained evidence")
 					}
 					nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
-					state, err := statefile.Decode(testkit.ReadFile(t, f.Paths.StatefilePath))
+					state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
 					if err != nil || boundary == "before-state" && (len(state.ManagedPaths()) != 0 || len(state.ManagedAggregates()) != 1) || boundary == "state" && (len(state.ManagedPaths()) != 1 || len(state.ManagedAggregates()) != 0) {
 						t.Fatal("adoption recovery confused key/whole commit phases", err)
 					}

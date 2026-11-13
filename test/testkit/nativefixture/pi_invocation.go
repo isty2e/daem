@@ -147,7 +147,7 @@ func (fixture PiInvocation) Require(t *testing.T, args ...string) {
 
 func (fixture PiInvocation) LaunchProtection(t *testing.T) ownership.PendingProtection {
 	t.Helper()
-	snapshot, err := statefile.Decode(testkit.ReadFile(t, fixture.LaunchState))
+	snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.LaunchState))
 	if err != nil || len(snapshot.PendingCarrierInstalls()) != 1 {
 		t.Fatal("actual command was released without its exact pending install", err)
 	}

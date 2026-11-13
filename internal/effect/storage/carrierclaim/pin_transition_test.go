@@ -32,7 +32,7 @@ func TestStorePinTransitionRetainsReservationAcrossFailedCompletion(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseline, err := store.Upsert(ctx, claim)
+	baseline, err := store.Upsert(ctx, claim, observedCarrierReference(t, claim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}

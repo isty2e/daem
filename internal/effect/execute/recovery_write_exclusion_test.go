@@ -306,7 +306,8 @@ func seedRestorationForeignClaim(t *testing.T, paths Paths, hostPath string, foo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Converge(t.Context(), convergence); err != nil {
+	if _, err := store.Converge(t.Context(), convergence,
+		mustObservedPathReference(t, statefile), mustObservedPathReference(t, hostPath)); err != nil {
 		t.Fatal(err)
 	}
 	return claim

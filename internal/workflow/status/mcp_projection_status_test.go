@@ -662,11 +662,19 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("resolve ownership destination: %v", err)
 	}
-	address, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, physical), string(contentPath))
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(physical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := ownership.NewManagedAddressFromLegacy(pathAuthority.Exact(), string(contentPath))
 	if err != nil {
 		t.Fatalf("NewManagedAddress: %v", err)
 	}
-	owner, err := stateauthority.New(mustObservedPathAuthority(t, paths.StatefilePath), paths.ManifestPath)
+	owner, err := stateauthority.New(statefileAuthority.Exact(), paths.ManifestPath)
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}
@@ -679,7 +687,7 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("open ownership registry: %v", err)
 	}
-	if _, err := registryStore.Apply(context.Background(), address, ownership.NoClaim(), claimValue); err != nil {
+	if _, err := registryStore.Apply(context.Background(), address, ownership.NoClaim(), claimValue, pathAuthority.Reference(), statefileAuthority.Reference()); err != nil {
 		t.Fatalf("write ownership claim: %v", err)
 	}
 }

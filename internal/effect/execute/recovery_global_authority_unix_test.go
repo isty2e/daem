@@ -1022,7 +1022,8 @@ func newGlobalFileRecoveryFixture(
 		t.Fatalf("construct global recovery ownership store: %v", err)
 	}
 	claim := transition.Prepared()
-	if _, err := registry.Apply(context.Background(), address, ownership.NoClaim(), claim); err != nil {
+	if _, err := registry.Apply(context.Background(), address, ownership.NoClaim(), claim,
+		mustObservedPathReference(t, paths.StatefilePath), mustObservedPathReference(t, admittedPath)); err != nil {
 		t.Fatalf("seed global recovery ownership claim: %v", err)
 	}
 	removalDemands := recovery.RemovalDemandSet{}

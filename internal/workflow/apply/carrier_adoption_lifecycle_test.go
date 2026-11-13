@@ -62,7 +62,7 @@ func TestCarrierAdoptionPreservesSharedGlobalClaimAndHonorsCancellation(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		before, err := store.Upsert(t.Context(), foreignClaim)
+		before, err := store.Upsert(t.Context(), foreignClaim, mustObservedPathReference(t, foreignClaim.Owner().StatefileKey()))
 		if err != nil {
 			t.Fatal(err)
 		}

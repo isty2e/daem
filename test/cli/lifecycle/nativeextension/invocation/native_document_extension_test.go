@@ -127,7 +127,7 @@ func TestNativeWholeDocumentPublishesAfterPiInstall(t *testing.T) {
 					}
 					if invokesCommand {
 						testkit.AssertFileContent(t, launchDocument, beforeCommand)
-						snapshot, err := statefile.Decode(testkit.ReadFile(t, f.LaunchState))
+						snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.LaunchState))
 						if err != nil || len(snapshot.ManagedPaths()) != expectedPaths {
 							t.Fatal("whole-file ownership advanced before the host command", err)
 						}

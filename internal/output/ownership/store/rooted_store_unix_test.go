@@ -58,7 +58,7 @@ func TestRootedStoreKeepsRegistryOnCapturedDataRootAfterAliasRetarget(t *testing
 
 	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "host", "AGENTS.md"), "")
 	value, _ := ownership.PresentClaim(claim)
-	if _, err := registryStore.Apply(context.Background(), claim.Address(), ownership.NoClaim(), value); err != nil {
+	if _, err := registryStore.Apply(context.Background(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 		t.Fatalf("rooted Store.Apply returned error: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(dataA, "ownership", "claims.json")); err != nil {
@@ -79,7 +79,7 @@ func TestRootedStoreKeepsRegistryOnCapturedDataRootAfterAliasRetarget(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	var persisted file
+	var persisted registryImageRecord
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +87,11 @@ func TestRootedStoreKeepsRegistryOnCapturedDataRootAfterAliasRetarget(t *testing
 		persisted.Claims[0].PathAuthority.Key,
 		persisted.Claims[0].PathAuthority.Witness,
 	)
+	for index := range persisted.PathReferences {
+		if persisted.PathReferences[index].Key == persisted.Claims[0].PathAuthority.Key {
+			persisted.PathReferences[index].SemanticsWitness = persisted.Claims[0].PathAuthority.Witness
+		}
+	}
 	content, err = json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		t.Fatal(err)

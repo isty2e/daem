@@ -183,7 +183,7 @@ func (store Store) loadForProtection(ctx context.Context) (registryDocument, sto
 		}
 	}
 	if errors.Is(err, fs.ErrNotExist) {
-		return registryDocument{registry: ownership.EmptyRegistry()}, storagecommit.EntryIdentity{}, false, capability, nil
+		return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, capability, nil
 	}
 	if err == nil && mode.Perm()&0o077 != 0 {
 		err = fmt.Errorf("ownership registry %q permissions %04o expose authority metadata", store.path, mode.Perm())

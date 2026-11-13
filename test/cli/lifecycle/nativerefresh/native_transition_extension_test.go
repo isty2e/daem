@@ -126,7 +126,7 @@ func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
 					if code != 0 {
 						t.Fatalf("ownership transition with real command failed: %d %s %s", code, stdout, stderr)
 					}
-					launched, err := statefile.Decode(testkit.ReadFile(t, f.LaunchState))
+					launched, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.LaunchState))
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -162,7 +162,7 @@ func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
 					if info, err := os.Stat(g.Destination); err != nil || info.Mode().Perm() != 0o600 {
 						t.Fatal("transition changed private permissions", err)
 					}
-					final, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+					final, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 					paths, keys := 0, 2
 					if mode == "adopt" {
 						paths, keys = 1, 0
@@ -226,7 +226,7 @@ func TestNativeWholeAdoptionRecoveryAfterPiCommand(t *testing.T) {
 			for _, boundary := range []string{"before-state", "state"} {
 				t.Run(string(selected)+"/"+string(scope)+"/"+boundary, func(t *testing.T) {
 					f, g := nativeTransitionCommandFixture(t, selected, scope, "adopt")
-					prior, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+					prior, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 					if err != nil || len(prior.ManagedPaths()) != 0 || len(prior.ManagedAggregates()) != 1 {
 						t.Fatal("adoption interruption fixture has no unique real key-to-whole transition", err)
 					}
@@ -245,7 +245,7 @@ func TestNativeWholeAdoptionRecoveryAfterPiCommand(t *testing.T) {
 						t.Fatal("state-only adoption did not preserve its actual journal")
 					}
 					f.Require(t, "recover", "--yes")
-					state, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+					state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 					paths, keys := 0, 1
 					if boundary == "state" {
 						paths, keys = 1, 0
@@ -272,7 +272,7 @@ func TestNativeNarrowingCommitSurvivesLaterCommandFailure(t *testing.T) {
 			if code, _, _ := f.Run("apply", "--yes"); code == 0 {
 				t.Fatal("failed command was reported as successful")
 			}
-			state, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+			state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 			if err != nil || len(state.ManagedPaths()) != 0 || len(state.ManagedAggregates()) != 2 {
 				t.Fatal("later command failure undid committed narrowing ownership", err)
 			}
@@ -324,7 +324,7 @@ func TestNativeNarrowingDoesNotAdoptCommandChanges(t *testing.T) {
 				}
 				testkit.AssertFileContent(t, g.Destination, changed)
 				testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
-				state, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+				state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 				if err != nil || len(state.ManagedPaths()) != 0 || len(state.ManagedAggregates()) != 2 {
 					t.Fatal("invocation conflict lost committed key ownership", err)
 				}

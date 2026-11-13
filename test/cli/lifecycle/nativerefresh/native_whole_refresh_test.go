@@ -105,7 +105,7 @@ func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
 			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
 				f, g, source := nativeWholeRefreshFixture(t, selected, scope, scope)
 				f.Require(t, "apply", "--yes")
-				before, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+				before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -128,7 +128,7 @@ func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
 				if _, bound := protection.Execution(); !bound || protection.Phase() != ownership.ProtectionBound || len(protection.Documents()) != 2 {
 					t.Fatal("whole Refresh launched without both actual protected documents")
 				}
-				after, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 				if err != nil || !slices.EqualFunc(before.ManagedPaths(), after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(before.ManagedAggregates(), after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
 					t.Fatal("Refresh applied settings or changed their ownership", err)
 				}
@@ -258,7 +258,7 @@ func TestNativeWholeRefreshPreservesRetiringAndCrossScopeFiles(t *testing.T) {
 			f, g, source := nativeWholeRefreshFixture(t, selected, target.ScopeProject, target.ScopeGlobal)
 			f.Require(t, "apply", "--yes")
 			original := string(testkit.ReadFile(t, g.Destination))
-			before, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+			before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -273,7 +273,7 @@ func TestNativeWholeRefreshPreservesRetiringAndCrossScopeFiles(t *testing.T) {
 			}
 			f.Require(t, "lock")
 			f.Require(t, "refresh", "extension", "tools", "--yes")
-			after, err := statefile.Decode(testkit.ReadFile(t, g.Paths.StatefilePath))
+			after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 			if err != nil || !slices.EqualFunc(before.ManagedPaths(), after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(before.ManagedAggregates(), after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
 				t.Fatal("Refresh retired or reclassified pending file ownership", err)
 			}

@@ -92,7 +92,7 @@ func nativePinClaims(t *testing.T, f nativefixture.PiInvocation, scope target.Sc
 	if launched {
 		path = f.LaunchState
 	}
-	state, err := statefile.Decode(testkit.ReadFile(t, path))
+	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func nativePinLaunch(t *testing.T, f nativefixture.PiInvocation, scope target.Sc
 		t.Fatal("command launched without exact durable pin intent and prior management")
 	}
 	f.LaunchNativeProtection(t)
-	state, err := statefile.Decode(testkit.ReadFile(t, f.LaunchState))
+	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.LaunchState))
 	if err != nil || len(state.ManagedAggregates()) != 1 {
 		t.Fatal("pin intent checkpoint lost its settled native key", err)
 	}
@@ -155,7 +155,7 @@ func TestNativePiPinTransitionUsesProtectedInvocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				state, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+				state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 				keys := 1
 				if mode == "retiring" {
 					keys = 0

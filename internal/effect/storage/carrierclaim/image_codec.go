@@ -16,7 +16,7 @@ type registryImageRecord struct {
 	PathReferences []pathreferencecodec.Record `json:"path_references"`
 }
 
-// MarshalImage encodes version3 without changing the default carrier Store.
+// MarshalImage encodes a complete version3 image without publishing it.
 func MarshalImage(image RegistryImage) ([]byte, error) {
 	if err := image.Validate(); err != nil {
 		return nil, err

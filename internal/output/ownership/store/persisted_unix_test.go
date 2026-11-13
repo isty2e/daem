@@ -5,6 +5,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +17,37 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
+
+func TestNewOwnershipRegistryRequiresAndRecordsReferences(t *testing.T) {
+	for _, qualified := range []bool{false, true} {
+		t.Run(fmt.Sprint(qualified), func(t *testing.T) {
+			root := canonicalTestRoot(t)
+			store := mustStore(t, filepath.Join(root, "claims.json"))
+			claim := testActiveClaim(t, root, "owner", filepath.Join(root, "managed.json"), "")
+			var references []pathauthority.Reference
+			if qualified {
+				references = []pathauthority.Reference{observedStoreReference(t, claim.Address().Path()), observedStoreReference(t, claim.Owner().StatefileKey())}
+			}
+			_, err := store.Apply(t.Context(), claim.Address(), ownership.NoClaim(), storeClaimValue(t, claim), references...)
+			if !qualified {
+				if err == nil {
+					t.Fatal("new registry accepted comparison-only identities")
+				}
+				if _, err := os.Stat(store.Path()); !os.IsNotExist(err) {
+					t.Fatal("refused addition created a registry", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			image := readLocatedOwnership(t, store.Path())
+			if len(image.Registry().Claims()) != 1 || len(image.References()) != 2 {
+				t.Fatal("new registry did not retain complete reference evidence")
+			}
+		})
+	}
+}
 
 func TestLocatedStoreConvergenceRetainsLookupEvidenceAndPrunesDepartedRoles(t *testing.T) {
 	root := canonicalTestRoot(t)
@@ -148,33 +180,29 @@ func TestLocatedStoreRefusesUnqualifiedAdditionsBeforeChangingTheRegistry(t *tes
 	}
 }
 
-func TestLookupEvidenceDoesNotSelectTheLegacyOwnershipOutputFormat(t *testing.T) {
-	for _, seeded := range []bool{false, true} {
-		root := canonicalTestRoot(t)
-		store := mustStore(t, filepath.Join(root, "claims.json"))
-		if seeded {
-			content, err := Marshal(ownership.EmptyRegistry())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(store.Path(), content, 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-		claim := testActiveClaim(t, root, "owner", filepath.Join(root, "document.json"), "")
-		next, err := store.Apply(t.Context(), claim.Address(), ownership.NoClaim(), storeClaimValue(t, claim),
-			observedStoreReference(t, claim.Owner().StatefileKey()), observedStoreReference(t, claim.Address().Path()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		content, err := os.ReadFile(store.Path())
-		if err != nil {
-			t.Fatal(err)
-		}
-		legacy, err := DecodeRegistryFacts(content)
-		if err != nil || !legacy.Equal(next) {
-			t.Fatal("optional evidence changed the default format without cohort conversion", err)
-		}
+func TestLookupEvidencePreservesObservedLegacyOwnershipFormat(t *testing.T) {
+	root := canonicalTestRoot(t)
+	store := mustStore(t, filepath.Join(root, "claims.json"))
+	content, err := Marshal(ownership.EmptyRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "document.json"), "")
+	next, err := store.Apply(t.Context(), claim.Address(), ownership.NoClaim(), storeClaimValue(t, claim),
+		observedStoreReference(t, claim.Owner().StatefileKey()), observedStoreReference(t, claim.Address().Path()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err = os.ReadFile(store.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := DecodeRegistryFacts(content)
+	if err != nil || !legacy.Equal(next) {
+		t.Fatal("optional evidence changed the observed legacy format", err)
 	}
 }
 
@@ -356,15 +384,6 @@ func TestLocatedDocumentSettlementRetainsTheMissingComparisonException(t *testin
 			}
 		}
 	}
-}
-
-func observedStoreReference(t *testing.T, path string) pathauthority.Reference {
-	t.Helper()
-	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return observed.Reference()
 }
 
 func writeLocatedOwnership(t *testing.T, path string, registry ownership.Registry, references []pathauthority.Reference) []byte {

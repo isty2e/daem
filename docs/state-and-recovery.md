@@ -28,9 +28,18 @@ scope and route id; a changed request hash replaces the prior diagnostic.
 Mechanical process reasons and post-attempt working-directory authority are
 separate facts. The v8 reader translates the older combined reason.
 
-Statefile v10 records aggregate key paths as RFC 6901 `key_path` values. Daem
-reads v8 and v9 without rewriting them; subsequent state writes use v10.
-Older binaries cannot read v10. Its optional `native_document_commit` counter
+Normal commands create Statefiles in v11 and shared output/carrier registries in
+v5/v3.
+These formats retain filesystem lookup locations separately from comparison
+identities. Older binaries cannot read them. Existing usable legacy files can
+retain their encoding when automatic conversion is deferred; different files
+can therefore have different versions without dividing one registry into mixed
+record formats. See [`migrate metadata`](cli.md#migrate-metadata) for explicit
+conversion and interruption recovery.
+
+Statefile v10 introduced aggregate key paths as RFC 6901 `key_path` values. Daem
+reads v8 and v9 without rewriting them; writes that retain the legacy physical
+format use v10. Its optional `native_document_commit` counter
 distinguishes state-neutral native file changes, such as replacing a changed key
 with the same value already recorded in state. It advances only when a real native
 file mutation would otherwise leave state unchanged; already-current operations
@@ -236,8 +245,9 @@ failures, `recover` can clean up, roll back guarded changes, or finish claim
 finalization after host and state commit. Recovery handles one interrupted
 operation or its retained cleanup, not historical snapshots.
 
-Current ordinary journals use format 15, coupled to the canonical statefile v10
-encoding used for recovery fingerprints. Recover an older active journal with
+Current ordinary journals use format 15, coupled to canonical Snapshot v10
+encoding for recovery fingerprints, not the physical Statefile version. Recover
+an older active journal with
 the daem version that wrote it before upgrading; current recovery does not
 migrate it. Preserve the journal and backups when a version mismatch blocks
 recovery.

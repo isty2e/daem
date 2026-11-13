@@ -21,7 +21,7 @@ func TestStoreRemovesClaimAfterNonASCIIFinalPathBecomesProvisional(t *testing.T)
 	claim := testActiveClaim(t, root, "owner", managedPath, "")
 	value, _ := ownership.PresentClaim(claim)
 	registryStore := mustStore(t, filepath.Join(root, "claims.json"))
-	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 		t.Fatalf("seed claim: %v", err)
 	}
 	if err := os.Remove(managedPath); err != nil {

@@ -5,6 +5,7 @@ package statefile
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,6 +18,46 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+func TestMissingPhysicalStateSelectsLocatedSuccessorWithoutCreatingMetadata(t *testing.T) {
+	for _, bounded := range []bool{false, true} {
+		t.Run(fmt.Sprint(bounded), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".daem", "state.json")
+			var state PhysicalState
+			var err error
+			if bounded {
+				state, err = LoadOptionalPhysicalWithOptions(t.Context(), path, ReadOptions{Codec: DefaultPhysicalCodec(), PhysicalPathBudget: physicalwork.NewPathBudget()})
+			} else {
+				state, err = LoadOptionalPhysical(t.Context(), path)
+			}
+			if err != nil || !state.Snapshot().Equal(durable.EmptySnapshot()) {
+				t.Fatal("missing State did not load as empty facts", err)
+			}
+			content, err := state.Codec().EncodeState(state.Snapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			image, err := UnmarshalImage(content)
+			if err != nil || image.Reference().IsZero() {
+				t.Fatal("new State did not select a located successor", err)
+			}
+			if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+				t.Fatal("missing-State observation or encoding created a directory", err)
+			}
+		})
+	}
+}
+
+func TestMissingUnicodePhysicalStateRemainsReadableWithoutCreation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "상태", "daem", "state.json")
+	state, err := LoadOptionalPhysical(t.Context(), path)
+	if err != nil || !state.Snapshot().Equal(durable.EmptySnapshot()) {
+		t.Fatal("missing normalization-sensitive State was not readable", err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatal("read-only missing-State load created its parent", err)
+	}
+}
 
 func TestPhysicalStateRetainsRecordedAliasAndGuardsUnrelatedReferenceChanges(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -157,38 +198,59 @@ func TestPhysicalStateEnvelopeUsesTheOperationSelectedFactCatalog(t *testing.T) 
 	}
 }
 
-func TestPhysicalStateMissingAndLegacyKeepTheirDefaultWithoutMaskingObservationFailures(t *testing.T) {
+func TestPersistedFactsAdmitLocatedStateWithoutChangingSnapshotCodec(t *testing.T) {
+	snapshot, err := durable.NewSnapshot(durable.SnapshotInput{NativeDocumentCommit: 17})
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := NewStateImage(snapshot, statePhysicalReference(t, filepath.Join(t.TempDir(), "state.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := MarshalImage(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := DecodePersistedFacts(t.Context(), content)
+	if err != nil || !facts.Equal(snapshot) {
+		t.Fatal("persisted facts lost a readable physical image", err)
+	}
+	if _, err := Decode(content); err == nil {
+		t.Fatal("physical facts widened the frozen Snapshot codec")
+	}
+	if _, err := DecodePersistedFacts(t.Context(), []byte(`{"version":11}`)); err == nil {
+		t.Fatal("physical facts bypassed required self-reference validation")
+	}
+}
+
+func TestLegacyPhysicalStateKeepsItsFormatWithoutMaskingObservationFailures(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	frozen, err := Marshal(durable.EmptySnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, exists := range []bool{false, true} {
-		if exists {
-			if err := os.WriteFile(path, frozen, 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-		state, err := LoadOptionalPhysical(t.Context(), path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		encoded, err := state.Codec().EncodeState(state.Snapshot())
-		if err != nil || !bytes.Equal(encoded, frozen) {
-			t.Fatal("observation activated a new physical format", err)
-		}
-		image, err := NewStateImage(durable.EmptySnapshot(), statePhysicalReference(t, path))
-		if err != nil {
-			t.Fatal(err)
-		}
-		intervening, err := MarshalImage(image)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var stale mutation.StaleSnapshotError
-		if _, err := state.Codec().DecodeState(intervening); !errors.As(err, &stale) {
-			t.Fatal("legacy or absent observation silently adopted a later image", err)
-		}
+	if err := os.WriteFile(path, frozen, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := LoadOptionalPhysical(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := state.Codec().EncodeState(state.Snapshot())
+	if err != nil || !bytes.Equal(encoded, frozen) {
+		t.Fatal("observation changed the recorded legacy format", err)
+	}
+	image, err := NewStateImage(durable.EmptySnapshot(), statePhysicalReference(t, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	intervening, err := MarshalImage(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stale mutation.StaleSnapshotError
+	if _, err := state.Codec().DecodeState(intervening); !errors.As(err, &stale) {
+		t.Fatal("legacy observation silently adopted a later image", err)
 	}
 	if _, err := LoadOptionalPhysicalWithOptions(t.Context(), path, ReadOptions{Codec: DefaultPhysicalCodec(), PhysicalPathBudget: selectedStateBudget{fs.ErrNotExist}}); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("budget cause was not preserved", err)

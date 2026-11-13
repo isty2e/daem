@@ -517,7 +517,7 @@ func (store *nativeRecoveryStore) acceptsStatePublication(content []byte) bool {
 	if !store.waitWholeRecord {
 		return true
 	}
-	state, err := statefile.Decode(content)
+	state, err := statefile.DecodePersistedFacts(context.Background(), content)
 	if err != nil {
 		return false
 	}

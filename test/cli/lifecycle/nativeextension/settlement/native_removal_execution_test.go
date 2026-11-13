@@ -32,7 +32,7 @@ func TestNativePiRemovalWithManagedKeys(t *testing.T) {
 				if err := json.Unmarshal(testkit.ReadFile(t, fixture.BeforeCommand), &before); err != nil || before.Theme != theme {
 					t.Fatal("removal did not consume the settled selected key", err)
 				}
-				snapshot, err := statefile.Decode(testkit.ReadFile(t, fixture.LaunchState))
+				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.LaunchState))
 				if err != nil || len(snapshot.PendingCarrierRemovals()) != 1 || len(snapshot.PendingCarrierInstalls()) != 0 {
 					t.Fatal("removal was released without its exact pending removal", err)
 				}
@@ -58,7 +58,7 @@ func TestNativePiRemovalWithManagedKeys(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				settled, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+				settled, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 				if err != nil || len(settled.PendingCarrierRemovals()) != 0 {
 					t.Fatal("pending removal was not retired", err)
 				}
@@ -85,7 +85,7 @@ func TestNativePiRemovalFailuresRetainPendingAndRecoverWithoutBlindReplay(t *tes
 				if err != nil {
 					t.Fatal(err)
 				}
-				state, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+				state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 				if err != nil || len(state.PendingCarrierRemovals()) != 1 {
 					t.Fatal("failed removal lost its exact pending obligation", err)
 				}
@@ -167,7 +167,7 @@ func TestNativePiRemovalProcessLossRecoversWithoutCommandReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+	pending, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 	if err != nil || len(pending.PendingCarrierRemovals()) != 1 {
 		t.Fatal("lost removal did not remain pending", err)
 	}

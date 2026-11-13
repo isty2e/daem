@@ -133,7 +133,7 @@ func TestNativePiInvocationFailureStopsOrdinaryFileChanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+			state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 			if err != nil || len(state.ManagedPaths()) != 0 {
 				t.Fatal("failed invocation claimed an unapplied ordinary file", err)
 			}
@@ -356,11 +356,11 @@ func TestNativePiInvocationRejectsChangedSettingsWithoutRepair(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+			state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 			if err != nil {
 				t.Fatal(err)
 			}
-			launched, err := statefile.Decode(testkit.ReadFile(t, fixture.LaunchState))
+			launched, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.LaunchState))
 			if err != nil || len(state.PendingCarrierInstalls()) != 1 || !state.PendingCarrierInstalls()[0].ExactEqual(launched.PendingCarrierInstalls()[0]) {
 				t.Fatal("failed qualification discarded the exact pending installation", err)
 			}

@@ -16,11 +16,17 @@ import (
 // MustObservedPathAuthority captures exact authority for a filesystem-backed test fixture.
 func MustObservedPathAuthority(t testing.TB, path string) pathauthority.Exact {
 	t.Helper()
+	return MustObservedPathReference(t, path).Identity()
+}
+
+// MustObservedPathReference retains the observed spelling of a fixture path.
+func MustObservedPathReference(t testing.TB, path string) pathauthority.Reference {
+	t.Helper()
 	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
 	if err != nil {
 		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
 	}
-	return authority.Exact()
+	return authority.Reference()
 }
 
 // WriteActiveOwnershipClaim seeds the durable authority paired with a manually written global state fixture.
@@ -59,7 +65,7 @@ func WriteActiveOwnershipClaim(t *testing.T, manifestPath string, destination st
 	if err != nil {
 		t.Fatalf("Open ownership store returned error: %v", err)
 	}
-	if _, err := store.Apply(context.Background(), address, ownership.NoClaim(), value); err != nil {
+	if _, err := store.Apply(context.Background(), address, ownership.NoClaim(), value, pathAuthority.Reference(), statefileAuthority.Reference()); err != nil {
 		t.Fatalf("Write ownership claim returned error: %v", err)
 	}
 	return claim

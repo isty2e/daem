@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,40 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
+
+func TestNewCarrierRegistryRequiresAndRecordsOwnerReference(t *testing.T) {
+	for _, qualified := range []bool{false, true} {
+		t.Run(fmt.Sprint(qualified), func(t *testing.T) {
+			root := t.TempDir()
+			store, err := New(filepath.Join(root, "claims.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			claim := testGlobalClaim(t, "alpha", "alpha@official", filepath.Join(root, "owner"))
+			var references []pathauthority.Reference
+			if qualified {
+				references = []pathauthority.Reference{observedCarrierReference(t, claim.Owner().StatefileKey())}
+			}
+			_, err = store.Upsert(t.Context(), claim, references...)
+			if !qualified {
+				if err == nil {
+					t.Fatal("new carrier registry accepted an unlocated owner")
+				}
+				if _, err := os.Stat(store.path); !os.IsNotExist(err) {
+					t.Fatal("refused carrier addition created a registry", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			image := readLocatedCarrier(t, store.path)
+			if len(image.Registry().Claims()) != 1 || len(image.References()) != 1 {
+				t.Fatal("new carrier registry did not retain its owner reference")
+			}
+		})
+	}
+}
 
 func TestLocatedCarrierStoreQualifiesAdditionsAndRetainsThenPrunesOwners(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
@@ -121,35 +156,31 @@ func TestLocatedCarrierStoreQualifiesAdditionsAndRetainsThenPrunesOwners(t *test
 	}
 }
 
-func TestLookupEvidenceDoesNotSelectTheLegacyCarrierOutputFormat(t *testing.T) {
-	for _, seeded := range []bool{false, true} {
-		root := t.TempDir()
-		store, err := New(filepath.Join(root, "claims.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if seeded {
-			content, err := Marshal(durablecarrier.EmptyGlobalCarrierClaims())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(store.path, content, 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}
-		claim := testGlobalClaim(t, "alpha", "alpha@official", root)
-		next, err := store.Upsert(t.Context(), claim, observedCarrierReference(t, claim.Owner().StatefileKey()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		content, err := os.ReadFile(store.path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		legacy, err := DecodeRegistryFacts(content)
-		if err != nil || !legacy.Equal(next) {
-			t.Fatal("optional evidence changed the default carrier format", err)
-		}
+func TestLookupEvidencePreservesObservedLegacyCarrierFormat(t *testing.T) {
+	root := t.TempDir()
+	store, err := New(filepath.Join(root, "claims.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := Marshal(durablecarrier.EmptyGlobalCarrierClaims())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claim := testGlobalClaim(t, "alpha", "alpha@official", root)
+	next, err := store.Upsert(t.Context(), claim, observedCarrierReference(t, claim.Owner().StatefileKey()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err = os.ReadFile(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := DecodeRegistryFacts(content)
+	if err != nil || !legacy.Equal(next) {
+		t.Fatal("optional evidence changed the observed legacy carrier format", err)
 	}
 }
 
@@ -206,15 +237,6 @@ func TestLocatedCarrierPinTransitionPreservesReferencesAcrossFailureAndRetry(t *
 	if !image.Registry().Equal(completed) || !image.References()[0].Equal(reference) || !completed.Claims()[0].MatchesLockedRecord(nextContract) {
 		t.Fatal("completed pin transition changed its owner evidence")
 	}
-}
-
-func observedCarrierReference(t *testing.T, path string) pathauthority.Reference {
-	t.Helper()
-	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return observed.Reference()
 }
 
 func writeLocatedCarrier(t *testing.T, path string, registry durablecarrier.GlobalCarrierClaims, references []pathauthority.Reference) []byte {

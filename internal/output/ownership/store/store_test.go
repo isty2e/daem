@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -24,7 +25,7 @@ func TestStoreRoundTripUsesPrivateDeterministicSchema(t *testing.T) {
 	claim := testActiveClaim(t, root, "left", filepath.Join(root, "host", "AGENTS.md"), "")
 	replacement, _ := ownership.PresentClaim(claim)
 
-	written, err := registryStore.Apply(context.Background(), claim.Address(), ownership.NoClaim(), replacement)
+	written, err := registryStore.Apply(context.Background(), claim.Address(), ownership.NoClaim(), replacement, storeClaimReferences(t, claim)...)
 	if err != nil {
 		t.Fatalf("Store.Apply returned error: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestStoreRoundTripUsesPrivateDeterministicSchema(t *testing.T) {
 		t.Fatalf("registry mode = %04o, want 0600", info.Mode().Perm())
 	}
 	first, _ := os.ReadFile(registryStore.Path())
-	for _, fragment := range []string{fmt.Sprintf(`"version": %d`, currentVersion), `"path_authority"`, `"statefile_authority"`, `"semantics_witness"`} {
+	for _, fragment := range []string{fmt.Sprintf(`"version": %d`, locatedRegistryVersion), `"path_authority"`, `"statefile_authority"`, `"semantics_witness"`} {
 		if !strings.Contains(string(first), fragment) {
 			t.Fatalf("registry missing current authority field %q:\n%s", fragment, first)
 		}
@@ -75,6 +76,7 @@ func TestStoreLoadRejectsStaleFilesystemSemanticsWitness(t *testing.T) {
 		claim.Address(),
 		ownership.NoClaim(),
 		replacement,
+		storeClaimReferences(t, claim)...,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -107,11 +109,20 @@ func TestStoreLoadRejectsStaleFilesystemSemanticsWitness(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			var persisted file
+			var persisted registryImageRecord
 			if err := json.Unmarshal(content, &persisted); err != nil {
 				t.Fatal(err)
 			}
 			test.mutate(&persisted.Claims[0])
+			for index := range persisted.PathReferences {
+				reference := &persisted.PathReferences[index]
+				if reference.Key == persisted.Claims[0].PathAuthority.Key {
+					reference.SemanticsWitness = persisted.Claims[0].PathAuthority.Witness
+				}
+				if reference.Key == persisted.Claims[0].StatefileAuthority.Key {
+					reference.SemanticsWitness = persisted.Claims[0].StatefileAuthority.Witness
+				}
+			}
 			mutated, err := json.MarshalIndent(persisted, "", "  ")
 			if err != nil {
 				t.Fatal(err)
@@ -134,10 +145,10 @@ func TestStorePreservesUnrelatedClaimsAndRejectsStaleExpected(t *testing.T) {
 	right := testActiveClaim(t, root, "right", filepath.Join(root, "host", "right"), "")
 	leftValue, _ := ownership.PresentClaim(left)
 	rightValue, _ := ownership.PresentClaim(right)
-	if _, err := registryStore.Apply(context.Background(), left.Address(), ownership.NoClaim(), leftValue); err != nil {
+	if _, err := registryStore.Apply(context.Background(), left.Address(), ownership.NoClaim(), leftValue, storeClaimReferences(t, left)...); err != nil {
 		t.Fatalf("write left claim: %v", err)
 	}
-	if _, err := registryStore.Apply(context.Background(), right.Address(), ownership.NoClaim(), rightValue); err != nil {
+	if _, err := registryStore.Apply(context.Background(), right.Address(), ownership.NoClaim(), rightValue, storeClaimReferences(t, right)...); err != nil {
 		t.Fatalf("write right claim: %v", err)
 	}
 
@@ -169,7 +180,7 @@ func TestStoreRemoveClaimPreservesUnrelatedClaimsAndIsIdempotent(t *testing.T) {
 	retained := testActiveClaim(t, root, "retained", filepath.Join(root, "host", "retained"), "")
 	for _, claim := range []ownership.Claim{removed, retained} {
 		value, _ := ownership.PresentClaim(claim)
-		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 			t.Fatalf("seed claim for %q: %v", claim.Address().Path(), err)
 		}
 	}
@@ -194,7 +205,7 @@ func TestStoreRemoveClaimRejectsStaleExpectedClaim(t *testing.T) {
 	expected := testActiveClaim(t, root, "expected", filepath.Join(root, "host", "output"), "")
 	actual := testActiveClaim(t, root, "actual", expected.Address().Path(), "")
 	actualValue, _ := ownership.PresentClaim(actual)
-	if _, err := registryStore.Apply(t.Context(), actual.Address(), ownership.NoClaim(), actualValue); err != nil {
+	if _, err := registryStore.Apply(t.Context(), actual.Address(), ownership.NoClaim(), actualValue, storeClaimReferences(t, actual)...); err != nil {
 		t.Fatalf("seed actual claim: %v", err)
 	}
 
@@ -219,7 +230,7 @@ func TestStoreRemoveClaimKeepsUnrelatedAuthorityValidationStrict(t *testing.T) {
 	unrelated := testActiveClaim(t, root, "unrelated", filepath.Join(root, "host", "unrelated"), "")
 	for _, claim := range []ownership.Claim{removed, unrelated} {
 		value, _ := ownership.PresentClaim(claim)
-		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 			t.Fatalf("seed claim for %q: %v", claim.Address().Path(), err)
 		}
 	}
@@ -227,7 +238,7 @@ func TestStoreRemoveClaimKeepsUnrelatedAuthorityValidationStrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var persisted file
+	var persisted registryImageRecord
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +250,12 @@ func TestStoreRemoveClaimKeepsUnrelatedAuthorityValidationStrict(t *testing.T) {
 			persisted.Claims[index].PathAuthority.Key,
 			persisted.Claims[index].PathAuthority.Witness,
 		)
+	}
+	for index := range persisted.PathReferences {
+		reference := &persisted.PathReferences[index]
+		if reference.Key == unrelated.Address().Path() {
+			reference.SemanticsWitness = alternateSemanticsWitness(reference.Key, reference.SemanticsWitness)
+		}
 	}
 	mutated, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
@@ -554,7 +571,7 @@ func TestOwnershipRegistryHelperProcess(t *testing.T) {
 	}
 	claim := testActiveClaim(t, root, owner, filepath.Join(root, "host", "AGENTS.md"), "")
 	value, _ := ownership.PresentClaim(claim)
-	if _, err := registryStore.Apply(context.Background(), claim.Address(), ownership.NoClaim(), value); err != nil {
+	if _, err := registryStore.Apply(context.Background(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 		os.Exit(13)
 	}
 	os.Exit(0)
@@ -576,6 +593,23 @@ func canonicalTestRoot(t *testing.T) string {
 		t.Fatalf("canonicalize test root: %v", err)
 	}
 	return root
+}
+
+func observedStoreReference(t *testing.T, path string) pathauthority.Reference {
+	t.Helper()
+	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observed.Reference()
+}
+
+func storeClaimReferences(t *testing.T, claim ownership.Claim) []pathauthority.Reference {
+	t.Helper()
+	return []pathauthority.Reference{
+		observedStoreReference(t, claim.Address().Path()),
+		observedStoreReference(t, claim.Owner().StatefileKey()),
+	}
 }
 
 func testActiveClaim(t *testing.T, root string, ownerName string, path string, contentPath string) ownership.Claim {

@@ -108,7 +108,7 @@ func nativeDelegateLaunch(t *testing.T, f nativefixture.PiInvocation, index int,
 	if err := json.Unmarshal(testkit.ReadFile(t, filepath.Join(capture, fmt.Sprintf("mcp-%d.json", index))), &mcp); err != nil || len(mcp.Servers) != 2 {
 		t.Fatal("delegate ran before both exact MCP projections", err)
 	}
-	state, err := statefile.Decode(testkit.ReadFile(t, filepath.Join(capture, fmt.Sprintf("state-%d.json", index))))
+	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, filepath.Join(capture, fmt.Sprintf("state-%d.json", index))))
 	ordinary := 0
 	for _, row := range state.ManagedPaths() {
 		if !aggregate.IsHostConfigDocumentSubject(row.Subject()) {

@@ -25,7 +25,7 @@ func (store Store) loadRootedForCommit(ctx context.Context, expected []ownership
 	content, mode, identity, err := storagecommit.ReadRootedRegularFileUpTo(ctx, capability, maximumOwnershipRegistryBytes)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return registryDocument{registry: ownership.EmptyRegistry()}, storagecommit.EntryIdentity{}, false, capability, nil
+			return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, capability, nil
 		}
 		_ = capability.Close()
 		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("read ownership registry: %w", err)

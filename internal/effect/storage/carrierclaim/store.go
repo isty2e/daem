@@ -302,7 +302,7 @@ func (store Store) loadForCommit(
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, store.path, maximumRegistryBytes)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return registryDocument{registry: durablecarrier.EmptyGlobalCarrierClaims()}, storagecommit.EntryIdentity{}, false, nil
+			return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, nil
 		}
 		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("read carrier claim registry: %w", err)
 	}

@@ -54,7 +54,7 @@ func LoadOptionalPhysical(ctx context.Context, path string) (PhysicalState, erro
 		if err != nil {
 			return PhysicalState{}, err
 		}
-		return PhysicalState{snapshot: durable.EmptySnapshot(), codec: PhysicalCodec{codec: codec, selection: &physicalStateSelection{}}}, nil
+		return selectMissingPhysicalState(ctx, path, PhysicalCodec{codec: codec}, nil)
 	}
 	return state, err
 }
@@ -69,11 +69,28 @@ func LoadOptionalPhysicalWithOptions(ctx context.Context, path string, options R
 		if err := ctx.Err(); err != nil {
 			return PhysicalState{}, err
 		}
-		codec := options.Codec
-		codec.selection = &physicalStateSelection{}
-		return PhysicalState{snapshot: durable.EmptySnapshot(), codec: codec}, nil
+		return selectMissingPhysicalState(ctx, path, options.Codec, options.PhysicalPathBudget)
 	}
 	return state, err
+}
+
+func selectMissingPhysicalState(ctx context.Context, path string, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, error) {
+	var observed mutation.DirectoryEntryAuthorityObservation
+	var err error
+	if budget == nil {
+		observed, err = mutation.ObserveDirectoryEntryAuthority(path)
+	} else {
+		observed, err = mutation.ObserveDirectoryEntryAuthorityBounded(path, mutationfs.MaximumPhysicalPathDepth, budget)
+	}
+	if err != nil {
+		return PhysicalState{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return PhysicalState{}, err
+	}
+	reference, _ := observed.Reference()
+	codec.selection = &physicalStateSelection{after: reference}
+	return PhysicalState{snapshot: durable.EmptySnapshot(), codec: codec}, nil
 }
 
 func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, error) {

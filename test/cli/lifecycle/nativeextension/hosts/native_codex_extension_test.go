@@ -155,7 +155,7 @@ func TestNativeCodexPluginEstablishesKeysBeforeProtectedAdd(t *testing.T) {
 			if !strings.Contains(string(testkit.ReadFile(t, os.Getenv("DAEM_TEST_CODEX_KEY_BEFORE"))), "native-model") {
 				t.Fatal("Codex ran before the selected key was established")
 			}
-			snapshot, err := statefile.Decode(testkit.ReadFile(t, fixture.launchState))
+			snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.launchState))
 			if err != nil || len(snapshot.PendingCarrierInstalls()) != 1 {
 				t.Fatal("Codex add lacks exact install correlation", err)
 			}
@@ -308,7 +308,7 @@ func TestNativeCodexPluginRemovalRetainsOrRetiresManagedKeys(t *testing.T) {
 				fixture.require(t, "lock")
 				testkit.WriteFile(t, filepath.Dir(fixture.payload), filepath.Base(fixture.payload), fixture.withoutPlugin)
 				fixture.require(t, "apply", "--yes", "--json")
-				snapshot, err := statefile.Decode(testkit.ReadFile(t, fixture.launchState))
+				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.launchState))
 				if err != nil || len(snapshot.PendingCarrierRemovals()) != 1 {
 					t.Fatal("Codex removal lacks durable correlation", err)
 				}
@@ -316,7 +316,7 @@ func TestNativeCodexPluginRemovalRetainsOrRetiresManagedKeys(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				after, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 				if err != nil || after.ContainsHostConfig() == retire {
 					t.Fatal("native key settlement was lost during removal", err)
 				}
@@ -369,7 +369,7 @@ func TestNativeCodexRemovalRequiresCacheAbsenceBeforeSettlement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+	snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 	if err != nil || len(snapshot.PendingCarrierRemovals()) != 1 {
 		t.Fatal("failed cache postcondition lost retryable removal", err)
 	}

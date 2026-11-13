@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -88,7 +89,7 @@ func TestRunUnmanageExtensionReleasesExactGlobalClaimAndRetainsHostState(t *test
 	if len(locked.Locked.Subjects()) != 0 {
 		t.Fatalf("locked subjects after unmanage = %#v, want none", locked.Locked.Subjects())
 	}
-	testkit.AssertFileContent(t, statefilePath, string(stateBefore))
+	assertUnmanageSnapshotUnchanged(t, statefilePath, stateBefore)
 	if claims := loadCLIGlobalCarrierClaims(t, fixture.manifestPath); len(claims) != 0 {
 		t.Fatalf("claims after unmanage = %#v, want none", claims)
 	}
@@ -127,12 +128,24 @@ func TestRunUnmanageExtensionReleasesClaimAfterManualManifestOmission(t *testing
 	assertCLIUnmanageJSON(t, written, "write", "unchanged", "released", "written")
 	testkit.AssertFileContent(t, fixture.manifestPath, string(manifestBefore))
 	testkit.AssertFileContent(t, fixture.lockfilePath, string(lockfileBefore))
-	testkit.AssertFileContent(t, statefilePath, string(stateBefore))
+	assertUnmanageSnapshotUnchanged(t, statefilePath, stateBefore)
 	if claims := loadCLIGlobalCarrierClaims(t, fixture.manifestPath); len(claims) != 0 {
 		t.Fatalf("claims after manual-omission unmanage = %#v, want none", claims)
 	}
 	assertRetainedClaudePluginFiles(t, hostRoot, retainedFiles)
 	execcheck.AssertClean(t, canary, "manual-omission unmanage")
+}
+
+func assertUnmanageSnapshotUnchanged(t *testing.T, path string, before []byte) {
+	t.Helper()
+	previous, err := statefile.DecodePersistedFacts(t.Context(), before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := statefile.Load(t.Context(), path)
+	if err != nil || !current.Equal(previous) {
+		t.Fatal("unmanage changed logical State", err)
+	}
 }
 
 func assertCLIUnmanageJSON(

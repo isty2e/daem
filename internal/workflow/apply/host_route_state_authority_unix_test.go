@@ -127,7 +127,7 @@ func testHostRouteRejectsStateDirReplacement(t *testing.T, replaceDuringCommand 
 	if readErr != nil {
 		t.Fatalf("read moved statefile: %v", readErr)
 	}
-	snapshot, decodeErr := (statefile.Codec{}).Decode(content)
+	snapshot, decodeErr := statefile.DecodePersistedFacts(t.Context(), content)
 	if decodeErr != nil {
 		t.Fatalf("decode moved statefile: %v", decodeErr)
 	}

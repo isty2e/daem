@@ -11,6 +11,11 @@ type ReferenceTable struct {
 	values map[Exact]Reference
 }
 
+// EmptyReferenceTable is initialized complete evidence for no identities.
+func EmptyReferenceTable() ReferenceTable {
+	return ReferenceTable{values: make(map[Exact]Reference)}
+}
+
 // NewReferenceTable requires exact membership and merges identical references.
 func NewReferenceTable(identities []Exact, references []Reference) (ReferenceTable, error) {
 	required := make(map[Exact]struct{}, len(identities))

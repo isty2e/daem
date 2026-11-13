@@ -19,6 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
@@ -110,7 +111,7 @@ func TestRefreshUsesFreshPhysicalPlanAfterMetadataConversion(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := 11
-			if test.missing || test.foreign {
+			if test.foreign {
 				want = 10
 			}
 			if version.Version != want {
@@ -225,6 +226,21 @@ func TestRefreshMetadataReplanWithManagedNativeSettings(t *testing.T) {
 	if _, err := applyworkflow.ExecuteWithOptions(t.Context(), apply, applyworkflow.ExecuteOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	store, err := ownershipstore.New(paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := store.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := ownershipstore.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.OwnershipRegistryPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(manifest, append(declaration, []byte(native)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +261,9 @@ func TestRefreshMetadataReplanWithManagedNativeSettings(t *testing.T) {
 	defer execution.root.Close()
 	if err := metadataconversion.ConvertIfNeeded(t.Context(), execution.planned.barrier); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := ownershipstore.UnmarshalImage(readTestFile(t, paths.OwnershipRegistryPath)); err != nil {
+		t.Fatal("native ownership registry was not converted", err)
 	}
 	if err := replanAfterMetadataConversion(t.Context(), &execution); err != nil {
 		t.Fatal("native-qualified refresh did not survive metadata conversion", err)

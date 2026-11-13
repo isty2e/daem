@@ -21,7 +21,7 @@ type stateImageRecord struct {
 	StatefileReference pathreferencecodec.Record `json:"statefile_reference"`
 }
 
-// MarshalImage encodes version11 without changing the default State format.
+// MarshalImage encodes a complete version11 image without publishing it.
 func MarshalImage(image StateImage) ([]byte, error) {
 	codec, err := currentSnapshotCodec(context.Background())
 	if err != nil {

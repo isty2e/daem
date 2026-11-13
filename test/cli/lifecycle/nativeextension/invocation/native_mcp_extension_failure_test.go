@@ -39,7 +39,7 @@ func TestNativePiInvocationFailureStopsMCPChanges(t *testing.T) {
 			} else {
 				testkit.AssertPathMissing(t, destination)
 			}
-			state, err := statefile.Decode(testkit.ReadFile(t, filepath.Join(fixture.Workspace, ".daem", "state.json")))
+			state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, filepath.Join(fixture.Workspace, ".daem", "state.json")))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -173,7 +173,7 @@ func TestNativeOpaqueExtensionsEstablishAndProtectBothKeyScopes(t *testing.T) {
 				if !strings.Contains(string(testkit.ReadFile(t, fixture.keyBefore)), "native-model") {
 					t.Fatal("opaque consumer started before its selected key settled")
 				}
-				snapshot, err := statefile.Decode(testkit.ReadFile(t, fixture.launchState))
+				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.launchState))
 				if err != nil || len(snapshot.PendingCarrierInstalls()) != 1 {
 					t.Fatal("opaque invocation has no durable install correlation", err)
 				}
@@ -257,7 +257,7 @@ func TestNativeOpaqueRefreshAndRemovalPreserveLifecycle(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				after, err := statefile.Decode(testkit.ReadFile(t, paths.StatefilePath))
+				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
 				if err != nil || after.ContainsHostConfig() == retire || len(after.PendingCarrierRemovals()) != 0 {
 					t.Fatal("removal lost the complete native/state settlement", err)
 				}

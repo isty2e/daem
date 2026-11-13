@@ -210,7 +210,7 @@ func seedApplyCarrierClaimWithProvenance(
 		if err != nil {
 			t.Fatalf("open carrier claim registry: %v", err)
 		}
-		if _, err := store.Upsert(context.Background(), claim); err != nil {
+		if _, err := store.Upsert(context.Background(), claim, mustObservedPathReference(t, claim.Owner().StatefileKey())); err != nil {
 			t.Fatalf("seed global carrier claim: %v", err)
 		}
 	default:
@@ -321,11 +321,11 @@ func TestPostApplySettlementStopsAtGlobalCarrierRetirementFailure(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	confirmed, err := store.Upsert(t.Context(), claim)
+	confirmed, err := store.Upsert(t.Context(), claim, mustObservedPathReference(t, claim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	durableCurrent, err := store.Upsert(t.Context(), concurrentClaim)
+	durableCurrent, err := store.Upsert(t.Context(), concurrentClaim, mustObservedPathReference(t, concurrentClaim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,6 +387,8 @@ func TestPostApplyCarrierRemovalRejectsStaleGlobalRegistryWithoutLosingBaseline(
 	durableCurrent, err := store.UpsertAll(
 		t.Context(),
 		[]durablecarrier.ManagedCarrierClaim{fixture.claim, concurrentClaim},
+		mustObservedPathReference(t, fixture.claim.Owner().StatefileKey()),
+		mustObservedPathReference(t, concurrentClaim.Owner().StatefileKey()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -464,11 +466,12 @@ func TestPostApplySettlementRetiresBeforeFinalGlobalAdoption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := store.Upsert(t.Context(), claim)
+	current, err := store.Upsert(t.Context(), claim, mustObservedPathReference(t, claim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	options := testGlobalCarrierSettlementOptions(t, paths)
+	options.ownerReferences = append(options.ownerReferences, mustObservedPathReference(t, claim.Owner().StatefileKey()))
 	result, err := runAfterCarrierClaimRetirements(
 		t.Context(),
 		paths,
@@ -506,6 +509,8 @@ func TestCommitGlobalCarrierRetirementsCommitsOneExactStateOnlyBatch(t *testing.
 	current, err := store.UpsertAll(
 		t.Context(),
 		[]durablecarrier.ManagedCarrierClaim{second, first},
+		mustObservedPathReference(t, first.Owner().StatefileKey()),
+		mustObservedPathReference(t, second.Owner().StatefileKey()),
 	)
 	if err != nil {
 		t.Fatal(err)

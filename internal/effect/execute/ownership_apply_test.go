@@ -437,6 +437,8 @@ func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *te
 					unrelatedAddress,
 					ownership.NoClaim(),
 					unrelatedValue,
+					mustObservedPathReference(t, unrelatedAddress.Path()),
+					mustObservedPathReference(t, input.Paths.StatefilePath),
 				)
 				return applyErr
 			},
@@ -580,7 +582,8 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 	}
 
 	transition := blocked.ClaimTransitions()[0]
-	if _, err := store.Apply(context.Background(), transition.Address(), ownership.NoClaim(), transition.Prepared()); err != nil {
+	if _, err := store.Apply(context.Background(), transition.Address(), ownership.NoClaim(), transition.Prepared(),
+		mustObservedPathReference(t, transition.Address().Path()), mustObservedPathReference(t, input.Paths.StatefilePath)); err != nil {
 		t.Fatalf("restore prepared claim returned error: %v", err)
 	}
 	unrelatedAddress, err := ownership.NewManagedAddressFromLegacy(mustObservedPathAuthority(t, transition.Address().Path()+".unrelated"), "")
@@ -592,7 +595,8 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 		t.Fatalf("NewActiveClaim returned error: %v", err)
 	}
 	unrelatedValue, _ := ownership.PresentClaim(unrelatedClaim)
-	if _, err := store.Apply(context.Background(), unrelatedAddress, ownership.NoClaim(), unrelatedValue); err != nil {
+	if _, err := store.Apply(context.Background(), unrelatedAddress, ownership.NoClaim(), unrelatedValue,
+		mustObservedPathReference(t, unrelatedAddress.Path()), mustObservedPathReference(t, input.Paths.StatefilePath)); err != nil {
 		t.Fatalf("write unrelated claim returned error: %v", err)
 	}
 
@@ -774,6 +778,8 @@ func globalAggregateOwnershipInputAtHome(
 				managedAddress,
 				ownership.NoClaim(),
 				claimValue,
+				mustObservedPathReference(t, fixture.paths.StatefilePath),
+				mustObservedPathReference(t, fixture.hostConfigPath),
 			); storeErr != nil {
 				t.Fatalf("seed ownership registry returned error: %v", storeErr)
 			}
@@ -828,6 +834,7 @@ func globalAggregateOwnershipInputAtHome(
 		AggregateEffects:        effects,
 		CurrentState:            currentState,
 		Owner:                   owner,
+		OwnerReference:          mustObservedPathReference(t, fixture.paths.StatefilePath),
 		Ownership:               ownershipEvidence,
 		Codecs:                  testAggregateCodecs(),
 		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
