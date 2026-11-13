@@ -14,6 +14,7 @@ import (
 type authorityEvidence struct {
 	domains              []mutation.Domain
 	revisions            []mutation.RevisionRequest
+	nonMetadataRevisions []mutation.RevisionRequest
 	persistenceRevisions []mutation.RevisionRequest
 	authorityFingerprint mutation.OperationFingerprint
 }
@@ -82,6 +83,7 @@ func buildAuthorityEvidence(
 		[]string{planned.paths.ManifestPath, planned.paths.LockfilePath},
 		declarationartifact.MaximumBytes,
 	)
+	metadataPaths := map[string]struct{}{planned.paths.StatefilePath: {}}
 	if err := builder.AddLogicalPair(
 		planned.paths.ManifestPath,
 		mutation.AccessShared,
@@ -144,14 +146,17 @@ func buildAuthorityEvidence(
 		}
 	}
 	builder.AddDomains(planned.barrier.Domains())
+	barrierRevisions := make(map[mutation.RevisionRequest]struct{})
 	for _, revision := range planned.barrier.RevisionRequests() {
 		builder.AddRevision(revision)
+		barrierRevisions[revision] = struct{}{}
 	}
 	if planned.pinClaimRegistry {
 		registryKey, err := mutation.CanonicalDirectoryEntryKey(planned.paths.CarrierClaimRegistryPath)
 		if err != nil {
 			return authorityEvidence{}, err
 		}
+		metadataPaths[registryKey] = struct{}{}
 		if err := builder.AddLogicalPair(registryKey, mutation.AccessShared, mutation.AccessShared); err != nil {
 			return authorityEvidence{}, err
 		}
@@ -202,9 +207,20 @@ func buildAuthorityEvidence(
 	if err != nil {
 		return authorityEvidence{}, err
 	}
+	var nonMetadata []mutation.RevisionRequest
+	for _, request := range plan.Revisions() {
+		if _, metadata := metadataPaths[request.Path]; metadata {
+			continue
+		}
+		if _, barrier := barrierRevisions[request]; barrier {
+			continue
+		}
+		nonMetadata = append(nonMetadata, request)
+	}
 	return authorityEvidence{
-		domains:   domains,
-		revisions: plan.Revisions(),
+		domains:              domains,
+		revisions:            plan.Revisions(),
+		nonMetadataRevisions: nonMetadata,
 		persistenceRevisions: operationplan.RefreshPersistenceRevisions(
 			plan,
 			planned.paths.ManifestPath,

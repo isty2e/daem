@@ -42,28 +42,34 @@ func Prepare(ctx context.Context, authority recoverygate.EffectAuthority, budget
 	return plan, nil
 }
 
-// ConvertIfNeeded isolates format maintenance work from normal-command budgets.
+// PrepareForCommand isolates format maintenance from normal-command budgets.
 // Its fresh authority must preserve the caller's selected namespace/incarnation.
-func ConvertIfNeeded(ctx context.Context, authority recoverygate.EffectAuthority) error {
+func PrepareForCommand(ctx context.Context, authority recoverygate.EffectAuthority) (Plan, error) {
 	if ctx == nil {
-		return fmt.Errorf("metadata conversion context is required")
+		return Plan{}, fmt.Errorf("metadata conversion context is required")
 	}
 	paths, err := authority.SelectedPaths()
 	if err != nil {
-		return err
+		return Plan{}, err
 	}
 	fresh, err := recoverygate.NewEffectAuthority(ctx, paths)
 	if err != nil {
-		return err
+		return Plan{}, err
 	}
 	if !authority.Equal(fresh) {
-		return mutation.StaleSnapshotError{}
+		return Plan{}, mutation.StaleSnapshotError{}
 	}
 	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
-		return err
+		return Plan{}, err
 	}
-	plan, err := Prepare(ctx, fresh, budget, nil)
+	return Prepare(ctx, fresh, budget, nil)
+}
+
+// ConvertIfNeeded runs separately admitted format maintenance when required.
+// Callers retain normal-command admission and must not bypass recovery fences.
+func ConvertIfNeeded(ctx context.Context, authority recoverygate.EffectAuthority) error {
+	plan, err := PrepareForCommand(ctx, authority)
 	if err != nil {
 		return err
 	}

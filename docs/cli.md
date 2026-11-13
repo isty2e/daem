@@ -1866,12 +1866,17 @@ attempt-history persistence, and cleanup are outside that child-process
 timeout. The selected value is part of the immutable disclosure and refresh
 fingerprint, so execution cannot use a different duration after confirmation.
 
-Refresh never rewrites the manifest, lockfile, or managed-relation ownership.
+Refresh never changes the manifest, lockfile, or who owns a managed relation.
 It refuses a missing or stale lock, an active recovery journal, an unsupported
 refresh route, or changed manifest/lock/observation/authority evidence after
 disclosure. A route requiring passive evidence must prove the exact relation
 present before execution and observe it again afterward. A route whose locked
 contract explicitly has no observer may run only as best effort.
+
+Refresh uses the opportunistic metadata-format maintenance described under
+[apply](#apply). When conversion is selected, it rebuilds the physical plan;
+the confirmed operation, authority, logical State, declarations and host
+observation checks must still match before execution.
 
 Claude Code currently supports project and explicit-global marketplace
 relations. The command maps public global scope to host `--scope user`; project

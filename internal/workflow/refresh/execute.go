@@ -9,6 +9,7 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -81,6 +82,31 @@ func Execute(
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, revisionErr)
 	} else if !matches {
 		return staleBeforeAttempt(result, mutation.StalePlanError{})
+	}
+
+	metadata, metadataErr := metadataconversion.PrepareForCommand(ctx, execution.planned.barrier)
+	replan := metadataErr == nil && metadata.Changed()
+	if replan {
+		metadataErr = metadata.Execute(ctx)
+	}
+	if recoverygate.IsCancellation(metadataErr) {
+		return cancelledBeforeAttempt(result, metadataErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return cancelledBeforeAttempt(result, err)
+	}
+	defer func() {
+		if metadataErr != nil && recoverygate.IsGlobalMetadataRefusal(returnErr) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("automatic metadata conversion: %w", metadataErr))
+		}
+	}()
+	if replan {
+		if err := replanAfterMetadataConversion(ctx, &execution); err != nil {
+			if recoverygate.IsCancellation(err) {
+				return cancelledBeforeAttempt(result, err)
+			}
+			return staleBeforeAttempt(result, err)
+		}
 	}
 
 	store, err := mutation.NewStore(execution.planned.paths.DataDir)
