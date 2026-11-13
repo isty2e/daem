@@ -4,10 +4,14 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -68,10 +72,92 @@ func snapshotDirectoryWithCapability(
 	faults faultPlan,
 ) (mutationfs.DirectorySnapshot, error) {
 	if maximumEntries <= 0 {
+		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseValidate, path, fmt.Errorf("directory snapshot maximum entries must be positive"))
+	}
+	return snapshotDirectoryWithNames(ctx, path, maximumEntries, capability, faults, readDirectoryNames)
+}
+
+// SnapshotRootedDirectoryBatch returns a stable bounded prefix, not an exhaustive
+// inventory. more means coverage is incomplete. A zero bound observes only root
+// metadata, without enumerating children, and always reports incomplete coverage.
+// The complete snapshot API retains its positive-bound and overflow refusals.
+func SnapshotRootedDirectoryBatch(ctx context.Context, capability rootedpath.CommitCapability, maximumEntries int) (mutationfs.DirectorySnapshot, bool, error) {
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return mutationfs.DirectorySnapshot{}, false, err
+	}
+	more, observed := false, false
+	read := func(ctx context.Context, fd int, path string, limit int) ([]string, error) {
+		if limit == 0 {
+			more = true
+			return nil, nil
+		}
+		names, extra, err := readDirectoryNamePrefix(ctx, fd, path, limit)
+		if err != nil {
+			return nil, err
+		}
+		if observed && more != extra {
+			return nil, fmt.Errorf("directory batch coverage changed while reading")
+		}
+		more, observed = extra, true
+		return names, nil
+	}
+	snapshot, err := snapshotDirectoryWithNames(ctx, path, maximumEntries, capability, faultPlan{}, read)
+	return snapshot, more, err
+}
+
+func readDirectoryNamePrefix(ctx context.Context, fd int, path string, limit int) ([]string, bool, error) {
+	if limit < 0 || limit+1 <= 0 {
+		return nil, false, fmt.Errorf("directory batch bound cannot be represented")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	duplicate, err := unix.Dup(fd)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := unix.Seek(duplicate, 0, 0); err != nil {
+		_ = unix.Close(duplicate)
+		return nil, false, err
+	}
+	directory := os.NewFile(uintptr(duplicate), path)
+	if directory == nil {
+		_ = unix.Close(duplicate)
+		return nil, false, fmt.Errorf("wrap directory batch descriptor")
+	}
+	names, readErr := directory.Readdirnames(limit + 1)
+	closeErr := directory.Close()
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return nil, false, readErr
+	}
+	if closeErr != nil {
+		return nil, false, closeErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	more := len(names) > limit
+	if more {
+		names = names[:limit]
+	}
+	sort.Strings(names)
+	return names, more, nil
+}
+
+func snapshotDirectoryWithNames(
+	ctx context.Context,
+	path string,
+	maximumEntries int,
+	capability rootedpath.CommitCapability,
+	faults faultPlan,
+	readNames func(context.Context, int, string, int) ([]string, error),
+) (mutationfs.DirectorySnapshot, error) {
+	if maximumEntries < 0 {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(
 			phaseValidate,
 			path,
-			fmt.Errorf("directory snapshot maximum entries must be positive"),
+			fmt.Errorf("directory batch maximum entries must not be negative"),
 		)
 	}
 	if capability == nil {
@@ -120,7 +206,7 @@ func snapshotDirectoryWithCapability(
 		}
 	}
 
-	names, err := readDirectoryNames(ctx, directoryFD, path, maximumEntries)
+	names, err := readNames(ctx, directoryFD, path, maximumEntries)
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseReadPayload, path, err)
 	}
@@ -152,7 +238,7 @@ func snapshotDirectoryWithCapability(
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseReadPayload, path, err)
 	}
 
-	currentNames, err := readDirectoryNames(ctx, directoryFD, path, maximumEntries)
+	currentNames, err := readNames(ctx, directoryFD, path, maximumEntries)
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseRevalidateEntry, path, err)
 	}

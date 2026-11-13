@@ -115,6 +115,40 @@ func TestSnapshotRootedDirectoryEntriesAdmitsExactReservedArtifact(t *testing.T)
 	}
 }
 
+func TestRootedDirectoryBatchSeparatesPartialAndCompleteCoverage(t *testing.T) {
+	root := canonicalTempDir(t)
+	path := filepath.Join(root, "selected")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		writeTestFile(t, filepath.Join(path, name), name, 0o600)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "selected")
+	defer capability.Close()
+
+	for _, limit := range []int{0, 2, 3} {
+		snapshot, more, err := SnapshotRootedDirectoryBatch(t.Context(), capability, limit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.Entries()) != limit || more != (limit < 3) || snapshot.RootMode() != 0o700 || !snapshot.RootOwnedByInvoker() {
+			t.Fatal("batch lost its coverage or root facts", limit, more, snapshot)
+		}
+	}
+	if _, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 2); err == nil {
+		t.Fatal("complete snapshot silently accepted hidden entries")
+	}
+	if _, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 0); err == nil {
+		t.Fatal("complete snapshot accepted root-only observation as complete")
+	}
+	complete, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 3)
+	if err != nil || len(complete.Entries()) != 3 {
+		t.Fatal("batch consumed the capability or changed complete observation", err)
+	}
+}
+
 func TestSnapshotDirectoryRejectsConcurrentEntrySetChange(t *testing.T) {
 	root := canonicalTempDir(t)
 	writeTestFile(t, filepath.Join(root, "before"), "before", 0o600)
