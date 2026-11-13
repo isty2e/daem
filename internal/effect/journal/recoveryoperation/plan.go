@@ -46,6 +46,7 @@ type PlanLoadOptions struct {
 	Filesystem         mutationfs.Reader
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
 	NativeDocuments    *Profile
+	NativeReleasePaths *NativeReleasePaths
 	// ValidateBeforeActiveObservation runs after one recovery-root inventory
 	// selects active-journal recovery and before host, state, or ownership
 	// observation. Cleanup-only selection never invokes it.
@@ -208,6 +209,10 @@ func ActiveRecoveryPlan(recoverable RecoverablePlan) (recovery.Plan, bool) {
 func ActiveRecoveryJournalAuthority(
 	recoverable RecoverablePlan,
 ) (journalinventory.ActiveJournalAuthority, bool) {
+	if release, ok := NativeReleaseActiveRecoveryPlan(recoverable); ok {
+		active := release.Source().PhysicalAuthority()
+		return active, active.Validate() == nil
+	}
 	if native, ok := NativeActiveRecoveryPlan(recoverable); ok {
 		return native.active, native.active.Validate() == nil
 	}
@@ -256,6 +261,18 @@ func LoadRecoverablePlanWithOptions(
 			return nil, err
 		}
 		if inventory.Active() != nil {
+			if _, release := inventory.Active().Record().NativeRelease(); release {
+				if options.ValidateBeforeActiveObservation != nil {
+					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+						return nil, err
+					}
+				}
+				plan, err := loadNativeReleaseRecoveryPlan(ctx, paths, options, inventory)
+				if err != nil {
+					return nil, err
+				}
+				return plan, nil
+			}
 			if _, native := inventory.Active().Record().Native(); native {
 				if options.ValidateBeforeActiveObservation != nil {
 					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {

@@ -99,7 +99,7 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 	"status": {},
 	"unmanage": {
 		scope:    platformAdmissionSelectedSubject,
-		subjects: []string{"extension"},
+		subjects: []string{"extension", "host-config"},
 	},
 	"version": {},
 }

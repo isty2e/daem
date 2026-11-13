@@ -17,6 +17,9 @@ func runUnmanage(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	if args[0] == "extension" {
 		return prepareUnmanageExtensionInvocation(ctx, args[1:], stdout, stderr).execute()
 	}
+	if args[0] == "host-config" {
+		return prepareUnmanageHostConfigInvocation(ctx, args[1:], stdout, stderr).execute()
+	}
 	fmt.Fprintf(stderr, "unknown unmanage resource %q\n", args[0])
 	fmt.Fprintln(stderr, "next: run daem help unmanage")
 	return 2

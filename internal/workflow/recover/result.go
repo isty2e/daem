@@ -71,6 +71,11 @@ func retainedExecutionResult(selection journal.RecoverablePlan) (ExecutionResult
 		return ExecutionResult{}, fmt.Errorf("recovery selection is uninitialized")
 	}
 	result := ExecutionResult{disclosure: selection.Clone()}
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(selection); ok {
+		result.authorityState = durableAuthorityActive
+		result.operationID = release.OperationID()
+		return result, nil
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
 		result.authorityState = durableAuthorityActive
 		result.operationID = native.OperationID()

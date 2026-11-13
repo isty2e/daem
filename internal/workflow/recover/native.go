@@ -72,6 +72,7 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 	return journal.PlanLoadOptions{
 		Filesystem: filesystem, PhysicalPathBudget: physicalBudget, Resolver: destinationResolver(paths).ForBudget(physicalBudget).Resolve,
 		OwnershipRegistry: registry, Codecs: aggregatecodec.Catalog(), StateCodec: statefile.Codec{}, StateReader: stateReaderForPath(paths.StatefilePath), NativeDocuments: profile,
+		NativeReleasePaths: &journal.NativeReleasePaths{Manifest: paths.ManifestPath, DefaultLock: paths.LockfilePath, State: paths.StatefilePath},
 	}, nil
 }
 

@@ -74,6 +74,12 @@ func recoveryOperationFingerprint(
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (mutation.OperationFingerprint, error) {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return mutation.OperationFingerprint{}, fmt.Errorf("active native release StateDir authority is required")
+		}
+		return nativeReleaseRecoveryFingerprint(paths, release, stateDir)
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
 		if !activeStateDir {
 			return mutation.OperationFingerprint{}, fmt.Errorf("active native recovery StateDir authority is required")
@@ -235,6 +241,12 @@ func buildRecoveryAuthorityEvidence(
 	activeStateDir bool,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (recoveryAuthorityEvidence, error) {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return recoveryAuthorityEvidence{}, fmt.Errorf("active native release StateDir authority is required")
+		}
+		return buildNativeReleaseRecoveryAuthority(paths, release, stateDir)
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
 		if !activeStateDir {
 			return recoveryAuthorityEvidence{}, fmt.Errorf("active native recovery StateDir authority is required")

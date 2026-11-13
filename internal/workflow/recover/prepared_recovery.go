@@ -84,6 +84,11 @@ func (prepared *PreparedRecovery) ContinuingFileSetFence() (fileset.FileSetFence
 	if prepared == nil {
 		return fileset.FileSetFenceClear, false
 	}
+	if selected, ok := prepared.disclosure.(recoveryPreparation); ok {
+		if release, present := journal.NativeReleaseActiveRecoveryPlan(selected.plan); present && release.FileSetFence() == fileset.FileSetFencePublishedTransaction {
+			return fileset.FileSetFenceClear, false
+		}
+	}
 	switch prepared.fileSetFence {
 	case fileset.FileSetFencePublishedTransaction,
 		fileset.FileSetFenceAbandonedResidue,

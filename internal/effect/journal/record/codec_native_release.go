@@ -203,11 +203,16 @@ func decodeNativeRelease(ctx context.Context, content []byte, codec durable.Snap
 		return NativeRelease{}, err
 	}
 	var management journaldocument.HostConfigManagement
+	found := false
 	for _, identity := range identities {
 		if string(identity.Target()) == record.Selection.Target && string(identity.Scope()) == record.Selection.Scope &&
 			identity.Destination().String() == record.Selection.Destination && string(identity.Ownership()) == record.Selection.Ownership {
 			management = identity
+			found = true
 		}
+	}
+	if !found {
+		return NativeRelease{}, fmt.Errorf("native release selected management identity is absent or contradictory")
 	}
 	claims, err := releaseClaims(record.OwnClaimsBefore)
 	if err != nil {

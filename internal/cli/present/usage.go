@@ -64,7 +64,7 @@ func PrintUsage(output io.Writer, context UsageContext) {
 		"  probe      Run an explicitly authorized runtime check.",
 		"Operate",
 		"  refresh    Refresh one explicitly selected host extension.",
-		"  unmanage   Stop managing an extension while retaining host state.",
+		"  unmanage   Stop managing a resource while retaining host state.",
 		"Reconcile",
 		"  replace    Explicitly replace selected configuration values.",
 		"  apply      Reconcile the locked environment.",
@@ -263,6 +263,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]string{"daem replace host-config preferences --dry-run --json", "daem replace host-config preferences --key /tui/theme"}, cliDocumentReference),
 		"unmanage": groupPage("daem unmanage", "release daem management while retaining host state", []helpRow{
 			{"extension", "Release one exact extension relation."},
+			{"host-config", "Release a whole native configuration declaration's management."},
 		}, "Unmanage writes metadata by default and never invokes a host route. Target and scope are safety filters."),
 		"migrate": {
 			Path: "daem migrate", Usage: "daem migrate <subject>",
@@ -365,6 +366,11 @@ func helpPages(context UsageContext) map[string]helpPage {
 		[]helpRow{workspace, {"--target <target>", "Require the selected extension to use this exact target."}, {"--scope <scope>", "Require the selected extension to use this exact scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
 		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Unmanage refuses while apply recovery or journal cleanup remains."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
 		[]string{"daem unmanage extension context7 --dry-run --diff", "daem unmanage extension formatter --target opencode --scope project"}, cliDocumentReference)
+	pages["unmanage host-config"] = leaf("daem unmanage host-config", "daem unmanage host-config <id> [--manifest <path>] [--target <target>] [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]", "release complete native configuration management without changing host bytes",
+		[]helpRow{{"<id>", "Exact declaration or retained management identity; no per-key release."}},
+		[]helpRow{workspace, {"--target <target>", "Select one exact retained target."}, {"--scope <scope>", "Select one exact retained scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
+		[]helpRow{{"", "Removes any remaining declaration and locked outputs, then releases only its own recorded management."}, {"", "Sources and a current lock are not required. Missing declaration/lock files remain absent; conflicting or ambiguous identities refuse."}, {"", "Host bytes, including drift, and other owners are preserved. Writes by default; interrupted management release is completed with daem recover."}},
+		[]string{"daem unmanage host-config preferences --dry-run --diff", "daem unmanage host-config preferences --target codex --scope global"}, cliDocumentReference)
 	return pages
 }
 

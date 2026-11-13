@@ -99,6 +99,7 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"remove", "skill", "--help"},
 		{"unmanage", "--help"},
 		{"unmanage", "extension", "--help"},
+		{"unmanage", "host-config", "--help"},
 	}
 
 	for _, args := range tests {
@@ -166,6 +167,7 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 		gated = append(gated, []string{"remove", subject})
 	}
 	gated = append(gated, []string{"unmanage", "extension"})
+	gated = append(gated, []string{"unmanage", "host-config"})
 	gated = append(gated, []string{"import", "host-config"}, []string{"replace", "host-config"}, []string{"migrate", "metadata"})
 	for _, args := range gated {
 		if !requiresPlatformAdmission(args) {
@@ -532,5 +534,6 @@ func platformGatedCommandExamples(manifestPath string) [][]string {
 		{"refresh", "extension", "example", "--yes", "--manifest", manifestPath},
 		{"remove", "skill", "example", "--manifest", manifestPath},
 		{"unmanage", "extension", "example", "--manifest", manifestPath},
+		{"unmanage", "host-config", "example", "--manifest", manifestPath},
 	}
 }

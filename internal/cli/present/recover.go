@@ -58,6 +58,15 @@ func PrintRecoverPlanWithFenceOptions(
 	fileSetFence fileset.FileSetFenceKind,
 	options HumanOptions,
 ) {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(disclosure); ok {
+		fmt.Fprintf(output, "recover: release_only\noperation: %s\n", release.OperationID())
+		if options.Verbose {
+			fmt.Fprintf(output, "operation directory: %s\n", Escape(release.OperationDir()))
+		}
+		fmt.Fprintln(output, "settle_native_release (local metadata and recorded own management only; host data is unchanged)")
+		printContinuingFileSetFence(output, fileSetFence)
+		return
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
 		printNativeRecoverPlan(output, native, options)
 		printContinuingFileSetFence(output, fileSetFence)
@@ -365,6 +374,14 @@ func recoveryJSONPayload(
 		}
 		disclosure = current
 	}
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(disclosure); ok {
+		return recoveryPlanJSONOutput{
+			SchemaVersion: contractversion.RecoveryJSON, Command: "recover", Mode: mode, Phase: phase, AuthorityKind: journal.RecoveryAuthorityActiveJournal,
+			OperationID: release.OperationID(), OperationDir: release.OperationDir(), Classification: "release_only", ActionCount: 1, HasErrors: release.HasErrors(),
+			Actions: []recoveryPlanJSONAction{{Kind: "settle_native_release", Detail: "settle local files and recorded own management; host data is unchanged"}}, CleanupObligations: []recoveryCleanupObligationOutput{},
+			ContinuingFileSetFence: fileSetFenceValue,
+		}, nil
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
 		return nativeRecoveryJSONPayload(mode, phase, fileSetFenceValue, native), nil
 	}
@@ -409,6 +426,9 @@ func recoveryJSONPayload(
 }
 
 func recoveryOperationID(disclosure journal.RecoverablePlan) string {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(disclosure); ok {
+		return release.OperationID()
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
 		return native.OperationID()
 	}

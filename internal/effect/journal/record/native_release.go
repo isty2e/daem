@@ -27,6 +27,14 @@ type NativeReleaseInput struct {
 	Files           []NativeReleaseFileIntent
 }
 
+// NativeReleaseControlPaths contains caller-selected boundary paths, not paths
+// recovered from serialized comparison references.
+type NativeReleaseControlPaths struct {
+	Manifest    string
+	DefaultLock string
+	State       string
+}
+
 // NativeReleaseNamespace retains comparison facts, not a current filesystem
 // observation. It cannot supply a host writer or turn a key into an I/O locator.
 type NativeReleaseNamespace struct{ value recoveryDocumentObservation }
@@ -60,7 +68,11 @@ func (namespace NativeReleaseNamespace) matches(other NativeReleaseNamespace) bo
 		exact, _ := canonicalPathAuthority(*other.value.Authority)
 		return namespace.value.matchesRetainedExact(exact)
 	}
-	return namespace.value.equal(other.value)
+	left, _ := namespace.value.provisional()
+	right, _ := other.value.provisional()
+	// A newly created parent can refine the exact namespace without changing
+	// the selected future path or its filesystem semantics.
+	return left.CandidateKey() == right.CandidateKey() && left.CandidateWitness() == right.CandidateWitness()
 }
 
 // NativeRelease is the closed metadata-only native17 purpose. Its scoped facts

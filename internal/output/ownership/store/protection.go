@@ -73,7 +73,7 @@ func (store Store) LoadPendingProtections(ctx context.Context) ([]ownership.Pend
 // LoadProtectionRegistry reads recorded comparison facts without qualifying
 // unrelated claim paths. Permission recovery must qualify its own live targets.
 func (store Store) LoadProtectionRegistry(ctx context.Context) (ownership.Registry, error) {
-	document, _, _, capability, err := store.loadForProtection(ctx)
+	document, _, _, capability, err := store.loadRecordedForUpdate(ctx)
 	if capability != nil {
 		err = errors.Join(err, capability.Close())
 	}
@@ -90,7 +90,7 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 	if err := owner.Validate(); err != nil {
 		return ownership.Registry{}, err
 	}
-	current, expectedEntry, exists, capability, err := store.loadForProtection(ctx)
+	current, expectedEntry, exists, capability, err := store.loadRecordedForUpdate(ctx)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -144,8 +144,8 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 }
 
 // This read authenticates the registry artifact, not its referenced claim paths.
-// Protection recovery requalifies only its own frozen targets at the effect edge.
-func (store Store) loadForProtection(ctx context.Context) (registryDocument, storagecommit.EntryIdentity, bool, rootedpath.CommitCapability, error) {
+// Containing operations qualify their own selected targets at the effect edge.
+func (store Store) loadRecordedForUpdate(ctx context.Context) (registryDocument, storagecommit.EntryIdentity, bool, rootedpath.CommitCapability, error) {
 	if ctx == nil {
 		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf("ownership registry context is required")
 	}

@@ -41,3 +41,10 @@ func (codec Codec) Load(ctx context.Context, path string) (lock.File, error) {
 	}
 	return loadContentWithCatalog(ctx, content, codec.contributions)
 }
+
+func (codec Codec) Decode(ctx context.Context, content []byte) (lock.File, error) {
+	if err := codec.contributions.Validate(); err != nil {
+		return lock.File{}, err
+	}
+	return loadContentWithCatalog(ctx, content, codec.contributions)
+}

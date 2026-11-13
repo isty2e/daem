@@ -20,6 +20,7 @@ or [Use An Existing Environment](migration.md).
 - Commands: [`version`](#version), [`init`](#init), [`import`](#import),
   [`import host-config`](#import-host-config),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
+  [`unmanage host-config`](#unmanage-host-config),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
   [`replace host-config`](#replace-host-config), [`apply`](#apply),
   [`recover`](#recover), [`migrate state`](#migrate-state),
@@ -184,7 +185,7 @@ Commands use effect-tiered modes:
 | Effect class | Commands | Bare invocation | `--dry-run` | `--yes` |
 | --- | --- | --- | --- | --- |
 | Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
-| Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `lock` | write | preview | rejected |
+| Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `unmanage host-config`, `lock` | write | preview | rejected |
 | Named source-file edit | `import host-config` | three-stream TTY confirmation | preview | requires `--expect-plan` from reviewed preview |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
@@ -330,6 +331,7 @@ flags.
 | `replace host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--json`, `--key`, `--manifest`, `--verbose`, `--yes` |
 | `status` | `--check`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `unmanage extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `unmanage host-config` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `version` | `--json` |
 
 ### JSON Schema Contract
@@ -341,7 +343,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
+| `add`, `remove`, `import`, `unmanage extension`, `unmanage host-config` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `5` |
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
@@ -921,6 +923,50 @@ settings-row absence plus scoped npm/Git artifact absence or unchanged local
 source content. Partial removal retains recovery state for a later fresh
 verification and does not authorize unrelated package, cache, trust, session,
 or local-source deletion.
+
+## `unmanage host-config`
+
+Release a complete host-configuration declaration from daem management without
+changing the host file or restoring its earlier contents:
+
+```bash
+daem unmanage host-config <id> [--manifest <path>] [--target <target>]
+                          [--scope <scope>] [--dry-run] [--diff]
+                          [--json|--verbose]
+```
+
+The command removes the declaration when present, removes its source and output
+subjects from the default lockfile when present, and releases its retained
+Snapshot rows and own ownership claims. A document binding is retained when
+other managed members still need it. Other declarations and foreign ownership
+records are preserved. `ownership = "keys"` is released as a whole declaration,
+not one key at a time; `--target` and `--scope` are safety filters, not partial
+release selectors. Ambiguous retained placements and a current declaration that
+conflicts with the retained placement are refused.
+
+Automatic declaration edits operate on `[[host_config]]` blocks. A declaration
+written in an inline array still works with `lock` and `apply`, but cannot be
+removed automatically: convert it to array-table blocks, or remove the selected
+declaration manually and rerun `unmanage host-config`. The command refuses before
+releasing management if its declaration edit cannot select that entry.
+
+The original source, declaration, or default lockfile may be missing. The command
+does not read source contents, recreate missing inputs, relock other resources,
+or require the host file to match its last managed value. It does not accept a
+custom lockfile. `--dry-run` previews metadata changes; `--diff` additionally
+shows the declaration edit and requires `--dry-run`. No subsequent `apply` is
+needed to complete a successful management release.
+
+An interrupted management release retains a journal for `daem recover`. Recovery
+settles the local file transaction before choosing whether to retain or finish
+releasing own metadata; it never reapplies host content or takes a new owner's
+claims. If only an unapplied declaration was being removed, rerun the original
+`unmanage host-config` command to settle its authoring transaction.
+
+JSON output uses the manifest-authoring schema and reports `management`, its
+State and Registry changes, and `host.state = "retained"`. Pending protection
+and conflicting State/manifest authority remain refusal conditions, including
+when no own claim is present.
 
 ## `unmanage extension`
 

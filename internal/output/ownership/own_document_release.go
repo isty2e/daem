@@ -117,6 +117,13 @@ func (release OwnDocumentRelease) BindingBefore() DocumentBindingValue { return 
 
 func (release OwnDocumentRelease) BindingAfter() DocumentBindingValue { return release.afterBinding }
 
+func (release OwnDocumentRelease) RequireProtectionClear(registry Registry) error {
+	if err := release.Validate(); err != nil {
+		return err
+	}
+	return release.scope.RequireWritable(registry)
+}
+
 func (release OwnDocumentRelease) currentBinding(registry Registry) DocumentBindingValue {
 	if binding, present := registry.DocumentBinding(release.owner.Key(), release.destination); present {
 		value, _ := PresentDocumentBinding(binding)
@@ -130,7 +137,7 @@ func (release OwnDocumentRelease) RequireBefore(registry Registry) error {
 	if err := release.Validate(); err != nil {
 		return err
 	}
-	if err := release.scope.RequireWritable(registry); err != nil {
+	if err := release.RequireProtectionClear(registry); err != nil {
 		return err
 	}
 	expected := make(map[ManagedAddress]Claim, len(release.before))
@@ -162,7 +169,7 @@ func (release OwnDocumentRelease) ApplyAfterCommit(registry Registry) (Registry,
 	if err := release.Validate(); err != nil {
 		return Registry{}, false, err
 	}
-	if err := release.scope.RequireWritable(registry); err != nil {
+	if err := release.RequireProtectionClear(registry); err != nil {
 		return Registry{}, false, err
 	}
 	expected := make(map[ManagedAddress]Claim, len(release.before))

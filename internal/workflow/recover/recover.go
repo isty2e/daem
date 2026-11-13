@@ -363,6 +363,11 @@ func Execute(
 		if !matches {
 			return mutation.StaleSnapshotError{}
 		}
+		if _, release := journal.NativeReleaseActiveRecoveryPlan(current.plan); release {
+			if err := recoverygate.RequireGlobalMetadataClear(ctx, effectPaths); err != nil {
+				return err
+			}
+		}
 		if execution.activeStateDir {
 			return execution.stateDirAuthority.Validate(ctx)
 		}
@@ -413,6 +418,19 @@ func Execute(
 	}
 	switch current.plan.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
+		if release, ok := journal.NativeReleaseActiveRecoveryPlan(current.plan); ok {
+			loadOptions, err := recoveryLoadOptions(ctx, effectPaths, filesystem, execution.physicalPathBudget)
+			if err != nil {
+				return result, err
+			}
+			budget, _ := execution.physicalPathBudget.(*physicalwork.Budget)
+			err = nativeoperation.ExecuteNativeReleaseRecovery(ctx, release, executePaths(effectPaths), nativeoperation.ReleaseOptions{
+				ValidateBeforeEffects: validateBeforeActiveEffects, ValidateVisibilityAuthority: validateVisibilityAuthority,
+				AcceptVisibilityChanges: acceptVisibilityChanges, Filesystem: filesystem, RegistryBinder: ownershipstore.BindOwnReleaseRooted,
+				Budget: budget, StateCodec: loadOptions.NativeDocuments.StateCodec, StateReader: loadOptions.NativeDocuments.StateReader,
+			})
+			return classifyPostExecutionAuthority(ctx, execution, filesystem, result, err)
+		}
 		if native, ok := journal.NativeActiveRecoveryPlan(current.plan); ok {
 			loadOptions, err := recoveryLoadOptions(ctx, effectPaths, filesystem, execution.physicalPathBudget)
 			if err != nil {

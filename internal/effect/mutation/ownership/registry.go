@@ -42,3 +42,12 @@ type RootedRegistryBinder func(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (RegistryStore, error)
+
+// OwnReleaseRegistryStore cannot acquire claims or host-write authority. Its
+// caller owns the settled release-only intent and the complete lease lifetime.
+type OwnReleaseRegistryStore interface {
+	LoadRecordedRegistry(context.Context) (outputownership.Registry, error)
+	ConvergeOwnReleaseAfterCommit(context.Context, outputownership.OwnDocumentRelease) (outputownership.Registry, error)
+}
+
+type OwnReleaseRegistryBinder func(*rootedpath.CapturedRoot, rootedpath.Destination, int, rootedpath.PhysicalTraversalBudget) (OwnReleaseRegistryStore, error)

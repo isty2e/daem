@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/effect/fileset"
 )
@@ -153,5 +154,35 @@ func TestNativeReleaseImageFactsMatchTheExistingFileSetPublication(t *testing.T)
 		if err != nil || string(content) != "after-"+string(role) {
 			t.Fatal("file-set publication did not settle its declared image", role, err)
 		}
+	}
+}
+
+func TestNativeReleaseMissingTargetSurvivesARefinedParentNamespace(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	candidate := filepath.Join(parent, "caf\u00e9.lock.json")
+	witness := pathtest.DarwinCaseSensitive(candidate).Witness()
+	old, err := pathauthority.NewProvisional(candidate, witness, root, pathtest.DarwinCaseSensitive(root).Witness())
+	if err != nil {
+		t.Fatal(err)
+	}
+	refined, err := pathauthority.NewProvisional(candidate, witness, parent, pathtest.DarwinCaseSensitive(parent).Witness())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := NewNativeReleaseProvisionalNamespace(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := NewNativeReleaseProvisionalNamespace(refined)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !before.matches(after) || !after.matches(before) {
+		t.Fatal("unchanged missing target lost its selected identity when a parent appeared")
+	}
+	other := releaseTargetForTest(t, filepath.Join(parent, "other.lock.json"))
+	if before.matches(other) {
+		t.Fatal("namespace refinement selected another missing target")
 	}
 }

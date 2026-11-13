@@ -31,6 +31,9 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 		}
 		return nil
 	case "unmanage":
+		if len(args) > 1 && args[1] == "host-config" {
+			return prepareUnmanageHostConfigInvocation(options.context, args[2:], stdout, stderr)
+		}
 		if len(args) > 1 && args[1] == "extension" {
 			return prepareUnmanageExtensionInvocation(options.context, args[2:], stdout, stderr)
 		}

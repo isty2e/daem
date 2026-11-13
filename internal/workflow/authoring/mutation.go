@@ -57,6 +57,13 @@ type LockfileChange struct {
 	target   declarationartifact.MutationTarget
 }
 
+func nativeAuthoringDocumentLimits() configdocument.Limits {
+	return configdocument.Limits{
+		MaximumBytes: recovery.MaximumRecoveryBackupFileBytes,
+		MaximumDepth: tomlsyntax.MaximumDepth,
+	}
+}
+
 // Path returns the absolute lockfile path affected by this change.
 func (change LockfileChange) Path() string {
 	return change.path
@@ -114,10 +121,7 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		HookEncoder:            hookcodec.CanonicalHookContribution,
 		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
 		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
-		NativeDocumentLimits: configdocument.Limits{
-			MaximumBytes: recovery.MaximumRecoveryBackupFileBytes,
-			MaximumDepth: tomlsyntax.MaximumDepth,
-		},
+		NativeDocumentLimits:   nativeAuthoringDocumentLimits(),
 	})
 	if err != nil {
 		return LockfileChange{}, err

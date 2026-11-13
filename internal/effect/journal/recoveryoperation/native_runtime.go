@@ -37,6 +37,17 @@ func PrepareNativeJournalRetirement(ctx context.Context, captured journalpublica
 	return prepareNativeRetirement(ctx, captured.CaptureResult(), captured.ActiveJournalAuthority(), budget, filesystem, stateCodec)
 }
 
+func PrepareNativeReleaseJournalRetirement(ctx context.Context, source journalinventory.ActiveJournal, budget *physicalwork.Budget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
+	if _, release := source.Record().NativeRelease(); !release {
+		return nil, fmt.Errorf("native release retirement requires its published purpose")
+	}
+	capture := journalpublication.CaptureResult{
+		OperationID: source.Identity().OperationID(), Directory: source.OperationDir(),
+		JournalPath: filepath.Join(source.OperationDir(), journalrecord.FileName), RecordFingerprint: source.Identity().JournalAuthorityFingerprint(),
+	}
+	return prepareNativeRetirement(ctx, capture, source.PhysicalAuthority(), budget, filesystem, stateCodec)
+}
+
 func prepareNativeRetirement(ctx context.Context, capture journalpublication.CaptureResult, active journalinventory.ActiveJournalAuthority, budget *physicalwork.Budget, filesystem mutationfs.RootedStore, stateCodec durable.SnapshotCodec) (*NativeJournalRetirement, error) {
 	if stateCodec == nil {
 		return nil, fmt.Errorf("native retirement requires its selected state codec")
@@ -59,6 +70,20 @@ func prepareNativeRetirement(ctx context.Context, capture journalpublication.Cap
 }
 
 func (retiring *NativeJournalRetirement) ExecuteWithGate(ctx context.Context, assessment journalqualification.NativeRecoveryAssessment, gate RetirementStepGate) error {
+	return retiring.executeWithAssessment(ctx, assessment, gate)
+}
+
+func (retiring *NativeJournalRetirement) ExecuteReleaseWithGate(ctx context.Context, assessment journalqualification.NativeReleaseAssessment, gate RetirementStepGate) error {
+	return retiring.executeWithAssessment(ctx, assessment, gate)
+}
+
+type nativeRetirementAssessment interface {
+	CleanBefore() bool
+	CleanAfter() bool
+	MatchesRevision(retirement.Identity, string, journalinventory.ActiveJournalAuthority) bool
+}
+
+func (retiring *NativeJournalRetirement) executeWithAssessment(ctx context.Context, assessment nativeRetirementAssessment, gate RetirementStepGate) error {
 	if ctx == nil || retiring == nil || retiring.prepared == nil {
 		return fmt.Errorf("native journal retirement is required")
 	}
