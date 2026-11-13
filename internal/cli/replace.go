@@ -107,7 +107,7 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 					return fail(operationFailure, err)
 				}
 				if !confirmed {
-					return 0
+					return fail(operationFailure, fmt.Errorf("replace host-config canceled"))
 				}
 				approved = disclosure.Fingerprint
 			}

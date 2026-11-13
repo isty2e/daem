@@ -36,13 +36,22 @@ func TestNativeKeyReplacementInteractiveConsent(t *testing.T) {
 					return "no", nil
 				},
 			})
-			if code != 0 || prompts != 1 {
+			wantCode := 1
+			if approve {
+				wantCode = 0
+			}
+			if code != wantCode || prompts != 1 {
 				t.Fatalf("replacement consent: exit=%d prompts=%d stdout=%s stderr=%s", code, prompts, stdout.String(), stderr.String())
 			}
 			if approve {
 				nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.Destination), "model='after-model'\n", true)
-			} else if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
-				t.Fatal("declined replacement changed evidence")
+			} else {
+				if !strings.Contains(stderr.String(), "replace host-config canceled") {
+					t.Fatalf("declined replacement has no cancellation diagnostic: %s", stderr.String())
+				}
+				if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
+					t.Fatal("declined replacement changed evidence")
+				}
 			}
 		})
 	}
