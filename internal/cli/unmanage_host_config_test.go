@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -51,6 +53,17 @@ func runHostConfigUnmanageCLI(t *testing.T, args ...string) (int, []byte) {
 		t.Logf("exit=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
 	}
 	return code, stdout.Bytes()
+}
+
+func TestCLIUnmanageHostConfigKeepsItsDiagnosticPrefixWhenJSONDeliveryFails(t *testing.T) {
+	paths, _, _ := prepareHostConfigUnmanageCLI(t)
+	var stderr bytes.Buffer
+	code := RunWithOptions([]string{"unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath, "--json"}, RunOptions{
+		Stdout: errorWriter{err: errors.New("private transport detail")}, Stderr: &stderr,
+	})
+	if code != 1 || !strings.Contains(stderr.String(), "unmanage failed: write json: ") || strings.Contains(stderr.String(), "private transport detail") {
+		t.Fatal("JSON delivery lost command context or exposed transport details", code, stderr.String())
+	}
 }
 
 func TestCLIUnmanageHostConfigKeepsDriftWithoutSourceDeclarationOrLock(t *testing.T) {

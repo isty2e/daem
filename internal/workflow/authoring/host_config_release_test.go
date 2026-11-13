@@ -466,12 +466,11 @@ func TestHostConfigReleaseQualifiesDriftWithoutFollowingAnUnavailableHost(t *tes
 		name         string
 		unapplied    bool
 		notDirectory bool
-		success      bool
 	}{
-		{"bound-dangling", false, false, true},
-		{"unapplied-dangling", true, false, true},
-		{"bound-non-directory", false, true, true},
-		{"unapplied-non-directory", true, true, true},
+		{"bound-dangling", false, false},
+		{"unapplied-dangling", true, false},
+		{"bound-non-directory", false, true},
+		{"unapplied-non-directory", true, true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			fixture := newHostReleaseFixture(t, false)
@@ -495,14 +494,7 @@ func TestHostConfigReleaseQualifiesDriftWithoutFollowingAnUnavailableHost(t *tes
 			} else if err := os.Symlink(missing, fixture.host); err != nil {
 				t.Fatal(err)
 			}
-			before := readUnmanageFile(t, fixture.paths.ManifestPath)
 			result, err := UnmanageHostConfig(t.Context(), fixture.request)
-			if !scenario.success {
-				if err == nil || !bytes.Equal(before, readUnmanageFile(t, fixture.paths.ManifestPath)) {
-					t.Fatal("unqualified host namespace was silently bypassed", err)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatal("known binding or future namespace could not release metadata", err)
 			}

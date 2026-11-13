@@ -122,7 +122,10 @@ func UnmanageHostConfig(ctx context.Context, request UnmanageHostConfigRequest) 
 			return mutation.StaleSnapshotError{}
 		}
 		if err := recoverygate.RequireGlobalMetadataClear(ctx, paths); err != nil {
-			return errors.Join(err, conversionErr)
+			if conversionErr != nil && recoverygate.IsGlobalMetadataRefusal(err) {
+				return errors.Join(err, fmt.Errorf("automatic metadata conversion: %w", conversionErr))
+			}
+			return err
 		}
 		return nil
 	}
