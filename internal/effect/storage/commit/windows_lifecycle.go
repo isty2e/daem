@@ -214,7 +214,10 @@ func validateWindowsRootedEntryRename(request RootedEntryRename) error {
 }
 
 func validateWindowsRootedEntryCleanup(request RootedEntryCleanup) error {
-	if request.removalNames == nil {
+	if err := request.validateEmptyDirectory(); err != nil {
+		return err
+	}
+	if request.removalNames == nil && !request.emptyDirectory {
 		if err := validateCommitPath(request.path); err != nil {
 			return err
 		}
@@ -222,7 +225,7 @@ func validateWindowsRootedEntryCleanup(request RootedEntryCleanup) error {
 		if err := validateRootedPath(request.path); err != nil {
 			return err
 		}
-		if !request.removalNames.Valid() || filepath.Base(request.path) != request.removalNames.Cleanup() {
+		if request.removalNames != nil && (!request.removalNames.Valid() || filepath.Base(request.path) != request.removalNames.Cleanup()) {
 			return fmt.Errorf("rooted removal cleanup path is not the authorized cleanup stage")
 		}
 	}
