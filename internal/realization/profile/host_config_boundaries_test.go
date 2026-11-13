@@ -12,7 +12,7 @@ func TestHostConfigPlacementRejectsMalformedInput(t *testing.T) {
 	valid := hostConfigInput(target.TargetPi, target.ScopeGlobal, "custom.json")
 	for _, mutate := range []func(*configuration.PlacementInput){
 		func(input *configuration.PlacementInput) { input.Target = "" },
-		func(input *configuration.PlacementInput) { input.Target = target.TargetOpenCode },
+		func(input *configuration.PlacementInput) { input.Target = "unknown-host" },
 		func(input *configuration.PlacementInput) { input.Scope = "system" },
 		func(input *configuration.PlacementInput) { input.Path = "" },
 		func(input *configuration.PlacementInput) { input.Path = "../custom.json" },
@@ -41,11 +41,25 @@ func TestHostConfigPlacementRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestHostConfigPlacementRejectsAnAbsentNativePreferencesSurface(t *testing.T) {
+	input := hostConfigInput(target.TargetAntigravityCLI, target.ScopeProject, "custom.json")
+	if _, err := ResolveHostConfigPlacement(input); err == nil {
+		t.Fatal("Antigravity CLI acquired a project preferences surface")
+	}
+}
+
 func TestHostConfigPlacementIdentityPartitionsHostAndScope(t *testing.T) {
 	seen := make(map[string]bool)
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
+	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex, target.TargetClaudeCode, target.TargetOpenCode, target.TargetAntigravityCLI} {
 		for _, scope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {
-			placement := mustHostConfigPlacement(t, hostConfigInput(selected, scope, "custom.json"))
+			if selected == target.TargetAntigravityCLI && scope == target.ScopeProject {
+				continue
+			}
+			path := "custom.json"
+			if selected == target.TargetOpenCode && scope == target.ScopeProject {
+				path = ".opencode/" + path
+			}
+			placement := mustHostConfigPlacement(t, hostConfigInput(selected, scope, path))
 			if placement.ID() == "" || seen[placement.ID()] {
 				t.Fatalf("host/scope identity collided: %s/%s -> %q", selected, scope, placement.ID())
 			}

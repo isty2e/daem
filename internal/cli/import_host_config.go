@@ -16,7 +16,7 @@ func prepareImportHostConfigInvocation(args []string, stdout, stderr io.Writer, 
 	update := flags.Bool("update-source", false, "update this declaration's local source membership")
 	var targets targetFlagValues
 	var scopes scopeFlagValues
-	flags.Var(&targets, "target", "one initial target: pi or codex")
+	flags.Var(&targets, "target", "one supported initial target")
 	flags.Var(&scopes, "scope", "initial project or global scope")
 	hostPath := flags.String("host-path", "", "initial host-root-relative document path")
 	ownership := flags.String("ownership", "keys", "initial keys or explicit document ownership")

@@ -3,16 +3,22 @@ package apply
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/isty2e/daem/internal/desired"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/source"
 	localfs "github.com/isty2e/daem/internal/supply/source/backend/localfs"
+	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 func rejectLocalSourceMutationOverlap(planned commandPlan) error {
@@ -23,31 +29,33 @@ func rejectLocalSourceMutationOverlap(planned commandPlan) error {
 	if err != nil {
 		return err
 	}
-	sources := make([]string, 0, len(authorityPaths))
+	sources := make([]mutation.DirectoryEntryAuthorityObservation, 0, len(authorityPaths))
 	for _, authorityPath := range authorityPaths {
-		canonical, err := mutation.CanonicalDirectoryEntryKey(authorityPath)
+		physical, err := rootedpath.ResolveReferentPathBounded(authorityPath, physicalwork.MaximumPhysicalPathDepth, planned.context.physicalBudget)
+		if err != nil {
+			return err
+		}
+		canonical, err := mutation.ObserveDirectoryEntryAuthorityBounded(physical, physicalwork.MaximumPhysicalPathDepth, planned.context.physicalBudget)
 		if err != nil {
 			return err
 		}
 		sources = append(sources, canonical)
 	}
 
-	resolveDestination := destinationResolver(planned.context.Paths).Resolve
-	for _, destination := range hostMutationDestinations(planned.assessment.Reconciliation) {
-		path, err := resolveDestination(destination, planned.context.physicalBudget)
-		if err != nil {
-			return err
-		}
-		canonical, err := mutation.CanonicalDirectoryEntryKey(path)
+	paths, err := hostMutationPaths(planned)
+	if err != nil {
+		return err
+	}
+	for _, path := range paths {
+		canonical, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, planned.context.physicalBudget)
 		if err != nil {
 			return err
 		}
 		for _, sourcePath := range sources {
-			if pathsOverlap(sourcePath, canonical) {
+			if sourcePath.MayOverlap(canonical) {
 				return fmt.Errorf(
-					"local source %q overlaps managed mutation destination %q",
-					sourcePath,
-					canonical,
+					"a local source overlaps managed mutation destination %q",
+					path,
 				)
 			}
 		}
@@ -82,23 +90,78 @@ func localEntityArtifactSourceAuthorityPaths(
 	return result, nil
 }
 
-func hostMutationDestinations(planResult reconcile.Result) []output.Destination {
-	destinations := make([]output.Destination, 0)
+func resolveManagedMutationPath(planned commandPlan, subject topology.SubjectID, destination output.Destination) (string, error) {
+	if aggregate.IsHostConfigDocumentSubject(subject) {
+		request, _, err := nativeWholeAuthorityRequestFor(planned.assessment.NativeApproval, subject, destination)
+		return request.Path, err
+	}
+	return destinationResolver(planned.context.Paths).Resolve(destination, planned.context.physicalBudget)
+}
+
+func nativeWholeAuthorityRequestFor(evidence []journalobservation.ApprovalEvidence, subject topology.SubjectID, destination output.Destination) (mutation.PhysicalAuthorityRequest, mutation.DirectoryEntryAuthorityObservation, error) {
+	identity, native := topologyprojection.EntityID(subject)
+	if !native || !aggregate.IsHostConfigDocumentSubject(subject) {
+		return mutation.PhysicalAuthorityRequest{}, mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native whole-file authority requires its native subject")
+	}
+	for _, group := range evidence {
+		for _, alias := range group.Aliases {
+			expected, err := aggregate.HostConfigDocumentSubject(identity, alias.Target(), alias.Scope())
+			if err == nil && expected == subject && alias.AggregateRoot() == destination {
+				request, err := group.AuthorityRequest(alias)
+				return request, group.Authority, err
+			}
+		}
+	}
+	return mutation.PhysicalAuthorityRequest{}, mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native whole-file authority has no selected namespace")
+}
+
+func hostMutationPaths(planned commandPlan) ([]string, error) {
+	planResult := planned.assessment.Reconciliation
+	paths := make([]string, 0)
 	for _, decision := range planResult.MutatingManagedPaths() {
 		if !decision.MutatesHost() {
 			continue
 		}
-		destinations = append(destinations, decision.Destination())
+		path, err := resolveManagedMutationPath(planned, decision.Subject(), decision.Destination())
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
 		if previous, present := decision.PreviousState(); present && previous.Destination() != decision.Destination() {
-			destinations = append(destinations, previous.Destination())
+			path, err := resolveManagedMutationPath(planned, previous.Subject(), previous.Destination())
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, path)
 		}
 	}
 	for _, decision := range planResult.MutatingAggregates() {
 		if decision.MutatesHost() {
-			destinations = append(destinations, decision.DocumentAddress().AggregateRoot())
+			address := decision.DocumentAddress()
+			var path string
+			var err error
+			qualified := false
+			for _, group := range planned.assessment.NativeApproval {
+				if slices.Contains(group.Aliases, address) {
+					request, requestErr := group.AuthorityRequest(address)
+					path, err = request.Path, requestErr
+					qualified = true
+					break
+				}
+			}
+			if !qualified {
+				if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
+					return nil, fmt.Errorf("native aggregate mutation has no selected namespace")
+				}
+				path, err = destinationResolver(planned.context.Paths).Resolve(address.AggregateRoot(), planned.context.physicalBudget)
+			}
+			if err != nil {
+				return nil, err
+			}
+			paths = append(paths, path)
 		}
 	}
-	return destinations
+	return paths, nil
 }
 
 func pathsOverlap(left string, right string) bool {

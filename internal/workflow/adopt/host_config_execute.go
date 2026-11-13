@@ -151,20 +151,18 @@ func (plan *HostConfigCapturePlan) captureDomains() ([]mutation.Domain, error) {
 	}
 	facts, _ := plan.observation.NativeInput()
 	for _, namespace := range facts.Documents.Evidence().Namespaces() {
-		path := ""
-		if exact, present := namespace.Observation().Exact(); present {
-			path = exact.Key()
-		} else {
-			missing, _ := namespace.Observation().Provisional()
-			path = missing.CandidateKey()
-		}
-		alias := namespace.Addresses()[0]
-		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-			domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{Path: path, Access: mutation.AccessExclusive, Effect: effect, Target: string(alias.Target()), Scope: string(alias.Scope())})
+		for _, alias := range namespace.Aliases() {
+			request, err := alias.PhysicalAuthorityRequest()
 			if err != nil {
 				return nil, err
 			}
-			domains = append(domains, domain)
+			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+				domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{Path: request.Path, Access: mutation.AccessExclusive, Effect: effect, Target: request.Target, Scope: request.Scope})
+				if err != nil {
+					return nil, err
+				}
+				domains = append(domains, domain)
+			}
 		}
 	}
 	return domains, nil

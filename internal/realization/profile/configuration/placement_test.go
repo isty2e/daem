@@ -120,12 +120,26 @@ func TestPlacementValidateRejectsZeroAndInconsistentOwnedFacts(t *testing.T) {
 	}
 }
 
-func TestPlacementRequiresAnAuditedNativePathPolicy(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetClaudeCode, target.TargetOpenCode, target.TargetAntigravityCLI} {
-		if _, err := NewPlacement(PlacementInput{
+func TestPlacementAdmitsEachReviewedHostWithoutSharingItsExclusions(t *testing.T) {
+	for _, test := range []struct {
+		selected target.Target
+		reserved string
+	}{
+		{target.TargetClaudeCode, "projects/generated.json"},
+		{target.TargetOpenCode, "node_modules/package/config.json"},
+		{target.TargetAntigravityCLI, "secplugins/grants/commands.json"},
+	} {
+		selected := test.selected
+		placement, err := NewPlacement(PlacementInput{
 			Target: selected, Scope: target.ScopeGlobal, Path: "custom.json",
+		}, placementFacts(t, selected, target.ScopeGlobal))
+		if err != nil || placement.Target() != selected || placement.NativePath() != "custom.json" {
+			t.Fatal("reviewed host lost native authoring admission", selected, err)
+		}
+		if _, err := NewPlacement(PlacementInput{
+			Target: selected, Scope: target.ScopeGlobal, Path: test.reserved,
 		}, placementFacts(t, selected, target.ScopeGlobal)); err == nil {
-			t.Fatalf("%s inherited another host's native path policy", selected)
+			t.Fatal("host-specific exclusion was bypassed", selected, test.reserved)
 		}
 	}
 }

@@ -9,6 +9,62 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
 
+func TestProvisionalPairExclusionRetainsUnknownNormalization(t *testing.T) {
+	namespace := filepath.Join(t.TempDir(), "namespace")
+	makeIntent := func(parts ...string) pathauthority.Provisional {
+		candidate := filepath.Join(append([]string{namespace}, parts...)...)
+		intent, err := pathauthority.NewProvisional(candidate, pathtest.DarwinCaseSensitive(candidate).Witness(), namespace, pathtest.DarwinCaseSensitive(namespace).Witness())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return intent
+	}
+	for _, test := range []struct {
+		name  string
+		left  pathauthority.Provisional
+		right pathauthority.Provisional
+		want  bool
+	}{
+		{name: "stable siblings", left: makeIntent("left", "Café"), right: makeIntent("right", "Café")},
+		{name: "normalization uncertainty", left: makeIntent("Café"), right: makeIntent("Cafe\u0301"), want: true},
+		{name: "nested future entry", left: makeIntent("Café"), right: makeIntent("Café", "child"), want: true},
+		{name: "invalid evidence", left: pathauthority.Provisional{}, right: makeIntent("Café"), want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.left.CouldOverlapProvisional(test.right) != test.want || test.right.CouldOverlapProvisional(test.left) != test.want {
+				t.Fatal("provisional exclusion lost symmetry or stable separation")
+			}
+		})
+	}
+}
+
+func TestProvisionalPairExclusionUsesTheShallowerObservedNamespace(t *testing.T) {
+	root := t.TempDir()
+	makeIntent := func(namespace, candidate string) pathauthority.Provisional {
+		intent, err := pathauthority.NewProvisional(candidate, pathtest.DarwinCaseSensitive(candidate).Witness(), namespace, pathtest.DarwinCaseSensitive(namespace).Witness())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return intent
+	}
+	for _, test := range []struct {
+		name  string
+		left  pathauthority.Provisional
+		right pathauthority.Provisional
+		want  bool
+	}{
+		{name: "uncertain ancestor", left: makeIntent(root, filepath.Join(root, "Kept", "child")), right: makeIntent(filepath.Join(root, "kept"), filepath.Join(root, "kept", "Übung")), want: true},
+		{name: "stable separate branch", left: makeIntent(root, filepath.Join(root, "left", "Café")), right: makeIntent(filepath.Join(root, "right"), filepath.Join(root, "right", "Übung"))},
+		{name: "stable nested namespace", left: makeIntent(root, filepath.Join(root, "kept", "Café")), right: makeIntent(filepath.Join(root, "kept"), filepath.Join(root, "kept", "Cafe\u0301")), want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.left.CouldOverlapProvisional(test.right) != test.want || test.right.CouldOverlapProvisional(test.left) != test.want {
+				t.Fatal("namespace depth changed conservative overlap")
+			}
+		})
+	}
+}
+
 func TestProvisionalRequiresNormalizationSensitiveDarwinAuthority(t *testing.T) {
 	namespace := filepath.Join(string(filepath.Separator), "tmp", "daem", "skills")
 	nonASCII := filepath.Join(namespace, "Caf\u00e9")

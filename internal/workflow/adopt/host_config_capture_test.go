@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,15 @@ type captureWorkflowFixture struct {
 func newCaptureWorkflowFixture(t *testing.T, ownership string, host []byte) captureWorkflowFixture {
 	t.Helper()
 	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, variable := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(variable, filepath.Join(root, variable))
+	}
 	paths, err := daempaths.Resolve(filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -235,11 +245,11 @@ func TestHostConfigCaptureExportsAndRetiresWholeDocumentsWithoutRoundtrip(t *tes
 }
 
 func TestHostConfigCaptureRejectsHostCacheReadonlyAndExistingExportTargets(t *testing.T) {
-	for _, scenario := range []string{"host", "host-unselected", "cache", "readonly", "export-existing"} {
+	for _, scenario := range []string{"host", "host-unselected", "cache", "metadata", "legacy", "readonly", "export-existing"} {
 		t.Run(scenario, func(t *testing.T) {
 			fixture := newCaptureWorkflowFixture(t, "keys", []byte(`{"nested":{"a":42}}`))
 			input := HostConfigUpdateInput{Paths: fixture.paths, Name: "chosen"}
-			if scenario == "host" || scenario == "host-unselected" || scenario == "cache" {
+			if scenario == "host" || scenario == "host-unselected" || scenario == "cache" || scenario == "metadata" || scenario == "legacy" {
 				destination := fixture.host
 				if scenario == "host-unselected" {
 					destination = filepath.Join(filepath.Dir(fixture.host), "unselected.json")
@@ -250,8 +260,17 @@ func TestHostConfigCaptureRejectsHostCacheReadonlyAndExistingExportTargets(t *te
 						t.Fatal(err)
 					}
 				}
-				if scenario == "cache" {
-					destination = filepath.Join(fixture.paths.SourceCacheDir, "cached.jsonc")
+				if scenario == "cache" || scenario == "metadata" || scenario == "legacy" {
+					root := fixture.paths.SourceCacheDir
+					if scenario == "metadata" {
+						root = fixture.paths.GlobalMetadataDir()
+					}
+					if scenario == "legacy" {
+						root = filepath.Join(fixture.paths.ManifestRoot, "legacy-state")
+						fixture.paths.LegacyUserStateDir = root
+						input.Paths = fixture.paths
+					}
+					destination = filepath.Join(root, "cached.jsonc")
 					if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 						t.Fatal(err)
 					}
@@ -280,7 +299,7 @@ func TestHostConfigCaptureRejectsHostCacheReadonlyAndExistingExportTargets(t *te
 					_ = plan.Close()
 				}
 				t.Fatal("unsupported source destination was admitted")
-			} else if (scenario == "host" || scenario == "host-unselected" || scenario == "cache") && !errors.Is(err, ErrHostConfigCaptureArtifactOverlap) {
+			} else if (scenario == "host" || scenario == "host-unselected" || scenario == "cache" || scenario == "metadata" || scenario == "legacy") && !errors.Is(err, ErrHostConfigCaptureArtifactOverlap) {
 				t.Fatal("artifact-overlap refusal came from an unrelated failure", err)
 			}
 			assertCaptureArtifact(t, fixture.source, source)
@@ -343,44 +362,86 @@ func TestWholeMissingCaptureCanRetireWithoutRecreatingMissingSource(t *testing.T
 }
 
 func TestHostConfigCaptureUsesSharedNativeRootAdapters(t *testing.T) {
-	for _, selected := range []string{"pi", "codex"} {
+	for _, selected := range []string{"pi", "codex", "claude-code", "opencode", "antigravity-cli"} {
 		for _, scope := range []string{"project", "global"} {
-			t.Run(selected+"/"+scope, func(t *testing.T) {
-				host := []byte(`{"nested":{"a":42}}`)
-				fixture := newCaptureWorkflowFixture(t, "keys", host)
-				manifest := strings.ReplaceAll(string(fixture.manifest), `targets = ["codex"]`, `targets = ["`+selected+`"]`)
-				root := filepath.Join(fixture.paths.ManifestRoot, "."+selected)
-				if scope == "global" {
-					root = filepath.Join(fixture.paths.ManifestRoot, "native-home")
-					manifest = strings.ReplaceAll(manifest, `scope = "project"`, `scope = "global"`)
-					manifest = strings.ReplaceAll(manifest, `source = "source.jsonc"`, `source = "`+fixture.source+`"`)
-					manifest = strings.ReplaceAll(manifest, `source = "alias.jsonc"`, `source = "`+fixture.alias+`"`)
-					if selected == "pi" {
-						t.Setenv(pihostpath.AgentRootEnvironmentVariable, root)
-					} else {
-						t.Setenv(codexhostpath.HomeEnvironmentVariable, root)
+			if selected == "antigravity-cli" && scope == "project" {
+				continue
+			}
+			for _, sourceAliasesOutput := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/source-alias=%t", selected, scope, sourceAliasesOutput), func(t *testing.T) {
+					host := []byte(`{"nested":{"a":42}}`)
+					fixture := newCaptureWorkflowFixture(t, "keys", host)
+					manifest := strings.ReplaceAll(string(fixture.manifest), `targets = ["codex"]`, `targets = ["`+selected+`"]`)
+					root := filepath.Join(fixture.paths.ManifestRoot, "."+selected)
+					if selected == "claude-code" {
+						root = filepath.Join(fixture.paths.ManifestRoot, ".claude")
 					}
-				}
-				if err := os.MkdirAll(root, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				fixture.host = filepath.Join(root, "capture.jsonc")
-				if err := os.WriteFile(fixture.host, host, 0o600); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(fixture.paths.ManifestPath, []byte(manifest), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				plan, err := BuildHostConfigUpdatePlan(t.Context(), HostConfigUpdateInput{Paths: fixture.paths, Name: "chosen"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer plan.Close()
-				if result, err := ExecuteHostConfigCapture(t.Context(), plan, plan.ApprovalPath()); err != nil || !result.Committed {
-					t.Fatal("native root capture failed", result, err)
-				}
-				assertCaptureArtifact(t, fixture.host, host)
-			})
+					if selected == "opencode" && scope == "project" {
+						manifest = strings.ReplaceAll(manifest, `path = "`, `path = ".opencode/`)
+					}
+					if scope == "global" {
+						root = filepath.Join(fixture.paths.ManifestRoot, "native-home")
+						manifest = strings.ReplaceAll(manifest, `scope = "project"`, `scope = "global"`)
+						manifest = strings.ReplaceAll(manifest, `source = "source.jsonc"`, `source = "`+fixture.source+`"`)
+						manifest = strings.ReplaceAll(manifest, `source = "alias.jsonc"`, `source = "`+fixture.alias+`"`)
+						switch selected {
+						case "pi":
+							t.Setenv(pihostpath.AgentRootEnvironmentVariable, root)
+						case "codex":
+							t.Setenv(codexhostpath.HomeEnvironmentVariable, root)
+						case "claude-code":
+							t.Setenv("CLAUDE_CONFIG_DIR", root)
+						case "opencode":
+							t.Setenv("XDG_CONFIG_HOME", root)
+							root = filepath.Join(root, "opencode")
+						case "antigravity-cli":
+							home, err := os.UserHomeDir()
+							if err != nil {
+								t.Fatal(err)
+							}
+							root = filepath.Join(home, ".gemini", "antigravity-cli")
+						}
+					}
+					if err := os.MkdirAll(root, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					fixture.host = filepath.Join(root, "capture.jsonc")
+					if err := os.WriteFile(fixture.host, host, 0o600); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(fixture.paths.ManifestPath, []byte(manifest), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					if sourceAliasesOutput {
+						if err := os.Remove(fixture.source); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Symlink(fixture.host, fixture.source); err != nil {
+							t.Fatal(err)
+						}
+					}
+					plan, err := BuildHostConfigUpdatePlan(t.Context(), HostConfigUpdateInput{Paths: fixture.paths, Name: "chosen"})
+					if sourceAliasesOutput {
+						if plan != nil {
+							_ = plan.Close()
+						}
+						if !errors.Is(err, ErrHostConfigCaptureArtifactOverlap) {
+							t.Fatal("capture accepted a source alias to its configured native output", err)
+						}
+						assertCaptureArtifact(t, fixture.host, host)
+						assertCaptureArtifact(t, fixture.paths.ManifestPath, []byte(manifest))
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer plan.Close()
+					if result, err := ExecuteHostConfigCapture(t.Context(), plan, plan.ApprovalPath()); err != nil || !result.Committed {
+						t.Fatal("native root capture failed", result, err)
+					}
+					assertCaptureArtifact(t, fixture.host, host)
+				})
+			}
 		}
 	}
 }

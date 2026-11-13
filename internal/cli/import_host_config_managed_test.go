@@ -5,41 +5,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
-	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
 func TestImportHostConfigAfterManagedApplyPreservesScopeOwnership(t *testing.T) {
-	for _, selected := range []string{"pi", "codex"} {
-		for _, scope := range []string{"project", "global"} {
+	for _, selected := range []string{"pi", "codex", "claude-code", "opencode", "antigravity-cli"} {
+		for _, scope := range captureHostScopes(selected) {
 			for _, mode := range []string{"keys", "document"} {
 				t.Run(fmt.Sprintf("%s/%s/%s", selected, scope, mode), func(t *testing.T) {
-					root, manifest, _, _ := captureCLIFixture(t, `{}`)
-					hostRoot := filepath.Join(root, "."+selected)
-					if scope == "global" {
-						hostRoot = filepath.Join(root, "native-home")
-						if selected == "pi" {
-							t.Setenv(pihostpath.AgentRootEnvironmentVariable, hostRoot)
-						} else {
-							t.Setenv(codexhostpath.HomeEnvironmentVariable, hostRoot)
-						}
-					}
-					if err := os.MkdirAll(hostRoot, 0o700); err != nil {
-						t.Fatal(err)
-					}
-					host := filepath.Join(hostRoot, "captured.jsonc")
+					_, manifest, _, _ := captureCLIFixture(t, `{}`)
+					host, path := captureHostDocument(t, manifest, selected, scope, "captured.jsonc", mode)
 					if err := os.WriteFile(host, []byte(`{"nested":{"leaf":1},"outside":8}`), 0o600); err != nil {
 						t.Fatal(err)
 					}
-					args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--host-path", "captured.jsonc", "--ownership", mode}
+					args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--host-path", path, "--ownership", mode}
 					if mode == "keys" {
 						args = append(args, "--key", "/nested")
 					}
@@ -47,11 +32,20 @@ func TestImportHostConfigAfterManagedApplyPreservesScopeOwnership(t *testing.T) 
 					if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint)); code != 0 {
 						t.Fatal(code, out, err)
 					}
-					for _, command := range [][]string{{"lock", "--manifest", manifest}, {"apply", "--manifest", manifest, "--manage-existing", "--yes"}} {
+					if code, out, diagnostic := runCaptureCLI(t, []string{"lock", "--manifest", manifest}); code != 0 {
+						t.Fatal("lock captured source", code, out, diagnostic)
+					}
+					count := 1
+					assertCaptureInventoryCounts(t, manifest, 0, count)
+					for _, command := range [][]string{
+						{"apply", "--manifest", manifest, "--manage-existing", "--yes", "--verbose"},
+						{"apply", "--manifest", manifest, "--yes", "--verbose"},
+					} {
 						if code, out, err := runCaptureCLI(t, command); code != 0 {
 							t.Fatal(command, code, out, err)
 						}
 					}
+					assertCaptureInventoryCounts(t, manifest, count, 0)
 					paths, err := daempaths.Resolve(manifest)
 					if err != nil {
 						t.Fatal(err)
@@ -154,5 +148,18 @@ func TestImportHostConfigAfterManagedApplyPreservesScopeOwnership(t *testing.T) 
 				})
 			}
 		}
+	}
+}
+
+func assertCaptureInventoryCounts(t *testing.T, manifest string, managed, unmanaged int) {
+	t.Helper()
+	code, out, diagnostic := runCaptureCLI(t, []string{"list", "outputs", "--manifest", manifest, "--json"})
+	var inventory struct {
+		ManagedCount   int `json:"managed_count"`
+		UnmanagedCount int `json:"unmanaged_count"`
+		BlockedCount   int `json:"blocked_count"`
+	}
+	if code != 0 || json.Unmarshal([]byte(out), &inventory) != nil || inventory.ManagedCount != managed || inventory.UnmanagedCount != unmanaged || inventory.BlockedCount != 0 {
+		t.Fatal("native output inventory selected a different physical document", code, out, diagnostic)
 	}
 }

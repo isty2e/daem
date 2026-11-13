@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	captureconfig "github.com/isty2e/daem/internal/adopt/hostconfig"
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
@@ -17,8 +16,6 @@ import (
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/fileset"
-	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
@@ -69,7 +66,7 @@ type HostConfigCapturePlan struct {
 	sourceAfter    []byte
 	selected       []output.KeyPath
 	references     []HostConfigSourceReference
-	hostOutputs    []output.Destination
+	hostOutputs    []configuration.DocumentSpec
 	retire         bool
 	narrowing      bool
 	closed         bool
@@ -201,7 +198,7 @@ func buildHostConfigCapturePlan(ctx context.Context, input HostConfigUpdateInput
 		if err != nil {
 			return plan, err
 		}
-		plan.hostOutputs = append(plan.hostOutputs, placement.Destination())
+		plan.hostOutputs = append(plan.hostOutputs, placement.Document())
 	}
 	found := false
 	for _, config := range environment.HostConfigs() {
@@ -222,7 +219,7 @@ func buildHostConfigCapturePlan(ctx context.Context, input HostConfigUpdateInput
 	if err != nil {
 		return plan, err
 	}
-	plan.hostOutputs = append(plan.hostOutputs, placement.Destination())
+	plan.hostOutputs = append(plan.hostOutputs, placement.Document())
 	oldSourcePath, err := localCaptureSourcePath(input.Paths.ManifestRoot, plan.config.Source())
 	if err != nil {
 		return plan, err
@@ -418,63 +415,63 @@ func (plan *HostConfigCapturePlan) qualifyCapturePaths(ctx context.Context) erro
 	}
 	paths := plan.input.Paths
 	facts, _ := plan.observation.NativeInput()
-	sourceKey, err := captureReferentKey(plan.source.Path(), facts.Budget)
+	sourcePath, err := captureReferent(plan.source.Path(), facts.Budget)
 	if err != nil {
 		return err
 	}
-	manifestKey, err := captureReferentKey(plan.manifest.Path(), facts.Budget)
+	manifestPath, err := captureReferent(plan.manifest.Path(), facts.Budget)
 	if err != nil {
 		return err
 	}
-	originalKey, err := captureReferentKey(plan.originalSource.Path(), facts.Budget)
+	originalPath, err := captureReferent(plan.originalSource.Path(), facts.Budget)
 	if err != nil {
 		return err
 	}
-	if manifestKey == originalKey || manifestKey == sourceKey {
+	if manifestPath.mayOverlap(originalPath) || manifestPath.mayOverlap(sourcePath) {
 		return fmt.Errorf("%w: declaration and source must be separate artifacts", ErrHostConfigCaptureArtifactOverlap)
 	}
-	writes := []string{manifestKey}
+	writes := []capturePath{manifestPath}
 	if !plan.retire {
-		writes = append(writes, sourceKey)
+		writes = append(writes, sourcePath)
 	}
 	marker, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return err
 	}
-	for _, forbidden := range []string{paths.LockfilePath, paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath, paths.SourceCacheDir, paths.RecoveryDir, marker} {
-		canonical, err := captureReferentKey(forbidden, facts.Budget)
+	for _, forbidden := range []string{paths.LockfilePath, paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath, paths.SourceCacheDir, paths.RecoveryDir, paths.GlobalMetadataDir(), paths.LegacyUserStateDir, marker} {
+		if forbidden == "" {
+			continue
+		}
+		canonical, err := captureReferent(forbidden, facts.Budget)
 		if err != nil {
 			return err
 		}
 		for _, write := range writes {
-			if capturePathContains(canonical, write) {
+			if canonical.mayOverlap(write) {
 				return fmt.Errorf("%w: write overlaps control or cache artifacts", ErrHostConfigCaptureArtifactOverlap)
 			}
 		}
 	}
 	for _, destination := range plan.hostOutputs {
-		path, err := physicalhostpath.NewResolver(paths).Resolve(destination, facts.Budget)
+		path, err := captureHostOutput(paths, destination, facts.Budget)
 		if err != nil {
 			return err
 		}
-		hostKey, err := captureReferentKey(path, facts.Budget)
+		hostPath, err := captureReferent(path, facts.Budget)
 		if err != nil {
 			return err
 		}
-		if slices.Contains(writes, hostKey) {
+		if slices.ContainsFunc(writes, hostPath.mayOverlap) {
 			return fmt.Errorf("%w: write aliases a declared host output", ErrHostConfigCaptureArtifactOverlap)
 		}
 	}
 	for _, write := range writes {
 		for _, claim := range facts.Registry.Claims() {
-			if capturePathContains(claim.Address().Path(), write) || capturePathContains(write, claim.Address().Path()) {
+			if write.observed.MayOverlapExact(claim.Address().PathAuthority()) {
 				return fmt.Errorf("%w: write overlaps a managed host output", ErrHostConfigCaptureArtifactOverlap)
 			}
 		}
-		observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(write, physicalwork.MaximumPhysicalPathDepth, facts.Budget)
-		if err != nil {
-			return err
-		}
+		observed := write.observed
 		if physical, exact := observed.Exact(); exact {
 			if err := facts.Registry.RequireWritable(physical); err != nil {
 				return err

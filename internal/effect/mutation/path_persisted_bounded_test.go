@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -113,9 +114,15 @@ func TestDirectoryEntryObservationEqualityDoesNotPromoteProvisionalPaths(t *test
 	if !exact.Equal(exact) || exact.Equal(missing) || missing.Equal(exact) {
 		t.Fatal("equality promoted a missing observation to an exact path")
 	}
+	if !exact.MayOverlap(missing) || !missing.MayOverlap(exact) || !missing.MayOverlap(sibling) || !missing.MayOverlapExact(physical) {
+		t.Fatal("provisional exclusion was mistaken for exact equality or disjointness")
+	}
 	var invalid DirectoryEntryAuthorityObservation
 	if invalid.Equal(invalid) || exact.Equal(invalid) || invalid.Equal(missing) {
 		t.Fatal("invalid observation compared equal")
+	}
+	if !invalid.MayOverlap(exact) || !exact.MayOverlap(invalid) || !invalid.MayOverlapExact(physical) {
+		t.Fatal("invalid observations discarded possible overlap")
 	}
 	if reference, present := missing.Reference(); present || !reference.IsZero() {
 		t.Fatal("provisional observation supplied exact lookup evidence")
@@ -125,6 +132,27 @@ func TestDirectoryEntryObservationEqualityDoesNotPromoteProvisionalPaths(t *test
 	}
 	if !exact.Equal(DirectoryEntryAuthorityObservation{exact: physical, locator: filepath.Join(root, "lookup.json")}) {
 		t.Fatal("lookup spelling changed namespace-identity equality")
+	}
+}
+
+func TestDirectoryEntryExclusionRetainsTheHistoricalDarwinWitness(t *testing.T) {
+	root := t.TempDir()
+	rootModes := strings.TrimPrefix(pathtest.DarwinCaseSensitive(root).Witness(), "darwin-case-v1:")
+	current, err := pathauthority.NewExact(filepath.Join(root, "İtem.json"), "darwin-case-v2:"+rootModes+"u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := pathauthority.NewExact(filepath.Join(root, "item.json"), "darwin-case-v1:"+rootModes+"i")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := DirectoryEntryAuthorityObservation{exact: current}
+	retained := DirectoryEntryAuthorityObservation{exact: legacy}
+	if observed.Equal(retained) || !observed.MayOverlap(retained) || !retained.MayOverlap(observed) || !observed.MayOverlapExact(legacy) {
+		t.Fatal("historical comparison was dropped or promoted to exact identity")
+	}
+	if reference, present := observed.Reference(); present || !reference.IsZero() {
+		t.Fatal("comparison-only native spelling invented lookup evidence")
 	}
 }
 

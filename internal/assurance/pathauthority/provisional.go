@@ -217,6 +217,40 @@ func (provisional Provisional) CouldOverlap(exact Exact) bool {
 	return true
 }
 
+// CouldOverlapProvisional preserves possible overlap between two future paths.
+// Its candidate projections are comparison evidence, never exact authority.
+func (provisional Provisional) CouldOverlapProvisional(other Provisional) bool {
+	if provisional.Validate() != nil || other.Validate() != nil {
+		return true
+	}
+	leftNamespace, rightNamespace := provisional.Namespace(), other.Namespace()
+	if !leftNamespace.MayOverlap(rightNamespace) {
+		return false
+	}
+	var namespace Exact
+	switch {
+	case leftNamespace.Contains(rightNamespace):
+		namespace = leftNamespace
+	case rightNamespace.Contains(leftNamespace):
+		namespace = rightNamespace
+	default:
+		// Historical comparison domains can overlap without supplying a common
+		// exact namespace from which stable components can be projected.
+		return true
+	}
+	left, _ := filepath.Rel(namespace.Key(), provisional.candidateKey)
+	right, _ := filepath.Rel(namespace.Key(), other.candidateKey)
+	leftParts := strings.Split(left, string(filepath.Separator))
+	rightParts := strings.Split(right, string(filepath.Separator))
+	for index := range min(len(leftParts), len(rightParts)) {
+		left, right := leftParts[index], rightParts[index]
+		if !containsNonASCIIByte(left) && !containsNonASCIIByte(right) && left != right {
+			return false
+		}
+	}
+	return true
+}
+
 // MatchesMissingExact reports whether this missing candidate retains the exact
 // comparison key and filesystem-semantics witness observed before deletion. It
 // does not restore exact authority or prove entry identity.

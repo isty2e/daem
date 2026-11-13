@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
+	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -107,59 +108,74 @@ func interruptedCapture(t *testing.T, manifest, source string, before, after, so
 }
 
 func TestImportHostConfigRecoversInitialPublicationWithoutRecapture(t *testing.T) {
-	for _, finalized := range []bool{false, true} {
-		t.Run(fmt.Sprint(finalized), func(t *testing.T) {
-			_, manifest, host, args := captureCLIFixture(t, `{"chosen":1}`)
-			args = append(args, "--key", "/chosen")
-			fingerprint := captureFingerprint(t, args)
-			if code, out, err := runCaptureCLI(t, append(append([]string{}, args...), "--yes", "--expect-plan", fingerprint)); code != 0 {
-				t.Fatal(code, out, err)
-			}
-			after, err := os.ReadFile(manifest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			source := filepath.Join(filepath.Dir(manifest), "daem.d", "host-config", "chosen.json")
-			sourceAfter, err := os.ReadFile(source)
-			if err != nil {
-				t.Fatal(err)
-			}
-			marker := interruptedCapture(t, manifest, source, nil, after, nil, sourceAfter, finalized)
-			if err := os.Remove(host); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Mkdir(host, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			beforeMarker, err := os.ReadFile(marker)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fingerprint = captureFingerprint(t, args)
-			unchanged, err := os.ReadFile(marker)
-			if err != nil || !bytes.Equal(beforeMarker, unchanged) {
-				t.Fatal("recovery preview mutated evidence", err)
-			}
-			code, stdout, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint, "--json"))
-			if code != 0 || !strings.Contains(stdout, `"recovery"`) || !strings.Contains(stdout, `"recovered"`) {
-				t.Fatal("recovery attempted fresh host read/capture", code, stdout, stderr)
-			}
-			if _, err := os.Stat(marker); !os.IsNotExist(err) {
-				t.Fatal("recovery retained marker", err)
-			}
-			if finalized {
-				current, err := os.ReadFile(source)
-				if err != nil || !bytes.Equal(current, sourceAfter) {
-					t.Fatal("finalize changed captured source", err)
+	for _, selected := range []string{"pi", "codex", "claude-code", "opencode", "antigravity-cli"} {
+		for _, finalized := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/finalized=%t", selected, finalized), func(t *testing.T) {
+				_, manifest, _, _ := captureCLIFixture(t, `{}`)
+				scope := captureHostScopes(selected)[0]
+				host, path := captureHostDocument(t, manifest, selected, scope, "captured.jsonc", "keys")
+				if err := os.WriteFile(host, []byte(`{"chosen":1}`), 0o600); err != nil {
+					t.Fatal(err)
 				}
-			} else {
-				for _, path := range []string{manifest, source} {
-					if _, err := os.Stat(path); !os.IsNotExist(err) {
-						t.Fatal("rollback did not remove initial artifact", path, err)
+				args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--host-path", path, "--key", "/chosen"}
+				fingerprint := captureFingerprint(t, args)
+				if code, out, err := runCaptureCLI(t, append(append([]string{}, args...), "--yes", "--expect-plan", fingerprint)); code != 0 {
+					t.Fatal(code, out, err)
+				}
+				after, err := os.ReadFile(manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				environment, err := declarationmanifest.Decode(after)
+				if err != nil {
+					t.Fatal(err)
+				}
+				local, present := environment.HostConfigs()[0].Source().Local()
+				if !present {
+					t.Fatal("initial capture did not produce a local source")
+				}
+				source := local.Path()
+				sourceAfter, err := os.ReadFile(source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				marker := interruptedCapture(t, manifest, source, nil, after, nil, sourceAfter, finalized)
+				if err := os.Remove(host); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(host, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				beforeMarker, err := os.ReadFile(marker)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fingerprint = captureFingerprint(t, args)
+				unchanged, err := os.ReadFile(marker)
+				if err != nil || !bytes.Equal(beforeMarker, unchanged) {
+					t.Fatal("recovery preview mutated evidence", err)
+				}
+				code, stdout, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint, "--json"))
+				if code != 0 || !strings.Contains(stdout, `"recovery"`) || !strings.Contains(stdout, `"recovered"`) {
+					t.Fatal("recovery attempted fresh host read/capture", code, stdout, stderr)
+				}
+				if _, err := os.Stat(marker); !os.IsNotExist(err) {
+					t.Fatal("recovery retained marker", err)
+				}
+				if finalized {
+					current, err := os.ReadFile(source)
+					if err != nil || !bytes.Equal(current, sourceAfter) {
+						t.Fatal("finalize changed captured source", err)
+					}
+				} else {
+					for _, path := range []string{manifest, source} {
+						if _, err := os.Stat(path); !os.IsNotExist(err) {
+							t.Fatal("rollback did not remove initial artifact", path, err)
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
 

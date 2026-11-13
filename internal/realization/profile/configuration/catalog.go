@@ -41,7 +41,6 @@ func RootReferenceForScope(selected target.Target, scope target.Scope) (output.R
 }
 
 type nativeLayout struct {
-	authoring      bool
 	root           rootFact
 	aliasRoot      output.RootRole
 	aliasDirectory string
@@ -78,20 +77,16 @@ var (
 
 var nativeLayouts = map[scopeKey]nativeLayout{
 	{target.TargetPi, target.ScopeGlobal}: {
-		authoring: true,
-		root:      piRoot, aliasRoot: output.RootPiAgent, legacyHomeDir: ".pi/agent/", policy: "pi-native-v1", observations: piLoader,
+		root: piRoot, aliasRoot: output.RootPiAgent, legacyHomeDir: ".pi/agent/", policy: "pi-native-v1", observations: piLoader,
 	},
 	{target.TargetPi, target.ScopeProject}: {
-		authoring: true,
-		root:      projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".pi/", relativePrefix: ".pi/", policy: "pi-native-v1", observations: piLoader,
+		root: projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".pi/", relativePrefix: ".pi/", policy: "pi-native-v1", observations: piLoader,
 	},
 	{target.TargetCodex, target.ScopeGlobal}: {
-		authoring: true,
-		root:      codexRoot, aliasRoot: output.RootCodexHome, legacyHomeDir: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
+		root: codexRoot, aliasRoot: output.RootCodexHome, legacyHomeDir: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
 	},
 	{target.TargetCodex, target.ScopeProject}: {
-		authoring: true,
-		root:      projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".codex/", relativePrefix: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
+		root: projectRoot, aliasRoot: output.RootProject, aliasDirectory: ".codex/", relativePrefix: ".codex/", policy: "codex-native-v1", observations: codexRuntime,
 	},
 	{target.TargetClaudeCode, target.ScopeGlobal}: {
 		root: claudePreferences, aliasRoot: output.RootHome, aliasDirectory: ".claude/", policy: "claude-native-v1",

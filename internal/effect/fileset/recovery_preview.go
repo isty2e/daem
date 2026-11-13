@@ -90,7 +90,7 @@ func InspectFileSetRecovery4(ctx context.Context, stateDir string, exactPaths []
 		return "", err
 	}
 	if len(allowed) != len(marker.Targets) {
-		return "", fmt.Errorf("interrupted file-set target set does not match this operation")
+		return "", RecoveryTargetCountError{Expected: len(allowed), Recorded: len(marker.Targets)}
 	}
 	for _, target := range marker.Targets {
 		if _, ok := allowed[target.Path]; !ok {

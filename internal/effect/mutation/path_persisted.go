@@ -144,6 +144,38 @@ func (observation DirectoryEntryAuthorityObservation) Equal(other DirectoryEntry
 	return known && provisional.Equal(candidate)
 }
 
+// MayOverlap projects conservative exclusion without granting lookup or writes.
+func (observation DirectoryEntryAuthorityObservation) MayOverlap(other DirectoryEntryAuthorityObservation) bool {
+	if observation.Validate() != nil || other.Validate() != nil {
+		return true
+	}
+	if left, exact := observation.Exact(); exact {
+		if right, exact := other.Exact(); exact {
+			return left.MayOverlap(right)
+		}
+		right, _ := other.Provisional()
+		return right.CouldOverlap(left)
+	}
+	left, _ := observation.Provisional()
+	if right, exact := other.Exact(); exact {
+		return left.CouldOverlap(right)
+	}
+	right, _ := other.Provisional()
+	return left.CouldOverlapProvisional(right)
+}
+
+// MayOverlapExact compares current exclusion evidence with retained authority.
+func (observation DirectoryEntryAuthorityObservation) MayOverlapExact(other pathauthority.Exact) bool {
+	if observation.Validate() != nil || other.Validate() != nil {
+		return true
+	}
+	if exact, present := observation.Exact(); present {
+		return exact.MayOverlap(other)
+	}
+	missing, _ := observation.Provisional()
+	return missing.CouldOverlap(other)
+}
+
 // ObservePersistedDirectoryEntryAuthority captures the current canonical key
 // and filesystem-semantics witness in one observation epoch.
 func ObservePersistedDirectoryEntryAuthority(path string) (PersistedDirectoryEntryAuthority, error) {

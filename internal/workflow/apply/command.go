@@ -624,6 +624,7 @@ func BuildDiffs(ctx context.Context, result DryRunPlan) (DryRunDiffCollection, e
 		result.planned.result.Reconciliation,
 		nil,
 		result.planned.context.physicalBudget,
+		result.planned.assessment.NativeApproval,
 	)
 }
 

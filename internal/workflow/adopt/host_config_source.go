@@ -10,8 +10,6 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/desired/skill"
-	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -43,7 +41,7 @@ func localCaptureSourcePath(root string, value source.Source) (string, error) {
 }
 
 func captureSourceReferences(ctx context.Context, paths daempaths.Paths, environment desired.Environment, referent string, budget *physicalwork.Budget) ([]HostConfigSourceReference, error) {
-	referentKey, err := captureReferentKey(referent, budget)
+	referentPath, err := captureReferent(referent, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -102,23 +100,17 @@ func captureSourceReferences(ctx context.Context, paths daempaths.Paths, environ
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(paths.ManifestRoot, path)
 		}
-		physical, err := captureReferentKey(path, budget)
+		physical, err := captureReferent(path, budget)
 		if err != nil {
 			return nil, fmt.Errorf("qualify local source reference %s: %w", candidate.resource, err)
 		}
-		if physical == referentKey || candidate.directory && capturePathContains(physical, referentKey) {
-			if candidate.selector != nil {
-				relative, err := filepath.Rel(physical, referentKey)
-				if err != nil {
-					return nil, err
+		equal := physical.observed.Equal(referentPath.observed)
+		if equal || candidate.directory && physical.contains(referentPath) {
+			if candidate.selector != nil && !equal {
+				child, stable := physical.sourceChild(referentPath)
+				if !stable {
+					return nil, fmt.Errorf("source reference %s has an unprovable selector child", candidate.resource)
 				}
-				// Equality keys can fold case; selector matching uses the access
-				// spelling of the corresponding source-directory child.
-				childPath := referent
-				for range len(strings.Split(relative, string(filepath.Separator))) - 1 {
-					childPath = filepath.Dir(childPath)
-				}
-				child := filepath.Base(childPath)
 				selected, err := candidate.selector.Selects(child)
 				if err != nil {
 					return nil, err
@@ -128,33 +120,14 @@ func captureSourceReferences(ctx context.Context, paths daempaths.Paths, environ
 				}
 			}
 			result = append(result, HostConfigSourceReference{Resource: candidate.resource, Path: filepath.Clean(path)})
+		} else if physical.mayOverlap(referentPath) {
+			return nil, fmt.Errorf("source reference %s has possible overlap without a qualified sharing relation", candidate.resource)
 		}
 	}
 	slices.SortFunc(result, func(left, right HostConfigSourceReference) int {
 		return strings.Compare(left.Resource+"\x00"+left.Path, right.Resource+"\x00"+right.Path)
 	})
 	return result, nil
-}
-
-func captureReferentKey(path string, budget *physicalwork.Budget) (string, error) {
-	physical, err := rootedpath.ResolveReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return "", err
-	}
-	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(physical, physicalwork.MaximumPhysicalPathDepth, budget)
-	if err != nil {
-		return "", err
-	}
-	if exact, present := observed.Exact(); present {
-		return exact.Key(), nil
-	}
-	missing, _ := observed.Provisional()
-	return missing.CandidateKey(), nil
-}
-
-func capturePathContains(parent, child string) bool {
-	relative, err := filepath.Rel(parent, child)
-	return err == nil && (relative == "." || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
 func captureSourceConfig(config hostconfig.Config, path string) (hostconfig.Config, error) {

@@ -2,23 +2,20 @@ package listworkflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/encoding/toml"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -31,12 +28,12 @@ type OutputResult struct {
 
 // RunOutputs builds the output inventory without invoking full status
 // readiness, source freshness, provider, relation, order, or delegate probes.
-func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
+func RunOutputs(ctx context.Context, input Input) (result OutputResult, resultErr error) {
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return OutputResult{}, err
 	}
-	result := OutputResult{ManifestPath: paths.ManifestPath}
+	result = OutputResult{ManifestPath: paths.ManifestPath}
 	if err := recoverygate.RequireClear(ctx, paths); err != nil {
 		return result, err
 	}
@@ -63,9 +60,35 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 		}
 	}
 
-	resolver := physicalhostpath.NewResolver(paths).ForBudget(physicalwork.NewCaptureBudget(nil))
-	limits := configdocument.Limits{MaximumBytes: recovery.MaximumRecoveryBackupFileBytes, MaximumDepth: tomlsyntax.MaximumDepth}
-	codecs, err := aggregatecodec.ForOperation(ctx, aggregatecodec.ContractIDs(), limits, limits)
+	epoch, err := nativeconfig.LoadPersistenceEpoch(ctx, paths)
+	if err != nil {
+		return result, err
+	}
+	before, err := epoch.Snapshot()
+	if err != nil {
+		return result, err
+	}
+	selection, err := readiness.SelectOutputInventoryTargets(environment, locked, before, input.TargetValues)
+	if err != nil {
+		return result, err
+	}
+	documents, err := nativeconfig.ObserveDocuments(ctx, nativeconfig.DocumentObservationInput{
+		Paths: paths, Environment: environment, Lockfile: locked, Selection: selection, PersistenceEpoch: &epoch,
+	})
+	if err != nil {
+		return result, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, documents.Close()) }()
+	var native *readiness.NativeAssessmentInput
+	if observed, present := documents.NativeInput(); present {
+		native = &observed
+	}
+	budget, err := epoch.PhysicalBudget()
+	if err != nil {
+		return result, err
+	}
+	resolver := physicalhostpath.NewResolver(paths).ForBudget(budget)
+	codecs, err := nativeconfig.Codecs(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -78,6 +101,8 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 		Codecs:                  codecs,
 		HookContributionEncoder: hookcodec.CanonicalHookContribution,
 		MCPContributionEncoder:  mcpcodec.CanonicalMCPBindingContribution,
+		PersistenceEpoch:        &epoch,
+		Native:                  native,
 	})
 	if err != nil {
 		return result, err

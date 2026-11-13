@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
@@ -74,8 +73,12 @@ func InspectHostConfigCaptureRecovery(ctx context.Context, input HostConfigCaptu
 	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
 		return nil, err
 	}
-	if err := barrier.Validate(ctx); err == nil {
+	observationErr := barrier.Validate(ctx)
+	if observationErr == nil {
 		return nil, nil
+	}
+	if !captureFileSet4Candidate(observationErr) {
+		return nil, observationErr
 	}
 	// The generic clear-barrier reader deliberately refuses generation 4. Only
 	// the exact-target source adapter below may admit its reference evidence.
@@ -83,6 +86,9 @@ func InspectHostConfigCaptureRecovery(ctx context.Context, input HostConfigCaptu
 	plan.manifest, err = declarationartifact.CaptureMutationTarget(ctx, input.Paths.ManifestPath)
 	if err != nil {
 		return nil, err
+	}
+	if _, err := fileset.ReadFileSetReferenceEvidence4(ctx, input.Paths.StateDir, plan.manifest.Path()); err != nil {
+		return nil, errors.Join(observationErr, err)
 	}
 	if input.SourcePath == "" {
 		current, exists, err := captureCurrentDeclaration(ctx, input.Paths.ManifestPath, input.Name)
@@ -106,14 +112,15 @@ func InspectHostConfigCaptureRecovery(ctx context.Context, input HostConfigCaptu
 		}
 		plan.evidence, err = declarationtransaction.InspectSourceTransactionRecovery(ctx, input.Paths.StateDir, plan.manifest, plan.source)
 	}
-	if plan.input.SourcePath == "" || err != nil {
+	var targetCount fileset.RecoveryTargetCountError
+	if plan.input.SourcePath == "" || errors.As(err, &targetCount) && targetCount.Expected == 2 && targetCount.Recorded == 1 {
 		// A retirement has exactly the declaration target, and never restores or
 		// overwrites the old source. Its shape is validated below before approval.
 		plan.evidence, err = declarationtransaction.InspectSourceRetirementRecovery(ctx, input.Paths.StateDir, plan.manifest)
 		plan.retire = true
 	}
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(observationErr, err)
 	}
 	if err := plan.validateDeclarationTransition(ctx); err != nil {
 		return nil, err
@@ -126,6 +133,14 @@ func InspectHostConfigCaptureRecovery(ctx context.Context, input HostConfigCaptu
 		return nil, err
 	}
 	return plan, nil
+}
+
+func captureFileSet4Candidate(observationErr error) bool {
+	gateState := recoverygate.StateOf(observationErr)
+	var legacy recoverygate.LegacyUserStateRecoveryError
+	return !recoverygate.IsCancellation(observationErr) && !recoverygate.IsGlobalMetadataRefusal(observationErr) &&
+		!errors.As(observationErr, &legacy) && gateState.JournalKnown() && gateState.Journal() == "" &&
+		gateState.FileSet() == fileset.FileSetFenceInvalidEvidence
 }
 
 func captureCurrentDeclaration(ctx context.Context, path, name string) (hostconfig.Config, bool, error) {
@@ -234,30 +249,33 @@ func (plan *HostConfigCaptureRecovery) validateDeclarationTransition(ctx context
 
 func (plan *HostConfigCaptureRecovery) qualifyRecoveryPaths(ctx context.Context) ([]HostConfigSourceReference, error) {
 	budget := physicalwork.NewCaptureBudget(nil)
-	var writes []string
+	var writes []capturePath
 	writablePaths := []string{plan.manifest.Path()}
 	if !plan.retire {
 		writablePaths = append(writablePaths, plan.source.Path())
 	}
 	for _, path := range writablePaths {
-		key, err := captureReferentKey(path, budget)
+		observed, err := captureReferent(path, budget)
 		if err != nil {
 			return nil, err
 		}
-		writes = append(writes, key)
+		writes = append(writes, observed)
 	}
 	paths := plan.input.Paths
 	marker, err := fileset.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
 		return nil, err
 	}
-	for _, path := range []string{paths.LockfilePath, paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath, paths.SourceCacheDir, paths.RecoveryDir, marker} {
-		key, err := captureReferentKey(path, budget)
+	for _, path := range []string{paths.LockfilePath, paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath, paths.SourceCacheDir, paths.RecoveryDir, paths.GlobalMetadataDir(), paths.LegacyUserStateDir, marker} {
+		if path == "" {
+			continue
+		}
+		observed, err := captureReferent(path, budget)
 		if err != nil {
 			return nil, err
 		}
 		for _, write := range writes {
-			if capturePathContains(key, write) {
+			if observed.mayOverlap(write) {
 				return nil, ErrHostConfigCaptureArtifactOverlap
 			}
 		}
@@ -277,15 +295,15 @@ func (plan *HostConfigCaptureRecovery) qualifyRecoveryPaths(ctx context.Context)
 			if err != nil {
 				return nil, err
 			}
-			host, err := physicalhostpath.NewResolver(paths).Resolve(placement.Destination(), budget)
+			host, err := captureHostOutput(paths, placement.Document(), budget)
 			if err != nil {
 				return nil, err
 			}
-			key, err := captureReferentKey(host, budget)
+			observed, err := captureReferent(host, budget)
 			if err != nil {
 				return nil, err
 			}
-			if slices.Contains(writes, key) {
+			if slices.ContainsFunc(writes, observed.mayOverlap) {
 				return nil, ErrHostConfigCaptureArtifactOverlap
 			}
 		}

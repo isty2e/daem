@@ -203,9 +203,6 @@ func requireNativePath(selected target.Target, scope target.Scope, nativePath st
 	if err != nil {
 		return err
 	}
-	if !selectedLayout.authoring {
-		return fmt.Errorf("native host configuration authoring is not enabled for %s/%s", selected, scope)
-	}
 	if !selectedLayout.contains(nativePath) {
 		return fmt.Errorf("%w: %q is outside its native layout", ErrReserved, nativePath)
 	}

@@ -1,11 +1,69 @@
 package adopt
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	daempaths "github.com/isty2e/daem/internal/paths"
 )
+
+func TestCaptureSharingSelectorsRequireAQualifiedDirectChild(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		child     string
+		existing  string
+		exclude   string
+		wantGroup bool
+	}{
+		{name: "directory itself is shared", exclude: "skills", wantGroup: true},
+		{name: "missing stable prefix", child: "Kept/Café/settings.jsonc", exclude: "settings.jsonc", wantGroup: true},
+		{name: "missing stable prefix is excluded", child: "Kept/Café/settings.jsonc", exclude: "Kept"},
+		{name: "existing direct child", child: "Kept/Café/settings.jsonc", existing: "Kept", exclude: "Kept"},
+		{name: "unknown normalization of direct child", child: "Café/settings.jsonc", existing: ".", exclude: "Cafe\u0301", wantGroup: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if test.existing != "" {
+				if err := os.MkdirAll(filepath.Join(root, "skills", test.existing), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			manifest := []byte("version = 1\ntargets = ['pi']\n[[skill_group]]\nsource = { path = 'skills', mode = 'vendor' }\ninclude = ['glob:*']\nscope = 'project'\n")
+			if test.exclude != "" {
+				manifest = fmt.Appendf(manifest, "exclude = ['glob:%s']\n", test.exclude)
+			}
+			environment, err := declarationmanifest.Decode(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected := filepath.Join(root, "skills", test.child)
+			budget, err := physicalwork.NewBudget(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, err := captureReferent(selected, budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, provisional := observed.observed.Provisional()
+			references, err := captureSourceReferences(t.Context(), daempaths.Paths{ManifestRoot: root}, environment, selected, budget)
+			if test.name == "unknown normalization of direct child" && provisional {
+				if err == nil {
+					t.Fatal("unknown child spelling silently applied a byte-oriented selector")
+				}
+				return
+			}
+			if err != nil || (len(references) == 1) != test.wantGroup {
+				t.Fatal("incorrect sharing disclosure", references, err)
+			}
+		})
+	}
+}
 
 func TestCaptureSharingDisclosureUsesDirectorySelectorsAndLocalCarrierOwner(t *testing.T) {
 	fixture := newCaptureWorkflowFixture(t, "keys", []byte(`{"nested":{"a":2}}`))

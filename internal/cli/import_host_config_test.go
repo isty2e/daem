@@ -12,8 +12,13 @@ import (
 	"testing"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
 	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
+	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
+	"github.com/isty2e/daem/internal/target"
 )
 
 func captureCLIFixture(t *testing.T, content string) (root, manifest, host string, args []string) {
@@ -32,6 +37,65 @@ func captureCLIFixture(t *testing.T, content string) (root, manifest, host strin
 	}
 	args = []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", "pi", "--scope", "project", "--host-path", "settings.json"}
 	return
+}
+
+func captureHostScopes(selected string) []string {
+	if selected == "antigravity-cli" {
+		return []string{"global"}
+	}
+	return []string{"project", "global"}
+}
+
+func captureHostDocument(t *testing.T, manifest, selected, scope, path, ownership string) (string, string) {
+	t.Helper()
+	root := filepath.Dir(manifest)
+	if selected == "opencode" && scope == "project" {
+		path = ".opencode/" + path
+	}
+	if scope == "global" {
+		switch selected {
+		case "pi":
+			t.Setenv(pihostpath.AgentRootEnvironmentVariable, filepath.Join(root, "native-home"))
+		case "codex":
+			t.Setenv(codexhostpath.HomeEnvironmentVariable, filepath.Join(root, "native-home"))
+		case "claude-code":
+			t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, "native-home"))
+		}
+	}
+	selectedTarget, err := target.ParseTarget(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectedScope, err := target.ParseScope(scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+		Target: selectedTarget, Scope: selectedScope, Path: path, Ownership: hostconfig.Ownership(ownership),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	locations, err := nativehostpath.CaptureLocations(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placement.Document().RootReference().Identity() != configuration.ProjectRootIdentity {
+		location, err := locations.Resolve(placement.Document().RootReference())
+		if err != nil {
+			t.Fatal(err)
+		}
+		root = location.Path()
+	}
+	child, directory := placement.Document().Coordinate().DirectoryChild()
+	if !directory {
+		t.Fatal("generic capture fixture requires a directory-child document")
+	}
+	host := filepath.Join(root, filepath.FromSlash(child))
+	if err := os.MkdirAll(filepath.Dir(host), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return host, path
 }
 
 func runCaptureCLI(t *testing.T, args []string) (int, string, string) {
@@ -200,27 +264,15 @@ func TestImportHostConfigRejectsMixedRequestGrammarAndUnapprovedWrites(t *testin
 }
 
 func TestImportHostConfigInitialUsesAdmittedRootsAndGrammar(t *testing.T) {
-	for _, selected := range []string{"pi", "codex"} {
-		for _, scope := range []string{"project", "global"} {
+	for _, selected := range []string{"pi", "codex", "claude-code", "opencode", "antigravity-cli"} {
+		for _, scope := range captureHostScopes(selected) {
 			t.Run(selected+"/"+scope, func(t *testing.T) {
-				root, manifest, _, _ := captureCLIFixture(t, `{}`)
-				hostRoot := filepath.Join(root, "."+selected)
-				if scope == "global" {
-					hostRoot = filepath.Join(root, "native-home")
-					if selected == "pi" {
-						t.Setenv(pihostpath.AgentRootEnvironmentVariable, hostRoot)
-					} else {
-						t.Setenv(codexhostpath.HomeEnvironmentVariable, hostRoot)
-					}
-				}
+				_, manifest, _, _ := captureCLIFixture(t, `{}`)
 				path, content := "settings.json", `{"capture":{"value":true},"unselected":1}`
 				if selected == "codex" {
 					path, content = "config.toml", "# host comment\nunselected = 1\n[capture]\nvalue = true\n"
 				}
-				host := filepath.Join(hostRoot, path)
-				if err := os.MkdirAll(hostRoot, 0o700); err != nil {
-					t.Fatal(err)
-				}
+				host, path := captureHostDocument(t, manifest, selected, scope, path, "keys")
 				if err := os.WriteFile(host, []byte(content), 0o600); err != nil {
 					t.Fatal(err)
 				}

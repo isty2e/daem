@@ -18,10 +18,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 
@@ -42,6 +44,22 @@ type nativeAssessmentSources struct {
 	input       *NativeAssessmentInput
 	sources     []lockobserve.NativeSourceObservation
 	preparation *NativeSourcePreparation
+	// Inventory uses frozen lock contributions, never fabricated fresh sources.
+	lockedInventory []lock.LockedSubjectContract
+}
+
+func (input NativeAssessmentInput) validatePersistenceEpoch(ctx context.Context, epoch *PersistenceEpoch, before durable.Snapshot) error {
+	if epoch == nil || input.Documents == nil {
+		return fmt.Errorf("native observation requires its selected persistence epoch and document batch")
+	}
+	budget, err := epoch.PhysicalBudget()
+	if err != nil {
+		return err
+	}
+	if budget != input.Budget || !input.Documents.Evidence().BeforeState().Equal(before) {
+		return fmt.Errorf("native observation differs from its complete persistence epoch or pending allocation")
+	}
+	return input.Documents.Evidence().ValidatePlanningContext(ctx, input.Owner, input.Registry, input.Budget)
 }
 
 func nativeAssessmentError(err error) error {
@@ -107,20 +125,7 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 		}
 	}
 	if input.Native != nil && input.Native.Documents != nil {
-		if input.PersistenceEpoch == nil {
-			return nativeAssessmentSources{}, fmt.Errorf("native assessment requires its selected persistence epoch")
-		}
-		budget, err := input.PersistenceEpoch.PhysicalBudget()
-		if err != nil {
-			return nativeAssessmentSources{}, err
-		}
-		if budget != input.Native.Budget {
-			return nativeAssessmentSources{}, fmt.Errorf("native observation requires the persistence epoch's pending allocation")
-		}
-		if !input.Native.Documents.Evidence().BeforeState().Equal(before) {
-			return nativeAssessmentSources{}, fmt.Errorf("native observation differs from complete persistence epoch")
-		}
-		if err := input.Native.Documents.Evidence().ValidatePlanningContext(ctx, input.Native.Owner, input.Native.Registry, input.Native.Budget); err != nil {
+		if err := input.Native.validatePersistenceEpoch(ctx, input.PersistenceEpoch, before); err != nil {
 			return nativeAssessmentSources{}, err
 		}
 	}
@@ -189,10 +194,32 @@ func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, res
 			ordinaryStates = append(ordinaryStates, state)
 		}
 	}
+	var ordinaryPaths []ownershipobserve.ManagedPathInput
+	var ordinaryPathStates []durable.ManagedPathState
+	var nativePaths []aggregate.DocumentAddress
+	for index, request := range managed.requests {
+		if !aggregate.IsHostConfigDocumentSubject(request.Subject) {
+			ordinaryPaths = append(ordinaryPaths, managed.ownership[index])
+			continue
+		}
+		selected, err := native.wholeFileAlias(request.Subject, request.Destination)
+		if err != nil {
+			return ownershipobserve.Result{}, err
+		}
+		alias := selected.Address()
+		if !slices.Contains(nativePaths, alias) {
+			nativePaths = append(nativePaths, alias)
+		}
+	}
+	for _, state := range before.ManagedPaths() {
+		if !aggregate.IsHostConfigDocumentSubject(state.Subject()) {
+			ordinaryPathStates = append(ordinaryPathStates, state)
+		}
+	}
 	ordinary, err := ownershipobserve.Build(ownershipobserve.Input{
 		Paths: paths, Resolver: ownershipobserve.DestinationResolver(resolver),
-		ManagedPaths: managed.ownership, Aggregates: ordinaryProjections,
-		StatePaths: before.ManagedPaths(), StateAggregates: ordinaryStates,
+		ManagedPaths: ordinaryPaths, Aggregates: ordinaryProjections,
+		StatePaths: ordinaryPathStates, StateAggregates: ordinaryStates,
 		Selection: selection, Registry: native.Registry,
 	})
 	if err != nil {
@@ -202,6 +229,16 @@ func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, res
 		return ownershipobserve.Result{}, fmt.Errorf("state authority changed during native assessment")
 	}
 	result := ordinary.Observations
+	for _, alias := range nativePaths {
+		if alias.Scope() != target.ScopeGlobal {
+			continue
+		}
+		observed, err := projection.Global(ctx, alias, output.WholePathFootprint())
+		if err != nil {
+			return ownershipobserve.Result{}, err
+		}
+		result = append(result, observed)
+	}
 	for _, address := range nativeProjections {
 		if address.Document().Scope() != target.ScopeGlobal {
 			continue

@@ -107,6 +107,15 @@ func buildManagedAggregatePlanningInputs(
 	}
 	desiredContributions = append(desiredContributions, mcpDesired...)
 	if len(native) != 0 {
+		if len(native[0].sources) != 0 && len(native[0].lockedInventory) != 0 {
+			return managedAggregatePlanningInputs{}, fmt.Errorf("native observation cannot mix fresh sources and frozen inventory contributions")
+		}
+		inventory, err := aggregateContributionsFromContracts(native[0].lockedInventory)
+		if err != nil {
+			return managedAggregatePlanningInputs{}, err
+		}
+		expected = append(expected, native[0].lockedInventory...)
+		desiredContributions = append(desiredContributions, inventory...)
 		for _, source := range native[0].sources {
 			placement, _ := source.SourceContract().HostConfigPlacement()
 			if placement.Ownership() != hostconfig.OwnershipKeys {
@@ -296,6 +305,9 @@ func observeAggregateDocuments(
 		var preconditions []aggregate.OperationPrecondition
 		var admitted bool
 		if _, native := aggregate.HostConfigSyntaxForCodec(selected.CodecContractID()); native {
+			if !hasRetained {
+				return aggregateDocumentObservations{}, fmt.Errorf("native aggregate requires its selected document observation")
+			}
 			_, err = profile.NewNativeAggregateOperationContract(codecs, selected)
 			admitted = err == nil
 		} else {
