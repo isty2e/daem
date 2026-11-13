@@ -137,7 +137,7 @@ func TestPublicationEvidenceChargesSnapshotAndImageTraversals(t *testing.T) {
 	}
 	for _, before := range []bool{false, true} {
 		budget := &fenceObservationBudget{}
-		wantPaths, wantEntries := prefix.paths+5*depth, prefix.entries+2
+		wantPaths, wantEntries := prefix.paths+7*depth-2, prefix.entries+4
 		wantBytes := prefix.bytes + maximumMarkerBytes + int64(len(body))
 		if before {
 			_, err = ReadPublicationBeforeEvidence5(t.Context(), root, intent.targets[0].path, revision,

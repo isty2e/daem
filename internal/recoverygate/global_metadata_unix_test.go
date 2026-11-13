@@ -365,8 +365,11 @@ func TestGlobalMetadataObservationIsReadOnlyAndPreservesInvalidEvidence(t *testi
 	if err := os.MkdirAll(residue, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := Observe(t.Context(), paths); !errors.Is(err, ErrGlobalMetadataFence) || !errors.Is(err, fileset.ErrAbandonedFileSetResidue) {
-		t.Fatal("global residue was not retained as a blocking cause", err)
+	if err := Observe(t.Context(), paths); err != nil {
+		t.Fatal("inactive residue blocked normal observation", err)
+	}
+	if info, err := os.Stat(residue); err != nil || !info.IsDir() {
+		t.Fatal("read-only observation collected inactive residue", err)
 	}
 	if err := os.Remove(residue); err != nil {
 		t.Fatal(err)

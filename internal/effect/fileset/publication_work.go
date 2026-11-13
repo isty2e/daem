@@ -13,12 +13,12 @@ import (
 )
 
 type publicationPlan struct {
-	root        string
-	intent      PublicationIntent
-	limits      mutationfs.TreeTraversalLimits
-	headerSize  int64
-	rootWitness *rootedpath.CapturedRoot
-	destination rootedpath.Destination
+	root           string
+	intent         PublicationIntent
+	limits         mutationfs.TreeTraversalLimits
+	rootWitness    *rootedpath.CapturedRoot
+	destination    rootedpath.Destination
+	activeIdentity storagecommit.EntryIdentity
 }
 
 type publicationWorkPurpose uint8
@@ -87,7 +87,7 @@ func bindPublicationPlan(
 		return nil, fmt.Errorf("%w: evidence namespace changed", ErrRecoveryIntentMismatch)
 	}
 	return &publicationPlan{
-		root: canonicalRoot, intent: intent, limits: limits, headerSize: headerSize,
+		root: canonicalRoot, intent: intent, limits: limits,
 		rootWitness: witness, destination: destination,
 	}, nil
 }
@@ -125,53 +125,23 @@ func (plan *publicationPlan) admitWork(budget PhysicalWorkBudget, purpose public
 	if err != nil {
 		return err
 	}
-	w, err := plan.destination.ParentChainValidationWork()
-	if err != nil {
-		return err
-	}
-	// Capability acquisition precedes tree preparation. Terminal cleanup uses
-	// two more capabilities, each acquired without recharging this budget.
-	acquisitions := 4 * r
+	// Retirement acquires one capability; optional GC has its own budget.
+	acquisitions := 2 * r
 	if purpose == publicationForwardWork {
 		acquisitions += 2 * r
 	}
 	if err := add(acquisitions, 0, 0); err != nil {
 		return err
 	}
-	for _, cleanup := range []struct {
-		kind   mutationfs.EntryKind
-		limits mutationfs.TreeTraversalLimits
-		chain  int
-	}{
-		{kind: mutationfs.EntryKindFile, limits: publicationFileLimits(plan.headerSize), chain: w + 1},
-		{kind: mutationfs.EntryKindDirectory, limits: plan.limits, chain: w},
-	} {
-		envelope, err := mutationfs.NewRootedCleanupWorkEnvelope(cleanup.kind, cleanup.limits)
-		if err != nil {
-			return err
-		}
-		paths, err := envelope.PathWork(cleanup.chain)
-		if err != nil {
-			return err
-		}
-		if err := add(paths, envelope.EntryWork(), envelope.ByteWork()); err != nil {
-			return err
-		}
-	}
-	markerDepth, err := fileSetAbsolutePathWork(markerPath(plan.root), mutationfs.MaximumPhysicalPathDepth)
+	renamePaths, err := storagecommit.MaximumRootedEntryRenamePathWork(plan.destination)
 	if err != nil {
 		return err
 	}
-	// Rebind the containing record before settlement, then capture the marker
-	// and directory identities for exact marker-first cleanup. Body loading also
-	// performs its own size/type Lstat before the stable snapshot.
-	if err := addSnapshot(markerDepth, maximumMarkerBytes); err != nil {
+	if err := add(renamePaths, 8, 0); err != nil {
 		return err
 	}
-	if err := addImage(markerDepth, maximumTargetBytes); err != nil {
-		return err
-	}
-	if err := addSnapshot(markerDepth, plan.headerSize); err != nil {
+	markerDepth, err := fileSetAbsolutePathWork(markerPath(plan.root), mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
 		return err
 	}
 	directoryDepth, err := fileSetAbsolutePathWork(transactionDir(plan.root), mutationfs.MaximumPhysicalPathDepth)
@@ -182,8 +152,18 @@ func (plan *publicationPlan) admitWork(budget PhysicalWorkBudget, purpose public
 	if err != nil {
 		return err
 	}
-	if err := add(identityWork.PathWork(), identityWork.EntryWork(), identityWork.ByteWork()); err != nil {
-		return err
+	// Settlement and retirement each re-read the complete containing record,
+	// bounded by matching directory identities before and after the read.
+	for range 2 {
+		if err := addSnapshot(markerDepth, maximumMarkerBytes); err != nil {
+			return err
+		}
+		if err := addImage(markerDepth, maximumTargetBytes); err != nil {
+			return err
+		}
+		if err := add(2*identityWork.PathWork(), 2*identityWork.EntryWork(), 0); err != nil {
+			return err
+		}
 	}
 	for index, target := range plan.intent.targets {
 		d, err := fileSetAbsolutePathWork(target.path, mutationfs.MaximumPhysicalPathDepth)
@@ -277,7 +257,71 @@ func (plan *publicationPlan) admitWork(budget PhysicalWorkBudget, purpose public
 			}
 		}
 	}
+	failure, err := plan.retirementFailureWork()
+	if err != nil {
+		return err
+	}
+	if err := add(failure.pathComponents, failure.entries, failure.bytes); err != nil {
+		return err
+	}
 	return budget.AdmitPhysicalWork(work.paths, work.entries, work.bytes)
+}
+
+// A rename error may have occurred after visibility. Reserve both rooted name
+// observations, source-absence sync, and a verified no-replace active rebind
+// before any target effect, rather than borrowing optional GC work afterward.
+func (plan *publicationPlan) retirementFailureWork() (fileSetPhysicalWork, error) {
+	work := &fenceObservationBudget{}
+	r, err := plan.destination.RootValidationWork()
+	if err != nil {
+		return fileSetPhysicalWork{}, err
+	}
+	w, err := plan.destination.ParentChainValidationWork()
+	if err != nil {
+		return fileSetPhysicalWork{}, err
+	}
+	d, err := fileSetAbsolutePathWork(transactionDir(plan.root), mutationfs.MaximumPhysicalPathDepth)
+	if err != nil {
+		return fileSetPhysicalWork{}, err
+	}
+	absence, err := storagecommit.MaximumRootedAbsenceConfirmationPathWork(d)
+	if err != nil {
+		return fileSetPhysicalWork{}, err
+	}
+	rename, err := storagecommit.MaximumRootedEntryRenamePathWork(plan.destination)
+	if err != nil {
+		return fileSetPhysicalWork{}, err
+	}
+	if err := work.AdmitPhysicalWork(2*(2*r+absence)+2*r+rename, 8, 0); err != nil {
+		return fileSetPhysicalWork{}, err
+	}
+	for range 2 {
+		header, err := storagecommit.MaximumFileSnapshotWork(d+1, maximumMarkerBytes)
+		if err != nil {
+			return fileSetPhysicalWork{}, err
+		}
+		body, err := publicationEvidenceImageReadWork(d+1, maximumTargetBytes)
+		if err != nil {
+			return fileSetPhysicalWork{}, err
+		}
+		// Two raw identity probes seal the view, and two rooted probes bracket
+		// its original-object and backup verification under the retained root.
+		if err := work.AdmitPhysicalWork(4*d+8*r+4*w+header.PathWork()+body.pathComponents, 4+header.EntryWork()+body.entries, header.ByteWork()+body.bytes); err != nil {
+			return fileSetPhysicalWork{}, err
+		}
+		for _, target := range plan.intent.targets {
+			if target.before.exists {
+				image, err := publicationEvidenceImageReadWork(d+1, target.before.size)
+				if err != nil {
+					return fileSetPhysicalWork{}, err
+				}
+				if err := work.AdmitPhysicalWork(image.pathComponents, image.entries, image.bytes); err != nil {
+					return fileSetPhysicalWork{}, err
+				}
+			}
+		}
+	}
+	return fileSetPhysicalWork{pathComponents: work.paths, entries: work.entries, bytes: work.bytes}, nil
 }
 
 func publicationEvidenceImageReadWork(depth int, size int64) (fileSetPhysicalWork, error) {

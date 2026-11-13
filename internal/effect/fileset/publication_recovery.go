@@ -2,6 +2,7 @@ package fileset
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -64,10 +65,12 @@ func loadQualifiedPublication(ctx context.Context, root string, expected Publica
 	if view.markerRevision != revision || !samePublicationIntent(view.intent, expected) {
 		return nil, fmt.Errorf("%w: publication selection or revision changed", ErrRecoveryIntentMismatch)
 	}
-	if err := rejectAbandonedFileSetResidueWithBudget(ctx, view.evidenceRoot, mutationfs.MaximumPhysicalPathDepth, budget); err != nil {
+	plan, err := bindPublicationPlan(ctx, view.evidenceRoot, expected, view.headerSize, view.intentSize, budget)
+	if err != nil {
 		return nil, err
 	}
-	return bindPublicationPlan(ctx, view.evidenceRoot, expected, view.headerSize, view.intentSize, budget)
+	plan.activeIdentity = view.directoryIdentity
+	return plan, nil
 }
 
 func samePublicationIntent(left, right PublicationIntent) bool {
@@ -80,7 +83,7 @@ func (plan *publicationPlan) inspect(ctx context.Context, revision string) (Reco
 	if err != nil {
 		return "", err
 	}
-	if view.markerRevision != revision || !samePublicationIntent(view.intent, plan.intent) {
+	if view.markerRevision != revision || !samePublicationIntent(view.intent, plan.intent) || !samePublicationDirectory(view.directoryIdentity, plan.activeIdentity) {
 		return "", fmt.Errorf("%w: publication evidence changed", ErrRecoveryIntentMismatch)
 	}
 	for index := range plan.intent.targets {
@@ -196,48 +199,28 @@ func acquirePublicationTarget(path string) (rootedpath.CommitCapability, error) 
 }
 
 func (plan *publicationPlan) cleanupEvidence(ctx context.Context, revision string) error {
-	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, markerPath(plan.root), plan.headerSize)
+	view, err := readPublicationIntentEvidence(ctx, plan.root, mutationfs.MaximumPhysicalPathDepth, nil)
 	if err != nil {
 		return err
 	}
-	if hashBytes(snapshot.Content()) != revision || snapshot.Mode() != transactionEvidenceMode {
-		return fmt.Errorf("%w: marker changed before cleanup", ErrRecoveryIntentMismatch)
+	if view.markerRevision != revision || !samePublicationIntent(view.intent, plan.intent) || !samePublicationDirectory(view.directoryIdentity, plan.activeIdentity) {
+		return fmt.Errorf("%w: evidence changed before retirement", ErrRecoveryIntentMismatch)
 	}
-	identity, ok := snapshot.Identity().(storagecommit.EntryIdentity)
-	if !ok {
-		return fmt.Errorf("publication marker has no commit identity")
-	}
-	relative, err := rootedpath.NewRelativeDestination(plan.destination.Relative().Path() + "/" + transactionMarkerFile)
-	if err != nil {
+	identity := view.directoryIdentity
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
-	markerDestination, err := plan.destination.Root().Bind(relative)
-	if err != nil {
-		return err
+	name := fmt.Sprintf("%s%x", publicationRetiredPrefix, nonce)
+	if err := plan.renameEvidence(ctx, transactionDirName, name, identity); err != nil {
+		if err := plan.resolveRetirement(ctx, name, identity, revision, err); err != nil {
+			return err
+		}
 	}
-	markerCapability, err := plan.rootWitness.Acquire(markerDestination)
-	if err != nil {
-		return err
-	}
-	if err := cleanupPublicationEntry(ctx, markerCapability, identity, publicationFileLimits(plan.headerSize)); err != nil {
-		return err
-	}
-	// Only durable marker absence permits recursive evidence cleanup. A failure
-	// from here leaves incomplete evidence, never an active marker without backups.
-	identity, err = storagecommit.CaptureEntryIdentity(ctx, transactionDir(plan.root))
-	if err != nil {
-		return err
-	}
-	directoryCapability, err := plan.rootWitness.Acquire(plan.destination)
-	if err != nil {
-		return err
-	}
-	remaining, err := mutationfs.NewTreeTraversalLimits(plan.limits.MaximumEntries()-1, 0, plan.limits.MaximumBytes()-plan.headerSize)
-	if err != nil {
-		_ = directoryCapability.Close()
-		return err
-	}
-	return cleanupPublicationEntry(ctx, directoryCapability, identity, remaining)
+	// Retirement is durable before optional collection. Never sweep the active
+	// name or turn a post-terminal cleanup failure into a publication failure.
+	collectRetiredPublication(ctx, plan.root, name, identity)
+	return nil
 }
 
 func cleanupPublicationEntry(ctx context.Context, capability rootedpath.CommitCapability, identity storagecommit.EntryIdentity, limits mutationfs.TreeTraversalLimits) error {

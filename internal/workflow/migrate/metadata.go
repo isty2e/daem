@@ -25,6 +25,8 @@ type MetadataDisclosure struct {
 	metadataconversion.Disclosure
 	Action              string
 	ReferenceAssertions []MetadataReferenceAssertion
+	CleanupPaths        []string
+	CleanupDeferred     []string
 }
 
 type MetadataReferenceAssertion struct {
@@ -39,6 +41,7 @@ type metadataExecution func(context.Context) error
 type PreparedMetadata struct {
 	mu         sync.Mutex
 	execution  metadataExecution
+	release    func()
 	disclosure MetadataDisclosure
 }
 
@@ -63,12 +66,22 @@ func PlanMetadata(ctx context.Context, input MetadataInput) (*PreparedMetadata, 
 		}
 		clearErr := recoverygate.RequireGlobalMetadataClear(ctx, paths)
 		if clearErr == nil {
+			cleanup, err := metadataconversion.InspectCleanup(ctx, paths, budget)
+			if err != nil {
+				return nil, err
+			}
+			disclosure := MetadataDisclosure{
+				Disclosure: cleanup.Disclosure(), Action: "none",
+				CleanupPaths: cleanup.Paths(), CleanupDeferred: cleanup.Deferred(),
+			}
+			if len(disclosure.CleanupPaths) != 0 {
+				disclosure.Action = "cleanup"
+				return &PreparedMetadata{execution: cleanup.Execute, release: cleanup.Close, disclosure: disclosure}, nil
+			}
+			cleanup.Close()
 			return &PreparedMetadata{
-				execution: func(ctx context.Context) error { return ctx.Err() },
-				disclosure: MetadataDisclosure{
-					Disclosure: metadataconversion.Disclosure{ManifestPath: paths.ManifestPath, DataDir: paths.DataDir},
-					Action:     "none",
-				},
+				execution:  func(ctx context.Context) error { return ctx.Err() },
+				disclosure: disclosure,
 			}, nil
 		}
 		if !recoverygate.IsGlobalMetadataRefusal(clearErr) {
@@ -129,13 +142,20 @@ func (prepared *PreparedMetadata) Disclosure() MetadataDisclosure {
 	disclosure.Statefiles = slices.Clone(disclosure.Statefiles)
 	disclosure.Targets = slices.Clone(disclosure.Targets)
 	disclosure.ReferenceAssertions = slices.Clone(disclosure.ReferenceAssertions)
+	disclosure.CleanupPaths = slices.Clone(disclosure.CleanupPaths)
+	disclosure.CleanupDeferred = slices.Clone(disclosure.CleanupDeferred)
 	return disclosure
 }
 
 func (prepared *PreparedMetadata) Close() {
 	prepared.mu.Lock()
-	defer prepared.mu.Unlock()
+	release := prepared.release
+	prepared.release = nil
 	prepared.execution = nil
+	prepared.mu.Unlock()
+	if release != nil {
+		release()
+	}
 }
 
 func (prepared *PreparedMetadata) Execute(ctx context.Context) (MetadataDisclosure, error) {
@@ -144,8 +164,13 @@ func (prepared *PreparedMetadata) Execute(ctx context.Context) (MetadataDisclosu
 	}
 	prepared.mu.Lock()
 	execution := prepared.execution
+	release := prepared.release
 	prepared.execution = nil
+	prepared.release = nil
 	prepared.mu.Unlock()
+	if release != nil {
+		defer release()
+	}
 	if execution == nil {
 		return MetadataDisclosure{}, fmt.Errorf("metadata migration preparation is not available")
 	}

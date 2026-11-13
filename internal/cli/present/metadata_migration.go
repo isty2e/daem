@@ -24,6 +24,15 @@ func PrintMetadataMigration(writer io.Writer, mode string, plan migrate.Metadata
 	for _, path := range plan.Targets {
 		fmt.Fprintf(writer, "    %s\n", Escape(path))
 	}
+	if len(plan.CleanupPaths) != 0 {
+		fmt.Fprintf(writer, "  inactive metadata directories to clean: %d\n", len(plan.CleanupPaths))
+		for _, path := range plan.CleanupPaths {
+			fmt.Fprintf(writer, "    %s\n", Escape(path))
+		}
+	}
+	for _, reason := range plan.CleanupDeferred {
+		fmt.Fprintf(writer, "  cleanup deferred: %s\n", Escape(reason))
+	}
 	if len(plan.ReferenceAssertions) != 0 {
 		fmt.Fprintln(writer, "  operator-supplied historical lookup assertions:")
 		for _, assertion := range plan.ReferenceAssertions {
@@ -52,11 +61,14 @@ func PrintMetadataMigrationJSON(writer io.Writer, mode string, plan migrate.Meta
 		Statefiles          []string                     `json:"statefiles"`
 		Targets             []string                     `json:"targets"`
 		ReferenceAssertions []metadataReferenceAssertion `json:"reference_assertions,omitempty"`
+		CleanupPaths        []string                     `json:"cleanup_targets,omitempty"`
+		CleanupDeferred     []string                     `json:"cleanup_deferred,omitempty"`
 		Error               string                       `json:"error,omitempty"`
 	}{
 		SchemaVersion: contractversion.MetadataMigrationJSON,
 		Mode:          mode, Action: plan.Action, ManifestPath: plan.ManifestPath,
 		DataDir: plan.DataDir, Statefiles: plan.Statefiles, Targets: plan.Targets,
+		CleanupPaths: plan.CleanupPaths, CleanupDeferred: plan.CleanupDeferred,
 	}
 	for _, assertion := range plan.ReferenceAssertions {
 		result.ReferenceAssertions = append(result.ReferenceAssertions, metadataReferenceAssertion{

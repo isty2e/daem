@@ -14,7 +14,7 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 	dryRun := flags.Bool("dry-run", false, "preview the whole-registry conversion without writing")
 	yes := flags.Bool("yes", false, "execute the disclosed conversion without prompting")
 	flags.Bool("json", false, "emit structured JSON")
-	recoverConversion := flags.Bool("recover", false, "restore or finalize an interrupted metadata conversion")
+	recoverConversion := flags.Bool("recover", false, "recover interrupted metadata conversion or clean inactive metadata")
 	var references []string
 	flags.Func("reference", "independently known legacy lookup path; may be repeated", func(path string) error {
 		if path == "" {

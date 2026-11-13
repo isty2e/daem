@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -23,19 +24,61 @@ import (
 )
 
 type metadataMigrationOutput struct {
-	SchemaVersion int      `json:"schema_version"`
-	Mode          string   `json:"mode"`
-	Action        string   `json:"action"`
-	ManifestPath  string   `json:"manifest_path"`
-	Statefiles    []string `json:"statefiles"`
-	Targets       []string `json:"targets"`
-	Error         string   `json:"error"`
-	Assertions    []struct {
+	SchemaVersion  int      `json:"schema_version"`
+	Mode           string   `json:"mode"`
+	Action         string   `json:"action"`
+	ManifestPath   string   `json:"manifest_path"`
+	Statefiles     []string `json:"statefiles"`
+	Targets        []string `json:"targets"`
+	Error          string   `json:"error"`
+	CleanupTargets []string `json:"cleanup_targets"`
+	Assertions     []struct {
 		InputPath    string `json:"input_path"`
 		IdentityKey  string `json:"identity_key"`
 		Witness      string `json:"witness"`
 		ObservedPath string `json:"observed_path"`
 	} `json:"reference_assertions"`
+}
+
+func TestMigrateMetadataCleanupPreviewAuthorizationAndRepeat(t *testing.T) {
+	paths, before := metadataCLIValueFixture(t)
+	stage := filepath.Join(paths.GlobalMetadataDir(), ".daem-tmp-"+strings.Repeat("a", 32))
+	if err := os.MkdirAll(stage, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	arguments := []string{"migrate", "metadata", "--recover", "--manifest", paths.ManifestPath}
+	if code := RunWithOptions(arguments, RunOptions{Context: t.Context(), Stdout: &stdout, Stderr: &stderr}); code != 2 {
+		t.Fatal("cleanup bypassed noninteractive authorization", code, stdout.String(), stderr.String())
+	}
+	for index, mode := range []string{"--dry-run", "--yes", "--yes"} {
+		stdout.Reset()
+		stderr.Reset()
+		args := append(append([]string(nil), arguments...), mode, "--json")
+		code := RunWithOptions(args, RunOptions{Context: t.Context(), Stdout: &stdout, Stderr: &stderr})
+		var result metadataMigrationOutput
+		if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+			t.Fatal(err, stdout.String(), stderr.String())
+		}
+		want := "cleanup"
+		if index == 2 {
+			want = "none"
+		}
+		if code != 0 || result.Action != want || result.Error != "" || len(result.Targets) != 0 || len(result.Statefiles) != 0 {
+			t.Fatal("cleanup result misrepresented target authority or outcome", code, result, stderr.String())
+		}
+		if index < 2 && (len(result.CleanupTargets) != 1 || result.CleanupTargets[0] != stage) {
+			t.Fatal("cleanup scope not disclosed", result)
+		}
+		if index == 0 {
+			if _, err := os.Stat(stage); err != nil {
+				t.Fatal("preview collected metadata", err)
+			}
+		} else if _, err := os.Stat(stage); !os.IsNotExist(err) {
+			t.Fatal("authorized cleanup failed", err)
+		}
+		requireMetadataCLIImages(t, before)
+	}
 }
 
 func TestMigrateMetadataJSONPreviewExecutionAndNoop(t *testing.T) {

@@ -128,7 +128,9 @@ func (plan *publicationPlan) publishEvidence(ctx context.Context, body, header [
 		return err
 	}
 	defer prepared.Abort(context.WithoutCancel(ctx))
-	return prepared.Commit(ctx)
+	_, identity, err := prepared.CommitWithPublishedIdentity(ctx)
+	plan.activeIdentity = identity
+	return err
 }
 
 func writePublicationEvidenceFile(writer mutationfs.RootedTreeWriter, name string, content []byte) error {

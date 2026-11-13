@@ -2,22 +2,26 @@ package fileset
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 // PublicationIntentEvidenceView is a verified, immutable containing-record
 // snapshot. Its marker revision binds the exact bytes, not effect authority.
 type PublicationIntentEvidenceView struct {
-	evidenceRoot   string
-	markerRevision string
-	intent         PublicationIntent
-	headerSize     int64
-	intentSize     int64
+	evidenceRoot      string
+	markerRevision    string
+	intent            PublicationIntent
+	headerSize        int64
+	intentSize        int64
+	directoryIdentity storagecommit.EntryIdentity
 }
 
 func (view PublicationIntentEvidenceView) MarkerRevision() string    { return view.markerRevision }
@@ -136,7 +140,15 @@ func readPublicationIntentEvidence(
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
 ) (PublicationIntentEvidenceView, error) {
-	path := markerPath(canonicalRoot)
+	return readPublicationEvidenceAt(ctx, canonicalRoot, transactionDir(canonicalRoot), maximumPhysicalDepth, physicalWorkBudget)
+}
+
+func readPublicationEvidenceAt(ctx context.Context, canonicalRoot, directoryPath string, maximumPhysicalDepth int, physicalWorkBudget PhysicalWorkBudget) (PublicationIntentEvidenceView, error) {
+	directory, directoryErr := publicationDirectoryIdentity(ctx, directoryPath, maximumPhysicalDepth, physicalWorkBudget)
+	if directoryErr != nil && !errors.Is(directoryErr, os.ErrNotExist) {
+		return PublicationIntentEvidenceView{}, directoryErr
+	}
+	path := filepath.Join(directoryPath, transactionMarkerFile)
 	if physicalWorkBudget != nil {
 		depth, err := fileSetAbsolutePathWork(path, maximumPhysicalDepth)
 		if err != nil {
@@ -156,13 +168,16 @@ func readPublicationIntentEvidence(
 	if err != nil {
 		return PublicationIntentEvidenceView{}, err
 	}
+	if directoryErr != nil {
+		return PublicationIntentEvidenceView{}, fmt.Errorf("%w: evidence directory appeared while reading", ErrRecoveryIntentMismatch)
+	}
 	marker, err := decodePublicationMarker(ctx, header)
 	if err != nil {
 		return PublicationIntentEvidenceView{}, err
 	}
 	body, err := readPublicationEvidenceImage(
 		ctx,
-		filepath.Join(transactionDir(canonicalRoot), publicationIntentFile),
+		filepath.Join(directoryPath, publicationIntentFile),
 		"publication intent",
 		marker.intentHash,
 		marker.intentSize,
@@ -176,10 +191,50 @@ func readPublicationIntentEvidence(
 	if err != nil {
 		return PublicationIntentEvidenceView{}, err
 	}
+	fresh, err := publicationDirectoryIdentity(ctx, directoryPath, maximumPhysicalDepth, physicalWorkBudget)
+	if err != nil {
+		return PublicationIntentEvidenceView{}, err
+	}
+	if !samePublicationDirectory(directory, fresh) {
+		return PublicationIntentEvidenceView{}, fmt.Errorf("%w: containing evidence directory changed", ErrRecoveryIntentMismatch)
+	}
 	return PublicationIntentEvidenceView{
 		evidenceRoot: canonicalRoot, markerRevision: hashBytes(header), intent: intent,
-		headerSize: int64(len(header)), intentSize: marker.intentSize,
+		headerSize: int64(len(header)), intentSize: marker.intentSize, directoryIdentity: fresh,
 	}, nil
+}
+
+func publicationDirectoryIdentity(ctx context.Context, path string, maximumDepth int, budget PhysicalWorkBudget) (storagecommit.EntryIdentity, error) {
+	if budget != nil {
+		depth, err := fileSetAbsolutePathWork(path, maximumDepth)
+		if err != nil {
+			return storagecommit.EntryIdentity{}, err
+		}
+		work, err := storagecommit.MaximumFileIdentityWork(depth)
+		if err != nil {
+			return storagecommit.EntryIdentity{}, err
+		}
+		if err := budget.AdmitPhysicalWork(work.PathWork(), work.EntryWork(), 0); err != nil {
+			return storagecommit.EntryIdentity{}, err
+		}
+	}
+	identity, err := storagecommit.CaptureEntryIdentity(ctx, path)
+	if err != nil {
+		return storagecommit.EntryIdentity{}, err
+	}
+	if identity.Kind() != mutationfs.EntryKindDirectory {
+		return storagecommit.EntryIdentity{}, fmt.Errorf("publication evidence is not a directory")
+	}
+	return identity, nil
+}
+
+func samePublicationDirectory(left, right storagecommit.EntryIdentity) bool {
+	if !left.SameObject(right) {
+		return false
+	}
+	l, le := left.ProtectionFingerprint()
+	r, re := right.ProtectionFingerprint()
+	return le == nil && re == nil && l == r
 }
 
 func readPublicationEvidenceImage(

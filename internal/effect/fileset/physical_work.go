@@ -164,8 +164,8 @@ func ObserveClearFenceAt(
 }
 
 // ObserveClearPublicationFenceAt recognizes legacy-3 and containing-intent-5
-// markers without opening the intent or target paths. It charges the ordinary
-// marker census and grants no recovery or selection authority.
+// markers without opening the intent or target paths. Inactive siblings are not
+// transaction evidence. This observation grants no recovery or GC authority.
 func ObserveClearPublicationFenceAt(
 	ctx context.Context,
 	evidenceRoot string,

@@ -481,19 +481,21 @@ the recorded files rather than guessing a repair. See
 [`migrate metadata`](cli.md#migrate-metadata) for conversion and recovery inputs.
 
 The same boundary can also be refused because metadata is inaccessible, its
-identity cannot be established, or an observation limit or unexplained residue
-was encountered. These errors do not establish that conversion was interrupted.
+identity cannot be established, or active evidence exceeds observation limits.
+These errors do not establish that conversion was interrupted.
 Follow the reported cause: restore directory access when required and preserve
 the metadata and evidence before retrying. Do not delete them to bypass the
 boundary.
 
-Automatic removal of markerless staging residue is unsupported, including in
-the shared metadata directory. A forced stop before transaction evidence is
-published can leave such residue and block other workspaces using the same data
-directory. `migrate metadata --recover` needs a published marker; a reserved
-filename alone does not establish ownership or make cleanup safe. Preserve the
-residue and diagnostic for analysis rather than removing it by prefix. See the
-[markerless-residue guidance below](#manifest-metadata-update-was-interrupted).
+Inactive preparation or retired directories in the shared metadata directory
+do not block other workspaces. The commands above can disclose and authorize
+`cleanup` when no active transaction exists. Daem checks the private namespace,
+ownership, shape and exact directory identities; a filename prefix alone is not
+permission to remove arbitrary files. Unknown artifacts and incomplete active
+evidence are preserved, and deferred cleanup is not a normal-operation fence.
+The [markerless-residue guidance below](#manifest-metadata-update-was-interrupted)
+still applies to ordinary project StateDir transactions, whose recovery policy
+is unchanged.
 
 ## Manifest Metadata Update Was Interrupted
 

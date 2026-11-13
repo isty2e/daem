@@ -277,19 +277,19 @@ func TestPublication5RecoveryWorkRefusalPreservesEvidenceAndTargets(t *testing.T
 	}
 }
 
-func TestPublication5OwningRecoveryDoesNotBypassAnonymousResidue(t *testing.T) {
+func TestPublication5OwningRecoveryPreservesInactiveResidueWithoutBlocking(t *testing.T) {
 	input, revision := interruptedPublicationForTest(t, true)
-	before := publicationDiskImagesForTest(t, input)
 	residue := filepath.Join(input.EvidenceRoot, ".daem-tmp-unowned")
 	if err := os.Mkdir(residue, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecoverFileSet5(t.Context(), input.EvidenceRoot, input.Intent, revision, &fenceObservationBudget{}); !errors.Is(err, ErrAbandonedFileSetResidue) {
-		t.Fatal("owning one marker bypassed another residue fence", err)
+	if _, err := InspectFileSetRecovery5(t.Context(), input.EvidenceRoot, input.Intent, revision, &fenceObservationBudget{}); err != nil {
+		t.Fatal("inactive residue blocked recovery preview", err)
 	}
-	if !maps.Equal(before, publicationDiskImagesForTest(t, input)) {
-		t.Fatal("residue refusal changed targets or retired the owned marker")
+	if err := RecoverFileSet5(t.Context(), input.EvidenceRoot, input.Intent, revision, &fenceObservationBudget{}); err != nil {
+		t.Fatal("inactive residue blocked owning recovery", err)
 	}
+	assertMissing(t, transactionDir(input.EvidenceRoot))
 	if info, err := os.Stat(residue); err != nil || !info.IsDir() {
 		t.Fatal("recovery deleted anonymous evidence by its name", err)
 	}
@@ -323,30 +323,31 @@ func TestPublication5ThirdStateRefusesSettlementAndRecovery(t *testing.T) {
 	}
 }
 
-func TestPublication5MarkerAbsencePrecedesFailedDirectoryCleanup(t *testing.T) {
+func TestPublication5WholeTreeRetirementPrecedesOptionalCleanup(t *testing.T) {
 	input, revision := interruptedPublicationForTest(t, true)
 	unselected := filepath.Join(transactionDir(input.EvidenceRoot), "unselected")
 	writeFixture(t, unselected, "", transactionEvidenceMode)
-	if err := RecoverFileSet5(t.Context(), input.EvidenceRoot, input.Intent, revision, &fenceObservationBudget{}); err == nil {
-		t.Fatal("cleanup admitted an unexpected evidence entry")
+	if err := RecoverFileSet5(t.Context(), input.EvidenceRoot, input.Intent, revision, &fenceObservationBudget{}); err != nil {
+		t.Fatal("optional cleanup invalidated terminal recovery", err)
 	}
-	assertMissing(t, markerPath(input.EvidenceRoot))
-	if _, err := os.Stat(unselected); err != nil {
-		t.Fatal("directory cleanup removed unexpected evidence", err)
+	assertMissing(t, transactionDir(input.EvidenceRoot))
+	retired, err := filepath.Glob(filepath.Join(input.EvidenceRoot, publicationRetiredPrefix+"*"))
+	if err != nil || len(retired) != 1 {
+		t.Fatal("whole evidence tree was not retired", retired, err)
 	}
-	if err := ObserveClearPublicationFenceAt(t.Context(), input.EvidenceRoot, mutationfs.MaximumPhysicalPathDepth, &fenceObservationBudget{}); !errors.Is(err, ErrFileSetEvidenceInvalid) {
-		t.Fatal("partial cleanup did not leave an honest incomplete-evidence fence", err)
+	for _, name := range []string{"unselected", transactionMarkerFile, publicationIntentFile} {
+		if _, err := os.Stat(filepath.Join(retired[0], name)); err != nil {
+			t.Fatal("retirement lost evidence or removed an unknown file", name, err)
+		}
+	}
+	if err := ObserveClearPublicationFenceAt(t.Context(), input.EvidenceRoot, mutationfs.MaximumPhysicalPathDepth, &fenceObservationBudget{}); err != nil {
+		t.Fatal("retired data blocked normal admission", err)
 	}
 }
 
 func TestPublication5RechecksTerminalTargetsBeforeRetiringEvidence(t *testing.T) {
 	input, revision := interruptedPublicationForTest(t, true)
-	body, header, err := encodePublicationEvidence(input.Intent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := bindPublicationPlan(t.Context(), input.EvidenceRoot, input.Intent,
-		int64(len(header)), int64(len(body)), &fenceObservationBudget{})
+	plan, err := loadQualifiedPublication(t.Context(), input.EvidenceRoot, input.Intent, revision, &fenceObservationBudget{})
 	if err != nil {
 		t.Fatal(err)
 	}

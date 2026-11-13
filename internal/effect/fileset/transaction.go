@@ -277,6 +277,9 @@ func requireClearFileSetAtCanonicalPathVersion(
 	}
 	info, err := os.Lstat(evidencePath)
 	if errors.Is(err, os.ErrNotExist) {
+		if version == contractversion.MetadataTransactionIntent {
+			return ctx.Err()
+		}
 		return rejectAbandonedFileSetResidueWithBudget(
 			ctx,
 			stateDir,

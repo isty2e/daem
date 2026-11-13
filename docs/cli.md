@@ -1748,14 +1748,37 @@ authorize the disclosed recovery with `daem migrate metadata --recover --yes`.
 Recovery uses the recorded original selection, even when `--manifest` selects a
 different workspace sharing that data directory. Keep the original HOME/XDG
 environment. `--recover` cannot be combined with new `--reference` inputs.
-Repeating completed recovery reports `none` without writing.
+Unpublished preparation and already-retired transaction directories do not
+block normal commands. A published active transaction still requires recovery.
+Recovery confirms the terminal files, retires the whole evidence
+directory, then attempts cleanup; an interrupted cleanup does not reactivate the
+transaction.
+
+Successful conversion or recovery confirms terminal metadata and retirement, not
+removal of every inactive artifact. Automatic collection is best-effort; use
+`--recover --dry-run` to inspect any remaining cleanup work.
+
+When no active transaction exists, `--recover` can instead disclose a `cleanup`
+action for recognized inactive metadata directories. The same dry-run and
+confirmation rules apply. Cleanup does not read or change conversion targets.
+Unrecognized or changed artifacts are preserved; bounded cleanup may defer work
+without blocking normal commands. Repeating completed recovery or cleanup
+reports `none` without writing. Invalid active evidence is never bypassed as
+cleanup.
+Large inventories can require repeated cleanup batches. A batch does not claim
+to have inspected every directory entry. Cleanup effects currently require
+Darwin or Linux. Windows retains clean no-op recovery and discloses unavailable
+cleanup as deferred rather than enabling unverified deletion.
 
 JSON uses `schema_version = 1`, `mode`, `action`, `manifest_path`, `data_dir`,
 `statefiles` and `targets`. `manifest_path` identifies the original selection in
 recovery; `targets` includes unchanged and absent namespaces. Supplied paths add
 `reference_assertions`, each with `input_path`, `identity_key`, `witness` and
 `observed_path`. Conversion reports `convert`, `converted` or `already_converted`;
-recovery reports `rollback`, `finalize` or `none`. An execution failure retains the
+recovery reports `rollback`, `finalize`, `cleanup` or `none`. Cleanup lists its
+directories in `cleanup_targets`; `cleanup_deferred` reports skipped or
+uninspected work and is not a claim that all inactive metadata was collected.
+An execution failure retains the
 planned action and adds `error`; it is not a successful conversion result.
 Planning failures use the common CLI error envelope. Successful previews,
 execution and no-op repeats exit `0`; refusals and execution failures exit `1`; invalid arguments or

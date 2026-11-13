@@ -67,23 +67,7 @@ func testPublicationForwardWork(t *testing.T, beforeExists bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := plan.destination.ParentChainValidationWork()
-	if err != nil {
-		t.Fatal(err)
-	}
-	fileCleanup, err := mutationfs.NewRootedCleanupWorkEnvelope(mutationfs.EntryKindFile, publicationFileLimits(plan.headerSize))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dirCleanup, err := mutationfs.NewRootedCleanupWorkEnvelope(mutationfs.EntryKindDirectory, plan.limits)
-	if err != nil {
-		t.Fatal(err)
-	}
-	filePaths, err := fileCleanup.PathWork(w + 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dirPaths, err := dirCleanup.PathWork(w)
+	renamePaths, err := storagecommit.MaximumRootedEntryRenamePathWork(plan.destination)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,14 +79,14 @@ func testPublicationForwardWork(t *testing.T, beforeExists bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Marker/body/release reads contribute 8m-1. Three backup-image loads
+	// Two complete identity-guarded views contribute 14m-4. Backup-image loads
 	// contribute another 9m. Target capture/classification/recheck/publication
 	// and restoration contribute 25d; terminal re-read and persistence add5d.
-	// Acquisitions contribute 6r.
-	wantPaths := tree.PathWork() + filePaths + dirPaths + 6*r + 17*m - 1 + 30*d
-	wantEntries := tree.EntryWork() + fileCleanup.EntryWork() + dirCleanup.EntryWork() + 16
-	wantBytes := tree.ByteWork() + fileCleanup.ByteWork() + dirCleanup.ByteWork() +
-		maximumMarkerBytes + maximumTargetBytes + plan.headerSize +
+	// Acquisitions contribute 4r; retirement observes at most eight entries.
+	wantPaths := tree.PathWork() + renamePaths + 4*r + 23*m - 4 + 30*d
+	wantEntries := tree.EntryWork() + 28
+	wantBytes := tree.ByteWork() +
+		2*(maximumMarkerBytes+maximumTargetBytes) +
 		3*max(before.size, after.size) + 7*before.size + 2*after.size
 	if !beforeExists {
 		absence, err := storagecommit.MaximumRootedAbsenceConfirmationPathWork(d)
@@ -112,10 +96,17 @@ func testPublicationForwardWork(t *testing.T, beforeExists bool) {
 		// No backups or Before rewrite. Restoration removes the created file;
 		// terminal confirmation captures/acquires its root before confirming
 		// absence, even though the exclusive present branch needs only3d.
-		wantPaths = tree.PathWork() + filePaths + dirPaths + 6*r + 8*m - 1 + 41*d + absence
+		wantPaths = tree.PathWork() + renamePaths + 4*r + 14*m - 4 + 41*d + absence
 		wantEntries -= 4
 		wantBytes += 3 * after.size
 	}
+	failure, err := plan.retirementFailureWork()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths += failure.pathComponents
+	wantEntries += failure.entries
+	wantBytes += failure.bytes
 	actual := &fenceObservationBudget{}
 	if err := plan.admitWork(actual, publicationForwardWork); err != nil {
 		t.Fatal(err)
