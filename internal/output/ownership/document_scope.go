@@ -48,6 +48,22 @@ func (scope DocumentScope) contains(physical pathauthority.Exact) bool {
 	return intersects
 }
 
+// Positive retained-document identity is narrower than the protection envelope.
+// Possible ancestor/sibling overlap cannot select metadata for removal.
+func (scope DocumentScope) matchesRetainedDocument(physical pathauthority.Exact) bool {
+	for _, namespace := range scope.exact {
+		if namespace.Equal(physical) {
+			return true
+		}
+	}
+	for _, missing := range scope.missing {
+		if missing.MatchesMissingExact(physical) {
+			return true
+		}
+	}
+	return false
+}
+
 func (scope DocumentScope) intersection(physical pathauthority.Exact) (pathauthority.Exact, bool) {
 	for _, namespace := range scope.exact {
 		if protectionPathsOverlap(namespace, physical) {
