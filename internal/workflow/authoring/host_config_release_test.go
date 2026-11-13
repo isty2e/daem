@@ -460,3 +460,122 @@ func TestHostConfigAuthoringOnlyRefusesOrphanAndProtectedOwnMetadata(t *testing.
 		})
 	}
 }
+
+func TestHostConfigReleaseQualifiesDriftWithoutFollowingAnUnavailableHost(t *testing.T) {
+	for _, scenario := range []struct {
+		name         string
+		unapplied    bool
+		notDirectory bool
+		success      bool
+	}{
+		{"bound-dangling", false, false, true},
+		{"unapplied-dangling", true, false, true},
+		{"bound-non-directory", false, true, true},
+		{"unapplied-non-directory", true, true, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := newHostReleaseFixture(t, false)
+			if scenario.unapplied {
+				writeHostReleaseSnapshot(t, fixture, durable.EmptySnapshot())
+				content, err := ownershipstore.Marshal(ownership.EmptyRegistry())
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeUnmanageFile(t, fixture.paths.OwnershipRegistryPath, content)
+			}
+			if err := os.Remove(fixture.host); err != nil {
+				t.Fatal(err)
+			}
+			missing := filepath.Join(t.TempDir(), "missing", "settings.toml")
+			if scenario.notDirectory {
+				if err := os.Remove(filepath.Dir(fixture.host)); err != nil {
+					t.Fatal(err)
+				}
+				writeUnmanageFile(t, filepath.Dir(fixture.host), []byte("user non-directory replacement\n"))
+			} else if err := os.Symlink(missing, fixture.host); err != nil {
+				t.Fatal(err)
+			}
+			before := readUnmanageFile(t, fixture.paths.ManifestPath)
+			result, err := UnmanageHostConfig(t.Context(), fixture.request)
+			if !scenario.success {
+				if err == nil || !bytes.Equal(before, readUnmanageFile(t, fixture.paths.ManifestPath)) {
+					t.Fatal("unqualified host namespace was silently bypassed", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal("known binding or future namespace could not release metadata", err)
+			}
+			want := UnmanageManagementStatusReleased
+			if scenario.unapplied {
+				want = UnmanageManagementStatusNotPresent
+			}
+			if result.ManagementStatus != want {
+				t.Fatal("unavailable host changed management classification")
+			}
+			if scenario.notDirectory {
+				if actual := readUnmanageFile(t, filepath.Dir(fixture.host)); !bytes.Equal(actual, []byte("user non-directory replacement\n")) {
+					t.Fatal("release changed the non-directory host prefix")
+				}
+			} else {
+				if actual, err := os.Readlink(fixture.host); err != nil || actual != missing {
+					t.Fatal("release changed a dangling host link", err)
+				}
+				if _, err := os.Stat(missing); !os.IsNotExist(err) {
+					t.Fatal("release created a host referent", err)
+				}
+			}
+		})
+	}
+}
+
+func TestHostConfigReleaseDoesNotUseHostDriftToBypassMetadataGuards(t *testing.T) {
+	for _, scenario := range []string{"unbound-management", "unbound-orphan", "blocked-manifest", "dangling-control"} {
+		t.Run(scenario, func(t *testing.T) {
+			fixture := newHostReleaseFixture(t, false)
+			if err := os.Remove(fixture.host); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "dangling-control" {
+				if err := os.Symlink(filepath.Join(fixture.paths.RecoveryDir, "future", "journal.json"), fixture.host); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.Remove(filepath.Dir(fixture.host)); err != nil {
+					t.Fatal(err)
+				}
+				writeUnmanageFile(t, filepath.Dir(fixture.host), []byte("user blocker\n"))
+				registry := ownership.EmptyRegistry()
+				if scenario == "unbound-orphan" {
+					writeHostReleaseSnapshot(t, fixture, durable.EmptySnapshot())
+					var err error
+					registry, err = ownership.NewRegistry(fixture.registry.Claims())
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				if scenario == "blocked-manifest" {
+					writeHostReleaseSnapshot(t, fixture, durable.EmptySnapshot())
+					if err := os.Rename(fixture.paths.ManifestPath, filepath.Dir(fixture.host)); err != nil {
+						t.Fatal(err)
+					}
+					fixture.request.ManifestPath = filepath.Dir(fixture.host)
+				}
+				content, err := ownershipstore.Marshal(registry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeUnmanageFile(t, fixture.paths.OwnershipRegistryPath, content)
+			}
+			manifest := readUnmanageFile(t, fixture.request.ManifestPath)
+			state := readUnmanageFile(t, fixture.paths.StatefilePath)
+			registry := readUnmanageFile(t, fixture.paths.OwnershipRegistryPath)
+			if _, err := UnmanageHostConfig(t.Context(), fixture.request); err == nil {
+				t.Fatal("host drift bypassed namespace, orphan, or metadata alias refusal")
+			}
+			if !bytes.Equal(manifest, readUnmanageFile(t, fixture.request.ManifestPath)) || !bytes.Equal(state, readUnmanageFile(t, fixture.paths.StatefilePath)) || !bytes.Equal(registry, readUnmanageFile(t, fixture.paths.OwnershipRegistryPath)) {
+				t.Fatal("refused drift changed release data")
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
@@ -40,11 +41,11 @@ func prepareUnmanageHostConfigInvocation(ctx context.Context, args []string, std
 		}
 		selected, err := unmanageTarget(targets)
 		if err != nil {
-			return response.failure(usageFailure, humanFailureDiagnostic(err))
+			return response.failure(usageFailure, humanFailureDiagnostic(fmt.Errorf("unmanage failed: %w", err)))
 		}
 		scope, err := singleScopeValue(scopes)
 		if err != nil {
-			return response.failure(usageFailure, humanFailureDiagnostic(err))
+			return response.failure(usageFailure, humanFailureDiagnostic(fmt.Errorf("unmanage failed: %w", err)))
 		}
 		mode := authoring.UnmanageModeWrite
 		if *dryRun {
@@ -59,7 +60,7 @@ func prepareUnmanageHostConfigInvocation(ctx context.Context, args []string, std
 		}
 		if arguments.output == requestedJSON {
 			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.UnmanageHostConfigJSONFrom(result)); err != nil {
-				return response.failure(operationFailure, humanFailureDiagnostic(err))
+				return response.failure(operationFailure, humanFailureDiagnostic(fmt.Errorf("unmanage failed: write json: %w", err)))
 			}
 			return 0
 		}

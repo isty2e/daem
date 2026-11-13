@@ -43,19 +43,22 @@ type hostConfigReleaseFile struct {
 }
 
 type hostConfigReleaseCandidate struct {
-	paths           daempaths.Paths
-	request         UnmanageHostConfigRequest
-	files           []hostConfigReleaseFile
-	before          durable.Snapshot
-	after           durable.Snapshot
-	codec           durable.SnapshotCodec
-	owner           stateauthority.Authority
-	management      *journaldocument.HostConfigManagement
-	destination     output.Destination
-	selected        target.Target
-	scope           target.Scope
-	namespace       journalrecord.NativeReleaseNamespace
-	registryScope   ownership.DocumentScope
+	paths       daempaths.Paths
+	request     UnmanageHostConfigRequest
+	files       []hostConfigReleaseFile
+	before      durable.Snapshot
+	after       durable.Snapshot
+	codec       durable.SnapshotCodec
+	owner       stateauthority.Authority
+	management  *journaldocument.HostConfigManagement
+	destination output.Destination
+	selected    target.Target
+	scope       target.Scope
+	namespace   journalrecord.NativeReleaseNamespace
+	// Nil is admitted only for a proved declaration-only transition that has
+	// neither a document namespace nor an own metadata or membership delta.
+	registryScope   *ownership.DocumentScope
+	exclusion       mutation.DirectoryEntryAuthorityObservation
 	claims          []ownership.Claim
 	binding         ownership.DocumentBindingValue
 	manifestChanged bool
@@ -244,7 +247,13 @@ func buildHostConfigRelease(ctx context.Context, paths daempaths.Paths, request 
 }
 
 func (candidate hostConfigReleaseCandidate) same(other hostConfigReleaseCandidate) bool {
-	if candidate.owner != other.owner || candidate.destination != other.destination || candidate.selected != other.selected || candidate.scope != other.scope || !candidate.before.Equal(other.before) || !candidate.after.Equal(other.after) || !candidate.registryScope.Equal(other.registryScope) || !candidate.binding.Equal(other.binding) || !slices.EqualFunc(candidate.claims, other.claims, ownership.Claim.Equal) {
+	if (candidate.registryScope == nil) != (other.registryScope == nil) {
+		return false
+	}
+	if candidate.registryScope != nil && !candidate.registryScope.Equal(*other.registryScope) {
+		return false
+	}
+	if candidate.owner != other.owner || candidate.destination != other.destination || candidate.selected != other.selected || candidate.scope != other.scope || !candidate.before.Equal(other.before) || !candidate.after.Equal(other.after) || !candidate.binding.Equal(other.binding) || !slices.EqualFunc(candidate.claims, other.claims, ownership.Claim.Equal) {
 		return false
 	}
 	return slices.EqualFunc(candidate.files, other.files, func(left, right hostConfigReleaseFile) bool {

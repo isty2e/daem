@@ -70,8 +70,9 @@ func UnmanageHostConfig(ctx context.Context, request UnmanageHostConfigRequest) 
 	if request.Mode == UnmanageModeDryRun {
 		return optimistic.result(false), nil
 	}
+	var conversionErr error
 	if optimistic.management != nil {
-		conversionErr := metadataconversion.ConvertIfNeeded(ctx, barrier)
+		conversionErr = metadataconversion.ConvertIfNeeded(ctx, barrier)
 		if recoverygate.IsCancellation(conversionErr) {
 			return result, conversionErr
 		}
@@ -120,7 +121,10 @@ func UnmanageHostConfig(ctx context.Context, request UnmanageHostConfigRequest) 
 		if !matches {
 			return mutation.StaleSnapshotError{}
 		}
-		return recoverygate.RequireGlobalMetadataClear(ctx, paths)
+		if err := recoverygate.RequireGlobalMetadataClear(ctx, paths); err != nil {
+			return errors.Join(err, conversionErr)
+		}
+		return nil
 	}
 	if err := validateLeases(ctx); err != nil {
 		return result, err

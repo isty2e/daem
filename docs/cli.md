@@ -961,7 +961,9 @@ An interrupted management release retains a journal for `daem recover`. Recovery
 settles the local file transaction before choosing whether to retain or finish
 releasing own metadata; it never reapplies host content or takes a new owner's
 claims. If only an unapplied declaration was being removed, rerun the original
-`unmanage host-config` command to settle its authoring transaction.
+`unmanage host-config` command to settle its authoring transaction. If that
+transaction had already committed its declaration edit, this retry can report
+that the ID is no longer present after clearing the transaction evidence.
 
 JSON output uses the manifest-authoring schema and reports `management`, its
 State and Registry changes, and `host.state = "retained"`. Pending protection
