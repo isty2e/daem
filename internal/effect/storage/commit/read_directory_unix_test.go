@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,6 +147,40 @@ func TestRootedDirectoryBatchSeparatesPartialAndCompleteCoverage(t *testing.T) {
 	complete, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 3)
 	if err != nil || len(complete.Entries()) != 3 {
 		t.Fatal("batch consumed the capability or changed complete observation", err)
+	}
+}
+
+func TestDirectoryPrefixRequiresEOFOrAnOverflowEntry(t *testing.T) {
+	for _, count := range []int{2, 3, 1} {
+		remaining := count
+		observedEOF := false
+		read := func(maximum int) ([]string, error) {
+			if maximum <= 0 {
+				t.Fatal("prefix requested an unbounded read")
+			}
+			if remaining == 0 {
+				observedEOF = true
+				return nil, io.EOF
+			}
+			remaining--
+			return []string{fmt.Sprint(remaining)}, nil
+		}
+		names, more, err := readDirectoryPrefix(t.Context(), read, 2)
+		if err != nil || len(names) != min(2, count) || more != (count > 2) || !more && !observedEOF {
+			t.Fatal("short read was mistaken for exhaustive coverage", count, names, more, observedEOF, err)
+		}
+	}
+	failed := errors.New("reader failed after a short result")
+	first := true
+	_, _, err := readDirectoryPrefix(t.Context(), func(int) ([]string, error) {
+		if first {
+			first = false
+			return []string{"observed"}, nil
+		}
+		return nil, failed
+	}, 2)
+	if !errors.Is(err, failed) {
+		t.Fatal("short result hid a later observation failure", err)
 	}
 }
 

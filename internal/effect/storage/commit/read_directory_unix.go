@@ -126,9 +126,9 @@ func readDirectoryNamePrefix(ctx context.Context, fd int, path string, limit int
 		_ = unix.Close(duplicate)
 		return nil, false, fmt.Errorf("wrap directory batch descriptor")
 	}
-	names, readErr := directory.Readdirnames(limit + 1)
+	names, more, readErr := readDirectoryPrefix(ctx, directory.Readdirnames, limit)
 	closeErr := directory.Close()
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
+	if readErr != nil {
 		return nil, false, readErr
 	}
 	if closeErr != nil {
@@ -137,12 +137,36 @@ func readDirectoryNamePrefix(ctx context.Context, fd int, path string, limit int
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	more := len(names) > limit
-	if more {
-		names = names[:limit]
-	}
-	sort.Strings(names)
 	return names, more, nil
+}
+
+func readDirectoryPrefix(ctx context.Context, read func(int) ([]string, error), limit int) ([]string, bool, error) {
+	if ctx == nil || limit < 0 || limit+1 <= 0 {
+		return nil, false, fmt.Errorf("directory prefix requires context and a representable bound")
+	}
+	names := make([]string, 0, min(limit, 256))
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		batch, err := read(min(256, limit+1-len(names)))
+		names = append(names, batch...)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, false, err
+		}
+		if len(names) > limit {
+			names = names[:limit]
+			sort.Strings(names)
+			return names, true, nil
+		}
+		if errors.Is(err, io.EOF) {
+			sort.Strings(names)
+			return names, false, nil
+		}
+		if len(batch) == 0 {
+			return nil, false, fmt.Errorf("directory prefix enumeration made no progress")
+		}
+	}
 }
 
 func snapshotDirectoryWithNames(
