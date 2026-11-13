@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -63,7 +64,21 @@ func UnmanageExtension(
 	if optimistic.request.Mode == UnmanageModeDryRun {
 		return resultFromCandidate(optimistic, false), nil
 	}
-	return commitUnmanageCandidate(ctx, optimistic)
+	var metadataErr error
+	if optimistic.stateChanged || optimistic.registryChanged {
+		metadataErr = metadataconversion.ConvertIfNeeded(ctx, optimistic.barrier)
+		if recoverygate.IsCancellation(metadataErr) {
+			return UnmanageExtensionResult{}, metadataErr
+		}
+		if err := ctx.Err(); err != nil {
+			return UnmanageExtensionResult{}, err
+		}
+	}
+	result, err := commitUnmanageCandidate(ctx, optimistic)
+	if metadataErr != nil && recoverygate.IsGlobalMetadataRefusal(err) {
+		err = errors.Join(err, fmt.Errorf("automatic metadata conversion: %w", metadataErr))
+	}
+	return result, err
 }
 
 func recoverUnmanageFileSetBeforeRead(

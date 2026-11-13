@@ -867,6 +867,10 @@ those retained facts after manual manifest omission. A subject with neither a
 declaration nor a management fact is not found; ambiguous or stale identity
 fails without partial writes.
 
+When release updates State or shared claims, it uses the opportunistic format
+maintenance described under [apply](#apply). A manifest/lock-only release does
+not start conversion.
+
 The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
