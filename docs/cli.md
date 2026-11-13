@@ -960,7 +960,13 @@ needed to complete a successful management release.
 An interrupted management release retains a journal for `daem recover`. Recovery
 settles the local file transaction before choosing whether to retain or finish
 releasing own metadata; it never reapplies host content or takes a new owner's
-claims. If only an unapplied declaration was being removed, rerun the original
+claims. Once that transaction is settled, recovery leaves later manifest and
+default-lockfile edits untouched, even if the declaration has been added again.
+It still requires the recorded State and original control-file locations,
+including symlink targets;
+retargeted control-file symlinks must be restored before retrying recovery.
+
+If only an unapplied declaration was being removed, rerun the original
 `unmanage host-config` command to settle its authoring transaction. If that
 transaction had already committed its declaration edit, this retry can report
 that the ID is no longer present after clearing the transaction evidence.

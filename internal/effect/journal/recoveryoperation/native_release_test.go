@@ -161,7 +161,7 @@ func TestNativeReleasePlanningDoesNotInterpretLiveState(t *testing.T) {
 }
 
 func TestNativeReleaseAssessmentRequiresClearFilesAndExactBindings(t *testing.T) {
-	for _, phase := range []string{"before", "after", "pending", "wrong-binding", "third-local"} {
+	for _, phase := range []string{"before", "after", "pending", "wrong-binding", "state-byte-drift"} {
 		t.Run(phase, func(t *testing.T) {
 			fixture := prepareNativeRelease(t)
 			if phase == "pending" {
@@ -172,8 +172,13 @@ func TestNativeReleaseAssessmentRequiresClearFilesAndExactBindings(t *testing.T)
 					requireWholeGroupWrite(t, write.Path, write.After, write.Before.Mode)
 				}
 			}
-			if phase == "third-local" {
-				requireWholeGroupWrite(t, fixture.local.Manifest, []byte("editor change"), 0o600)
+			if phase == "state-byte-drift" {
+				content := append(bytes.Clone(fixture.writes[2].Before.Content), '\n')
+				requireWholeGroupWrite(t, fixture.local.State, content, 0o600)
+				current, err := statefile.LoadOptionalWithOptions(t.Context(), fixture.local.State, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.options.StateCodec), PhysicalPathBudget: fixture.budget})
+				if err != nil || !current.Equal(fixture.batch.Evidence().BeforeState()) {
+					t.Fatal("State fixture did not retain semantic Before", err)
+				}
 			}
 			var authorities []*rootedpath.EntryAuthority
 			for index, path := range []string{fixture.local.Manifest, fixture.local.DefaultLock, fixture.local.State} {

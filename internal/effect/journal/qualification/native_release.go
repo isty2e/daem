@@ -106,6 +106,13 @@ func AssessNativeRelease(ctx context.Context, source journalinventory.ActiveJour
 		if err := RequireOperationDestination(capability, paths[index]); err != nil {
 			return NativeReleaseAssessment{}, errors.Join(err, capability.Close())
 		}
+		if file.Role() != journalrecord.NativeReleaseState {
+			if err := capability.Close(); err != nil {
+				return NativeReleaseAssessment{}, err
+			}
+			continue
+		}
+
 		maximum := min(journalrecord.MaximumBytes, options.Budget.RemainingBytes())
 		if maximum <= 0 {
 			return NativeReleaseAssessment{}, errors.Join(fmt.Errorf("native release control observation exceeds its byte allocation"), capability.Close())
@@ -123,15 +130,11 @@ func AssessNativeRelease(ctx context.Context, source journalinventory.ActiveJour
 		if workErr != nil {
 			return NativeReleaseAssessment{}, errors.Join(readErr, closeErr, workErr)
 		}
-		exists, digest, expectedMode := file.BeforeExists(), file.BeforeSHA256(), file.BeforeMode()
-		if after && file.Writes() {
-			exists, digest = true, file.AfterSHA256()
+		digest := file.BeforeSHA256()
+		if after {
+			digest = file.AfterSHA256()
 		}
-		if !exists {
-			if !errors.Is(readErr, os.ErrNotExist) || closeErr != nil {
-				return NativeReleaseAssessment{}, errors.Join(fmt.Errorf("native release retained-absent file changed"), readErr, closeErr)
-			}
-		} else if readErr != nil || closeErr != nil || mode.Perm() != expectedMode || journalrecord.Fingerprint(content) != digest {
+		if readErr != nil || closeErr != nil || mode.Perm() != file.BeforeMode() || journalrecord.Fingerprint(content) != digest {
 			return NativeReleaseAssessment{}, errors.Join(fmt.Errorf("native release local file differs from its selected phase"), readErr, closeErr)
 		}
 	}

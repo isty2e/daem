@@ -138,6 +138,61 @@ func interruptHostRelease(t *testing.T, fixture hostReleaseFixture, boundary str
 	return candidate, release
 }
 
+func TestHostConfigReleaseRecoveryPreservesLaterAuthoringEdits(t *testing.T) {
+	for _, boundary := range []string{"journal", "local-files", "own-metadata", "prepared-retirement"} {
+		t.Run(boundary, func(t *testing.T) {
+			fixture := newHostReleaseFixture(t, false)
+			hostBefore := readUnmanageFile(t, fixture.host)
+			candidate, release := interruptHostRelease(t, fixture, boundary)
+			manifest := append(bytes.Clone(candidate.files[0].content), []byte("\n# later user authoring\n")...)
+			if boundary == "journal" {
+				manifest = []byte("version = [\n")
+			}
+			lock := []byte("{\"later_user_edit\":true}\n")
+			writeUnmanageFile(t, fixture.paths.ManifestPath, manifest)
+			writeUnmanageFile(t, fixture.paths.LockfilePath, lock)
+
+			prepared, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: fixture.paths.ManifestPath})
+			if err != nil {
+				t.Fatal("later authoring edits prevented release recovery planning", err)
+			}
+			defer prepared.Close()
+			result, err := workflowrecover.Execute(t.Context(), prepared, workflowrecover.ExecuteOptions{})
+			if err != nil || result.Phase() != workflowrecover.ExecutionPhaseCompleted {
+				t.Fatal("later authoring edits prevented release completion", err, result.Phase())
+			}
+			if !bytes.Equal(readUnmanageFile(t, fixture.paths.ManifestPath), manifest) || !bytes.Equal(readUnmanageFile(t, fixture.paths.LockfilePath), lock) {
+				t.Fatal("release recovery replaced later authoring edits")
+			}
+			state, err := statefile.LoadOptional(t.Context(), fixture.paths.StatefilePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			registryStore, err := ownershipstore.New(fixture.paths.OwnershipRegistryPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			registry, err := registryStore.LoadProtectionRegistry(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			expectedState, expectedRegistry := release.After(), ownership.EmptyRegistry()
+			if boundary == "journal" {
+				expectedState, expectedRegistry = release.Before(), fixture.registry
+			}
+			if !state.Equal(expectedState) || !registry.Equal(expectedRegistry) {
+				t.Fatal("later declarations changed the recorded release direction")
+			}
+			if !bytes.Equal(readUnmanageFile(t, fixture.host), hostBefore) {
+				t.Fatal("release recovery changed host bytes")
+			}
+			if _, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: fixture.paths.ManifestPath}); !errors.Is(err, journal.ErrNoRecoverableJournal) {
+				t.Fatal("completed release left actionable journal authority", err)
+			}
+		})
+	}
+}
+
 func TestHostConfigReleaseRecoveryUsesTheCompleteLocalCommit(t *testing.T) {
 	for _, boundary := range []string{"journal", "partial-files", "local-files", "own-metadata", "prepared-retirement"} {
 		t.Run(boundary, func(t *testing.T) {
