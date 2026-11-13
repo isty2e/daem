@@ -128,6 +128,19 @@ func executeWithDependencies(
 		return disclose(planned), err
 	}
 
+	metadataErr := attemptMetadataConversion(ctx, planned)
+	if recoverygate.IsCancellation(metadataErr) {
+		return disclose(planned), metadataErr
+	}
+	if err := ctx.Err(); err != nil {
+		return disclose(planned), err
+	}
+	defer func() {
+		if metadataErr != nil && recoverygate.IsGlobalMetadataRefusal(returnErr) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("automatic metadata conversion: %w", metadataErr))
+		}
+	}()
+
 	store, err := mutation.NewStore(planned.context.Paths.DataDir)
 	if err != nil {
 		return disclose(planned), err

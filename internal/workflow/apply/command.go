@@ -401,8 +401,9 @@ type CommandResult struct {
 	LockOnly               []readiness.UnsupportedProjection
 	MCPProjections         []mcpobserve.LockedProjectionObservation
 	ActionCount            int
-	// ExecutionAttempted reports whether apply crossed a durable mutation or
-	// delegated command-runner boundary.
+	// ExecutionAttempted reports whether normal apply crossed a durable mutation
+	// or delegated command-runner boundary. Independent format maintenance is
+	// not an attempt to execute the disclosed operation.
 	ExecutionAttempted bool
 	// UncompensatedEffectsAttempted reports that an effect outside the managed
 	// journal rollback domain was attempted during this apply.

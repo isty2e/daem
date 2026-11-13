@@ -45,6 +45,38 @@ func TestExecutePublishesWholeRegistryWithoutHostEffects(t *testing.T) {
 	}
 }
 
+func TestOptionalConversionRefusesRetargetedDataDir(t *testing.T) {
+	fixture := compilerFixture(t, 1)
+	alias := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(fixture.paths.DataDir, alias); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := fixture.paths.WithDataDir(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, alias); err != nil {
+		t.Fatal(err)
+	}
+	err = ConvertIfNeeded(t.Context(), authority)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatal("optional conversion followed a different metadata root", err)
+	}
+	fixture.assertUnchanged(t)
+	if _, err := os.Stat(filepath.Join(other, "metadata")); !os.IsNotExist(err) {
+		t.Fatal("rejected selection created conversion evidence", err)
+	}
+}
+
 func TestExecuteRejectsSourceChangeWithoutPublishingEvidence(t *testing.T) {
 	fixture := compilerFixture(t, 2)
 	plan := prepareFixture(t, fixture.paths)

@@ -80,7 +80,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	}
 	work := nativeApplyWork{
 		documents: documents, promoting: promoting, mutating: make([]bool, len(namespaces)),
-		managed: input.Preparation.ManagedPathEffects(), changed: !input.CurrentState.Equal(input.Preparation.AfterState()),
+		managed: input.Preparation.ManagedPathEffects(), changed: input.Preparation.StateChanged(),
 	}
 	var registryAliases []aggregate.DocumentAddress
 	wholeGroups := make(map[int]struct{})

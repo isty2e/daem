@@ -169,7 +169,6 @@ func TestGlobalOnlyMutationRetainsUnchangedNativeProjectAuthority(t *testing.T) 
 				t.Fatal("unchanged native namespace lost its root or became a mutation")
 			}
 			expected := planned.nativePlan.state.AfterState()
-			codec := planned.nativePlan.stateCodec
 			store, err := ownershipstore.New(paths.OwnershipRegistryPath)
 			if err != nil {
 				t.Fatal(err)
@@ -189,13 +188,9 @@ func TestGlobalOnlyMutationRetainsUnchangedNativeProjectAuthority(t *testing.T) 
 				t.Fatal("global-only mutation changed native project content", err)
 			}
 			assertApplyFileContent(t, filepath.Join(os.Getenv("HOME"), ".codex", "AGENTS.md"), "global instructions\n")
-			encoded, err := os.ReadFile(paths.StatefilePath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			actual, err := codec.Decode(encoded)
-			if err != nil || !actual.Equal(expected) {
-				t.Fatal("global-only mutation did not publish its complete native successor", err)
+			actual := loadApplyStatefile(t, paths.StatefilePath)
+			if !actual.Equal(expected) {
+				t.Fatal("global-only mutation did not publish its complete native successor")
 			}
 			registryAfter, err := store.Load(t.Context())
 			if err != nil || len(registryAfter.PendingProtections()) != len(registryBefore.PendingProtections()) {

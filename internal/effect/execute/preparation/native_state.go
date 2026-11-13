@@ -85,6 +85,10 @@ func (preparation NativeApplyStatePreparation) AfterState() durable.Snapshot {
 	return preparation.after
 }
 
+func (preparation NativeApplyStatePreparation) StateChanged() bool {
+	return !preparation.before.Equal(preparation.after)
+}
+
 func (preparation NativeApplyStatePreparation) ManagedPathEffects() []ManagedPathEffect {
 	return append([]ManagedPathEffect(nil), preparation.managed...)
 }

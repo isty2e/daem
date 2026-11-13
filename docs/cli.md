@@ -1306,6 +1306,14 @@ plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
 
+Before a non-no-op apply, daem may upgrade management metadata without changing
+managed content. This maintenance has its own transaction and may finish even
+if the requested apply is later refused. If conversion cannot be qualified,
+apply continues in the existing format under its usual ownership and recovery
+checks; an unfinished metadata transaction still requires recovery. Read-only
+planning and no-op apply do not start conversion. Older daem versions may refuse
+the new formats; see [metadata migration](#migrate-metadata).
+
 Human plans keep a resource's own configuration transition separate from a
 blocked shared document. An unchanged server can therefore have a blocked
 command prerequisite because another entry conflicts in the same document.

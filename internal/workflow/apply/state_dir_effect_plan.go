@@ -129,39 +129,55 @@ func applyEnvelopeFor(
 		}
 		executeGates = 0
 	}
-	orderClasses, err := admittedOrderClasses(current)
+	work, err := applyEnvelopeWorkFor(current, providerActions, applyInput.CurrentState)
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
+	}
+	work.ExecuteGates = executeGates
+	work.PrefixExecuteGates = prefixGates
+	work.PostRouteExecuteGates = postRouteGates
+	work.PostDelegateExecuteGates = postDelegateGates
+	envelope, err := operationplan.CompileApply(work)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
+	return envelope, executeGates, nil
+}
+
+func applyEnvelopeWorkFor(
+	current commandPlan,
+	providerActions []reconcile.RelationAction,
+	baseline durable.Snapshot,
+) (operationplan.ApplyWork, error) {
+	orderClasses, err := admittedOrderClasses(current)
+	if err != nil {
+		return operationplan.ApplyWork{}, err
 	}
 	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(
 		current.assessment.Reconciliation.CarrierAbsences(),
 	)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
 	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(
 		current.assessment.CurrentState,
 		current.assessment.Reconciliation.CarrierAdoptions(),
 	)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
-	finalRelations, err := finalRelationActions(current, applyInput.CurrentState)
+	finalRelations, err := finalRelationActions(current, baseline)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
 	carrierFacts, err := commandCarrierScheduleFacts(current)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
-	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		ExecuteGates:             executeGates,
-		PrefixExecuteGates:       prefixGates,
-		PostRouteExecuteGates:    postRouteGates,
-		PostDelegateExecuteGates: postDelegateGates,
-		ProviderActions:          routeWorks(current.assessment.CurrentState, providerActions),
+	return operationplan.ApplyWork{
+		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
-			applyInput.CurrentState,
+			baseline,
 			finalRelations,
 		),
 		CarrierRemovals:         carrierScheduleWorks(carrierFacts),
@@ -170,11 +186,7 @@ func applyEnvelopeFor(
 		OrderClasses:            orderClasses,
 		Delegates:               delegateWorks(current.assessment.Reconciliation.Delegates()),
 		StatefilePath:           current.assessment.StatePath,
-	})
-	if err != nil {
-		return operationplan.Envelope{}, 0, err
-	}
-	return envelope, executeGates, nil
+	}, nil
 }
 
 func applyPlanFromDemand(demand operationplan.Demand) applyStateDirEffectPlan {

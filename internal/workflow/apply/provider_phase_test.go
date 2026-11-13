@@ -1175,11 +1175,8 @@ func TestExecuteCompletesInterruptedFirstGlobalPiProviderInstall(t *testing.T) {
 			},
 		}),
 	}
-	beforeState, err := os.ReadFile(statePath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	capacityErr := errors.New("injected pending settlement capacity refusal")
+	beforeState := loadApplyStatefile(t, statePath)
 	reservationCalls := 0
 	result, err := executeWithDependencies(t.Context(), retry, noReplay, executeDependencies{
 		reserveForwardEffects: func(
@@ -1197,8 +1194,9 @@ func TestExecuteCompletesInterruptedFirstGlobalPiProviderInstall(t *testing.T) {
 	if !errors.Is(err, capacityErr) || reservationCalls != 1 || result.ExecutionAttempted {
 		t.Fatalf("capacity refusal calls=%d attempted=%t error=%v", reservationCalls, result.ExecutionAttempted, err)
 	}
-	if after, err := os.ReadFile(statePath); err != nil || string(after) != string(beforeState) {
-		t.Fatalf("capacity refusal changed pending state: %v", err)
+	// Format maintenance can precede admission, but cannot settle pending facts.
+	if after := loadApplyStatefile(t, statePath); !after.Equal(beforeState) {
+		t.Fatal("capacity refusal changed pending state")
 	}
 	for _, path := range []string{registryPath, configPath} {
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {

@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
 
@@ -39,6 +40,34 @@ func Prepare(ctx context.Context, authority recoverygate.EffectAuthority, budget
 	plan.authority = authority
 	plan.barrier = barrier
 	return plan, nil
+}
+
+// ConvertIfNeeded isolates format maintenance work from normal-command budgets.
+// Its fresh authority must preserve the caller's selected namespace/incarnation.
+func ConvertIfNeeded(ctx context.Context, authority recoverygate.EffectAuthority) error {
+	if ctx == nil {
+		return fmt.Errorf("metadata conversion context is required")
+	}
+	paths, err := authority.SelectedPaths()
+	if err != nil {
+		return err
+	}
+	fresh, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		return err
+	}
+	if !authority.Equal(fresh) {
+		return mutation.StaleSnapshotError{}
+	}
+	budget, err := physicalwork.NewBudget(0)
+	if err != nil {
+		return err
+	}
+	plan, err := Prepare(ctx, fresh, budget, nil)
+	if err != nil {
+		return err
+	}
+	return plan.Execute(ctx)
 }
 
 // Execute requalifies the same selection under complete leases before calling
