@@ -1369,7 +1369,8 @@ explicit `apply`.
 ## Host Configuration
 
 `[[host_config]]` manages selected keys or a dedicated whole configuration file
-for Codex or Pi. In key mode, declare only values you want daem to keep consistent. Other settings, such as
+for Pi, Codex, Claude Code, OpenCode or Antigravity CLI. In key mode, declare only
+values you want daem to keep consistent. Other settings, such as
 a model or reasoning-effort choice changed by the host, remain unmanaged unless
 you include them in the source.
 
@@ -1420,17 +1421,27 @@ host has loaded the file or that a particular extension recognizes its values.
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes | none | Unique host-configuration declaration name. |
-| `targets` | array of strings | no | top-level `targets` | Must resolve to exactly one target: `codex` or `pi`. |
+| `targets` | array of strings | no | top-level `targets` | Must resolve to exactly one target: `pi`, `codex`, `claude-code`, `opencode` or `antigravity-cli`. |
 | `scope` | string | no | `defaults.scope` | `project` or `global`. |
 | `path` | string | yes | none | Canonical slash-separated path relative to the selected host root. |
 | `source` | string or source object | yes | none | Local regular file, Git file source, or S3 file object; see [Sources](#sources). Local sources use vendor mode; global local sources must be absolute. |
 | `ownership` | string | no | `keys` | `keys` manages selected values; `document` manages a dedicated whole file. See the ownership limits below. |
 | `syntax` | string | no | host/path default | `json`, `jsonc`, `json-line-comments`, or `toml`. This selects parsing, not a host-schema validator. |
 
-Project paths are beneath `<manifest-directory>/.codex` or
-`<manifest-directory>/.pi`. Global paths are beneath the selected Codex home
-(`CODEX_HOME`, normally `~/.codex`) or Pi agent root (`PI_CODING_AGENT_DIR`, normally
-`~/.pi/agent`). Do not put those prefixes in `path`. Absolute paths, `..`, `.`
+`path` is relative to the selected host root:
+
+| Target | Project root | Global root |
+| --- | --- | --- |
+| `pi` | `<manifest-directory>/.pi` | `PI_CODING_AGENT_DIR`, default `~/.pi/agent` |
+| `codex` | `<manifest-directory>/.codex` | `CODEX_HOME`, default `~/.codex` |
+| `claude-code` | `<manifest-directory>/.claude` | `CLAUDE_CONFIG_DIR`, default `~/.claude` |
+| `opencode` | `<manifest-directory>` | `<XDG_CONFIG_HOME>/opencode`, default `~/.config/opencode` |
+| `antigravity-cli` | unsupported | `~/.gemini/antigravity-cli` |
+
+OpenCode project paths must be under `.opencode/`, or select one of the root
+files `opencode.json`, `opencode.jsonc`, `tui.json` or `tui.jsonc`. Antigravity CLI
+declarations require global scope; it has no project preferences layer.
+Do not put the selected host-root prefix in `path`. Absolute paths, `..`, `.`
 components, empty components and backslashes are rejected. Preview does not create
 missing host directories; confirmed apply creates the selected directories as
 needed. Empty directory scaffolding can remain after removal or rollback.
