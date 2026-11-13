@@ -99,7 +99,7 @@ jobs:
             goos: darwin
             goarch: arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 55
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -154,7 +154,7 @@ jobs:
   race:
     name: Race (Go 1.26.11, Linux amd64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

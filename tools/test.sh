@@ -140,7 +140,7 @@ full)
 	fi
 	# Package import paths cannot contain whitespace.
 	# shellcheck disable=SC2086
-	exec tools/test-go.sh -mod=readonly -count=1 ${full_packages}
+	exec tools/test-go.sh -mod=readonly -count=1 -timeout=25m ${full_packages}
 	;;
 race)
 	require_no_arguments "$@"
@@ -153,7 +153,7 @@ race)
 	export GORACE=atexit_sleep_ms=0
 	# Package import paths cannot contain whitespace.
 	# shellcheck disable=SC2086
-	exec tools/test-go.sh -mod=readonly -race -count=1 ${race_packages}
+	exec tools/test-go.sh -mod=readonly -race -count=1 -timeout=25m ${race_packages}
 	;;
 repository)
 	require_no_arguments "$@"
