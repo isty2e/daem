@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/execute/controlentry"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
@@ -36,8 +37,7 @@ type mutationAuthority struct {
 	filesystem                 mutationfs.Store
 	capturedRoot               *rootedpath.CapturedRoot
 	projectStatefile           *statefileoperation.Selected
-	recoveryJournal            *rootedpath.EntryAuthority
-	recoveryJournalRecord      *rootedpath.EntryAuthority
+	journalEntries             controlentry.JournalEntries
 	journalBasis               journalinventory.ExecutionBasis
 	physicalAuthorityRequests  []mutation.PhysicalAuthorityRequest
 	physicalWorkBudget         *physicalwork.Budget
@@ -289,14 +289,7 @@ func (authority *mutationAuthority) close() error {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close project statefile authority: %w", err))
 	}
 	authority.projectStatefile = nil
-	if err := authority.recoveryJournal.Close(); err != nil {
-		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal authority: %w", err))
-	}
-	authority.recoveryJournal = nil
-	if err := authority.recoveryJournalRecord.Close(); err != nil {
-		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal record authority: %w", err))
-	}
-	authority.recoveryJournalRecord = nil
+	closeErr = authority.journalEntries.CloseInto(closeErr)
 	authority.journalBasis = journalinventory.ExecutionBasis{}
 	authority.physicalWorkBudget = nil
 	authority.recoveryBackups = nil

@@ -17,12 +17,12 @@ import (
 func promoteNativeCapturedDocument(ctx context.Context, captured journalpublication.CapturedNativeJournal, index int, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryStore) (journalpublication.CapturedNativeJournal, error) {
 	return captured.PromoteDocument(ctx, index, journalpublication.NativePromotionOptions{
 		NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
-			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Codecs: input.Codecs, Registry: store,
+			Filesystem: input.Filesystem, OperationAuthority: authority.journalEntries.Directory(), Codecs: input.Codecs, Registry: store,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
 				return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 			},
 		},
-		RecordAuthority: authority.recoveryJournalRecord, StateCodec: input.StateCodec,
+		RecordAuthority: authority.journalEntries.Record(), StateCodec: input.StateCodec,
 	})
 }
 

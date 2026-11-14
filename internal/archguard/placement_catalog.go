@@ -328,6 +328,7 @@ var packagePlacementRows = []packagePlacementRow{
 		placement: plainPlacement(affinityEffect, roleActiveAdapter),
 		packages: []string{
 			"internal/effect/execute/configrelation",
+			"internal/effect/execute/controlentry",
 			"internal/effect/execute/delegate",
 			"internal/effect/execute/hostroute",
 			"internal/effect/mutation",

@@ -467,7 +467,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		var err error
 		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.JournalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{
 			Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
-			OperationAuthority: authority.recoveryJournal, ManifestRoot: authority.capturedRoot,
+			OperationAuthority: authority.journalEntries.Directory(), ManifestRoot: authority.capturedRoot,
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
 			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
