@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -357,7 +358,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	carrierRegistryAdded := false
 	for _, action := range planned.assessment.Reconciliation.Relations() {
-		if action.Scope() == target.ScopeGlobal && !carrierRegistryAdded {
+		if action.CarrierIdentity().ClaimStore() == durablecarrier.ClaimStoreGlobalRegistry && !carrierRegistryAdded {
 			if err := builder.AddLogicalPair(
 				planned.context.Paths.CarrierClaimRegistryPath,
 				mutation.AccessExclusive,
@@ -396,7 +397,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 	}
 	for _, action := range planned.assessment.Reconciliation.CarrierAbsences() {
-		if action.Scope() == target.ScopeGlobal && action.RetiresClaim() && !carrierRegistryAdded {
+		if action.Claim().Identity().ClaimStore() == durablecarrier.ClaimStoreGlobalRegistry && action.RetiresClaim() && !carrierRegistryAdded {
 			if err := builder.AddLogicalPair(
 				planned.context.Paths.CarrierClaimRegistryPath,
 				mutation.AccessExclusive,

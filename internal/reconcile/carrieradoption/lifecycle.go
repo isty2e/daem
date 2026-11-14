@@ -7,17 +7,10 @@ import (
 	"fmt"
 	"slices"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
-)
-
-// ClaimStore identifies the durable store selected by relation scope.
-type ClaimStore string
-
-const (
-	ClaimStoreProjectStatefile ClaimStore = "project_statefile"
-	ClaimStoreGlobalRegistry   ClaimStore = "global_registry"
 )
 
 // InstallRouteStatus records whether current route admission permits the
@@ -38,7 +31,6 @@ const (
 	BlockRemovalRouteUnavailable        LifecycleBlocker = "removal_route_unavailable"
 	BlockSharedConsumerPolicyIncomplete LifecycleBlocker = "shared_consumer_policy_incomplete"
 	BlockClaimStoreUnavailable          LifecycleBlocker = "claim_store_unavailable"
-	BlockClaimStoreScopeMismatch        LifecycleBlocker = "claim_store_scope_mismatch"
 )
 
 // LifecycleInput contains already-locked operation facts and the currently
@@ -48,7 +40,6 @@ type LifecycleInput struct {
 	Locked         lock.LockedSubjectContract
 	InstallRoute   InstallRouteStatus
 	RemovalRoute   carrierabsence.RouteAdmission
-	ClaimStore     ClaimStore
 	StoreAvailable bool
 }
 
@@ -60,7 +51,6 @@ type Lifecycle struct {
 	install        lock.OperationContract
 	installRoute   InstallRouteStatus
 	removal        carrierabsence.RouteAdmission
-	store          ClaimStore
 	storeAvailable bool
 	blocker        LifecycleBlocker
 }
@@ -68,7 +58,8 @@ type Lifecycle struct {
 // NewLifecycle validates and classifies the complete lifecycle basis in stable
 // gate order.
 func NewLifecycle(input LifecycleInput) (Lifecycle, error) {
-	if _, admitted, err := lock.DelegatedRelationCarrier(input.Locked); err != nil {
+	key, admitted, err := lock.DelegatedRelationCarrierKey(input.Locked)
+	if err != nil {
 		return Lifecycle{}, fmt.Errorf("carrier adoption lifecycle lock: %w", err)
 	} else if !admitted {
 		return Lifecycle{}, fmt.Errorf("carrier adoption lifecycle requires a locked carrier relation")
@@ -79,8 +70,8 @@ func NewLifecycle(input LifecycleInput) (Lifecycle, error) {
 	if err := validateInstallRouteStatus(input.InstallRoute); err != nil {
 		return Lifecycle{}, err
 	}
-	if err := validateClaimStore(input.ClaimStore); err != nil {
-		return Lifecycle{}, err
+	if _, known := durablecarrier.ClaimStoreForScope(key.Scope()); !known {
+		return Lifecycle{}, fmt.Errorf("carrier adoption scope %q has no claim store", key.Scope())
 	}
 
 	install, hasInstall := input.Locked.OperationContract(lock.OperationInstall)
@@ -94,15 +85,12 @@ func NewLifecycle(input LifecycleInput) (Lifecycle, error) {
 		install:        install,
 		installRoute:   input.InstallRoute,
 		removal:        input.RemovalRoute,
-		store:          input.ClaimStore,
 		storeAvailable: input.StoreAvailable,
 	}
 	lifecycle.blocker = classifyLifecycle(
-		input.Locked,
 		install,
 		input.InstallRoute,
 		input.RemovalRoute,
-		input.ClaimStore,
 		input.StoreAvailable,
 	)
 	return lifecycle, nil
@@ -114,7 +102,6 @@ func (lifecycle Lifecycle) Validate() error {
 		Locked:         lifecycle.locked,
 		InstallRoute:   lifecycle.installRoute,
 		RemovalRoute:   lifecycle.removal,
-		ClaimStore:     lifecycle.store,
 		StoreAvailable: lifecycle.storeAvailable,
 	})
 	if err != nil {
@@ -149,17 +136,18 @@ func (lifecycle Lifecycle) RemovalRoute() carrierabsence.RouteAdmission {
 }
 
 // ClaimStore returns the scope-selected durable claim store.
-func (lifecycle Lifecycle) ClaimStore() ClaimStore { return lifecycle.store }
+func (lifecycle Lifecycle) ClaimStore() durablecarrier.ClaimStore {
+	store, _ := durablecarrier.ClaimStoreForScope(carrierScope(lifecycle.locked))
+	return store
+}
 
 // StoreAvailable reports whether the selected store participated in current assessment.
 func (lifecycle Lifecycle) StoreAvailable() bool { return lifecycle.storeAvailable }
 
 func classifyLifecycle(
-	locked lock.LockedSubjectContract,
 	install lock.OperationContract,
 	installRoute InstallRouteStatus,
 	removal carrierabsence.RouteAdmission,
-	store ClaimStore,
 	storeAvailable bool,
 ) LifecycleBlocker {
 	if installRoute != InstallRouteAdmitted {
@@ -179,9 +167,6 @@ func classifyLifecycle(
 	if !removal.PreservesSharedCarrier() &&
 		!containsString(remove.Preconditions(), "no_remaining_daem_known_consumers") {
 		return BlockSharedConsumerPolicyIncomplete
-	}
-	if !claimStoreMatchesScope(store, carrierScope(locked)) {
-		return BlockClaimStoreScopeMismatch
 	}
 	if !storeAvailable {
 		return BlockClaimStoreUnavailable
@@ -208,26 +193,6 @@ func carrierScope(locked lock.LockedSubjectContract) target.Scope {
 		return ""
 	}
 	return relation.Scope()
-}
-
-func validateClaimStore(store ClaimStore) error {
-	switch store {
-	case ClaimStoreProjectStatefile, ClaimStoreGlobalRegistry:
-		return nil
-	default:
-		return fmt.Errorf("carrier adoption claim store %q is unsupported", store)
-	}
-}
-
-func claimStoreMatchesScope(store ClaimStore, scope target.Scope) bool {
-	switch scope {
-	case target.ScopeProject:
-		return store == ClaimStoreProjectStatefile
-	case target.ScopeGlobal:
-		return store == ClaimStoreGlobalRegistry
-	default:
-		return false
-	}
 }
 
 func containsString(values []string, expected string) bool {

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
-	"github.com/isty2e/daem/internal/target"
 )
 
 type applyScheduleInput struct {
@@ -46,7 +46,7 @@ type applyCarrierScheduleFact struct {
 	fingerprint mutation.OperationFingerprint
 	work        operationplan.CarrierWork
 	mode        applyCarrierScheduleMode
-	scope       target.Scope
+	claimStore  durablecarrier.ClaimStore
 }
 
 type applyCarrierScheduleMode uint8
@@ -1125,7 +1125,7 @@ func compileApplyCarrierRetirementSchedule(
 		checkedPublications(removal.ref+"/statefile/retirement", 1),
 		checkedValidations(removal.ref+"/statefile/post-retirement", 1),
 	}
-	if removal.scope == target.ScopeGlobal {
+	if removal.claimStore == durablecarrier.ClaimStoreGlobalRegistry {
 		nodes = append(
 			[]operationplan.EffectNode{
 				checkedStep(
@@ -1608,11 +1608,12 @@ func applyCarrierScheduleFactsForOwner(
 	works := carrierWorks(actions)
 	result := make([]applyCarrierScheduleFact, 0, len(actions))
 	for index := range actions {
+		store := actions[index].Claim().Identity().ClaimStore()
 		mode := applyCarrierScheduleNone
 		switch {
 		case actions[index].StateOnly():
 			mode = applyCarrierScheduleNoOp
-			if owner == projectCarrierRetirementContinuation && actions[index].Scope() == target.ScopeProject {
+			if owner == projectCarrierRetirementContinuation && store == durablecarrier.ClaimStoreProjectStatefile {
 				mode = applyCarrierScheduleRetireProject
 				works[index].RetiresProject = true
 			}
@@ -1633,7 +1634,7 @@ func applyCarrierScheduleFactsForOwner(
 			fingerprint: fingerprint,
 			work:        works[index],
 			mode:        mode,
-			scope:       actions[index].Scope(),
+			claimStore:  store,
 		})
 	}
 	return result, nil

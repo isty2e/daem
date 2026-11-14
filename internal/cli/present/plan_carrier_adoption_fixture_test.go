@@ -82,7 +82,6 @@ func (fixture presentCarrierAdoptionFixture) lifecycleWithStoreAvailability(
 		Locked:         fixture.contract,
 		InstallRoute:   carrieradoption.InstallRouteAdmitted,
 		RemovalRoute:   fixture.lifecycle.RemovalRoute(),
-		ClaimStore:     carrieradoption.ClaimStoreProjectStatefile,
 		StoreAvailable: available,
 	})
 	if err != nil {

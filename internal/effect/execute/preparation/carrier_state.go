@@ -8,14 +8,11 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/target"
 )
 
-// MatchPendingCarrierInstall resolves one exact pending fact for an action and scope.
-func MatchPendingCarrierInstall(current durable.Snapshot, action reconciliation.RelationAction, scope target.Scope) (durablecarrier.PendingCarrierInstall, bool) {
-	if action.Scope() != scope {
-		return durablecarrier.PendingCarrierInstall{}, false
-	}
+// MatchPendingCarrierInstall resolves one exact pending acquisition for an action.
+// Promotion callers must select claim custody before matching pending evidence.
+func MatchPendingCarrierInstall(current durable.Snapshot, action reconciliation.RelationAction) (durablecarrier.PendingCarrierInstall, bool) {
 	for _, pending := range current.PendingCarrierInstalls() {
 		if pending.Identity().ExactEqual(action.CarrierIdentity()) && pending.InstallRequest().Equal(action.RouteRequest()) {
 			return pending, true
@@ -25,15 +22,16 @@ func MatchPendingCarrierInstall(current durable.Snapshot, action reconciliation.
 }
 
 // MatchPendingCarrierInstallCompletion resolves one exact no-invocation completion fact.
-func MatchPendingCarrierInstallCompletion(current durable.Snapshot, action reconciliation.RelationAction, scope target.Scope) (durablecarrier.PendingCarrierInstall, observerelation.CorrelationResult, bool) {
-	if action.Kind() != reconciliation.ActionNoOp || action.Scope() != scope {
+// Claim-store admission remains with promotion callers.
+func MatchPendingCarrierInstallCompletion(current durable.Snapshot, action reconciliation.RelationAction) (durablecarrier.PendingCarrierInstall, observerelation.CorrelationResult, bool) {
+	if action.Kind() != reconciliation.ActionNoOp {
 		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
 	}
 	correlation, present := action.Correlation()
 	if !present {
 		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
 	}
-	pending, matched := MatchPendingCarrierInstall(current, action, scope)
+	pending, matched := MatchPendingCarrierInstall(current, action)
 	if !matched {
 		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false
 	}
@@ -69,7 +67,10 @@ func CompleteProjectCarrierInstalls(current durable.Snapshot, actions []reconcil
 func promotedProjectCarrierClaims(current durable.Snapshot, actions []reconciliation.RelationAction) ([]durablecarrier.ManagedCarrierClaim, error) {
 	claims := make([]durablecarrier.ManagedCarrierClaim, 0, len(actions))
 	for _, action := range actions {
-		pending, correlation, matched := MatchPendingCarrierInstallCompletion(current, action, target.ScopeProject)
+		if action.CarrierIdentity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
+			continue
+		}
+		pending, correlation, matched := MatchPendingCarrierInstallCompletion(current, action)
 		if !matched {
 			continue
 		}

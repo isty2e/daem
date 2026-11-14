@@ -82,7 +82,7 @@ type planFingerprint struct {
 	RemovedEffects          []string
 	RetainedEffects         []string
 	RemovalNonClaims        []string
-	ClaimStore              ClaimStore
+	ClaimStore              durablecarrier.ClaimStore
 	StoreAvailable          bool
 	LifecycleBlocker        LifecycleBlocker
 	ManageExisting          bool

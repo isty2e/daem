@@ -3,8 +3,6 @@ package carrier
 import (
 	"fmt"
 	"sort"
-
-	"github.com/isty2e/daem/internal/target"
 )
 
 // GlobalCarrierClaims is the canonical daem-known global carrier claim set.
@@ -21,7 +19,7 @@ func NewGlobalCarrierClaims(claims []ManagedCarrierClaim) (GlobalCarrierClaims, 
 		if err := claim.Validate(); err != nil {
 			return GlobalCarrierClaims{}, fmt.Errorf("global carrier claim[%d]: %w", index, err)
 		}
-		if claim.Identity().Scope() != target.ScopeGlobal {
+		if claim.Identity().ClaimStore() != ClaimStoreGlobalRegistry {
 			return GlobalCarrierClaims{}, fmt.Errorf(
 				"global carrier claim[%d] requires global scope",
 				index,
@@ -93,7 +91,7 @@ func (registry GlobalCarrierClaims) WithClaims(
 				err,
 			)
 		}
-		if claim.Identity().Scope() != target.ScopeGlobal {
+		if claim.Identity().ClaimStore() != ClaimStoreGlobalRegistry {
 			return GlobalCarrierClaims{}, false, fmt.Errorf(
 				"global carrier claim[%d] requires global scope",
 				index,
@@ -159,7 +157,7 @@ func (registry GlobalCarrierClaims) RetireClaims(
 		if err := claim.RequireStable(); err != nil {
 			return GlobalCarrierClaims{}, err
 		}
-		if claim.Identity().Scope() != target.ScopeGlobal {
+		if claim.Identity().ClaimStore() != ClaimStoreGlobalRegistry {
 			return GlobalCarrierClaims{}, fmt.Errorf(
 				"global carrier retirement claim[%d] requires global scope",
 				index,
@@ -242,7 +240,7 @@ func (registry GlobalCarrierClaims) WithoutClaim(
 	if err := claim.RequireStable(); err != nil {
 		return GlobalCarrierClaims{}, false, err
 	}
-	if claim.Identity().Scope() != target.ScopeGlobal {
+	if claim.Identity().ClaimStore() != ClaimStoreGlobalRegistry {
 		return GlobalCarrierClaims{}, false, fmt.Errorf("global carrier registry requires global scope")
 	}
 	key := claim.FactKey()

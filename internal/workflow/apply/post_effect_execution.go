@@ -98,7 +98,7 @@ func carrierRemovalScheduleFactsEqual(
 			!leftFact.fingerprint.Equal(rightFact.fingerprint) ||
 			leftFact.work != rightFact.work ||
 			leftFact.mode != rightFact.mode ||
-			leftFact.scope != rightFact.scope {
+			leftFact.claimStore != rightFact.claimStore {
 			return false
 		}
 	}

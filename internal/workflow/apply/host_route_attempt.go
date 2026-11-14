@@ -24,7 +24,6 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
-	"github.com/isty2e/daem/internal/target"
 )
 
 func runHostRoutesAndPersistAttemptRecords(
@@ -691,7 +690,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 					bindingReleaseErr,
 				)
 			}
-			if item.action.Scope() == target.ScopeGlobal {
+			if item.action.CarrierIdentity().ClaimStore() == durablecarrier.ClaimStoreGlobalRegistry {
 				plan, planErr := prepareGlobalCarrierPromotionSettlementPlan(
 					paths.CarrierClaimRegistryPath,
 					nextState,

@@ -18,7 +18,6 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
-	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -221,10 +220,10 @@ func stateOnlyCarrierClaimRetirements(
 				index,
 			)
 		}
-		switch action.Scope() {
-		case target.ScopeProject:
+		switch action.Claim().Identity().ClaimStore() {
+		case durablecarrier.ClaimStoreProjectStatefile:
 			project = append(project, action.Claim())
-		case target.ScopeGlobal:
+		case durablecarrier.ClaimStoreGlobalRegistry:
 			global = append(global, action.Claim())
 		default:
 			return nil, nil, fmt.Errorf(
@@ -245,7 +244,7 @@ func retireAlreadyAbsentProjectClaim(
 	execution *applyContinuationExecution,
 	ref string,
 ) error {
-	if !action.StateOnly() || action.Scope() != target.ScopeProject {
+	if !action.StateOnly() || action.Claim().Identity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 		return fmt.Errorf("project carrier retirement requires an already-absent project action")
 	}
 	if err := scheduledCarrierRemovalForward(execution, ref+"/forward", func() error {
@@ -296,11 +295,12 @@ func retireClaim(
 	ref string,
 	failureCleanup func() error,
 ) error {
-	if action.Scope() != target.ScopeProject && action.Scope() != target.ScopeGlobal {
+	store := action.Claim().Identity().ClaimStore()
+	if store != durablecarrier.ClaimStoreProjectStatefile && store != durablecarrier.ClaimStoreGlobalRegistry {
 		return fmt.Errorf("carrier removal scope %q is unsupported", action.Scope())
 	}
 	var expected durablecarrier.GlobalCarrierClaims
-	if action.Scope() == target.ScopeGlobal {
+	if store == durablecarrier.ClaimStoreGlobalRegistry {
 		if err := scheduledCarrierRemovalCallWithFailureCleanup(
 			execution,
 			ref+"/derive-global-retirement",
@@ -344,7 +344,7 @@ func retireClaim(
 			}
 			input.markAttempted()
 			var next durable.Snapshot
-			if action.Scope() == target.ScopeProject {
+			if store == durablecarrier.ClaimStoreProjectStatefile {
 				next, err = execute.CommitRetiredProjectCarrierRemoval(
 					ctx,
 					filesystem(input),
@@ -382,7 +382,7 @@ func retireClaim(
 	); err != nil {
 		return err
 	}
-	if action.Scope() == target.ScopeProject {
+	if store == durablecarrier.ClaimStoreProjectStatefile {
 		return nil
 	}
 	if err := scheduledCarrierRemovalCallWithFailureCleanup(

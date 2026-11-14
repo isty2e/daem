@@ -74,7 +74,7 @@ func TestApplyContinuationExecutionRejectsCarrierSemanticDriftDespiteStructuralP
 		fingerprint: preparedFingerprint,
 		work:        operationplan.CarrierWork{InvokesHost: true},
 		mode:        applyCarrierScheduleHostRoute,
-		scope:       target.ScopeProject,
+		claimStore:  preparedAction.Claim().Identity().ClaimStore(),
 	}}
 	currentInput := syntheticApplyScheduleInput(t, 0)
 	currentInput.carrierRemovals = []applyCarrierScheduleFact{{
@@ -83,7 +83,7 @@ func TestApplyContinuationExecutionRejectsCarrierSemanticDriftDespiteStructuralP
 		fingerprint: currentFingerprint,
 		work:        operationplan.CarrierWork{InvokesHost: true},
 		mode:        applyCarrierScheduleHostRoute,
-		scope:       target.ScopeProject,
+		claimStore:  currentAction.Claim().Identity().ClaimStore(),
 	}}
 	prepared := mustCompileSyntheticApplySchedule(t, preparedInput)
 	current := mustCompileSyntheticApplySchedule(t, currentInput)

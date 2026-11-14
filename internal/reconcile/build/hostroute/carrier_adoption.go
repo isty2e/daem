@@ -11,7 +11,6 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
-	"github.com/isty2e/daem/internal/target"
 )
 
 // CarrierAdoptionInput contains the current pure facts needed to classify
@@ -98,10 +97,6 @@ func BuildCarrierAdoptionActions(
 				err,
 			)
 		}
-		store, err := carrierAdoptionClaimStore(identity.Scope())
-		if err != nil {
-			return nil, fmt.Errorf("plan carrier adoption %q: %w", item.contract.SubjectID().Key(), err)
-		}
 		installAdmission, err := carrierRelationInstallAdmission(item.contract)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -118,7 +113,6 @@ func BuildCarrierAdoptionActions(
 			Locked:         item.contract,
 			InstallRoute:   installRoute,
 			RemovalRoute:   removal,
-			ClaimStore:     store,
 			StoreAvailable: input.StoreAvailable,
 		})
 		if err != nil {
@@ -170,15 +164,4 @@ func carrierAdoptionCorrelation(
 		relation.ExpectedRelation(),
 		relationobserve.UnsupportedInventory(),
 	), nil
-}
-
-func carrierAdoptionClaimStore(scope target.Scope) (carrieradoption.ClaimStore, error) {
-	switch scope {
-	case target.ScopeProject:
-		return carrieradoption.ClaimStoreProjectStatefile, nil
-	case target.ScopeGlobal:
-		return carrieradoption.ClaimStoreGlobalRegistry, nil
-	default:
-		return "", fmt.Errorf("carrier adoption scope %q has no claim store", scope)
-	}
 }

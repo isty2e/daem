@@ -18,7 +18,6 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
-	"github.com/isty2e/daem/internal/target"
 )
 
 func runPinTransition(
@@ -53,7 +52,7 @@ func runPinTransition(
 
 	prepareCorrelation := func(ctx context.Context, budget *physicalwork.Budget) error {
 		options.markAttempted()
-		if item.action.Scope() == target.ScopeGlobal {
+		if item.action.CarrierIdentity().ClaimStore() == durablecarrier.ClaimStoreGlobalRegistry {
 			claims, err = publishGlobalPinTransition(ctx, paths, authority, claims, transition, observerelation.CorrelationResult{}, false, options)
 		} else {
 			entry, entryErr := authority.EntryForCommit()
@@ -135,7 +134,7 @@ func runPinTransition(
 	correlation, observed := observation.Correlation()
 	completed := observed && result.Class() == assurancehostroute.ResultAttemptedObservedPresent && result.PostconditionsSatisfied()
 	if completed {
-		if item.action.Scope() == target.ScopeGlobal {
+		if item.action.CarrierIdentity().ClaimStore() == durablecarrier.ClaimStoreGlobalRegistry {
 			claims, err = publishGlobalPinTransition(ctx, paths, authority, claims, transition, correlation, true, options)
 		} else {
 			if err := authority.Validate(ctx); err != nil {

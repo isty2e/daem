@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
-	"github.com/isty2e/daem/internal/target"
 )
 
 func stateOnlyCarrierClaimAdoptions(
@@ -47,10 +46,10 @@ func stateOnlyCarrierClaimAdoptions(
 				index,
 			)
 		}
-		switch claim.Identity().Scope() {
-		case target.ScopeProject:
+		switch claim.Identity().ClaimStore() {
+		case durablecarrier.ClaimStoreProjectStatefile:
 			project = append(project, claim)
-		case target.ScopeGlobal:
+		case durablecarrier.ClaimStoreGlobalRegistry:
 			global = append(global, claim)
 		default:
 			return nil, nil, fmt.Errorf(
@@ -102,10 +101,10 @@ func committedCarrierAdoptionClaims(
 			return nil, 0, fmt.Errorf("carrier adoption action[%d] has no proposed claim", index)
 		}
 		var claims []durablecarrier.ManagedCarrierClaim
-		switch proposed.Identity().Scope() {
-		case target.ScopeProject:
+		switch proposed.Identity().ClaimStore() {
+		case durablecarrier.ClaimStoreProjectStatefile:
 			claims = project.ManagedCarrierClaims()
-		case target.ScopeGlobal:
+		case durablecarrier.ClaimStoreGlobalRegistry:
 			claims = global.Claims()
 		default:
 			return nil, 0, fmt.Errorf(
