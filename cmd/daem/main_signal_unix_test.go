@@ -40,6 +40,16 @@ func TestSignalLifecyclePreservesFirstSignalExitCode(t *testing.T) {
 	}
 }
 
+func TestSignalLifecycleOwnsExitBeforeLateHangup(t *testing.T) {
+	cmd, lines := startSignalLifecycleHelper(t, "late-hangup")
+	waitForSignalLifecycleLine(t, lines, "ready")
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	waitForSignalLifecycleLine(t, lines, "canceled")
+	assertSignalLifecycleExit(t, cmd, 129)
+}
+
 func TestSignalLifecycleSecondSignalForcesFirstSignalExitCode(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -76,7 +86,7 @@ func TestSignalLifecycleHelperProcess(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	exitCode := runWithSignalLifecycle(func(ctx context.Context) int {
+	run := func(ctx context.Context) int {
 		fmt.Println("ready")
 		if mode == "force-tree" || mode == "mcp-tree" {
 			return runSignalLifecycleTreeMode(ctx, mode)
@@ -89,8 +99,14 @@ func TestSignalLifecycleHelperProcess(t *testing.T) {
 			}
 		}
 		return 1
-	})
-	os.Exit(exitCode)
+	}
+	exitWithSignalLifecycle(run)
+	if mode == "late-hangup" {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 }
 
 func startSignalLifecycleHelper(t *testing.T, mode string) (*exec.Cmd, <-chan string) {

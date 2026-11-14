@@ -12,7 +12,7 @@ import (
 // would bypass the bounded TERM-to-KILL cleanup started by root cancellation.
 const forcedSignalExitDelay = 3 * time.Second
 
-func runWithSignalLifecycle(run func(context.Context) int) int {
+func exitWithSignalLifecycle(run func(context.Context) int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -65,12 +65,14 @@ func runWithSignalLifecycle(run func(context.Context) int) int {
 	}()
 
 	exitCode := run(ctx)
-	signal.Stop(signals)
+	// PTY teardown can deliver another HUP after command cleanup; interception
+	// must remain active until the process exits.
 	close(stopLoop)
 	if first := <-loopDone; first != nil {
-		return signalExitCode(first)
+		exitCode = signalExitCode(first)
 	}
-	return exitCode
+	cancel()
+	os.Exit(exitCode)
 }
 
 func signalExitCode(received os.Signal) int {

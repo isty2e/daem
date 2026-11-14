@@ -136,11 +136,24 @@ func TestMainConfirmationPTYHangupCancelsWithoutEffects(t *testing.T) {
 	if err := process.command.Process.Signal(syscall.SIGHUP); err != nil {
 		t.Fatal(err)
 	}
+	if exitCode := process.Wait(t); exitCode != 129 {
+		t.Fatalf("exit code = %d, want 129", exitCode)
+	}
+	assertPTYApplyNotMutated(t, manifestPath)
+}
+
+func TestMainConfirmationPTYLossCancelsWithoutEffects(t *testing.T) {
+	manifestPath := writePTYApplyFixture(t)
+	process := startConfirmationPTYProcess(t, manifestPath, nil, true, true)
+	process.WaitForOutput(t, "Proceed with apply? [y/N]:")
+	if err := process.command.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
 	if err := process.master.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if exitCode := process.Wait(t); exitCode != 129 {
-		t.Fatalf("exit code = %d, want 129", exitCode)
+	if exitCode := process.Wait(t); exitCode != 1 && exitCode != 129 {
+		t.Fatalf("exit code = %d, want confirmation failure 1 or hangup 129", exitCode)
 	}
 	assertPTYApplyNotMutated(t, manifestPath)
 }

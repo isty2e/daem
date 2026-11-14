@@ -2254,7 +2254,12 @@ relax those rules or promise detection of arbitrary secrets in free-form text.
 
 First `SIGINT`/`SIGTERM`/`SIGHUP` records exit identity and cancels the operation. A
 later signal arms a bounded emergency exit, preserving the first exit code and
-ongoing TERM-to-KILL cleanup window; completed cancellation returns immediately.
+ongoing TERM-to-KILL cleanup window; completed cancellation exits immediately.
+After command completion and pending signal processing, daem fixes its exit status
+using the first signal observed by that point, if any. Later signals do not
+replace that status. A disconnected confirmation terminal never authorizes
+effects. Its EOF/read failure yields `1` if no signal identity was selected;
+a selected `SIGHUP` yields `129`.
 Context cancellation without an OS signal supplies no signal exit identity.
 Internally supplied interactive authorization requires stdin/stdout/stderr, all
 three terminal facts and context-aware confirmation reading; otherwise execution
