@@ -16,6 +16,8 @@ import (
 )
 
 type ReadOptions struct {
+	Protection           journalnamespace.ReservationSelectors
+	Rules                RuleExpectations
 	OrdinaryCapabilities journalnamespace.CapabilityResolver
 	Artifacts            *rootedpath.CapturedRoot
 	Filesystem           mutationfs.RootedReader

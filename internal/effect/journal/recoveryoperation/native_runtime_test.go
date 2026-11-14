@@ -14,6 +14,7 @@ import (
 
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T) {
@@ -50,7 +51,7 @@ func TestNativeCapturedRuntimeRequiresWholeCleanPhaseForRetirement(t *testing.T)
 			assessment, err := captured.AssessRecovery(t.Context(), journalqualification.NativeRecoveryOptions{
 				Filesystem: input.options.Filesystem, OperationAuthority: input.options.OperationAuthority,
 				State: func(ctx context.Context) (durable.Snapshot, error) {
-					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.budget})
+					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, input.options.StateCodec), PhysicalPathBudget: input.budget})
 				},
 				Registry: reader, Codecs: input.options.Codecs,
 			})

@@ -46,6 +46,7 @@ type PlanLoadOptions struct {
 	Filesystem         mutationfs.Reader
 	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
 	NativeDocuments    *Profile
+	NativeReleasePaths *NativeReleasePaths
 	// ValidateBeforeActiveObservation runs after one recovery-root inventory
 	// selects active-journal recovery and before host, state, or ownership
 	// observation. Cleanup-only selection never invokes it.
@@ -208,6 +209,10 @@ func ActiveRecoveryPlan(recoverable RecoverablePlan) (recovery.Plan, bool) {
 func ActiveRecoveryJournalAuthority(
 	recoverable RecoverablePlan,
 ) (journalinventory.ActiveJournalAuthority, bool) {
+	if release, ok := NativeReleaseActiveRecoveryPlan(recoverable); ok {
+		active := release.Source().PhysicalAuthority()
+		return active, active.Validate() == nil
+	}
 	if native, ok := NativeActiveRecoveryPlan(recoverable); ok {
 		return native.active, native.active.Validate() == nil
 	}
@@ -256,6 +261,18 @@ func LoadRecoverablePlanWithOptions(
 			return nil, err
 		}
 		if inventory.Active() != nil {
+			if _, release := inventory.Active().Record().NativeRelease(); release {
+				if options.ValidateBeforeActiveObservation != nil {
+					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+						return nil, err
+					}
+				}
+				plan, err := loadNativeReleaseRecoveryPlan(ctx, paths, options, inventory)
+				if err != nil {
+					return nil, err
+				}
+				return plan, nil
+			}
 			if _, native := inventory.Active().Record().Native(); native {
 				if options.ValidateBeforeActiveObservation != nil {
 					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
@@ -442,7 +459,7 @@ func loadActivePlanFromInventory(
 	); err != nil {
 		return recovery.Plan{}, err
 	}
-	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
+	if authority.RequiresOwnershipSettlement() {
 		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(
 			paths.StatefilePath,
 			physicalwork.MaximumPhysicalPathDepth,
@@ -465,7 +482,7 @@ func loadActivePlanFromInventory(
 		}
 	}
 	registry := ownership.EmptyRegistry()
-	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
+	if authority.RequiresOwnershipSettlement() {
 		if options.OwnershipRegistry == nil {
 			return recovery.Plan{}, fmt.Errorf("ownership registry reader is required for recovery ownership classification")
 		}
@@ -523,11 +540,6 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if manifestAuthority != nil {
-		if err := manifestAuthority.Close(); err != nil {
-			return recovery.Plan{}, fmt.Errorf("close recovery manifest root authority: %w", err)
-		}
-	}
 	backupObservations, err := journalqualification.ObserveBackups(
 		ctx,
 		operationDir,
@@ -553,6 +565,38 @@ func loadActivePlanFromInventory(
 	)
 	if err != nil {
 		return recovery.Plan{}, err
+	}
+	if plan.RequiresHostWriteExclusion() {
+		if options.OwnershipRegistry == nil {
+			return recovery.Plan{}, fmt.Errorf("ownership registry reader is required for host restoration")
+		}
+		if !plan.RequiresOwnershipSettlement() {
+			registry, err = options.OwnershipRegistry.LoadForClaimRemovals(ctx, nil, physicalwork.MaximumPhysicalPathDepth, planningBudget)
+			if err != nil {
+				return recovery.Plan{}, fmt.Errorf("observe restoration ownership registry: %w", err)
+			}
+		}
+		owner, err := journalqualification.ObserveRestorationOwner(paths.StatefilePath, planningBudget)
+		if err != nil {
+			return recovery.Plan{}, err
+		}
+		artifacts, err := rootedpath.CaptureCanonicalRootNoFollowBounded(operationDir, physicalwork.MaximumPhysicalPathDepth, planningBudget)
+		if err != nil {
+			return recovery.Plan{}, err
+		}
+		assessmentErr := journalqualification.RequireOrdinaryRestorationWriteExclusion(ctx, plan.Actions(), owner, registry, journalqualification.OrdinaryRestorationReadOptions{
+			Manifest: manifestAuthority, Capabilities: options.RootedCapability, Resolver: resolver,
+			Artifacts: artifacts, Active: inventory.Active().PhysicalAuthority(), Filesystem: options.Filesystem,
+			Codecs: options.Codecs, Budget: planningBudget,
+		})
+		if err := errors.Join(assessmentErr, artifacts.Close()); err != nil {
+			return recovery.Plan{}, err
+		}
+	}
+	if manifestAuthority != nil {
+		if err := manifestAuthority.Close(); err != nil {
+			return recovery.Plan{}, fmt.Errorf("close recovery manifest root authority: %w", err)
+		}
 	}
 	return journalqualification.AssessRemovalCleanupPlan(ctx, plan, journalqualification.RemovalReadOptions{Filesystem: options.Filesystem, Resolver: options.Resolver}, planningBudget)
 }

@@ -12,7 +12,6 @@ import (
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -40,11 +39,12 @@ type nativePlanInputs struct {
 	state          effectpreparation.NativeApplyStatePreparation
 	codecs         aggregate.CodecCatalog
 	stateCodec     durable.SnapshotCodec
+	statefileCodec statefile.PhysicalCodec
 	stateDocuments []aggregate.DocumentAddress
 	opaque         bool
 	prefix         effectpreparation.NativeApplyStatePreparation
 	suffix         []effectpreparation.AggregateEffect
-	orders         []pipackage.OrderObservation
+	orders         []relationhost.SelectedDocumentEdit
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -120,7 +120,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		if err := checkPaths(paths, native, nativeSupportNamespace); err != nil {
 			return err
 		}
-		rewrite, err := profile.RewritePaths(planned.context.Paths)
+		rewrite, err := profile.RewritePaths(planned.context.Paths, planned.context.physicalBudget)
 		if err != nil {
 			return err
 		}
@@ -140,11 +140,11 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			}
 		}
 	}
-	codecs, err := nativeconfig.Codecs(ctx)
+	codecs, codec, physicalCodec, err := nativePersistenceCodecs(ctx)
 	if err != nil {
 		return err
 	}
-	codec, err := statefile.NewNativeCodec(codecs.Contributions())
+	physicalCodec, err = planned.context.PersistenceEpoch.PhysicalStateCodec(physicalCodec)
 	if err != nil {
 		return err
 	}
@@ -164,12 +164,12 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	var nativeOrders []pipackage.OrderObservation
-	for _, order := range assessment.PiOrders {
-		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
-		if err != nil {
-			return err
+	var nativeOrders []relationhost.SelectedDocumentEdit
+	for _, order := range assessment.SequenceEdits {
+		if _, ordered := order.SelectedSequence().Constraint(); !ordered {
+			continue
 		}
+		alias := order.DocumentAddress()
 		for _, evidence := range assessment.NativeApproval {
 			member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())
 			if err != nil {
@@ -191,7 +191,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			if order.Sequence().SequenceID() != decision.SequenceID() || !order.Changed() {
 				continue
 			}
-			stateInput.PiOrders = append(stateInput.PiOrders, order)
+			stateInput.SequenceEdits = append(stateInput.SequenceEdits, order)
 			found = true
 		}
 		if !found {
@@ -222,7 +222,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			}
 		}
 	}
-	if len(stateInput.PiOrders) != 0 {
+	if len(stateInput.SequenceEdits) != 0 {
 		state, err = effectpreparation.PrepareNativeApplyState(ctx, stateInput)
 		if err != nil {
 			return err
@@ -247,7 +247,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, stateDocuments: documents, orders: nativeOrders}
+	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, statefileCodec: physicalCodec, stateDocuments: documents, orders: nativeOrders}
 	if opaque {
 		return prepareNativeInvocationRemainder(ctx, planned)
 	}
@@ -308,6 +308,15 @@ func nativeStateDocuments(ctx context.Context, assessment readiness.Assessment, 
 	return documents, nil
 }
 
+func nativeAuthorityRequestFor(current commandPlan, address aggregate.DocumentAddress) (mutation.PhysicalAuthorityRequest, error) {
+	for _, evidence := range current.assessment.NativeApproval {
+		if slices.Contains(evidence.Aliases, address) {
+			return evidence.AuthorityRequest(address)
+		}
+	}
+	return mutation.PhysicalAuthorityRequest{}, fmt.Errorf("native authority has no selected document alias")
+}
+
 func nativeApplyInputFor(current commandPlan) (nativeoperation.NativeApplyInput, error) {
 	if current.nativePlan == nil || current.nativeOperation == nil {
 		return nativeoperation.NativeApplyInput{}, effectpreparation.ErrNativeOperationRequired
@@ -322,7 +331,8 @@ func nativeApplyInputFor(current commandPlan) (nativeoperation.NativeApplyInput,
 			CurrentState: current.assessment.CurrentState, GlobalCarrierClaims: current.assessment.GlobalCarrierClaims,
 			ManagedPathEvidence: current.assessment.ManagedPathEvidence,
 			Owner:               current.assessment.Owner, Ownership: current.assessment.Ownership, ProjectRoot: current.projectRoot,
-			Codecs: current.nativePlan.codecs, StateCodec: current.nativePlan.stateCodec, Filesystem: storagecommit.Adapter{}, OwnershipRegistryBinder: ownershipstore.BindRooted,
+			OwnerReference: current.assessment.OwnerReference,
+			Codecs:         current.nativePlan.codecs, StateCodec: current.nativePlan.stateCodec, StatefileCodec: current.nativePlan.statefileCodec, Filesystem: storagecommit.Adapter{}, OwnershipRegistryBinder: ownershipstore.BindRooted,
 		},
 		Preparation: current.nativePlan.state, Documents: *input.Documents, Registry: input.Registry, Budget: input.Budget, RecoveryCodecs: nativePersistenceCodecs,
 	}, nil
@@ -412,11 +422,15 @@ func applyOperationFingerprint(planned commandPlan, operationContext reconcile.O
 	return operationplan.NativeApplyOperationFingerprint(identity, facts)
 }
 
-func nativePersistenceCodecs(ctx context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error) {
+func nativePersistenceCodecs(ctx context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, statefile.PhysicalCodec, error) {
 	codecs, err := nativeconfig.Codecs(ctx)
 	if err != nil {
-		return aggregate.CodecCatalog{}, nil, err
+		return aggregate.CodecCatalog{}, nil, statefile.PhysicalCodec{}, err
 	}
 	codec, err := statefile.NewNativeCodec(codecs.Contributions())
-	return codecs, codec, err
+	if err != nil {
+		return aggregate.CodecCatalog{}, nil, statefile.PhysicalCodec{}, err
+	}
+	physicalCodec, err := statefile.NewPhysicalCodec(codec)
+	return codecs, codec, physicalCodec, err
 }

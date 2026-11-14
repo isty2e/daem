@@ -9,7 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
-	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/target"
@@ -95,7 +95,7 @@ type LockedSubjectContractInput struct {
 	SubjectID                 topology.SubjectID
 	ExactSupply               *artifact.ExactIdentity
 	ExactFileUse              *ExactFileUse
-	HostConfigPlacement       *profile.HostConfigPlacement
+	HostConfigPlacement       *configuration.Placement
 	Realization               *realization.RealizationSpec
 	Derivation                *DerivationContract
 	RepairRecipe              *skillrepair.Recipe
@@ -117,7 +117,7 @@ type LockedSubjectContract struct {
 	subjectID                 topology.SubjectID
 	exactSupply               *artifact.ExactIdentity
 	exactFileUse              *ExactFileUse
-	hostConfigPlacement       *profile.HostConfigPlacement
+	hostConfigPlacement       *configuration.Placement
 	realization               *realization.RealizationSpec
 	derivation                *DerivationContract
 	repairRecipe              *skillrepair.Recipe
@@ -232,9 +232,9 @@ func (contract LockedSubjectContract) ExactFileUse() (ExactFileUse, bool) {
 }
 
 // HostConfigPlacement returns static declaration intent, not observed host authority.
-func (contract LockedSubjectContract) HostConfigPlacement() (profile.HostConfigPlacement, bool) {
+func (contract LockedSubjectContract) HostConfigPlacement() (configuration.Placement, bool) {
 	if contract.hostConfigPlacement == nil {
-		return profile.HostConfigPlacement{}, false
+		return configuration.Placement{}, false
 	}
 	return *contract.hostConfigPlacement, true
 }
@@ -378,7 +378,7 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 		operationContractMapsEqual(contract.operationContracts, other.operationContracts)
 }
 
-func optionalHostConfigPlacementEqual(left, right *profile.HostConfigPlacement) bool {
+func optionalHostConfigPlacementEqual(left, right *configuration.Placement) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}

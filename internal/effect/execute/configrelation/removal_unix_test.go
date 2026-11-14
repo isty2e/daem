@@ -14,6 +14,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/target"
 
 	"github.com/isty2e/daem/test/testkit/fsclock"
@@ -82,7 +83,7 @@ func TestRemoveExactSourcePreservesUnrelatedJSONCBytesAndMode(t *testing.T) {
   // retained comment
   "plugin": [
     "@acme/keep",
-    ["@acme/remove", {"flag": true,}],
+    ["@acme/remove", {"flag": /* retained nested comment */ true,}],
   ],
   "unknown": {"value": 1,},
 }
@@ -109,16 +110,14 @@ func TestRemoveExactSourcePreservesUnrelatedJSONCBytesAndMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte(`{
-  // retained comment
-  "plugin": [
-    "@acme/keep",
-  ],
-  "unknown": {"value": 1,},
-}
-`)
-	if string(got) != string(want) {
-		t.Fatalf("content = %q, want %q", got, want)
+	parsed, err := opencodeconfig.Parse(got)
+	if err != nil || len(parsed.Entries()) != 1 || parsed.Entries()[0].Source() != "@acme/keep" {
+		t.Fatalf("removal changed surviving plugin rows: %q, %v", got, err)
+	}
+	if !strings.HasPrefix(string(got), "{\n  // retained comment\n  \"plugin\": [") ||
+		!strings.HasSuffix(string(got), "],\n  \"unknown\": {\"value\": 1,},\n}\n") ||
+		!strings.Contains(string(got), "/* retained nested comment */") {
+		t.Fatalf("removal changed outside bytes or erased an existing comment: %q", got)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -280,6 +279,31 @@ func TestRemoveExactSourceRefusesConcurrentReplacement(t *testing.T) {
 	}
 	if string(got) != string(concurrent) {
 		t.Fatalf("concurrent content = %q, want %q", got, concurrent)
+	}
+}
+
+func TestRemovalRefusesUncorrelatedRowsBeforePublication(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "opencode.jsonc")
+	content := []byte("{\"plugin\":[\"a\", // c\r /*\n \"b\", /* */ \"e\", // d\r \"f\"\n]}")
+	if err := os.WriteFile(path, content, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	authority := bindAuthority(t, root, path)
+	defer authority.Close()
+	replaced := false
+	store := concurrentReplaceStore{RootedStore: storagecommit.Adapter{}, beforeReplace: func() { replaced = true }}
+	changed, err := removeOpenCodeExactSource(t.Context(), store, authority, "b")
+	if err == nil || changed || replaced {
+		t.Fatal("uncorrelated row positions reached the rooted publication boundary", changed, replaced, err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil || string(current) != string(content) {
+		t.Fatal("refusal changed the original config bytes", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatal("refusal changed original metadata", err)
 	}
 }
 

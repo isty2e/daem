@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -180,7 +181,7 @@ func TestNativeOperationAdmitsStaticPlanningAndStateButNotOrdinaryExecution(t *t
 			ordinary := execute.ApplyInput{
 				AggregateEffects: prepared.AggregateEffects(), CurrentState: before,
 				Paths: execute.Paths{StatefilePath: filepath.Join(root, "state.json"), RecoveryDir: filepath.Join(root, "recovery")},
-				Resolver: func(output.Destination) (string, error) {
+				Resolver: func(output.Destination, rootedpath.PhysicalTraversalBudget) (string, error) {
 					resolverCalls++
 					return "", errors.New("unexpected resolution")
 				},
@@ -267,7 +268,7 @@ func TestNativeOperationDecisionRejectsMissingOrMismatchedContract(t *testing.T)
 	}
 	key, _ := output.NewKeyPath("other")
 	footprint, _ := output.NewKeyFootprint(key)
-	other, err := operation.Placement().ProjectionContract(footprint)
+	other, err := profile.HostConfigProjectionContract(operation.Placement(), footprint)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -328,7 +329,7 @@ func TestCommitGlobalCarrierRetirementsPreservesSuccessorAfterPostCommitDrift(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := store.Upsert(t.Context(), claim)
+	current, err := store.Upsert(t.Context(), claim, mustObservedPathReference(t, claim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +375,7 @@ func TestCommitGlobalCarrierAdoptionsRejectsStaleBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	durableCurrent, err := store.Upsert(t.Context(), concurrent)
+	durableCurrent, err := store.Upsert(t.Context(), concurrent, mustObservedPathReference(t, concurrent.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,6 +434,7 @@ func TestCommitGlobalCarrierAdoptionsPreservesSuccessorAfterPostCommitDrift(t *t
 		[]durablecarrier.ManagedCarrierClaim{claim},
 		plan,
 		runOptions{
+			ownerReferences:         []pathauthority.Reference{mustObservedPathReference(t, claim.Owner().StatefileKey())},
 			validateBeforeEffects:   func(context.Context, mutation.PhysicalAuthoritySet) error { return nil },
 			validateStateDir:        func(context.Context) error { return nil },
 			acceptVisibilityChanges: func(context.Context) error { return drift },
@@ -474,6 +476,7 @@ func TestCommitGlobalCarrierAdoptionsRunsScheduledBoundaryInOrder(t *testing.T) 
 		[]durablecarrier.ManagedCarrierClaim{claim},
 		plan,
 		runOptions{
+			ownerReferences: []pathauthority.Reference{mustObservedPathReference(t, claim.Owner().StatefileKey())},
 			validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 				order = append(order, "pre-registry")
 				return nil
@@ -581,6 +584,7 @@ func TestCommitInterruptedGlobalCarrierClaimsSettlesMultiplePromotions(t *testin
 		false,
 	)
 	options.statefileAuthority = authority
+	options.ownerReferences = append(options.ownerReferences, mustObservedPathReference(t, paths.StatefilePath))
 	nextState, nextRegistry, records, err := runScheduledHostRoutesAndPersistAttemptRecords(
 		t.Context(),
 		paths,

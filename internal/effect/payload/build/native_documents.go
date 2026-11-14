@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -68,7 +69,7 @@ func preflightNativeDocumentPayloads(ctx context.Context, input Input) (Input, [
 		if err := ctx.Err(); err != nil {
 			return Input{}, nil, err
 		}
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
 		if err != nil {

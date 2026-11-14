@@ -4,19 +4,19 @@ import (
 	"fmt"
 	"slices"
 
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
-func (facts AssessmentFacts) documentWriteIndexes() ([]int, error) {
+func (facts AssessmentFacts) DocumentWriteIndexes() ([]int, error) {
 	records := facts.documents
-	if records.Len() != len(facts.stages) {
+	if len(facts.demand.live) != len(facts.stages) || facts.demand.count != records.Len() {
 		return nil, fmt.Errorf("native recovery document facts are incomplete")
 	}
 	var indexes []int
-	for index := range records.Len() {
-		loaded, present := records.At(index)
+	for index, recordIndex := range facts.demand.live {
+		loaded, present := records.At(recordIndex)
 		if !present {
 			return nil, fmt.Errorf("native recovery document facts are incomplete")
 		}
@@ -45,32 +45,66 @@ func (facts AssessmentFacts) documentWriteIndexes() ([]int, error) {
 }
 
 func (assessment Assessment) RegistryScope() (ownership.DocumentScope, error) {
-	if assessment.facts.documents.Len() != assessment.qualified.Len() {
+	if len(assessment.facts.demand.live) != assessment.qualified.Len() {
 		return ownership.DocumentScope{}, fmt.Errorf("live native namespace qualification is required before freezing scope")
 	}
-	indexes, err := assessment.facts.documentWriteIndexes()
+	indexes, err := assessment.facts.DocumentWriteIndexes()
 	if err != nil {
 		return ownership.DocumentScope{}, err
 	}
-	namespaces := make([]journalnamespace.DocumentNamespace, 0, len(indexes))
+	var exact []pathauthority.Exact
+	var missing []pathauthority.Provisional
 	for _, index := range indexes {
 		namespace, present := assessment.qualified.NamespaceAt(index)
 		if !present {
 			return ownership.DocumentScope{}, fmt.Errorf("live native namespace qualification is required before freezing scope")
 		}
-		namespaces = append(namespaces, namespace)
+		if physical, known := namespace.Observation().Exact(); known {
+			exact = append(exact, physical)
+		} else if candidate, known := namespace.Observation().Provisional(); known {
+			missing = append(missing, candidate)
+		} else {
+			return ownership.DocumentScope{}, fmt.Errorf("native Registry scope has no namespace observation")
+		}
 	}
-	return journalnamespace.RegistryScope(namespaces)
+	for recordIndex := range assessment.facts.documents.Len() {
+		if slices.Contains(assessment.facts.demand.live, recordIndex) || slices.Contains(assessment.facts.demand.retired, recordIndex) {
+			continue
+		}
+		loaded, _ := assessment.facts.documents.At(recordIndex)
+		for _, claim := range loaded.Claims().Before() {
+			exact = append(exact, claim.Address().PathAuthority())
+		}
+	}
+	for recordIndex := range assessment.facts.documents.Len() {
+		loaded, _ := assessment.facts.documents.At(recordIndex)
+		for _, intent := range loaded.Group().BindingIntents() {
+			after, ready := intent.KnownAfter()
+			actual := ownership.NoDocumentBinding()
+			if binding, present := assessment.facts.registry.DocumentBinding(intent.Owner().Key(), intent.Destination()); present {
+				actual, _ = ownership.PresentDocumentBinding(binding)
+			}
+			if ready && actual.Equal(after) {
+				continue
+			}
+			for _, value := range []ownership.DocumentBindingValue{intent.Before(), after} {
+				if binding, present := value.Get(); present {
+					exact = append(exact, binding.PathAuthority())
+				}
+			}
+		}
+	}
+	return ownership.NewDocumentScope(exact, missing)
 }
 
 func (facts AssessmentFacts) DocumentWriteAliases() ([][]aggregate.DocumentAddress, error) {
-	indexes, err := facts.documentWriteIndexes()
+	indexes, err := facts.DocumentWriteIndexes()
 	if err != nil {
 		return nil, err
 	}
 	aliases := make([][]aggregate.DocumentAddress, 0, len(indexes))
 	for _, index := range indexes {
-		loaded, present := facts.documents.At(index)
+		loaded, present := facts.documents.At(facts.demand.live[index])
 		if !present {
 			return nil, fmt.Errorf("native recovery document facts are incomplete")
 		}

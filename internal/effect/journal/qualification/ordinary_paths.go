@@ -85,43 +85,10 @@ func ObserveGlobalPath(
 		base.Error = fmt.Sprintf("parse global destination: %v", err)
 		return base, nil
 	}
-	capability, present, err := journalnamespace.AcquireMatchingCapability(
-		destination,
-		resolvedPath,
-		resolver,
-		budget,
-	)
+	capability, err := acquireGlobalRecoveryCapability(destination, resolvedPath, resolver, budget)
 	if err != nil {
-		base.Error = fmt.Sprintf("acquire global destination: %v", err)
+		base.Error = err.Error()
 		return base, nil
-	}
-	if !present {
-		if resolver != nil {
-			base.Error = "global destination has no retained root authority"
-			return base, nil
-		}
-		root, bound, captureErr := rootedpath.CaptureDestinationBounded(
-			resolvedPath,
-			physicalwork.MaximumPhysicalPathDepth,
-			budget,
-		)
-		if captureErr != nil {
-			base.Error = fmt.Sprintf("capture global destination: %v", captureErr)
-			return base, nil
-		}
-		capability, err = root.AcquireBounded(
-			bound,
-			physicalwork.MaximumPhysicalPathDepth,
-			budget,
-		)
-		closeErr := root.Close()
-		if err != nil || closeErr != nil {
-			if capability != nil {
-				closeErr = errors.Join(closeErr, capability.Close())
-			}
-			base.Error = fmt.Sprintf("acquire captured global destination: %v", errors.Join(err, closeErr))
-			return base, nil
-		}
 	}
 	observation, observeErr := observeRootedRecoveryCapability(
 		ctx,
@@ -145,6 +112,32 @@ func ObserveGlobalPath(
 		}
 	}
 	return observation, nil
+}
+
+func acquireGlobalRecoveryCapability(destination output.Destination, path string, resolver journalnamespace.CapabilityResolver, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
+	capability, present, err := journalnamespace.AcquireMatchingCapability(destination, path, resolver, budget)
+	if err != nil {
+		return nil, fmt.Errorf("acquire global destination: %w", err)
+	}
+	if present {
+		return capability, nil
+	}
+	if resolver != nil {
+		return nil, fmt.Errorf("global destination has no retained root authority")
+	}
+	root, bound, err := rootedpath.CaptureDestinationBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return nil, fmt.Errorf("capture global destination: %w", err)
+	}
+	capability, err = root.AcquireBounded(bound, physicalwork.MaximumPhysicalPathDepth, budget)
+	closeErr := root.Close()
+	if err != nil || closeErr != nil {
+		if capability != nil {
+			closeErr = errors.Join(closeErr, capability.Close())
+		}
+		return nil, fmt.Errorf("acquire captured global destination: %w", errors.Join(err, closeErr))
+	}
+	return capability, nil
 }
 
 func observeRootedRecoveryCapability(

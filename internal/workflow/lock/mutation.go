@@ -38,7 +38,12 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
+	globalMetadataPath, err := recoverygate.GlobalMetadataAuthorityPath(paths)
+	if err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
+	if err := lockRequireStateDirClear(ctx, paths, stateDirAuthority); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -51,6 +56,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		paths.ManifestPath,
 		outputPath,
 		metadataTransactionPath,
+		globalMetadataPath,
 		optimisticLocalPaths,
 		paths.StateDir,
 		stateDirAuthority.PresentAtCapture(),
@@ -82,7 +88,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = mutation.StaleSnapshotError{}
 		return Result{}, errorContext
 	}
-	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
+	if err := lockRequireStateDirClear(ctx, paths, stateDirAuthority); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -106,7 +112,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = mutation.StaleSnapshotError{}
 		return Result{}, errorContext
 	}
-	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
+	if err := lockRequireStateDirClear(ctx, paths, stateDirAuthority); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -125,7 +131,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		if !matches {
 			return mutation.StaleSnapshotError{}
 		}
-		return lockRequireStateDirClear(ctx, stateDirAuthority)
+		return lockRequireStateDirClear(ctx, paths, stateDirAuthority)
 	}
 	preparePersistentCache := func(ctx context.Context) error {
 		if err := validateCacheAuthority(ctx); err != nil {
@@ -183,7 +189,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
+	if err := lockRequireStateDirClear(ctx, paths, stateDirAuthority); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -195,8 +201,12 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 
 func lockRequireStateDirClear(
 	ctx context.Context,
+	paths daempaths.Paths,
 	authority recoverygate.StateDirAuthority,
 ) error {
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, paths); err != nil {
+		return err
+	}
 	return lockStateDirError(authority.RequireClear(ctx))
 }
 
@@ -222,6 +232,7 @@ func compileLockOperationProgram(
 	manifestPath string,
 	lockfilePath string,
 	metadataTransactionPath string,
+	globalMetadataPath string,
 	localPaths []string,
 	stateDirPath string,
 	stateDirPresent bool,
@@ -230,6 +241,7 @@ func compileLockOperationProgram(
 		ManifestPath:            manifestPath,
 		LockfilePath:            lockfilePath,
 		MetadataTransactionPath: metadataTransactionPath,
+		GlobalMetadataPath:      globalMetadataPath,
 		LocalPaths:              localPaths,
 		StateDirPath:            stateDirPath,
 		StateDirPresent:         stateDirPresent,

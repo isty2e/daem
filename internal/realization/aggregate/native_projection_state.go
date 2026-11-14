@@ -32,6 +32,17 @@ func (state ProjectionState) Equal(other ProjectionState) bool {
 	return state.parentPresent == other.parentPresent && state.SelectedValueEqual(other)
 }
 
+// SameManagedProjection excludes outer-root presence for native keys and Hooks.
+// Other codecs retain their managed container's presence as selected state.
+func (state ProjectionState) SameManagedProjection(other ProjectionState) bool {
+	_, native := HostConfigSyntaxForCodec(state.contract.codecContractID)
+	_, hook := HookPlacementForCodec(state.contract.codecContractID)
+	if native || hook {
+		return state.SelectedValueEqual(other)
+	}
+	return state.Equal(other)
+}
+
 // SelectedValueEqual compares the selected facts without parent presence.
 func (state ProjectionState) SelectedValueEqual(other ProjectionState) bool {
 	return state.contract.Equal(other.contract) && state.present == other.present &&

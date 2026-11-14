@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -30,7 +29,7 @@ func TestRelationOrderRiskBaselineComparesExactRiskIdentity(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	paths := daempaths.Paths{ManifestRoot: root}
+	paths := relationOrderTestPaths(t, root)
 	locked := relationOrderTestLock(
 		t,
 		root,
@@ -72,7 +71,7 @@ func TestRelationOrderRiskExpansionContainsOnlyNewPrecedencePairs(t *testing.T) 
 	t.Parallel()
 
 	root := t.TempDir()
-	paths := daempaths.Paths{ManifestRoot: root}
+	paths := relationOrderTestPaths(t, root)
 	locked := relationOrderTestLock(
 		t,
 		root,
@@ -121,7 +120,7 @@ func TestRelationOrderRiskBaselineIgnoresDecisionInputOrder(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	paths := daempaths.Paths{ManifestRoot: root}
+	paths := relationOrderTestPaths(t, root)
 	locked := relationOrderTestLock(
 		t,
 		root,

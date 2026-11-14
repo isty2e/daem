@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -120,9 +122,9 @@ func TestExtensionOrderCapabilityDefensivelyCopiesAndCanonicalizesSequences(t *t
 		ClassID:                mustOrderClassID("extension:test:project:plugins"),
 		MemberIdentityContract: "test-member-v1",
 		SequenceMembership:     LoadedClassSubset,
-		PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
-			mustPhysicalSequenceID("test:tui"),
-			mustPhysicalSequenceID("test:server"),
+		NativeSequences: []NativeSequenceProjection{
+			mustNativeSequenceProjection("test:tui", ".opencode/tui.json", configuration.JSONC, "plugin"),
+			mustNativeSequenceProjection("test:server", ".opencode/opencode.json", configuration.JSONC, "plugin"),
 		},
 		RuntimeMeaning: hostrelation.ConfigOrderOnly,
 	}
@@ -130,9 +132,11 @@ func TestExtensionOrderCapabilityDefensivelyCopiesAndCanonicalizesSequences(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.PhysicalSequenceIDs[0] = ""
+	input.NativeSequences[0] = NativeSequenceProjection{}
 	returned := capability.PhysicalSequenceIDs()
 	returned[0] = ""
+	projections := capability.NativeSequences()
+	projections[0] = NativeSequenceProjection{}
 
 	got := capability.PhysicalSequenceIDs()
 	if capability.Validate() != nil ||
@@ -152,14 +156,14 @@ func TestExtensionOrderCapabilityRejectsPartialAndCollidingContracts(t *testing.
 		ClassID:                mustOrderClassID("extension:test:project:plugins"),
 		MemberIdentityContract: "test-member-v1",
 		SequenceMembership:     LoadedClassSubset,
-		PhysicalSequenceIDs:    []hostrelation.PhysicalSequenceID{mustPhysicalSequenceID("test:server")},
+		NativeSequences:        []NativeSequenceProjection{mustNativeSequenceProjection("test:server", ".opencode/opencode.json", configuration.JSONC, "plugin")},
 		RuntimeMeaning:         hostrelation.ConfigOrderOnly,
 	}
 
 	for _, mutate := range []func(*ExtensionOrderCapabilityInput){
 		func(input *ExtensionOrderCapabilityInput) { input.MemberIdentityContract = "" },
 		func(input *ExtensionOrderCapabilityInput) { input.SequenceMembership = "" },
-		func(input *ExtensionOrderCapabilityInput) { input.PhysicalSequenceIDs = nil },
+		func(input *ExtensionOrderCapabilityInput) { input.NativeSequences = nil },
 		func(input *ExtensionOrderCapabilityInput) { input.RuntimeMeaning = "" },
 	} {
 		input := base
@@ -178,5 +182,56 @@ func TestExtensionOrderCapabilityRejectsPartialAndCollidingContracts(t *testing.
 		[]extensionOrderCapabilityRow{first, duplicate},
 	); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate catalog error = %v", err)
+	}
+}
+
+func TestNativeSequenceProjectionRetainsExplicitDocumentAndArrayIdentity(t *testing.T) {
+	capability, admitted := Profile(target.TargetOpenCode).ExtensionOrder(desiredextension.CarrierOpenCodePlugin, target.ScopeGlobal)
+	if !admitted {
+		t.Fatal("OpenCode order capability missing")
+	}
+	sequence, present := capability.NativeSequence(mustPhysicalSequenceID("opencode:global:server.json.plugins"))
+	if !present || sequence.Destination().String() != "~/.config/opencode/opencode.json" || sequence.Grammar() != configuration.JSONC || sequence.ArrayPath().String() != "/plugin" {
+		t.Fatal("stable sequence ID was used to infer a native filename or plural array key", sequence)
+	}
+	if _, present := capability.NativeSequence(mustPhysicalSequenceID("unknown:sequence")); present {
+		t.Fatal("unregistered sequence acquired a projection")
+	}
+	if (NativeSequenceProjection{}).Validate() == nil {
+		t.Fatal("zero native sequence projection admitted")
+	}
+	destination, err := output.Parse(".opencode/opencode.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	array, err := output.NewKeyPath("plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		grammar configuration.Grammar
+		array   output.KeyPath
+	}{
+		{configuration.TOML, array}, {configuration.JSON, output.KeyPath{}},
+	} {
+		if projection, err := NewNativeSequenceProjection(mustPhysicalSequenceID("test:array"), destination, test.grammar, test.array); err == nil || projection != (NativeSequenceProjection{}) {
+			t.Fatal("unsupported array projection retained partial facts", projection, err)
+		}
+	}
+	input := ExtensionOrderCapabilityInput{
+		Carrier: desiredextension.CarrierOpenCodePlugin, Scope: target.ScopeProject,
+		ClassID: mustOrderClassID("test:class"), MemberIdentityContract: "test-member-v1",
+		SequenceMembership: LoadedClassSubset, RuntimeMeaning: hostrelation.ConfigOrderOnly,
+		NativeSequences: []NativeSequenceProjection{
+			mustNativeSequenceProjection("test:first", ".opencode/opencode.json", configuration.JSONC, "plugin"),
+			mustNativeSequenceProjection("test:second", ".opencode/opencode.json", configuration.JSONC, "plugin"),
+		},
+	}
+	if _, err := NewExtensionOrderCapability(input); err == nil {
+		t.Fatal("two physical IDs selected one native array")
+	}
+	input.NativeSequences = []NativeSequenceProjection{mustNativeSequenceProjection("test:global", "~/.config/opencode/opencode.json", configuration.JSONC, "plugin")}
+	if _, err := NewExtensionOrderCapability(input); err == nil {
+		t.Fatal("a global document entered a project sequence projection")
 	}
 }

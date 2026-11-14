@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -30,6 +31,8 @@ type OutputInventoryInput struct {
 	Codecs                  aggregate.CodecCatalog
 	HookContributionEncoder commandhook.ContributionEncoder
 	MCPContributionEncoder  lockrefine.MCPContributionEncoder
+	PersistenceEpoch        *PersistenceEpoch
+	Native                  *NativeAssessmentInput
 }
 
 // OutputInventoryAssessment is the narrow read-only projection evidence needed
@@ -48,22 +51,42 @@ func AssessOutputInventory(
 	ctx context.Context,
 	input OutputInventoryInput,
 ) (OutputInventoryAssessment, error) {
-	currentState, err := statefile.LoadOptional(ctx, input.Paths.StatefilePath)
+	var currentState durable.Snapshot
+	var err error
+	if input.PersistenceEpoch != nil {
+		currentState, err = input.PersistenceEpoch.Snapshot()
+	} else {
+		currentState, err = statefile.LoadOptional(ctx, input.Paths.StatefilePath)
+	}
 	if err != nil {
 		return OutputInventoryAssessment{}, err
 	}
-	availableTargets := outputInventoryAvailableTargets(
-		input.Environment,
-		input.Lockfile,
-		currentState,
-	)
-	selection, err := targetselection.ForAvailableTargets(availableTargets, input.TargetValues)
+	selection, err := SelectOutputInventoryTargets(input.Environment, input.Lockfile, currentState, input.TargetValues)
 	if err != nil {
 		return OutputInventoryAssessment{}, fmt.Errorf("%w: %w", targetselection.ErrInvalid, err)
 	}
 	selectedTargets, err := reconcile.NewSelectedTargets(selection.Targets())
 	if err != nil {
 		return OutputInventoryAssessment{}, fmt.Errorf("normalize selected targets: %w", err)
+	}
+	var native []nativeAssessmentSources
+	if input.Native != nil {
+		if err := input.Native.validatePersistenceEpoch(ctx, input.PersistenceEpoch, currentState); err != nil {
+			return OutputInventoryAssessment{}, err
+		}
+		native = []nativeAssessmentSources{{input: input.Native}}
+		for _, contract := range input.Lockfile.Locked.Subjects() {
+			contribution, present, err := contract.ManagedAggregateContribution()
+			if err != nil {
+				return OutputInventoryAssessment{}, err
+			}
+			if !present || !selection.Includes(contribution.Contribution().Target()) {
+				continue
+			}
+			if _, nativeCodec := aggregate.HostConfigSyntaxForCodec(contribution.Contribution().CodecContractID()); nativeCodec {
+				native[0].lockedInventory = append(native[0].lockedInventory, contract)
+			}
+		}
 	}
 
 	managedInputs, err := buildManagedPathPlanningInputs(input.Lockfile, currentState.ManagedPaths(), selection)
@@ -80,23 +103,29 @@ func AssessOutputInventory(
 		input.HookContributionEncoder,
 		input.MCPContributionEncoder,
 		input.Codecs,
+		native...,
 	)
 	if err != nil {
 		return OutputInventoryAssessment{}, err
 	}
-	managedEvidence, err := liveobserve.ManagedPathEvidence(ctx, input.Resolver, managedInputs.requests)
+	managedEvidence, err := observeManagedPaths(ctx, input.Resolver, managedInputs.requests, native...)
 	if err != nil {
 		return OutputInventoryAssessment{}, fmt.Errorf("observe output inventory paths: %w", err)
 	}
-	owner, ownership, err := buildOwnershipObservations(
-		ctx,
-		input.Paths,
-		liveDestinationResolver(input.Resolver),
-		managedInputs.ownership,
-		aggregateInputs.ownershipProjections(),
-		currentState,
-		selection,
-	)
+	var ownershipResult ownershipobserve.Result
+	if input.Native != nil {
+		ownershipResult, err = nativeOwnershipObservations(ctx, input.Paths, liveDestinationResolver(input.Resolver), managedInputs, aggregateInputs, currentState, selection, input.Native)
+	} else {
+		ownershipResult, err = buildOwnershipObservations(
+			ctx,
+			input.Paths,
+			liveDestinationResolver(input.Resolver),
+			managedInputs.ownership,
+			aggregateInputs.ownershipProjections(),
+			currentState,
+			selection,
+		)
+	}
 	if err != nil {
 		return OutputInventoryAssessment{}, err
 	}
@@ -110,10 +139,15 @@ func AssessOutputInventory(
 		managedInputs:   managedInputs,
 		aggregateInputs: aggregateInputs,
 		managedEvidence: managedEvidence,
-		owner:           owner,
-		ownership:       ownership,
+		owner:           ownershipResult.Owner,
+		ownership:       ownershipResult.Observations,
 		codecs:          input.Codecs,
 	})
+}
+
+// SelectOutputInventoryTargets uses only declared, locked and retained targets.
+func SelectOutputInventoryTargets(environment desired.Environment, locked lock.File, state durable.Snapshot, values []string) (targetselection.Selection, error) {
+	return targetselection.ForAvailableTargets(outputInventoryAvailableTargets(environment, locked, state), values)
 }
 
 func outputInventoryAvailableTargets(

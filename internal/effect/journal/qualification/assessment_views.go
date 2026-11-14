@@ -22,6 +22,8 @@ func (assessment Assessment) Facts() AssessmentFacts { return assessment.facts }
 
 func (assessment Assessment) Documents() Documents { return assessment.qualified }
 
+func (facts AssessmentFacts) RootDemand() RecoveryRootDemand { return facts.demand }
+
 func (facts AssessmentFacts) Persistence() (durable.Snapshot, ownership.Registry) {
 	return facts.state, facts.registry
 }
@@ -137,7 +139,11 @@ func (assessment Assessment) PromoteDocument(ctx context.Context, journal journa
 	if !known {
 		return journalrecord.Native{}, false, fmt.Errorf("published native document still has no exact namespace")
 	}
-	return journal.PromoteDocument(ctx, index, namespace.Addresses(), exact)
+	recordIndex, present := assessment.qualified.RecordIndex(index)
+	if !present {
+		return journalrecord.Native{}, false, fmt.Errorf("native recovery document facts are incomplete")
+	}
+	return journal.PromoteDocument(ctx, recordIndex, namespace.Addresses(), exact)
 }
 
 func PrepareClaims(ctx context.Context, documents journalrecord.LoadedDocuments, transitions []ownershipmutation.ClaimTransition) (ownership.ClaimConvergence, error) {
@@ -146,7 +152,7 @@ func PrepareClaims(ctx context.Context, documents journalrecord.LoadedDocuments,
 }
 
 func (facts AssessmentFacts) SameObservedAuthority(other AssessmentFacts, scope ownership.DocumentScope) bool {
-	if facts.disposition != other.disposition || !facts.state.Equal(other.state) || facts.ordinary.observationFingerprint() != other.ordinary.observationFingerprint() || len(facts.stages) != len(other.stages) {
+	if !facts.demand.Equal(other.demand) || facts.disposition != other.disposition || !facts.state.Equal(other.state) || facts.ordinary.observationFingerprint() != other.ordinary.observationFingerprint() || len(facts.stages) != len(other.stages) {
 		return false
 	}
 	if same, err := scope.Matches(facts.registry, other.registry); err != nil || !same {
@@ -168,6 +174,7 @@ func sameRecoveryMode(left, right *recovery.PermissionMode) bool {
 func (facts AssessmentFacts) ObservationFingerprint() string {
 	hash := sha256.New()
 	fmt.Fprintf(hash, "%s\x00", facts.disposition)
+	fmt.Fprintf(hash, "%d\x00%t\x00%v\x00%v\x00%v\x00", facts.demand.count, facts.demand.afterOnly, facts.demand.live, facts.demand.retired, facts.demand.afterSources)
 	for _, stage := range facts.stages {
 		mode := "absent"
 		if stage.mode != nil {

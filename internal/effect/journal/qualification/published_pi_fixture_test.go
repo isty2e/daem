@@ -15,9 +15,11 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/target"
@@ -45,7 +47,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		manifest = selectManifest(command.BaseRoot())
 	}
 	pi := nativeNamespaceRoot(t, input.SettingsContext.BaseRoot())
-	roots := journalnamespace.Roots{Manifest: manifest, PiAgent: pi}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi})
 	if err := os.WriteFile(filepath.Join(pi.SelectedPath, "settings.json"), input.Document.Content(), 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		t.Fatal(err)
 	}
 	setupBudget := nativeFixtureBudget(t)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), setupBudget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), setupBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +83,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifestGrant.Provenance())
+	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, manifestGrant.Provenance())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	}
 	mode := recovery.NewPermissionMode(0o640)
 	limits := configdocument.Limits{MaximumBytes: pipackage.MaximumSettingsBytes, MaximumDepth: 64}
-	selected, err := journaldocument.ReconstructSelected(t.Context(), journaldocument.ComparisonInput{Before: input.Document, Expected: aggregate.ExistingDocument(expectedBytes), BeforeMode: mode, ExpectedMode: mode, Limits: limits}, nil, &order)
+	selected, err := journalrecord.ReconstructNative16Selected(t.Context(), journaldocument.ComparisonInput{Before: input.Document, Expected: aggregate.ExistingDocument(expectedBytes), BeforeMode: mode, ExpectedMode: mode, Limits: limits}, nil, &order)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,5 +120,5 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	}
 	codec, codecs := statefile.Codec{}, aggregatecodec.Catalog()
 	decoded, artifacts := publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
-	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: roots, comparison: comparison}, input
+	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Protection: namespacetest.Reservations(t), Rules: journalqualification.RecordedRuleExpectations(), Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: roots, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}, input
 }

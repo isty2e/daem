@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
 
@@ -23,7 +24,7 @@ func ExpectedManagedPaths(
 		if config.Ownership() != hostconfig.OwnershipDocument {
 			continue
 		}
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 		if err != nil {
 			return nil, err
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 )
 
 // StageImages writes only into the containing unpublished tree. Its
@@ -34,7 +35,7 @@ func StageImages(ctx context.Context, comparison journaldocument.Comparison, gro
 	}
 	entries, contentBytes := 0, int64(0)
 	for _, document := range []aggregate.Document{comparison.BeforeDocument(), comparison.ExpectedDocument()} {
-		if err := journaldocument.ValidateImage(ctx, document, comparison.Limits()); err != nil {
+		if err := compose.ValidateImage(ctx, document, comparison.Limits()); err != nil {
 			return journalrecord.DocumentImage{}, journalrecord.DocumentImage{}, err
 		}
 		if document.ContentSize() > recovery.MaximumRecoveryBackupFileBytes {

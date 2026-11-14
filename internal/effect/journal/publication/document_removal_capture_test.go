@@ -15,9 +15,11 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -134,7 +136,7 @@ func TestNativeRemovalPreservesLogicalAliasesWithOneNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), aliases, journalnamespace.Roots{Manifest: manifest, PiAgent: pi}, journalTestFilesystem(), budget)
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi}), namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}

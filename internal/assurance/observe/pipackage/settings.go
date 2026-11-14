@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/filesnapshot"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -47,6 +48,13 @@ func (inventory Inventory) Scope() target.Scope { return inventory.scope }
 
 // Revision returns a content digest for the selected settings observation.
 func (inventory Inventory) Revision() string { return inventory.revision }
+
+func (inventory Inventory) Document() aggregate.Document {
+	if !inventory.exists {
+		return aggregate.AbsentDocument()
+	}
+	return aggregate.ExistingDocument(inventory.content)
+}
 
 // Entry is one exact stored Pi package row plus its parsed host identity.
 type Entry struct {

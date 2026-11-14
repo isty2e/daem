@@ -14,8 +14,8 @@ func TestHostConfigDocumentSubjectBindsCanonicalPlacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		for _, scope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {
+	for _, selected := range target.SupportedTargets() {
+		for _, scope := range target.SupportedScopes() {
 			subject, err := aggregate.HostConfigDocumentSubject(id, selected, scope)
 			if err != nil {
 				t.Fatal(err)

@@ -24,7 +24,7 @@ func TestRecoveryLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	}
 	for _, claim := range claims {
 		value, _ := ownership.PresentClaim(claim)
-		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 			t.Fatalf("seed ownership claim: %v", err)
 		}
 	}
@@ -92,7 +92,7 @@ func TestRecoveryRootedLoadChargesRegistryAndEveryClaimAuthority(t *testing.T) {
 	registryStore := mustStore(t, filepath.Join(root, "data", "ownership", "claims.json"))
 	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "host", "entry"), "")
 	value, _ := ownership.PresentClaim(claim)
-	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value, storeClaimReferences(t, claim)...); err != nil {
 		t.Fatalf("seed ownership claim: %v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestBoundedRootedStoreKeepsBudgetForLaterOperations(t *testing.T) {
 	registryStore := mustStore(t, filepath.Join(root, "data", "ownership", "claims.json"))
 	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "host", "entry"), "")
 	claimValue, _ := ownership.PresentClaim(claim)
-	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), claimValue); err != nil {
+	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), claimValue, storeClaimReferences(t, claim)...); err != nil {
 		t.Fatalf("seed ownership claim: %v", err)
 	}
 

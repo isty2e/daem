@@ -13,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/protection"
 	"github.com/isty2e/daem/internal/effect/protection/namespace"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -87,17 +86,17 @@ func PrepareInvocation(ctx context.Context, input InvocationInput, budget *physi
 		var target invocationDocument
 		for _, binding := range document.Bindings() {
 			paths := contexts[binding.Owner()]
-			path, err := managedhostpath.Resolver(paths).Resolve(binding.Destination())
+			path, err := namespace.ResolveBindingDestination(paths, binding.Destination(), binding.PathAuthority().Key(), budget)
 			if err != nil {
 				return InvocationInput{}, err
 			}
-			observation, err := mutation.PrepareDirectoryEntryAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
+			observation, err := mutation.PrepareReferentAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
 			if err != nil {
 				return InvocationInput{}, err
 			}
 			target.bindings = append(target.bindings, invocationBinding{owner: binding.Owner(), observation: observation})
 			if len(target.bindings) == 1 {
-				target.layout, err = rootedpath.CaptureDirectoryEntryLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+				target.layout, err = rootedpath.CaptureReferentLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
 				if err != nil {
 					return InvocationInput{}, err
 				}

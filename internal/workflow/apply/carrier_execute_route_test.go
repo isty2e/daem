@@ -389,7 +389,7 @@ func TestInterruptedGlobalPromotionRejectsChangedRegistryBaseline(t *testing.T) 
 		t.Fatal(err)
 	}
 	concurrentClaim := newWorkflowFixture(t, target.ScopeGlobal).claim
-	durableCurrent, err := store.Upsert(t.Context(), concurrentClaim)
+	durableCurrent, err := store.Upsert(t.Context(), concurrentClaim, mustObservedPathReference(t, concurrentClaim.Owner().StatefileKey()))
 	if err != nil {
 		t.Fatal(err)
 	}

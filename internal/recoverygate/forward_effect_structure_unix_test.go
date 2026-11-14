@@ -360,6 +360,7 @@ func newStructuralForwardTestAuthority(t *testing.T, present bool) (EffectAuthor
 		}
 	}
 	authority, err := NewEffectAuthority(t.Context(), daempaths.Paths{
+		DataDir:     filepath.Join(t.TempDir(), "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	})

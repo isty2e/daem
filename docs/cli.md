@@ -18,9 +18,13 @@ or [Use An Existing Environment](migration.md).
 - [Preview, write, and confirmation modes](#execution-modes)
 - [Output flags, flag inventory, and JSON versions](#presentation-flags)
 - Commands: [`version`](#version), [`init`](#init), [`import`](#import),
+  [`import host-config`](#import-host-config),
   [`add`](#add), [`remove`](#remove), [`unmanage extension`](#unmanage-extension),
+  [`unmanage host-config`](#unmanage-host-config),
   [`lock`](#lock), [`outdated`](#outdated), [`list`](#list), [`status`](#status),
-  [`apply`](#apply), [`recover`](#recover), [`migrate state`](#migrate-state), [`doctor`](#doctor),
+  [`replace host-config`](#replace-host-config), [`apply`](#apply),
+  [`recover`](#recover), [`migrate state`](#migrate-state),
+  [`migrate metadata`](#migrate-metadata), [`doctor`](#doctor),
   [`probe mcp-server`](#probe-mcp-server), [`refresh extension`](#refresh-extension)
 - [Authoring JSON](#authoring-json), [progress](#progress),
   [streams and exit codes](#streams-and-exit-codes),
@@ -46,6 +50,7 @@ or [Use An Existing Environment](migration.md).
 | Reconcile | `apply` | Reconcile the locked environment. |
 | Reconcile | `recover` | Recover one operation or finish its retained journal cleanup. |
 | Management authority | `migrate state` | Move the default user manifest's legacy state authority or recover that migration. |
+| Management metadata | `migrate metadata` | Convert recorded management formats or recover that conversion without reinstalling outputs. |
 
 `help`, `-h`, `--help`, and `--version` are meta surfaces. Use
 `daem help <command>` and `daem help <group> <resource>` for progressively
@@ -180,15 +185,17 @@ Commands use effect-tiered modes:
 | Effect class | Commands | Bare invocation | `--dry-run` | `--yes` |
 | --- | --- | --- | --- | --- |
 | Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
-| Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `lock` | write | preview | rejected |
+| Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `unmanage host-config`, `lock` | write | preview | rejected |
+| Named source-file edit | `import host-config` | three-stream TTY confirmation | preview | requires `--expect-plan` from reviewed preview |
 | Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
 | Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
+| Management metadata | `migrate metadata` | three-stream TTY confirmation | preview | non-interactive execution |
 
 An empty host/runtime plan does not prompt; an already completed state migration
 also needs no new prompt. Skipping a prompt does not waive command admission:
 a bare state-migration repeat still requires terminal stdin/stdout/stderr;
 non-interactive repeats use `--dry-run` or `--yes`. JSON cannot share an
-interactive prompt, so host/runtime and state-migration JSON require `--dry-run`
+interactive prompt, so host/runtime, state-migration and metadata-conversion JSON require `--dry-run`
 or `--yes`.
 
 Interactive authorization uses three distinct process streams: stdin accepts
@@ -304,6 +311,7 @@ flags.
 | `apply` | `--diff`, `--dry-run`, `--json`, `--manage-existing`, `--manifest`, `--target`, `--verbose`, `--yes` |
 | `doctor` | `--all-targets`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `import` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--merge`, `--scope`, `--source-dir`, `--target`, `--verbose` |
+| `import host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--host-path`, `--json`, `--key`, `--manifest`, `--merge`, `--ownership`, `--scope`, `--source`, `--source-dir`, `--syntax`, `--target`, `--update-source`, `--verbose`, `--yes` |
 | `init` | `--dry-run`, `--force`, `--json`, `--manifest`, `--verbose` |
 | `list outputs` | `--json`, `--manifest`, `--target`, `--verbose` |
 | `list paths` | `--json`, `--manifest`, `--target`, `--verbose` |
@@ -313,14 +321,17 @@ flags.
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `recover` | `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--verbose`, `--yes` |
 | `migrate state` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--yes` |
+| `migrate metadata` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--reference`, `--yes` |
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove mcp-server` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `replace host-config` | `--diff`, `--dry-run`, `--expect-plan`, `--json`, `--key`, `--manifest`, `--verbose`, `--yes` |
 | `status` | `--check`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `unmanage extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `unmanage host-config` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `version` | `--json` |
 
 ### JSON Schema Contract
@@ -332,19 +343,39 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `7` |
+| `add`, `remove`, `import`, `unmanage extension`, `unmanage host-config` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `5` |
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
 | `status`, `apply --dry-run` | Reconciliation plan | `18` |
 | confirmed `apply` | Apply result | `24` |
+| `replace host-config` | Selected-key replacement | `1` |
+| `import host-config` | Selected physical-value capture or its terminal recovery | `1` |
 | `recover` | Recovery plan/result | `10` |
 | `migrate state` | State-authority migration | `1` |
+| `migrate metadata` | Management metadata conversion | `1` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
+
+Native host-configuration key addresses use a `key_path` array of literal names
+in lock comparisons, reconciliation actions/projections/previous state, and
+apply results. For example, `["ext", "a/b"]` selects a property literally named
+`a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
+`content_path`; native rows do not encode their names in that field.
+
+Default human status, previews and apply results group native keys by declaration,
+target, scope and destination. Each displayed key retains its action or status.
+A blocked document names the keys preventing Apply without marking current
+siblings as blocked. Grouping does not change JSON actions or output-entry counts.
+Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
+`--verbose` retains per-key detail.
+
+`list outputs` displays native keys by declaration and literal key path too.
+Its JSON adds `resource` and `key_path` for native rows while retaining the
+existing machine `subject`, optional `resource_id`, row counts and other fields.
 
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
@@ -369,6 +400,16 @@ Both use `state: "unobserved"`; `EFFECTIVE_OBSERVER_UNSUPPORTED` replaces the
 previous `EFFECTIVE_STATE_UNOBSERVED` reason only for the unsupported case.
 Consumers of the earlier versions must not interpret the new reason as an
 observation failure or a claim that no shadowing definition exists.
+
+Plan version `18` and apply-result version `24` add the optional
+`native_narrowing_actions` array for document-to-key ownership transitions.
+Each row identifies the declaration, target, scope, destination and desired key
+count; zero keys explicitly means releasing whole-file ownership. Native values,
+key selectors and source contents are omitted, with `values_omitted: true`.
+These transitions are separate from projection `actions` and do not increase
+the plan's projection `action_count`. A transition row describes planned intent,
+not proof that a host write occurred. Ordinary results omit the array, but all
+results use the new envelope version.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -631,6 +672,74 @@ fail before mutation. Antigravity installed state does not retain enough source
 provenance to reconstruct a declaration, so those rows are reported as
 `source_provenance_unrecoverable` skips.
 
+## `import host-config`
+
+Capture explicitly selected values from one physically stored native document
+into a local source. It does not collect defaults or effective layered settings,
+resolve environment references, run commands, or discover generic settings during
+ordinary `import`.
+
+```bash
+# Initial capture; add --merge only when the selected manifest already exists.
+daem import host-config pi-ui --target pi --scope global \
+  --host-path settings.json --key /quietStartup --key /tuiMode \
+  --source-dir ./daem.d --dry-run --diff
+
+# Existing declaration: use only its declared source membership.
+daem import host-config pi-ui --update-source --dry-run --json
+```
+
+Initial capture requires exactly one target and scope, a host-root-relative
+`--host-path`, and one or more RFC 6901 `--key` selectors or explicit
+`--ownership document`. A selected object expands into its current atomic leaves;
+arrays, nulls and nested empty objects remain atomic. Missing initial values fail
+the complete operation. Whole-document capture preserves raw bytes under the
+destination's admitted grammar. The preview omits arbitrary whole-file contents.
+Initial capture creates a new id and a new local file under
+`<source-dir>/host-config/`; it never overwrites a source destination. Without
+`--source-dir`, the directory is the manifest's basename with `.d` instead of its
+extension. Initial-only placement and source-directory flags cannot accompany
+`--update-source`.
+
+An update selects the existing source's declared keys; optional `--key` selectors
+may narrow that selection, not acquire host siblings. Missing managed values are
+removed from the source, including newly empty structural parents. Unselected
+source values and comments remain intact. A missing whole document instead
+previews declaration retirement and leaves its old source file untouched.
+
+Capture edits a **named source file**, not a resource-private copy. The preview
+shows its exact path and referent, known affected references in the selected
+manifest, and warns that other manifests or programs may also read it. It does
+not enumerate every reader or establish exclusive ownership. To isolate an
+update, specify `--source NEW_LOCAL_SOURCE`; that destination must not exist and
+the declaration switches to it. Only writable local vendor sources may be
+updated; Git, S3 and cache material are not edited.
+
+Literal values, including credentials, may be saved as plaintext or committed
+to version control. Selected values are masked for display, but storage retains
+the original values; masking is not a secret-free certification. Approval and
+stale checks use actual data before masking. Interactive writes require terminal
+stdin, stdout and stderr. For noninteractive writes, review `--dry-run --json`,
+then repeat the same request with `--yes --expect-plan FINGERPRINT`, using its
+`fingerprint`. A changed plan requires another review. `--diff` requires
+`--dry-run` and shows selected values only, not unrelated source or manifest data.
+
+Only source/declaration artifacts change. Capture does not change host files,
+regenerate the lock, register ownership, or apply settings. After initial capture,
+run `lock`, `apply --manage-existing --dry-run`, then `apply --manage-existing`.
+After an update, run `lock`, `apply --dry-run`, then ordinary `apply`. Inspect the
+printed manifest-scoped commands. Capturing during a whole-to-keys handoff
+replaces old desired source values; it does not save those values for automatic
+restoration. Complete narrowing before making a separate desired-value update.
+
+If publication was interrupted, repeat the same explicit request and dry-run.
+The command previews only the selected source/declaration transaction's recovery.
+After approval it either restores before-images or finalizes completed writes,
+then exits without reading new host values or rerunning capture. Review a new
+dry-run afterward. A source target that cannot be independently selected from
+the invocation or current declaration, mismatching evidence, or other pending
+work is refused rather than recovered from marker-supplied paths.
+
 ## `add`
 
 ```bash
@@ -815,6 +924,58 @@ source content. Partial removal retains recovery state for a later fresh
 verification and does not authorize unrelated package, cache, trust, session,
 or local-source deletion.
 
+## `unmanage host-config`
+
+Release a complete host-configuration declaration from daem management without
+changing the host file or restoring its earlier contents:
+
+```bash
+daem unmanage host-config <id> [--manifest <path>] [--target <target>]
+                          [--scope <scope>] [--dry-run] [--diff]
+                          [--json|--verbose]
+```
+
+The command removes the declaration when present, removes its source and output
+subjects from the default lockfile when present, and releases its retained
+Snapshot rows and own ownership claims. A document binding is retained when
+other managed members still need it. Other declarations and foreign ownership
+records are preserved. `ownership = "keys"` is released as a whole declaration,
+not one key at a time; `--target` and `--scope` are safety filters, not partial
+release selectors. Ambiguous retained placements and a current declaration that
+conflicts with the retained placement are refused.
+
+Automatic declaration edits operate on `[[host_config]]` blocks. A declaration
+written in an inline array still works with `lock` and `apply`, but cannot be
+removed automatically: convert it to array-table blocks, or remove the selected
+declaration manually and rerun `unmanage host-config`. The command refuses before
+releasing management if its declaration edit cannot select that entry.
+
+The original source, declaration, or default lockfile may be missing. The command
+does not read source contents, recreate missing inputs, relock other resources,
+or require the host file to match its last managed value. It does not accept a
+custom lockfile. `--dry-run` previews metadata changes; `--diff` additionally
+shows the declaration edit and requires `--dry-run`. No subsequent `apply` is
+needed to complete a successful management release.
+
+An interrupted management release retains a journal for `daem recover`. Recovery
+settles the local file transaction before choosing whether to retain or finish
+releasing own metadata; it never reapplies host content or takes a new owner's
+claims. Once that transaction is settled, recovery leaves later manifest and
+default-lockfile edits untouched, even if the declaration has been added again.
+It still requires the recorded State and original control-file locations,
+including symlink targets;
+retargeted control-file symlinks must be restored before retrying recovery.
+
+If only an unapplied declaration was being removed, rerun the original
+`unmanage host-config` command to settle its authoring transaction. If that
+transaction had already committed its declaration edit, this retry can report
+that the ID is no longer present after clearing the transaction evidence.
+
+JSON output uses the manifest-authoring schema and reports `management`, its
+State and Registry changes, and `host.state = "retained"`. Pending protection
+and conflicting State/manifest authority remain refusal conditions, including
+when no own claim is present.
+
 ## `unmanage extension`
 
 Use `unmanage extension` to release daem's exact management authority while
@@ -833,6 +994,10 @@ claim or pending management fact while retaining host state. It may release
 those retained facts after manual manifest omission. A subject with neither a
 declaration nor a management fact is not found; ambiguous or stale identity
 fails without partial writes.
+
+When release updates State or shared claims, it uses the opportunistic format
+maintenance described under [apply](#apply). A manifest/lock-only release does
+not start conversion.
 
 The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
@@ -1253,6 +1418,56 @@ planning context, including `--manage-existing`, is not a status observation.
 Both commands emit the current reconciliation-plan version in the
 [version table](#json-schema-contract); other result families are unchanged.
 
+## `replace host-config`
+
+Use this command to set selected native configuration keys to their locked
+declaration values, either when first taking over a different existing value or
+after a managed key has changed. Ordinary `apply` still refuses those conflicts;
+`--manage-existing` remains exact-match adoption, not replacement.
+
+With the [example host-configuration declaration](manifest.md#host-configuration):
+
+```bash
+daem replace host-config codex-preferences --key /tui/notifications --dry-run
+daem replace host-config codex-preferences --key /tui/notifications
+```
+
+The first command is read-only. The second requires terminal stdin/stdout/stderr,
+shows the selected current and declared values, and asks once. No extension CLI
+runs, and other resources and unselected keys are not applied. Without `--key`,
+the command selects the declaration's current atomic key set. Repeat `--key` to
+narrow it using RFC 6901 pointers. Selecting an object selects only its currently
+declared atomic descendants, not future or undeclared children. Array elements
+cannot be selected independently. Whole-document ownership, ownership-mode
+changes, and moving recorded ownership to another host, scope or file are refused.
+
+For noninteractive execution, first inspect `--dry-run --json`. Copy its opaque
+`fingerprint` into `--expect-plan` and execute with both `--yes` and
+`--expect-plan`. Bare `--yes` is refused. The declaration, source, selected values,
+ownership and file protection must still match the approved plan. A mismatch
+requires a fresh preview; `--yes` does not override it. Unselected values, comments
+and formatting can change: execution rereads and preserves them rather than
+replaying saved file bytes. Replacing a file inode alone does not invalidate
+consent when the selected namespace, values and protection still match.
+
+The JSON envelope is schema version 1 with `command = "replace host-config"`,
+`mode` (`dry-run` or `executed`), `fingerprint`, `declaration`, `action_count` and
+`keys`. Each key has a literal-name `key_path` array, destination `file`, `action`
+(`create`, `recreate`, `adopt`, `takeover`, `replace`, `record`, or `current`),
+`current_present`, optional `current`, and `desired`. Value strings use host
+syntax; sensitive or oversized display values are masked without weakening the
+approval fingerprint. `action_count` counts selected state or host mutations;
+already-current keys do not count. `record` refreshes stale management state when
+the host value already matches the declaration without rewriting that value.
+`--diff` adds a selected-value diff to human
+dry-run output; it cannot be combined with `--json`.
+
+Replacement uses normal interrupted-operation recovery. Before state commit,
+rollback restores the selected value that actually existed immediately before
+replacement, not an older managed baseline. After commit, recovery finalizes
+without replaying host writes. Unknown third values block recovery. A successful
+replacement does not retain an undo backup. See [state and recovery](state-and-recovery.md).
+
 ## `apply`
 
 ```bash
@@ -1272,6 +1487,14 @@ Bare apply under the three-stream terminal contract discloses the same effect
 plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
+
+Before a non-no-op apply, daem may upgrade management metadata without changing
+managed content. This maintenance has its own transaction and may finish even
+if the requested apply is later refused. If conversion cannot be qualified,
+apply continues in the existing format under its usual ownership and recovery
+checks; an unfinished metadata transaction still requires recovery. Read-only
+planning and no-op apply do not start conversion. Older daem versions may refuse
+the new formats; see [metadata migration](#migrate-metadata).
 
 Human plans keep a resource's own configuration transition separate from a
 blocked shared document. An unchanged server can therefore have a blocked
@@ -1666,6 +1889,80 @@ missing non-interactive authorization. With JSON selected, planning errors use
 the common CLI failure family rather than a migration result. No legacy
 management to transfer is a refusal, not a new empty state.
 
+## `migrate metadata`
+
+```bash
+daem migrate metadata [--manifest <path>] [--reference <path> ...]
+  [--recover] [--dry-run|--yes] [--json]
+```
+
+Preview or convert the selected State and the shared registries' reachable
+management metadata together. This records filesystem access locations alongside
+comparison identities. It does not change the manifest, lockfile, installed
+outputs or host packages, and does not relocate user State or repair ownership
+conflicts. A converted format requires a daem version that understands it.
+
+```bash
+daem migrate metadata --dry-run
+daem migrate metadata --yes
+```
+
+Preview is read-only. Execution uses terminal confirmation or `--yes` and checks
+the plan again before publication. The disclosed State and target lists describe
+the whole checked transaction scope, not just files to rewrite. Already-converted
+files can be unchanged, and absent files remain absent.
+
+Some legacy identities lack a provable access location. `--reference` supplies a
+lookup path that you assert belonged to a recorded identity; repeat the option
+for multiple paths. The preview shows both your input and its observed spelling.
+Daem checks the current identity match, but this does not prove that the path was
+the historical location. This input cannot replace a recorded locator or change
+an owner's identity. An unresolved participating record can prevent this explicit
+conversion; the refusal is not permission to delete management metadata.
+
+An interrupted conversion can affect other workspaces using the same data
+directory. Inspect it with `daem migrate metadata --recover --dry-run`, then
+authorize the disclosed recovery with `daem migrate metadata --recover --yes`.
+Recovery uses the recorded original selection, even when `--manifest` selects a
+different workspace sharing that data directory. Keep the original HOME/XDG
+environment. `--recover` cannot be combined with new `--reference` inputs.
+Unpublished preparation and already-retired transaction directories do not
+block normal commands. A published active transaction still requires recovery.
+Recovery confirms the terminal files, retires the whole evidence
+directory, then attempts cleanup; an interrupted cleanup does not reactivate the
+transaction.
+
+Successful conversion or recovery confirms terminal metadata and retirement, not
+removal of every inactive artifact. Automatic collection is best-effort; use
+`--recover --dry-run` to inspect any remaining cleanup work.
+
+When no active transaction exists, `--recover` can instead disclose a `cleanup`
+action for recognized inactive metadata directories. The same dry-run and
+confirmation rules apply. Cleanup does not read or change conversion targets.
+Unrecognized or changed artifacts are preserved; bounded cleanup may defer work
+without blocking normal commands. Repeating completed recovery or cleanup
+reports `none` without writing. Invalid active evidence is never bypassed as
+cleanup.
+Large inventories can require repeated cleanup batches. A batch does not claim
+to have inspected every directory entry. Cleanup effects currently require
+Darwin or Linux. Windows retains clean no-op recovery and discloses unavailable
+cleanup as deferred rather than enabling unverified deletion.
+
+JSON uses `schema_version = 1`, `mode`, `action`, `manifest_path`, `data_dir`,
+`statefiles` and `targets`. `manifest_path` identifies the original selection in
+recovery; `targets` includes unchanged and absent namespaces. Supplied paths add
+`reference_assertions`, each with `input_path`, `identity_key`, `witness` and
+`observed_path`. Conversion reports `convert`, `converted` or `already_converted`;
+recovery reports `rollback`, `finalize`, `cleanup` or `none`. Cleanup lists its
+directories in `cleanup_targets`; `cleanup_deferred` reports skipped or
+uninspected work and is not a claim that all inactive metadata was collected.
+An execution failure retains the
+planned action and adds `error`; it is not a successful conversion result.
+Planning failures use the common CLI error envelope. Successful previews,
+execution and no-op repeats exit `0`; refusals and execution failures exit `1`; invalid arguments or
+missing non-interactive authorization exit `2`. JSON requires `--dry-run` or
+`--yes`, which are mutually exclusive.
+
 ## `doctor`
 
 ```bash
@@ -1770,12 +2067,17 @@ attempt-history persistence, and cleanup are outside that child-process
 timeout. The selected value is part of the immutable disclosure and refresh
 fingerprint, so execution cannot use a different duration after confirmation.
 
-Refresh never rewrites the manifest, lockfile, or managed-relation ownership.
+Refresh never changes the manifest, lockfile, or who owns a managed relation.
 It refuses a missing or stale lock, an active recovery journal, an unsupported
 refresh route, or changed manifest/lock/observation/authority evidence after
 disclosure. A route requiring passive evidence must prove the exact relation
 present before execution and observe it again afterward. A route whose locked
 contract explicitly has no observer may run only as best effort.
+
+Refresh uses the opportunistic metadata-format maintenance described under
+[apply](#apply). When conversion is selected, it rebuilds the physical plan;
+the confirmed operation, authority, logical State, declarations and host
+observation checks must still match before execution.
 
 Claude Code currently supports project and explicit-global marketplace
 relations. The command maps public global scope to host `--scope user`; project
@@ -1807,6 +2109,28 @@ update matching user and trusted-project rows. Success remains
 host-owned, and trust refusal or no match is a host failure. Daem adds no
 approval, self-update, model-update, or bulk-update flags. See [host
 integrations](host-integrations.md) for route details.
+
+With managed settings keys, Pi, Codex, Claude Code, OpenCode and Antigravity CLI
+refresh require those keys to be already applied and current; they do not apply
+changed settings sources. They check selected values in each managed settings
+layer and preserve other captured content outside the refreshed package's rows
+(Pi) or marketplace entry (Codex). Codex refresh does not
+admit plugin-entry changes. Unexpected key/content changes or broadened file access
+make refresh fail without automatic content repair. Broadened access is restricted
+even when the host command fails; interruption may require `daem recover` before
+another refresh. Claude Code, OpenCode and Antigravity CLI require physical
+separation between their private plugin namespaces and the managed settings;
+aliases or nested overlaps without an admitted rewrite profile refuse before execution.
+Their commands do not receive permission to change captured native settings.
+
+Dedicated whole files must already be applied, with contents and permissions
+matching their recorded ownership. Refresh does not adopt externally matching
+files, apply changed sources or complete key/whole-file ownership changes.
+Removing a declaration does not make Refresh delete its file or release its
+ownership; use Apply for that change. Whole-owned files must be physically
+separate from the configuration the refresh command can rewrite, including
+through aliases. Unexpected byte changes fail without automatic content repair;
+permission safety and recovery follow the same rules as managed keys.
 
 Antigravity explicit-global refresh repeats the locked install route rather than
 using a dedicated update command. Local evidence can show bundle replacement and
@@ -1919,6 +2243,7 @@ fails the command.
 | Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
 | Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
 | Interrupted by `SIGTERM` | completed or partial stable output | bounded interruption diagnostic | `143` |
+| Interrupted by `SIGHUP` | completed or partial stable output, if the terminal remains writable | bounded interruption diagnostic, if deliverable | `129` |
 
 Stable confirmation disclosures are written to stdout; prompts and bounded
 cancellation diagnostics are written to stderr. Human warnings that belong to
@@ -1927,9 +2252,14 @@ to withhold raw subprocess/protocol output, authentication material, headers and
 known secret inputs. The [credential-detection non-goal](#presentation-flags) does not
 relax those rules or promise detection of arbitrary secrets in free-form text.
 
-First `SIGINT`/`SIGTERM` records exit identity and cancels the operation. A
+First `SIGINT`/`SIGTERM`/`SIGHUP` records exit identity and cancels the operation. A
 later signal arms a bounded emergency exit, preserving the first exit code and
-ongoing TERM-to-KILL cleanup window; completed cancellation returns immediately.
+ongoing TERM-to-KILL cleanup window; completed cancellation exits immediately.
+After command completion and pending signal processing, daem fixes its exit status
+using the first signal observed by that point, if any. Later signals do not
+replace that status. A disconnected confirmation terminal never authorizes
+effects. Its EOF/read failure yields `1` if no signal identity was selected;
+a selected `SIGHUP` yields `129`.
 Context cancellation without an OS signal supplies no signal exit identity.
 Internally supplied interactive authorization requires stdin/stdout/stderr, all
 three terminal facts and context-aware confirmation reading; otherwise execution

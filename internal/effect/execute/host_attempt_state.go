@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
@@ -33,7 +34,7 @@ func CommitPendingCarrierInstalls(
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	return commitPendingCarrierInstalls(
 		ctx,
@@ -51,7 +52,7 @@ func commitPendingCarrierInstalls(
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	pending, err := pendingCarrierInstalls(owner, actions)
 	if err != nil {
@@ -64,10 +65,10 @@ func commitPendingCarrierInstalls(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("update pending carrier installs: %w", err)
 	}
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return durable.Snapshot{}, fmt.Errorf("pending carrier install state codec is required")
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal pending carrier installs: %w", err)
 	}
@@ -87,7 +88,7 @@ func CommitObservedProjectCarrierClaim(
 	current durable.Snapshot,
 	action reconciliation.RelationAction,
 	observation observerelation.CorrelationResult,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	if action.Scope() != target.ScopeProject {
 		return current, nil
@@ -113,10 +114,10 @@ func CommitObservedProjectCarrierClaim(
 	if !changed {
 		return current, nil
 	}
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return durable.Snapshot{}, fmt.Errorf("project carrier claim state codec is required")
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal observed project carrier claim: %w", err)
 	}
@@ -134,7 +135,7 @@ func CommitConvergedGlobalCarrierClaims(
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
 	registry durablecarrier.GlobalCarrierClaims,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	next, changed, err := current.WithConvergedGlobalCarrierClaims(registry)
 	if err != nil {
@@ -143,10 +144,10 @@ func CommitConvergedGlobalCarrierClaims(
 	if !changed {
 		return current, nil
 	}
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return durable.Snapshot{}, fmt.Errorf("global carrier convergence state codec is required")
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal global carrier convergence: %w", err)
 	}
@@ -166,7 +167,7 @@ func CommitRetiredPendingCarrierInstall(
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	action reconciliation.RelationAction,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	return commitRetiredPendingCarrierInstall(
 		ctx,
@@ -184,7 +185,7 @@ func commitRetiredPendingCarrierInstall(
 	current durable.Snapshot,
 	owner stateauthority.Authority,
 	action reconciliation.RelationAction,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	pending, selected, err := pendingCarrierInstallForInvocation(owner, action)
 	if err != nil {
@@ -200,10 +201,10 @@ func commitRetiredPendingCarrierInstall(
 	if !changed {
 		return current, nil
 	}
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return durable.Snapshot{}, fmt.Errorf("completed carrier install state codec is required")
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal completed carrier install: %w", err)
 	}
@@ -224,7 +225,7 @@ func CommitPendingCarrierRemoval(
 	globalClaims durablecarrier.GlobalCarrierClaims,
 	action carrierabsence.Action,
 	effectBaselines durablecarrier.EffectBaselineSet,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, durablecarrier.PendingCarrierRemoval, error) {
 	if err := action.Validate(); err != nil {
 		return durable.Snapshot{}, durablecarrier.PendingCarrierRemoval{},
@@ -268,6 +269,30 @@ func CommitPendingCarrierRemoval(
 	return next, pending, nil
 }
 
+// CommitRetiredProjectCarrierClaims settles selected, already-absent project
+// claims without manufacturing pending host attempts. The containing workflow
+// owns admission and the retained statefile authority.
+func CommitRetiredProjectCarrierClaims(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+	current durable.Snapshot,
+	claims []durablecarrier.ManagedCarrierClaim,
+	stateEncoder statefile.PhysicalCodec,
+) (durable.Snapshot, error) {
+	next, count, err := effectpreparation.AfterRetiredProjectCarrierClaims(current, claims)
+	if err != nil {
+		return durable.Snapshot{}, fmt.Errorf("retire project carrier claims: %w", err)
+	}
+	if count == 0 {
+		return durable.Snapshot{}, fmt.Errorf("retired project carrier claim selection is required")
+	}
+	if err := statefileoperation.CommitSnapshot(ctx, filesystem, authority, next, stateEncoder, "retired project carrier claims"); err != nil {
+		return durable.Snapshot{}, err
+	}
+	return next, nil
+}
+
 // CommitRetiredProjectCarrierRemoval atomically removes one exact project
 // claim and its E4 boundary after successful absent postcondition
 // classification.
@@ -277,7 +302,7 @@ func CommitRetiredProjectCarrierRemoval(
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
 	pending durablecarrier.PendingCarrierRemoval,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	next, changed, err := current.WithRetiredProjectCarrierRemoval(pending)
 	if err != nil {
@@ -308,7 +333,7 @@ func CommitClearedGlobalCarrierRemovalPending(
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
 	pending durablecarrier.PendingCarrierRemoval,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	if pending.Identity().Scope() != target.ScopeGlobal {
 		return durable.Snapshot{}, fmt.Errorf(
@@ -345,7 +370,7 @@ func CommitDelegateAttempts(
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
 	attempts []durableattempt.DelegateAttempt,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	return commitDelegateAttempts(
 		ctx,
@@ -361,7 +386,7 @@ func commitDelegateAttempts(
 	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	attempts []durableattempt.DelegateAttempt,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	if len(attempts) == 0 {
 		return current, nil
@@ -371,10 +396,10 @@ func commitDelegateAttempts(
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("update statefile delegate attempts: %w", err)
 	}
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return durable.Snapshot{}, fmt.Errorf("delegate attempt state codec is required")
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("marshal statefile delegate attempts: %w", err)
 	}
@@ -393,7 +418,7 @@ func CommitHostRouteAttempts(
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
 	attempts []durableattempt.HostRouteAttempt,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	return commitHostRouteAttempts(
 		ctx,
@@ -409,7 +434,7 @@ func commitHostRouteAttempts(
 	commit statefileoperation.SnapshotCommitter,
 	current durable.Snapshot,
 	attempts []durableattempt.HostRouteAttempt,
-	stateEncoder durable.SnapshotEncoder,
+	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
 	if len(attempts) == 0 {
 		return current, nil
@@ -419,10 +444,10 @@ func commitHostRouteAttempts(
 	if err != nil {
 		return current, fmt.Errorf("update statefile host route attempts: %w", err)
 	}
-	if stateEncoder == nil {
+	if stateEncoder.IsZero() {
 		return current, fmt.Errorf("host route attempt state codec is required")
 	}
-	content, err := stateEncoder.Encode(next)
+	content, err := stateEncoder.EncodeState(next)
 	if err != nil {
 		return current, fmt.Errorf("marshal statefile host route attempts: %w", err)
 	}

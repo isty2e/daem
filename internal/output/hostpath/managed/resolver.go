@@ -11,9 +11,9 @@ import (
 )
 
 // Resolver returns the operation's managed-output destination resolver.
-func Resolver(paths daempaths.Paths) hostpath.Resolver {
+func Resolver(paths daempaths.Paths, resolveRoot func(string) (string, error)) hostpath.Resolver {
 	piOverride := pihostpath.DestinationOverride(paths.ManifestRoot)
-	codexOverride := codexhostpath.DestinationOverride(paths.ManifestRoot)
+	codexOverride := codexhostpath.DestinationOverride(paths.ManifestRoot, resolveRoot)
 	return hostpath.NewResolverWithManagedDataRoot(
 		paths.ManifestRoot,
 		paths.DataDir,

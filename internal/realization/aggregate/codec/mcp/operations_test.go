@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -121,6 +122,7 @@ func TestMCPPlacementOperationsRejectIncompleteRows(t *testing.T) {
 	}
 	valid := mcpPlacementOperationsInput{
 		placement:             placement,
+		syntax:                configdocument.TOML,
 		foldMutations:         foldCodexProjectMCPProjectionMutations,
 		restoreMutations:      restoreCodexProjectMCPProjectionMutations,
 		verifyMutations:       verifyCodexProjectMCPProjectionMutations,
@@ -138,6 +140,7 @@ func TestMCPPlacementOperationsRejectIncompleteRows(t *testing.T) {
 		edit func(*mcpPlacementOperationsInput)
 		want string
 	}{
+		{name: "missing syntax", edit: func(input *mcpPlacementOperationsInput) { input.syntax = 0 }, want: "syntax"},
 		{name: "missing fold mutations", edit: func(input *mcpPlacementOperationsInput) { input.foldMutations = nil }, want: "fold mutations"},
 		{name: "missing restore mutations", edit: func(input *mcpPlacementOperationsInput) { input.restoreMutations = nil }, want: "restore mutations"},
 		{name: "missing verify mutations", edit: func(input *mcpPlacementOperationsInput) { input.verifyMutations = nil }, want: "verify mutations"},
@@ -435,6 +438,7 @@ func mustTestMCPPlacementOperations(t *testing.T, id aggregate.MCPPlacementID) M
 	}
 	operations, err := newMCPPlacementOperations(mcpPlacementOperationsInput{
 		placement:             placement,
+		syntax:                configdocument.TOML,
 		foldMutations:         foldCodexProjectMCPProjectionMutations,
 		restoreMutations:      restoreCodexProjectMCPProjectionMutations,
 		verifyMutations:       verifyCodexProjectMCPProjectionMutations,

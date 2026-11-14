@@ -18,7 +18,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/executionidentity"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -90,7 +89,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	if !present {
 		return nil, operation.Close()
 	}
-	documents, err := nativeconfig.PrepareInvocationDocuments(ctx, paths, input, sources)
+	documents, err := nativeconfig.PrepareInvocationDocuments(ctx, input, sources)
 	if err != nil {
 		return nil, err
 	}
@@ -106,12 +105,12 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 	}
 	inputs := nativeRefreshInputs{environment: nativeOnly}
 	for _, namespace := range input.Documents.Evidence().Namespaces() {
-		for _, alias := range namespace.Addresses() {
-			path, err := managedhostpath.Resolver(paths).Resolve(alias.AggregateRoot())
+		for _, alias := range namespace.Aliases() {
+			request, err := alias.PhysicalAuthorityRequest()
 			if err != nil {
 				return nil, err
 			}
-			inputs.requests = append(inputs.requests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(alias.Target()), Scope: string(alias.Scope())})
+			inputs.requests = append(inputs.requests, request)
 		}
 	}
 	physical, err := mutation.NewPhysicalAuthoritySet(inputs.requests...)
@@ -278,7 +277,7 @@ func (observed *nativeRefreshObservation) rewrites(ctx context.Context, paths da
 		}
 	}
 	if len(whole) != 0 {
-		rewrite, err := profile.RewritePaths(paths)
+		rewrite, err := profile.RewritePaths(paths, input.Budget)
 		if err != nil {
 			return relationhost.NativeSettingsRewrites{}, err
 		}

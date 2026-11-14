@@ -18,15 +18,18 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 type nativeAssessmentGroup struct {
@@ -42,12 +45,12 @@ type nativeAssessmentGroup struct {
 func newNativeAssessmentFixture(t *testing.T) nativeAssessmentFixture {
 	t.Helper()
 	fixture, roots := nativeNamespaceRecordFixture(t)
-	statePath := filepath.Join(roots.Manifest.SelectedPath, "state.json")
+	statePath := filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, "state.json")
 	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(statePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.claims.owner, err = stateauthority.New(observed.Exact(), filepath.Join(roots.Manifest.SelectedPath, "daem.toml"))
+	fixture.claims.owner, err = stateauthority.New(observed.Exact(), filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,14 +60,14 @@ func newNativeAssessmentFixture(t *testing.T) nativeAssessmentFixture {
 		t.Fatal(err)
 	}
 	value := membershipBindingValue(t, fixture.claims)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias}, roots, journalTestFilesystem(), nativeFixtureBudget(t))
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), nativeFixtureBudget(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return nativeAssessmentFixture{
 		fixture: fixture, roots: roots, statePath: statePath,
-		registry: filepath.Join(roots.Manifest.SelectedPath, "ownership.json"),
-		host:     filepath.Join(roots.PiAgent.SelectedPath, "custom.json"),
+		registry: filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, "ownership.json"),
+		host:     filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, "custom.json"),
 		groups: []nativeAssessmentGroup{{
 			namespace: namespace, original: fixture.comparison.BeforeDocument(), expected: fixture.comparison.ExpectedDocument(),
 			claims: &transition, bindings: []ownership.DocumentBindingIntent{membershipIntent(t, fixture.claims, value, value)},
@@ -86,7 +89,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 	}
 	fixture := &setup.fixture
 	budget := physicalwork.NewCaptureBudget(nil)
-	manifest, err := setup.roots.Manifest.Root.Authority()
+	manifest, err := namespacetest.LegacyRoot(t, setup.roots, output.RootProject).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +138,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 			comparison, err = journaldocument.NewWholeComparison(t.Context(), images)
 		} else {
 			var selected journaldocument.SelectedCandidate
-			selected, err = journaldocument.ReconstructSelected(t.Context(), images, participants, group.order)
+			selected, err = journalrecord.ReconstructNative16Selected(t.Context(), images, participants, group.order)
 			comparison = selected.Comparison()
 		}
 		if err != nil {
@@ -150,7 +153,7 @@ func (setup *nativeAssessmentFixture) publish(t *testing.T) {
 			aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 		}
 		pin := group.namespace.WriterPin()
-		draft, err = draft.WithNamespace(t.Context(), group.namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, provenance)
+		draft, err = draft.WithNamespace(t.Context(), group.namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, provenance)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +250,7 @@ func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native
 	documents := setup.fixture.read
 	documents.Budget = imageBudget(t)
 	return setup.fixture.journal, journalqualification.NativeReadOptions{Documents: documents, Roots: setup.roots, Registry: registry, State: func(ctx context.Context) (durable.Snapshot, error) {
-		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: setup.fixture.codec, PhysicalPathBudget: documents.Budget})
+		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: stateimage.Physical(t, setup.fixture.codec), PhysicalPathBudget: documents.Budget})
 	}}
 }
 

@@ -181,7 +181,8 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 	if err != nil {
 		t.Fatalf("ownershipstore.New returned error: %v", err)
 	}
-	if _, err := store.Apply(context.Background(), address, transition.Before(), transition.Prepared()); err != nil {
+	if _, err := store.Apply(context.Background(), address, transition.Before(), transition.Prepared(),
+		testkit.MustObservedPathReference(t, paths.StatefilePath), testkit.MustObservedPathReference(t, address.Path())); err != nil {
 		t.Fatalf("reserve ownership claim returned error: %v", err)
 	}
 

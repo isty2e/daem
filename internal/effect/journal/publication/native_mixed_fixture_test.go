@@ -4,6 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -21,6 +24,7 @@ type mixedJournalFixture struct {
 	whole      wholeGroupTestFixture
 	journal    journalrecord.Native
 	groups     []journalrecord.SealedDocumentGroup
+	expected   []journalnamespace.DocumentNamespace
 	comparison journaldocument.Comparison
 	paths      Paths
 	capture    CaptureOptions
@@ -28,7 +32,7 @@ type mixedJournalFixture struct {
 }
 
 func (fixture mixedJournalFixture) stageOptions(budget *physicalwork.Budget) nativeMixedStageOptions {
-	return nativeMixedStageOptions{StageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.roots}
+	return nativeMixedStageOptions{StageOptions: documentStageOptions(fixture.whole.envelope, budget), roots: fixture.whole.roots, protection: fixture.whole.envelope.read.Protection, expected: fixture.expected}
 }
 
 func mixedStageFixture(t *testing.T) mixedJournalFixture {
@@ -38,7 +42,7 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := whole.roots.Manifest
+	root := namespacetest.LegacyRoot(t, whole.roots, output.RootProject)
 	ordinary := []byte("ordinary executable\n")
 	hash := artifact.HashFileContentWithExecutable(ordinary, true)
 	id, err := entity.New(entity.KindInstructions, "ordinary")
@@ -80,7 +84,7 @@ func mixedStageFixture(t *testing.T) mixedJournalFixture {
 	capture := CaptureOptions{ManagedPathMutations: []journalrecord.ManagedPathMutation{mutation}, ManagedPathEvidence: []observe.ManagedPathEvidence{evidence}, ManifestRoot: root.Root, Filesystem: journalTestFilesystem(), StateCodec: whole.envelope.codec, Codecs: whole.envelope.read.Codecs, Resolver: func(destination output.Destination) (string, error) {
 		return filepath.Join(root.SelectedPath, filepath.FromSlash(destination.RelativePath())), nil
 	}}
-	return mixedJournalFixture{whole: whole, journal: journal, groups: []journalrecord.SealedDocumentGroup{group}, comparison: comparison, paths: paths, capture: capture, ordinary: ordinary}
+	return mixedJournalFixture{whole: whole, journal: journal, groups: []journalrecord.SealedDocumentGroup{group}, expected: []journalnamespace.DocumentNamespace{whole.namespace}, comparison: comparison, paths: paths, capture: capture, ordinary: ordinary}
 }
 
 func (fixture mixedJournalFixture) source(t *testing.T, budget *physicalwork.Budget) (ordinaryCaptureSource, string) {

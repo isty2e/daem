@@ -62,7 +62,11 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err := ValidateGlobalPathBindings(ctx, ordinaryViews, options.Resolver, options.Documents.OrdinaryCapabilities, options.Documents.Budget); err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	manifest, err := journalnamespace.CaptureManifestAuthority(options.Roots.Manifest.SelectedPath, options.Roots.Manifest.Root, options.Documents.Budget)
+	selected, supplied := options.Roots.Manifest()
+	if !supplied {
+		return nativeOrdinaryAssessment{}, fmt.Errorf("ordinary native recovery requires its selected manifest binding")
+	}
+	manifest, err := journalnamespace.CaptureManifestAuthority(selected.SelectedPath, selected.Root, options.Documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}

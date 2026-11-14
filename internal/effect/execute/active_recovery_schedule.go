@@ -59,7 +59,7 @@ func activeRecoveryScheduleInputForPlan(
 		classification:            plan.Classification(),
 		hostActionCount:           hostActionCount,
 		hasClaimTransitions:       len(claimTransitions) != 0,
-		requiresOwnershipRegistry: len(claimTransitions) != 0 || len(plan.ProvisionalAcquireIntents()) != 0,
+		requiresOwnershipRegistry: plan.RequiresOwnershipSettlement(),
 		caller:                    caller,
 		hasBeforeRetirement:       hasBeforeRetirement,
 	}

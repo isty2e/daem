@@ -287,6 +287,7 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 	registry := fixture.globalClaims
 	stateDir := filepath.Dir(fixture.statePath)
 	barrier, err := recoverygate.NewEffectAuthority(t.Context(), daempaths.Paths{
+		DataDir:     filepath.Join(fixture.root, "data"),
 		StateDir:    stateDir,
 		RecoveryDir: filepath.Join(stateDir, "recovery"),
 	})
@@ -296,12 +297,13 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 	effects := &standaloneStatefileEffects{barrier: barrier}
 	fixture.validateStateDir = effects.ValidateStateDir
 	return carrierRemovalInput{
-		StatePath:    fixture.statePath,
-		SelectedRoot: fixture.root,
-		Current:      fixture.current,
-		GlobalClaims: fixture.globalClaims,
-		Actions:      []carrierabsence.Action{fixture.action},
-		ProjectRoot:  fixture.projectRoot,
+		StatefileCodec: statefile.DefaultPhysicalCodec(),
+		StatePath:      fixture.statePath,
+		SelectedRoot:   fixture.root,
+		Current:        fixture.current,
+		GlobalClaims:   fixture.globalClaims,
+		Actions:        []carrierabsence.Action{fixture.action},
+		ProjectRoot:    fixture.projectRoot,
 		Adapter: func(request executehostroute.RemovalRequest) (
 			subprocess.CommandAttemptRequest,
 			error,

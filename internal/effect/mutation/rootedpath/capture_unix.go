@@ -239,6 +239,9 @@ func resolveNativePathPlatform(
 			}
 			missing := []string{component.name}
 			for _, remainder := range pending {
+				if remainder.name == ".." {
+					return fail(newFailure(FailureRootUnavailable, candidatePath, "cannot resolve a parent through a missing directory", unix.ENOENT))
+				}
 				if remainder.name != "" && remainder.name != "." {
 					missing = append(missing, remainder.name)
 				}
@@ -294,7 +297,8 @@ func resolveNativePathPlatform(
 					platform.directories = platform.directories[:last]
 				}
 			}
-			pending = append(nativePathComponents(targetNames, true), pending...)
+			required := traversal == nil || !traversal.allowMissingAliasTargets
+			pending = append(nativePathComponents(targetNames, required), pending...)
 			continue
 		}
 		if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
@@ -308,8 +312,12 @@ func resolveNativePathPlatform(
 				}
 				return resolvedDirectoryPath(platform), platform, object, mount, suffix, nil
 			}
+			kind := FailureRootUnavailable
+			if traversal != nil && traversal.directoryObservation {
+				kind = FailureAncestorNotDirectory
+			}
 			return fail(newFailure(
-				FailureRootUnavailable,
+				kind,
 				candidatePath,
 				"destination ancestor is not a directory",
 				nil,

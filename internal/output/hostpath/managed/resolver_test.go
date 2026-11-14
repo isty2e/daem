@@ -25,7 +25,7 @@ func TestResolverComposesHostRootsWithEveryGenericRoot(t *testing.T) {
 	resolver := Resolver(daempaths.Paths{
 		ManifestRoot: projectRoot,
 		DataDir:      dataRoot,
-	})
+	}, nil)
 
 	cases := []struct {
 		name     string
@@ -66,9 +66,9 @@ func TestResolverKeepsHostRootErrorsTargetSpecific(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	projectRoot := t.TempDir()
 
-	t.Setenv(pihostpath.AgentRootEnvironmentVariable, " relative ")
+	t.Setenv(pihostpath.AgentRootEnvironmentVariable, "file://%zz")
 	t.Setenv(codexhostpath.HomeEnvironmentVariable, codexRoot)
-	resolver := Resolver(daempaths.Paths{ManifestRoot: projectRoot, DataDir: filepath.Join(projectRoot, ".daem")})
+	resolver := Resolver(daempaths.Paths{ManifestRoot: projectRoot, DataDir: filepath.Join(projectRoot, ".daem")}, nil)
 	if _, err := resolver.Resolve(mustDestination(t, "@codex-home/config.toml")); err != nil {
 		t.Fatalf("invalid Pi root blocked Codex resolution: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestResolverKeepsHostRootErrorsTargetSpecific(t *testing.T) {
 
 	t.Setenv(pihostpath.AgentRootEnvironmentVariable, piRoot)
 	t.Setenv(codexhostpath.HomeEnvironmentVariable, "relative-codex-root")
-	resolver = Resolver(daempaths.Paths{ManifestRoot: "relative-workdir", DataDir: filepath.Join(projectRoot, ".daem")})
+	resolver = Resolver(daempaths.Paths{ManifestRoot: "relative-workdir", DataDir: filepath.Join(projectRoot, ".daem")}, nil)
 	if _, err := resolver.Resolve(mustDestination(t, "@pi-agent/agents/reviewer.md")); err != nil {
 		t.Fatalf("invalid Codex work directory blocked Pi resolution: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestResolverScopesRelativeCodexHomeToOperationWorkDir(t *testing.T) {
 	workDir := t.TempDir()
 	t.Setenv(pihostpath.AgentRootEnvironmentVariable, "")
 	t.Setenv(codexhostpath.HomeEnvironmentVariable, "relative Codex root")
-	resolver := Resolver(daempaths.Paths{ManifestRoot: workDir, DataDir: filepath.Join(workDir, ".daem")})
+	resolver := Resolver(daempaths.Paths{ManifestRoot: workDir, DataDir: filepath.Join(workDir, ".daem")}, nil)
 
 	got, err := resolver.Resolve(mustDestination(t, "@codex-home/config.toml"))
 	if err != nil {

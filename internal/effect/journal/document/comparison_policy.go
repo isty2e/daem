@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 )
@@ -19,8 +20,8 @@ func (comparison Comparison) RequireCanonicalRecoveryPolicy(ctx context.Context,
 	if err := canonical.Validate(); err != nil {
 		return err
 	}
-	if (comparison.order == nil) != (canonical.order == nil) {
-		return fmt.Errorf("prepared package order differs from the recorded comparison")
+	if !slices.EqualFunc(comparison.sequences, canonical.sequences, func(left, right configdocument.JSONArrayEdit) bool { return left.Equal(right) }) {
+		return fmt.Errorf("prepared native sequence edits differ from the recorded comparison")
 	}
 	participants := make(map[documentSelectionKey]compose.Participant, len(canonical.participants))
 	for _, participant := range canonical.participants {

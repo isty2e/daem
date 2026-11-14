@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 )
 
 // HomeEnvironmentVariable selects a configured Codex home locator.
@@ -25,13 +26,7 @@ func ResolveHomeRoot(workDir string) (string, error) {
 
 	configuredRoot := os.Getenv(HomeEnvironmentVariable)
 	if configuredRoot != "" {
-		if strings.ContainsRune(configuredRoot, '\x00') {
-			return "", fmt.Errorf("Codex home root must not contain a NUL byte")
-		}
-		if filepath.IsAbs(configuredRoot) {
-			return configuredRoot, nil
-		}
-		if workDir == "" {
+		if workDir == "" && !filepath.IsAbs(configuredRoot) {
 			var err error
 			workDir, err = os.Getwd()
 			if err != nil {
@@ -41,23 +36,19 @@ func ResolveHomeRoot(workDir string) (string, error) {
 				return "", err
 			}
 		}
-		return filepath.Join(workDir, configuredRoot), nil
+		return nativehostpath.CodexHomeDirectory(configuredRoot, workDir, "")
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve Codex config home: %w", err)
 	}
-	if strings.TrimSpace(home) == "" || strings.TrimSpace(home) != home ||
-		strings.ContainsRune(home, '\x00') || !filepath.IsAbs(home) {
-		return "", fmt.Errorf("Codex default home must be a trimmed absolute path")
-	}
-	return filepath.Join(home, ".codex"), nil
+	return nativehostpath.CodexHomeDirectory("", workDir, home)
 }
 
 // DestinationOverride maps only Codex-home destinations to Codex's selected
 // physical root; other root roles continue through their owning policies.
-func DestinationOverride(workDir string) hostpath.DestinationOverrideResolver {
+func DestinationOverride(workDir string, resolveRoot func(string) (string, error)) hostpath.DestinationOverrideResolver {
 	return func(destination output.Destination) (string, bool, error) {
 		if destination.RootRole() != output.RootCodexHome {
 			return "", false, nil
@@ -65,6 +56,19 @@ func DestinationOverride(workDir string) hostpath.DestinationOverrideResolver {
 		root, err := ResolveHomeRoot(workDir)
 		if err != nil {
 			return "", true, err
+		}
+		for _, component := range strings.Split(filepath.ToSlash(root), "/") {
+			if component != ".." {
+				continue
+			}
+			if resolveRoot == nil {
+				return "", true, fmt.Errorf("Codex home with parent components requires physical root resolution")
+			}
+			root, err = resolveRoot(root)
+			if err != nil {
+				return "", true, fmt.Errorf("resolve Codex home before expanding the destination: %w", err)
+			}
+			break
 		}
 		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), true, nil
 	}
@@ -74,8 +78,8 @@ func validateWorkDir(workDir string) error {
 	if strings.ContainsRune(workDir, '\x00') {
 		return fmt.Errorf("Codex config working directory must not contain a NUL byte")
 	}
-	if strings.TrimSpace(workDir) == "" || strings.TrimSpace(workDir) != workDir || !filepath.IsAbs(workDir) {
-		return fmt.Errorf("Codex config working directory must be a trimmed absolute path")
+	if !filepath.IsAbs(workDir) {
+		return fmt.Errorf("Codex config working directory must be an absolute path")
 	}
 	return nil
 }

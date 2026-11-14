@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
@@ -36,6 +37,7 @@ type operation struct {
 	generalTraversalPhase      *physicalwork.TraversalPhase
 	recoveryBackups            *hostmutation.Backups
 	generalExecutionWorkBudget *physicalwork.Budget
+	ownerReference             pathauthority.Reference
 }
 
 func newOperation(paths execute.Paths, borrowedRoot *rootedpath.CapturedRoot, resolver mutationnamespace.Resolver, filesystem mutationfs.Store, budget *physicalwork.Budget) (*operation, error) {

@@ -255,7 +255,22 @@ func canonicalDocumentClaims(records []recoveryClaimValue, owner stateauthority.
 	return claims, nil
 }
 
-func persistedDocumentProvisionalClaims(acquires []journaldocument.ProvisionalAcquire) (recoveryDocumentClaimSet, error) {
+func admitDocumentProvisionalAlias(alias aggregate.DocumentAddress, selection journaldocument.ClaimSelection) error {
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	switch selection {
+	case journaldocument.NativeClaims:
+		return nil
+	case journaldocument.LegacyGlobalClaims:
+		if alias.Scope() == target.ScopeGlobal {
+			return nil
+		}
+	}
+	return fmt.Errorf("provisional document alias is not admitted by its recorded claim selection")
+}
+
+func persistedDocumentProvisionalClaims(acquires []journaldocument.ProvisionalAcquire, selection journaldocument.ClaimSelection) (recoveryDocumentClaimSet, error) {
 	if err := validateRecoveryOwnershipWorkBudget(0, 0, len(acquires)); err != nil {
 		return recoveryDocumentClaimSet{}, err
 	}
@@ -267,14 +282,14 @@ func persistedDocumentProvisionalClaims(acquires []journaldocument.ProvisionalAc
 	aliases := make([]aggregate.DocumentAddress, 0)
 	seenAliases := make(map[aggregate.DocumentAddress]bool)
 	for _, acquire := range acquires {
-		if err := acquire.Alias().Validate(); err != nil {
+		if err := admitDocumentProvisionalAlias(acquire.Alias(), selection); err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
 		intent := acquire.Intent()
 		if err := intent.Validate(); err != nil {
 			return recoveryDocumentClaimSet{}, err
 		}
-		if acquire.Alias().Scope() != target.ScopeGlobal || acquire.Alias().AggregateRoot() != intent.Destination() {
+		if acquire.Alias().AggregateRoot() != intent.Destination() {
 			return recoveryDocumentClaimSet{}, fmt.Errorf("provisional document claim alias differs from its destination")
 		}
 		if !seenAliases[acquire.Alias()] {
@@ -299,7 +314,7 @@ func persistedDocumentProvisionalClaims(acquires []journaldocument.ProvisionalAc
 		return recoveryDocumentClaimSet{}, err
 	}
 	first := acquires[0].Intent()
-	if _, err := record.canonicalProvisional(aliases, first.Owner(), first.OperationID(), first.Path()); err != nil {
+	if _, err := record.canonicalProvisional(aliases, first.Owner(), first.OperationID(), first.Path(), selection); err != nil {
 		return recoveryDocumentClaimSet{}, err
 	}
 	return record, nil
@@ -309,7 +324,7 @@ func persistedDocumentAlias(alias aggregate.DocumentAddress) recoveryDocumentAli
 	return recoveryDocumentAliasRef{Target: string(alias.Target()), Scope: string(alias.Scope()), Destination: alias.AggregateRoot().String()}
 }
 
-func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.DocumentAddress, owner stateauthority.Authority, operationID string, path pathauthority.Provisional) ([]journaldocument.ProvisionalAcquire, error) {
+func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.DocumentAddress, owner stateauthority.Authority, operationID string, path pathauthority.Provisional, selection journaldocument.ClaimSelection) ([]journaldocument.ProvisionalAcquire, error) {
 	if err := record.validateShape(); err != nil {
 		return nil, err
 	}
@@ -343,8 +358,11 @@ func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.
 	footprints := make([]output.Footprint, 0, len(*record.Acquires))
 	for _, row := range *record.Acquires {
 		alias, found := byAlias[row.Alias]
-		if !found || alias.Scope() != target.ScopeGlobal {
-			return nil, fmt.Errorf("provisional claim does not reference a declared global document alias")
+		if !found {
+			return nil, fmt.Errorf("provisional claim does not reference a declared document alias")
+		}
+		if err := admitDocumentProvisionalAlias(alias, selection); err != nil {
+			return nil, err
 		}
 		footprint, err := footprintcodec.Decode(row.Footprint)
 		if err != nil {
@@ -375,8 +393,8 @@ func (record recoveryDocumentClaimSet) canonicalProvisional(aliases []aggregate.
 	return acquires, nil
 }
 
-func (record recoveryDocumentClaimSet) promoted(aliases []aggregate.DocumentAddress, owner stateauthority.Authority, operationID string, provisional pathauthority.Provisional, exact pathauthority.Exact) (recoveryDocumentClaimSet, error) {
-	acquires, err := record.canonicalProvisional(aliases, owner, operationID, provisional)
+func (record recoveryDocumentClaimSet) promoted(aliases []aggregate.DocumentAddress, owner stateauthority.Authority, operationID string, provisional pathauthority.Provisional, exact pathauthority.Exact, selection journaldocument.ClaimSelection) (recoveryDocumentClaimSet, error) {
+	acquires, err := record.canonicalProvisional(aliases, owner, operationID, provisional, selection)
 	if err != nil {
 		return recoveryDocumentClaimSet{}, err
 	}

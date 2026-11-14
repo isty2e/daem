@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -40,11 +41,48 @@ func TestNativeNamespaceFollowsAliasesOnlyIntoExplicitTrustedRoots(t *testing.T)
 		nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/alias.json"),
 		nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/shared.json"),
 	}
-	roots := Roots{Manifest: manifest, PiAgent: pi}
+	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: manifest, output.RootPiAgent: pi})
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
-	namespace, err := Observe(t.Context(), aliases, roots, reader, imageBudget(t))
+	namespace, err := Observe(t.Context(), aliases, roots, fixtureProtection(t), reader, imageBudget(t))
 	if err != nil || namespace.Observation().Validate() != nil {
 		t.Fatalf("actual alias qualification: %v", err)
+	}
+	for _, alias := range namespace.Aliases() {
+		binding, known := alias.Binding()
+		if !known || binding.Validate() != nil || binding.Location() != alias.Location() || binding.RootReference() != alias.Root().RootReference() {
+			t.Fatal("forward observation lost its selected complete binding")
+		}
+		request, err := alias.PhysicalAuthorityRequest()
+		if err != nil || request.Target != string(alias.Address().Target()) || request.Scope != string(alias.Address().Scope()) {
+			t.Fatal("qualified alias lost its authority request", request, err)
+		}
+		wantPath := referent
+		if alias.Address().Scope() == target.ScopeProject {
+			wantPath = aliasPath
+		}
+		if request.Path != wantPath {
+			t.Fatal("alias authority lost its selected entry route", request.Path, wantPath)
+		}
+		authority, err := mutation.NewPhysicalAuthoritySet(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observations, err := authority.Namespaces()
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry, err := mutation.ObserveDirectoryEntryAuthority(wantPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entryCovered, referentCovered := false, false
+		for _, observed := range observations {
+			entryCovered = entryCovered || observed.Equal(entry)
+			referentCovered = referentCovered || observed.Equal(namespace.Observation())
+		}
+		if !entryCovered || !referentCovered {
+			t.Fatal("native authority did not cover both its alias entry and writer referent")
+		}
 	}
 	piAuthority, err := pi.Root.Authority()
 	if err != nil {
@@ -96,7 +134,7 @@ func TestNativeNamespaceRefusesEscapesWithoutDiscoveringWiderAuthority(t *testin
 		t.Fatal(err)
 	}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
-	result, err := Observe(t.Context(), []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/alias.json")}, Roots{Manifest: manifest}, reader, imageBudget(t))
+	result, err := Observe(t.Context(), []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/alias.json")}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: manifest}), fixtureProtection(t), reader, imageBudget(t))
 	if err == nil || result.observation.Validate() == nil || result.writerRoot != nil || len(reader.capabilities) != 0 {
 		t.Fatal("escaped referent discovered or returned write authority")
 	}
@@ -126,8 +164,8 @@ func TestNativeNamespaceRevalidatesSelectedRootAndFinalAlias(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = selectedRoot.Close() })
-			roots := Roots{PiAgent: RootSelection{SelectedPath: selector, Root: selectedRoot}}
-			namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/custom.json")}, roots, journalTestFilesystem(), imageBudget(t))
+			roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: {SelectedPath: selector, Root: selectedRoot}})
+			namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/custom.json")}, roots, fixtureProtection(t), journalTestFilesystem(), imageBudget(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -171,14 +209,14 @@ func TestNativeNamespaceRejectsStaleRoleGrantEvenWithAnotherTrustedWriter(t *tes
 	if err := os.Symlink(previous.SelectedPath, selector); err != nil {
 		t.Fatal(err)
 	}
-	roots := Roots{PiAgent: RootSelection{SelectedPath: selector, Root: previous.Root}, CodexHome: current}
+	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: {SelectedPath: selector, Root: previous.Root}, output.RootCodexHome: current})
 	if err := os.Remove(selector); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(current.SelectedPath, selector); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Observe(t.Context(), []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/custom.json")}, roots, journalTestFilesystem(), imageBudget(t))
+	result, err := Observe(t.Context(), []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/custom.json")}, roots, fixtureProtection(t), journalTestFilesystem(), imageBudget(t))
 	if err == nil || result.writerRoot != nil || result.observation.Validate() == nil {
 		t.Fatal("a different trusted writer disguised a stale logical root grant")
 	}
@@ -187,7 +225,7 @@ func TestNativeNamespaceRejectsStaleRoleGrantEvenWithAnotherTrustedWriter(t *tes
 func TestNativeNamespaceAbsentSuffixObservationHasNoCreationEffects(t *testing.T) {
 	pi := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/new/nested.json")
-	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, Roots{PiAgent: pi}, journalTestFilesystem(), imageBudget(t))
+	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: pi}), fixtureProtection(t), journalTestFilesystem(), imageBudget(t))
 	if err != nil || namespace.observation.Validate() != nil {
 		t.Fatalf("missing ordinary suffix: %v", err)
 	}
@@ -204,7 +242,7 @@ func TestNativeNamespaceAbsentSuffixObservationHasNoCreationEffects(t *testing.T
 }
 
 func TestNativeNamespaceRefusesDisagreementKindsMissingRootsAndRoleMismatch(t *testing.T) {
-	for _, change := range []string{"different files", "directory", "dangling", "missing role", "wrong role"} {
+	for _, change := range []string{"different files", "directory", "dangling", "missing role", "wrong role", "containing project only", "coincident project only", "different locator"} {
 		t.Run(change, func(t *testing.T) {
 			pi := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
 			for _, name := range []string{"a.json", "b.json"} {
@@ -213,7 +251,7 @@ func TestNativeNamespaceRefusesDisagreementKindsMissingRootsAndRoleMismatch(t *t
 				}
 			}
 			aliases := []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/a.json")}
-			roots := Roots{PiAgent: pi}
+			roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: pi})
 			switch change {
 			case "different files":
 				aliases = append(aliases, nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/b.json"))
@@ -231,13 +269,51 @@ func TestNativeNamespaceRefusesDisagreementKindsMissingRootsAndRoleMismatch(t *t
 				roots = Roots{}
 			case "wrong role":
 				aliases[0] = nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@codex-home/a.json")
-				roots = Roots{CodexHome: pi}
+				roots = fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootCodexHome: pi})
+			case "containing project only":
+				project := nativeNamespaceRoot(t, filepath.Dir(pi.SelectedPath))
+				roots = fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: project})
+			case "coincident project only":
+				roots = fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: pi})
+			case "different locator":
+				reference, err := output.NewRootReference("pi-agent", "fixture-different-locator-v1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				roots, err = (Roots{}).With(reference, pi)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
-			result, err := Observe(t.Context(), aliases, roots, journalTestFilesystem(), imageBudget(t))
+			result, err := Observe(t.Context(), aliases, roots, fixtureProtection(t), journalTestFilesystem(), imageBudget(t))
 			if err == nil || result.writerRoot != nil || result.observation.Validate() == nil {
 				t.Fatal("unqualified or non-file namespace returned a result")
 			}
 		})
+	}
+}
+
+func TestNativeNamespaceKeepsCoincidentLogicalBindings(t *testing.T) {
+	selected := nativeNamespaceRoot(t, t.TempDir())
+	if err := os.Mkdir(filepath.Join(selected.SelectedPath, ".pi"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(selected.SelectedPath, ".pi", "a.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	roots := fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: selected, output.RootPiAgent: selected})
+	aliases := []aggregate.DocumentAddress{
+		nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/a.json"),
+		nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/.pi/a.json"),
+	}
+	namespace, err := Observe(t.Context(), aliases, roots, fixtureProtection(t), journalTestFilesystem(), imageBudget(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := namespace.QualifyRoots(t.Context(), imageBudget(t))
+	if err != nil || len(namespace.Aliases()) != 2 || len(qualified.grants) != 2 {
+		t.Fatalf("coincident bindings collapsed: %v", err)
 	}
 }
 
@@ -249,13 +325,13 @@ func TestNativeNamespaceBudgetAndMidObservationCancellationReturnNoCapability(t 
 	aliases := []aggregate.DocumentAddress{nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/custom.json")}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
 	limitErr := errors.New("test traversal exhausted")
-	if result, err := Observe(t.Context(), aliases, Roots{PiAgent: pi}, reader, &nativeNamespaceBudget{err: limitErr}); !errors.Is(err, limitErr) || result.writerRoot != nil || len(reader.capabilities) != 0 {
+	if result, err := Observe(t.Context(), aliases, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: pi}), fixtureProtection(t), reader, &nativeNamespaceBudget{err: limitErr}); !errors.Is(err, limitErr) || result.writerRoot != nil || len(reader.capabilities) != 0 {
 		t.Fatalf("exhausted traversal admitted observation: %v", err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	reader.afterIdentity = cancel
-	if result, err := Observe(ctx, aliases, Roots{PiAgent: pi}, reader, imageBudget(t)); !errors.Is(err, context.Canceled) || result.writerRoot != nil {
+	if result, err := Observe(ctx, aliases, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootPiAgent: pi}), fixtureProtection(t), reader, imageBudget(t)); !errors.Is(err, context.Canceled) || result.writerRoot != nil {
 		t.Fatalf("canceled observation returned a namespace: %v", err)
 	}
 	for _, capability := range reader.capabilities {

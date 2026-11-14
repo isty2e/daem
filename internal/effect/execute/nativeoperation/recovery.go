@@ -17,7 +17,6 @@ import (
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
-	"github.com/isty2e/daem/internal/effect/mutation"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -75,13 +74,12 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	if err != nil {
 		return err
 	}
-	for _, group := range aliases {
-		for _, alias := range group {
-			path, err := options.Resolver(alias.AggregateRoot())
-			if err != nil {
-				return err
-			}
-			request := mutation.PhysicalAuthorityRequest{Path: path, Target: string(alias.Target()), Scope: string(alias.Scope())}
+	for index := range aliases {
+		requests, err := plan.DocumentAuthorityRequests(index)
+		if err != nil {
+			return err
+		}
+		for _, request := range requests {
 			if !slices.Contains(authority.physicalAuthorityRequests, request) {
 				authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
 			}
@@ -105,7 +103,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		return fmt.Errorf("native recovery has no admitted execution phase")
 	}
 	stateReader := func(ctx context.Context) (durable.Snapshot, error) {
-		return authority.projectStatefile.Read(ctx, operation.StateCodec(), budget)
+		return authority.projectStatefile.Read(ctx, operation.StatefileCodec(), budget)
 	}
 	semanticGuard := func(ctx context.Context) error {
 		state, err := stateReader(ctx)
@@ -121,6 +119,13 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		}
 		if same, err := registryScope.Matches(operation.ObservedRegistry(), registry); err != nil || !same {
 			return errors.Join(fmt.Errorf("joint recovery Registry scope changed before restoration"), err)
+		}
+		if initial.RequiresRollback() {
+			for _, document := range operation.Documents() {
+				if err := journalqualification.RequireRestorationWriteExclusion(operation.Owner(), registry, document.Namespace().Observation(), document.Restoration()); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	}

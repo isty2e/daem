@@ -1,12 +1,85 @@
 package record
 
 import (
+	"maps"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+func TestNativeNamespaceFactsComeFromTheStoredInterpretationBeforeAndAfterEncoding(t *testing.T) {
+	fixture := observedNativeRecordFixture(t)
+	createdAt, err := time.Parse(time.RFC3339, fixture.record.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := fixture.record.ManifestRootProvenance.canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := []SealedDocumentGroup{{record: fixture.record.DocumentGroups[0], initialized: true}}
+	captured, err := NewNativeCapture(fixture.record.OperationID, createdAt, fixture.claims.owner, manifest, fixture.before, fixture.after, groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := captured.Encode(t.Context(), fixture.codec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeNativeJournalRecord(t.Context(), content, fixture.codec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expectedRoots map[output.RootReference]rootedpath.AuthorityProvenance
+	for _, value := range []Native{captured, decoded} {
+		view, err := value.DocumentAt(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pin, err := view.WriterPin()
+		if err != nil || pin.Validate() != nil || pin.Provenance() != fixture.provenance {
+			t.Fatal("namespace lowering changed the recorded writer", err)
+		}
+		if _, bound := pin.RootReference(); bound {
+			t.Fatal("native16 lowering invented a writer root reference")
+		}
+		if child, directory := pin.Coordinate().DirectoryChild(); !directory || child != fixture.relative.Path() {
+			t.Fatal("namespace lowering changed the physical writer coordinate", child)
+		}
+		aliases := view.Aliases()
+		location, err := aliases[0].Location()
+		if err != nil {
+			t.Fatal(err)
+		}
+		frozen, err := native16RootBindingForAlias(fixture.claims.alias)
+		if err != nil || location != frozen {
+			t.Fatal("capture and decode do not share the frozen alias interpretation", err)
+		}
+		roots, err := value.RecordedRootAnchors()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if expectedRoots == nil {
+			expectedRoots = maps.Clone(roots)
+		} else if !maps.Equal(expectedRoots, roots) {
+			t.Fatal("serialization changed namespace root facts")
+		}
+		clear(roots)
+		copied := value
+		again, err := copied.RecordedRootAnchors()
+		if err != nil || !maps.Equal(expectedRoots, again) {
+			t.Fatal("returned map mutation changed shared namespace facts", err)
+		}
+		copiedView, err := copied.DocumentAt(0)
+		if err != nil || !copiedView.Aliases()[0].MatchesRoot(fixture.provenance) {
+			t.Fatal("copy lost the recorded alias root", err)
+		}
+	}
+}
 
 func TestRecordedDocumentViewsRetainFactsWithoutMutableCollections(t *testing.T) {
 	fixture := observedNativeRecordFixture(t)
@@ -35,8 +108,10 @@ func TestRecordedDocumentViewsRetainFactsWithoutMutableCollections(t *testing.T)
 	if err := views[0].RequireRetainedNamespace(t.Context(), fixture.observation); err != nil {
 		t.Fatal(err)
 	}
-	provenance, relative, err := views[0].Writer()
-	if err != nil || provenance != fixture.provenance || relative != fixture.relative {
+	pin, err := views[0].WriterPin()
+	child, directory := pin.Coordinate().DirectoryChild()
+	_, bound := pin.RootReference()
+	if err != nil || bound || pin.Provenance() != fixture.provenance || !directory || child != fixture.relative.Path() {
 		t.Fatalf("recorded writer changed: %v", err)
 	}
 	aliases := views[0].Aliases()
@@ -73,7 +148,7 @@ func TestRecordedDocumentViewsRejectZeroFacts(t *testing.T) {
 	if addresses, err := document.Addresses(t.Context()); err == nil || addresses != nil {
 		t.Fatal("zero view supplied addresses")
 	}
-	if _, _, err := document.Writer(); err == nil {
+	if _, err := document.WriterPin(); err == nil {
 		t.Fatal("zero view supplied writer facts")
 	}
 	if err := document.RequireCapturedNamespace(mutation.DirectoryEntryAuthorityObservation{}); err == nil {

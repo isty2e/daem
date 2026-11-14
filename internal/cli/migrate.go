@@ -13,11 +13,15 @@ func runMigrate(args []string, stdout, stderr io.Writer, options commandOptions)
 		printCommandUsage([]string{"migrate"}, stdout, 0)
 		return 0
 	}
-	if args[0] != "state" {
+	switch args[0] {
+	case "state":
+		return prepareMigrateStateInvocation(args[1:], stdout, stderr, options).execute()
+	case "metadata":
+		return prepareMigrateMetadataInvocation(args[1:], stdout, stderr, options).execute()
+	default:
 		fmt.Fprintf(stderr, "unknown migration subject %q\n", args[0])
 		return 2
 	}
-	return prepareMigrateStateInvocation(args[1:], stdout, stderr, options).execute()
 }
 
 func prepareMigrateStateInvocation(args []string, stdout, stderr io.Writer, options commandOptions) *preparedInvocation {

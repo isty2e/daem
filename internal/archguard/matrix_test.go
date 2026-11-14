@@ -301,7 +301,7 @@ func TestWorkflowReadinessCompositionEdgesAreExact(t *testing.T) {
 }
 
 func TestWorkflowNativeConfigCompositionEdgesAreExact(t *testing.T) {
-	for _, packagePath := range []string{"internal/workflow/lock", "internal/workflow/adopt", "internal/workflow/apply", "internal/workflow/status", "internal/workflow/refresh", "internal/workflow/recover"} {
+	for _, packagePath := range []string{"internal/workflow/lock", "internal/workflow/list", "internal/workflow/adopt", "internal/workflow/apply", "internal/workflow/status", "internal/workflow/refresh", "internal/workflow/recover"} {
 		violations := analyzeImports(packagePath, []string{"example.com/project/internal/workflow/nativeconfig"})
 		if len(violations) != 0 {
 			t.Errorf("admitted native composition edge %s: %+v", packagePath, violations)
@@ -315,7 +315,7 @@ func TestWorkflowNativeConfigCompositionEdgesAreExact(t *testing.T) {
 		{"internal/workflow/adopt", "internal/workflow/nativeconfig/private"},
 		{"internal/workflow/adopt", "internal/workflow/readiness"},
 		{"internal/workflow/authoring", "internal/workflow/nativeconfig"},
-		{"internal/workflow/list", "internal/workflow/nativeconfig"},
+		{"internal/workflow/list/other", "internal/workflow/nativeconfig"},
 		{"internal/workflow/lock/other", "internal/workflow/nativeconfig"},
 		{"internal/workflow/apply", "internal/workflow/nativeconfig/private"},
 		{"internal/workflow/nativeconfig", "internal/workflow/status"},

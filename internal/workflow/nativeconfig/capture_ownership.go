@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
-	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -18,7 +18,7 @@ import (
 // QualifyCaptureOwnership checks selected read facts, not a host mutation or
 // complete same-document ownership transition. The caller retains the evidence.
 // The result identifies an admitted key/recorded-whole narrowing handoff.
-func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessmentInput, config hostconfig.Config, placement profile.HostConfigPlacement, selected []output.Footprint) (narrowingHandoff bool, err error) {
+func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessmentInput, config hostconfig.Config, placement configuration.Placement, selected []output.Footprint) (narrowingHandoff bool, err error) {
 	if ctx == nil || input.Documents == nil || len(input.Documents.Evidence().Namespaces()) != 1 {
 		return false, fmt.Errorf("capture requires one retained native document")
 	}
@@ -78,7 +78,7 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := placement.ValidateStaticFootprint(footprint); err != nil {
+		if err := profile.ValidateHostConfigFootprint(placement, footprint); err != nil {
 			return false, err
 		}
 		if comparison.IsZero() {
@@ -104,13 +104,9 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 		}
 	}
 
-	// Project history uses the Snapshot and document binding. Persisted active
-	// claims cover global scope, not an additional project ownership record.
-	if config.Scope() == target.ScopeGlobal {
-		for _, footprint := range expected {
-			if slices.ContainsFunc(selected, footprint.Overlaps) && !slices.ContainsFunc(claims, func(claim ownership.Claim) bool { return claim.Address().Footprint().Equal(footprint) }) {
-				return false, fmt.Errorf("capture history differs from its selected active claims")
-			}
+	for _, footprint := range expected {
+		if slices.ContainsFunc(selected, footprint.Overlaps) && !slices.ContainsFunc(claims, func(claim ownership.Claim) bool { return claim.Address().Footprint().Equal(footprint) }) {
+			return false, fmt.Errorf("%w: capture history differs from its selected active claims", ownership.ErrClaimMissing)
 		}
 	}
 	return wholeBefore && config.Ownership() == hostconfig.OwnershipKeys, nil

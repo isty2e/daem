@@ -12,7 +12,6 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -60,14 +59,14 @@ func TestDocumentComparisonJoinsNativeAndDedicatedPiPhases(t *testing.T) {
 	before := `{"model":"balanced","outside":0,"packages":["npm:a","npm:b"]}`
 	expected := `{"model":"fast","outside":0,"packages":["npm:b","npm:a"]}`
 	input := comparisonInput(before, expected, &mode, &mode)
-	order := comparisonOrder(t, before, expected)
+	order := comparisonOrder(t, before, expected, 1, 0)
 	participants := []compose.Participant{comparisonParticipant(t, "model")}
-	comparison, err := document.NewSelectedComparison(t.Context(), input, participants, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, participants, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}
 	participants[0] = compose.Participant{}
-	order = piconfig.PackagePermutation{}
+	order = configdocument.JSONArrayEdit{}
 	for _, test := range []struct {
 		name        string
 		content     string
@@ -81,6 +80,7 @@ func TestDocumentComparisonJoinsNativeAndDedicatedPiPhases(t *testing.T) {
 		{"mixed order before", `{"model":"fast","outside":4,"packages":["npm:a","npm:b"]}`, false, false, true},
 		{"third native", `{"model":"other","packages":["npm:b","npm:a"]}`, false, false, false},
 		{"third package row", `{"model":"fast","packages":["npm:c","npm:a"]}`, false, false, false},
+		{"third literal type", `{"model":"fast","packages":[true]}`, false, false, false},
 		{"missing packages", `{"model":"fast"}`, false, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -182,11 +182,11 @@ func TestDocumentComparisonJoinsRealMCPAndNativeReaders(t *testing.T) {
 func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testing.T) {
 	mode := recovery.PermissionMode(0o600)
 	input := comparisonInput(`{"model":1,"packages":["npm:a","npm:b"]}`, `{"model":2,"packages":["npm:b","npm:a"]}`, &mode, &mode)
-	for _, order := range []piconfig.PackagePermutation{
+	for _, order := range []configdocument.JSONArrayEdit{
 		{},
-		comparisonOrder(t, `{"packages":["npm:c","npm:d"]}`, `{"packages":["npm:d","npm:c"]}`),
+		comparisonOrder(t, `{"packages":["npm:c","npm:d"]}`, `{"packages":["npm:d","npm:c"]}`, 1, 0),
 	} {
-		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, &order)
+		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{order})
 		if err == nil {
 			t.Fatal("unbound package inverse was accepted")
 		}
@@ -194,8 +194,8 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 			t.Fatal("failed construction returned usable comparison evidence")
 		}
 	}
-	order := comparisonOrder(t, string(input.Before.Content()), string(input.Expected.Content()))
-	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "packages")}, &order); err == nil {
+	order := comparisonOrder(t, string(input.Before.Content()), string(input.Expected.Content()), 1, 0)
+	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "packages")}, []configdocument.JSONArrayEdit{order}); err == nil {
 		t.Fatal("generic package area overlapped the dedicated order owner")
 	}
 	if _, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{{}}, nil); err == nil {
@@ -211,7 +211,7 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	if _, err := document.NewWholeComparison(t.Context(), invalid); err == nil {
 		t.Fatal("oversized witness was accepted")
 	}
-	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, &order)
+	comparison, err := document.NewSelectedComparison(t.Context(), input, []compose.Participant{comparisonParticipant(t, "model")}, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,9 +232,9 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	if _, err := document.NewSelectedComparison(t.Context(), invalid, nil, nil); err == nil {
 		t.Fatal("selected recovery silently changed an existing root mode")
 	}
-	malformedOrder := aggregate.ExistingDocument([]byte(`{"model":2,"packages":[true]}`))
+	malformedOrder := aggregate.ExistingDocument([]byte(`{"model":2,"packages":true}`))
 	if match, err := comparison.Match(t.Context(), malformedOrder, &mode); err == nil || match.Recoverable() {
-		t.Fatal("a later Pi reader failure returned usable partial comparison")
+		t.Fatal("a later array reader failure returned usable partial comparison")
 	}
 	oversized := aggregate.ExistingDocument(make([]byte, 8192))
 	if match, err := comparison.Match(t.Context(), oversized, &mode); err == nil || match.Recoverable() {
@@ -251,16 +251,16 @@ func TestDocumentComparisonAppliesCallerDepthToDedicatedOrder(t *testing.T) {
 	t.Run("witness", func(t *testing.T) {
 		input := comparisonInput(deepBefore, deepExpected, &mode, &mode)
 		input.Limits.MaximumDepth = 3
-		order := comparisonOrder(t, deepBefore, deepExpected)
-		if _, err := document.NewSelectedComparison(t.Context(), input, nil, &order); err == nil {
+		order := comparisonOrder(t, deepBefore, deepExpected, 1, 0)
+		if _, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{order}); err == nil {
 			t.Fatal("order-only witnesses bypassed the calling operation's depth limit")
 		}
 	})
 	t.Run("current", func(t *testing.T) {
 		input := comparisonInput(before, expected, &mode, &mode)
 		input.Limits.MaximumDepth = 3
-		order := comparisonOrder(t, before, expected)
-		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, &order)
+		order := comparisonOrder(t, before, expected, 1, 0)
+		comparison, err := document.NewSelectedComparison(t.Context(), input, nil, []configdocument.JSONArrayEdit{order})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -322,17 +322,22 @@ func comparisonNativeCodec(t *testing.T, syntax configdocument.Syntax) aggregate
 	return codec
 }
 
-func comparisonOrder(t *testing.T, before, expected string) piconfig.PackagePermutation {
+func comparisonOrder(t *testing.T, before, expected string, positions ...int) configdocument.JSONArrayEdit {
 	t.Helper()
-	beforeDocument, err := piconfig.Parse([]byte(before))
+	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
+	beforeDocument, err := configdocument.Parse(t.Context(), []byte(before), configdocument.JSON, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedDocument, err := piconfig.Parse([]byte(expected))
+	expectedDocument, err := configdocument.Parse(t.Context(), []byte(expected), configdocument.JSON, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	order, err := piconfig.NewPackagePermutation(beforeDocument, expectedDocument)
+	path, err := output.NewKeyPath("packages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	order, err := configdocument.NewJSONArrayEdit(t.Context(), beforeDocument, expectedDocument, path, nil, positions)
 	if err != nil {
 		t.Fatal(err)
 	}

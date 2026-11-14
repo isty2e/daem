@@ -19,9 +19,20 @@ import (
 
 type StateGroupInput struct {
 	aliases          []aggregate.DocumentAddress
+	routes           []AliasRoute
 	selectedSubjects []topology.SubjectID
 	comparison       Comparison
 	bindingIntents   []ownership.DocumentBindingIntent
+}
+
+func NewBoundStateGroupInput(ctx context.Context, routes []AliasRoute, subjects []topology.SubjectID, comparison Comparison, bindings []ownership.DocumentBindingIntent) (StateGroupInput, error) {
+	aliases, err := AliasRouteAddresses(ctx, routes)
+	if err != nil {
+		return StateGroupInput{}, err
+	}
+	input := NewStateGroupInput(aliases, subjects, comparison, bindings)
+	input.routes = slices.Clone(routes)
+	return input, nil
 }
 
 // NewStateGroupInput retains proposed reconstruction facts. Only
@@ -34,6 +45,9 @@ func NewStateGroupInput(aliases []aggregate.DocumentAddress, subjects []topology
 // Physical, prepared-action, image, claim and phase joins remain mandatory.
 type StateGroup struct {
 	aliases        []aggregate.DocumentAddress
+	routes         []AliasRoute
+	beforeAliases  []aggregate.DocumentAddress
+	afterAliases   []aggregate.DocumentAddress
 	selections     []aggregate.Selection
 	comparison     Comparison
 	bindingIntents []ownership.DocumentBindingIntent
@@ -42,6 +56,15 @@ type StateGroup struct {
 
 func (group StateGroup) Comparison() Comparison               { return group.comparison }
 func (group StateGroup) Aliases() []aggregate.DocumentAddress { return slices.Clone(group.aliases) }
+func (group StateGroup) Routes() []AliasRoute                 { return slices.Clone(group.routes) }
+func (group StateGroup) BeforeAliases() []aggregate.DocumentAddress {
+	return slices.Clone(group.beforeAliases)
+}
+
+func (group StateGroup) AfterAliases() []aggregate.DocumentAddress {
+	return slices.Clone(group.afterAliases)
+}
+
 func (group StateGroup) BindingIntents() []ownership.DocumentBindingIntent {
 	return slices.Clone(group.bindingIntents)
 }
@@ -72,29 +95,56 @@ type documentStateAddress struct {
 	destination output.Destination
 }
 
-func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority, before, after durable.Snapshot, inputs []StateGroupInput) ([]StateGroup, error) {
+func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority, before, after durable.Snapshot, inputs []StateGroupInput, transfers ...CarrierTransfer) ([]StateGroup, error) {
 	indexes, err := IndexSnapshots(ctx, before, after)
 	if err != nil {
+		return nil, err
+	}
+	aliasGroups := make([][]aggregate.DocumentAddress, len(inputs))
+	routeGroups := make([][]AliasRoute, len(inputs))
+	bound := false
+	for index, input := range inputs {
+		aliasGroups[index] = input.aliases
+		routeGroups[index] = input.routes
+		bound = bound || len(input.routes) != 0
+	}
+	var placement PhysicalPlacement
+	if bound {
+		if len(transfers) != 0 {
+			return nil, fmt.Errorf("bound state groups derive transfers from their selector routes")
+		}
+		placement, transfers, err = ResolveAliasPlacement(ctx, routeGroups)
+	} else {
+		placement, err = ResolvePhysicalPlacement(ctx, aliasGroups, transfers)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := indexes.validateCarrierTransfers(ctx, transfers); err != nil {
 		return nil, err
 	}
 	groups := make([]StateGroup, 0, len(inputs))
 	aliases := make(map[aggregate.DocumentAddress]int)
 	stateAliases := make(map[documentStateAddress]int)
 	var allAliases []aggregate.DocumentAddress
+	var allRoutes []AliasRoute
 	var intents []ownership.DocumentBindingIntent
 	for index, input := range inputs {
+		allRoutes = append(allRoutes, input.routes...)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if err := input.comparison.Validate(); err != nil {
 			return nil, fmt.Errorf("document group[%d]: %w", index, err)
 		}
-		selections, err := indexes.SelectedContracts(ctx, input.selectedSubjects, input.aliases)
+		beforeAliases, afterAliases := placement.BeforeAliases(index), placement.AfterAliases(index)
+		selections, err := indexes.SelectedContractsForPlacement(ctx, input.selectedSubjects, placement, index)
 		if err != nil {
 			return nil, fmt.Errorf("document group[%d]: %w", index, err)
 		}
 		group := StateGroup{
-			aliases: slices.Clone(input.aliases), selections: selections,
+			aliases: slices.Clone(input.aliases), routes: slices.Clone(input.routes), selections: selections,
+			beforeAliases: beforeAliases, afterAliases: afterAliases,
 			comparison: input.comparison, bindingIntents: slices.Clone(input.bindingIntents),
 			frontier: make(map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract),
 		}
@@ -111,24 +161,40 @@ func ReconstructStateGroups(ctx context.Context, owner stateauthority.Authority,
 		}
 		destinations := make(map[output.Destination]struct{}, len(input.aliases))
 		for _, alias := range input.aliases {
-			if _, duplicate := aliases[alias]; duplicate {
-				return nil, fmt.Errorf("document alias belongs to more than one group")
+			if _, present := aliases[alias]; !present {
+				allAliases = append(allAliases, alias)
 			}
-			aliases[alias] = index
-			stateAliases[documentStateAddress{alias.Target(), alias.Scope(), alias.AggregateRoot()}] = index
+			// Transfers are MCP-only; native coverage still sees one group in both phases.
+			afterGroup, _ := placement.AfterGroup(alias)
+			aliases[alias] = afterGroup
+			stateAliases[documentStateAddress{alias.Target(), alias.Scope(), alias.AggregateRoot()}] = afterGroup
 			destinations[alias.AggregateRoot()] = struct{}{}
 		}
 		for _, intent := range input.bindingIntents {
 			if _, declared := destinations[intent.Destination()]; !declared {
 				return nil, fmt.Errorf("document binding intent belongs to another group's alias")
 			}
+			for _, alias := range input.aliases {
+				beforeGroup, _ := placement.BeforeGroup(alias)
+				afterGroup, _ := placement.AfterGroup(alias)
+				if alias.AggregateRoot() == intent.Destination() && beforeGroup != afterGroup && afterGroup != index {
+					return nil, fmt.Errorf("carrier transfer binding intent must belong to its after group")
+				}
+			}
 		}
-		allAliases = append(allAliases, input.aliases...)
 		intents = append(intents, input.bindingIntents...)
 		groups = append(groups, group)
 	}
-	if err := indexes.validateNativeBindingMembership(ctx, owner, allAliases, intents); err != nil {
+	if err := indexes.validateCarrierFrontiers(ctx, groups, transfers); err != nil {
 		return nil, err
+	}
+	if err := indexes.validateNativeBindingMembership(ctx, owner, allAliases, intents, allRoutes...); err != nil {
+		return nil, err
+	}
+	for _, group := range groups {
+		if err := group.validateUnpairedSourceRetention(ctx, indexes, allRoutes); err != nil {
+			return nil, err
+		}
 	}
 	if err := indexes.validateNativeGroupCoverage(ctx, groups, aliases, stateAliases); err != nil {
 		return nil, err

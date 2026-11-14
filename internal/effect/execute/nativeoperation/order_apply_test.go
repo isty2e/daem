@@ -6,10 +6,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/execute"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
@@ -23,6 +25,7 @@ import (
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -90,14 +93,16 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := input.Preparation.PiOrders()[0].VerifyPostContent(actual, true); err != nil {
-				t.Fatal(err)
+			edit := input.Preparation.SequenceEdits()[0]
+			completed, err := relationhost.CompleteSelectedImage(t.Context(), edit.Original(), input.Documents.Evidence().DocumentLimits(), nil, []relationhost.SelectedDocumentEdit{edit})
+			if err != nil || !bytes.Equal(actual, completed.Expected().Content()) {
+				t.Fatal("order-only publication differs from its verified selected image", err)
 			}
 			info, err := os.Stat(host)
 			if err != nil || info.Mode().Perm() != 0o644 {
 				t.Fatal("order-only publication changed host permissions", err)
 			}
-			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 			if err != nil || !state.Equal(input.Preparation.AfterState()) || !result.State.Equal(state) || result.ActionCount != 1 {
 				t.Fatal("order-only publication lost its actual committed state", err)
 			}
@@ -130,6 +135,47 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 				t.Fatal("successful order-only publication left recovery work", err)
 			}
 		})
+	}
+}
+
+func TestNativeApplyUsesSelectedAliasAuthorityInsteadOfOrdinaryResolution(t *testing.T) {
+	input, host, original := nativeOrderApplyInput(t, target.ScopeGlobal)
+	unrelated := filepath.Join(t.TempDir(), "ordinary.json")
+	outside := []byte(`{"unrelated":true}`)
+	if err := os.WriteFile(unrelated, outside, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input.Resolver = func(output.Destination, rootedpath.PhysicalTraversalBudget) (string, error) {
+		return unrelated, nil
+	}
+	plan, err := PrepareNativeApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := mutation.PhysicalAuthorityRequest{Path: host, Target: string(target.TargetPi), Scope: string(target.ScopeGlobal)}
+	options := nativeOrderApplyOptions(t)
+	validate := options.ValidatePhysicalAuthorityRequests
+	checked := false
+	options.ValidatePhysicalAuthorityRequests = func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
+		checked = true
+		if !slices.Contains(requests, want) {
+			return errors.New("native publication did not request its selected alias authority")
+		}
+		for _, request := range requests {
+			if request.Path == unrelated {
+				return errors.New("native publication requested an unrelated ordinary path")
+			}
+		}
+		return validate(ctx, requests)
+	}
+	if _, err := ApplyNativeWithEffectPlan(t.Context(), input, plan, options); err != nil || !checked {
+		t.Fatal("native writer did not execute under its own selected authority", err)
+	}
+	if actual, err := os.ReadFile(host); err != nil || bytes.Equal(actual, original) {
+		t.Fatal("the selected native writer did not publish its change", err)
+	}
+	if actual, err := os.ReadFile(unrelated); err != nil || !bytes.Equal(actual, outside) {
+		t.Fatal("native publication changed the unrelated ordinary file", err)
 	}
 }
 
@@ -174,7 +220,7 @@ func TestNativeApplyRollsBackPiOrderAfterReturnedPublicationError(t *testing.T) 
 			if err != nil || info.Mode().Perm() != 0o644 {
 				t.Fatal("Pi rollback changed host permissions", err)
 			}
-			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+			state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 			if err != nil || !state.Equal(input.CurrentState) || !result.State.Equal(state) {
 				t.Fatal("Pi rollback changed the committed Before state", err)
 			}
@@ -325,7 +371,10 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	original := []byte(`{"packages":["npm:b@1","npm:foreign@1","npm:a@1"],"theme":"day"}`)
-	order, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{Scope: scope, SettingsContext: settingsContext, Constraint: constraint, Relations: relations, Document: aggregate.ExistingDocument(original)})
+	order, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
+		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint,
+		Relations: relations, Document: aggregate.ExistingDocument(original),
+	})
 	if err != nil || !order.Changed() {
 		t.Fatal("fixture has no changed Pi order", err)
 	}
@@ -338,8 +387,20 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	physicalCodec, err := statefile.NewPhysicalCodec(codec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	before := durable.EmptySnapshot()
-	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, PiOrders: []pipackage.OrderObservation{order}, StateCodec: codec})
+	view, err := order.WithRetiringRelations(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := relationhost.NewPiDocumentEdit(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, SequenceEdits: []relationhost.SelectedDocumentEdit{edit}, StateCodec: codec})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,14 +441,14 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manifest.Close() })
-	roots := journalnamespace.Roots{Manifest: journalnamespace.RootSelection{Root: manifest, SelectedPath: root}}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: {Root: manifest, SelectedPath: root}})
 	if scope == target.ScopeGlobal {
 		agent, err := rootedpath.CaptureRoot(settings)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = agent.Close() })
-		roots.PiAgent = journalnamespace.RootSelection{Root: agent, SelectedPath: settings}
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, journalnamespace.RootSelection{Root: agent, SelectedPath: settings})
 	}
 	alias, err := pipackage.SettingsDocumentAddress(scope)
 	if err != nil {
@@ -395,15 +456,15 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Registry: reader, Filesystem: testFilesystem(), Limits: limits, Budget: budget})
+	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{Owner: owner, Before: before, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Registry: reader, Filesystem: testFilesystem(), Limits: limits, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return NativeApplyInput{
 		ApplyInput: execute.ApplyInput{
-			CurrentState: before, Owner: owner, Codecs: codecs, StateCodec: codec, Filesystem: testFilesystem(), ProjectRoot: manifest,
+			CurrentState: before, Owner: owner, Codecs: codecs, StateCodec: codec, StatefileCodec: physicalCodec, Filesystem: testFilesystem(), ProjectRoot: manifest,
 			Paths: execute.Paths{ManifestRoot: root, StateDir: root, StatefilePath: statePath, RecoveryDir: filepath.Join(root, "recovery"), DataDir: filepath.Join(root, "data"), OwnershipRegistryPath: registryPath},
-			Resolver: func(destination output.Destination) (string, error) {
+			Resolver: func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
 				if destination != alias.AggregateRoot() {
 					return "", errors.New("order fixture has no selected destination")
 				}
@@ -411,8 +472,8 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 			}, OwnershipRegistryBinder: testOwnershipRegistryBinder(),
 		},
 		Preparation: prepared, Documents: documents, Registry: registry, Budget: budget,
-		RecoveryCodecs: func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error) {
-			return codecs, codec, nil
+		RecoveryCodecs: func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, statefile.PhysicalCodec, error) {
+			return codecs, codec, physicalCodec, nil
 		},
 	}, host, original
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
@@ -108,7 +109,7 @@ func (image DocumentImage) FileReference() (string, error) {
 }
 
 func (record recoveryDocumentImage) preparedImage(ctx context.Context, document aggregate.Document, mode *recovery.PermissionMode, limits configdocument.Limits) (LoadedImage, error) {
-	if err := journaldocument.ValidateImage(ctx, document, limits); err != nil {
+	if err := compose.ValidateImage(ctx, document, limits); err != nil {
 		return LoadedImage{}, err
 	}
 	image := LoadedImage{document: document, mode: clonePermissionMode(mode), initialized: true}

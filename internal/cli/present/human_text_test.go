@@ -2,16 +2,60 @@ package clipresent
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestGlobalMetadataGuidanceUsesTheObservedFailureKind(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		cause      error
+		command    bool
+		recognized bool
+	}{
+		{name: "published", cause: fileset.ErrInterruptedFileSetTransaction, command: true, recognized: true},
+		{name: "invalid evidence", cause: fileset.ErrFileSetEvidenceInvalid, command: true, recognized: true},
+		{name: "access", cause: fileset.ErrFileSetAccessUnprovable, recognized: true},
+		{name: "census limit", cause: fileset.ErrFileSetFenceCensusLimit, recognized: true},
+		{name: "residue", cause: fileset.ErrAbandonedFileSetResidue, recognized: true},
+		{name: "unclassified", cause: errors.New("injected observation failure"), recognized: true},
+		{name: "canceled", cause: errors.Join(context.Canceled, fileset.ErrInterruptedFileSetTransaction)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := errors.Join(recoverygate.ErrGlobalMetadataFence, test.cause)
+			diagnostic, recognized := GlobalMetadataFailureDiagnostic(err)
+			if recognized != test.recognized {
+				t.Fatalf("recognized = %t, want %t", recognized, test.recognized)
+			}
+			if !recognized {
+				return
+			}
+			guidance := diagnostic.Guidance()
+			if len(guidance) != 1 {
+				t.Fatalf("guidance = %+v", guidance)
+			}
+			if test.command {
+				expected := []string{"daem", "migrate", "metadata", "--recover", "--dry-run"}
+				if guidance[0].Kind() != GuidanceCommand || !slices.Equal(guidance[0].Argv(), expected) {
+					t.Fatalf("recovery inspection command = %+v", guidance[0])
+				}
+			} else if guidance[0].Kind() != GuidanceInstruction {
+				t.Fatalf("non-transaction failure was projected as a recovery command: %+v", guidance[0])
+			}
+		})
+	}
+}
 
 func TestEscapePreservesPrintableTextAndEscapesTerminalControls(t *testing.T) {
 	input := "plain path/한글 \\ quote\"\n\t\x1b[2J\u202e" + string([]byte{0xff})

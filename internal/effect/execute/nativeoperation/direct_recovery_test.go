@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -19,8 +21,10 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit/aggregatefixture"
 )
@@ -37,6 +41,9 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 				ordinaryHost := ""
 				if scope == target.ScopeProject && !committed {
 					input, ordinaryHost = nativeOrderWithOrdinaryMCP(t, input)
+				}
+				if scope == target.ScopeProject {
+					selectImageState(t, &input)
 				}
 				plan, err := PrepareNativeApplyEffectPlan(input)
 				if err != nil {
@@ -66,7 +73,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 							}
 						}
 
-						state, err := statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+						state, err := statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 						if err != nil {
 							return err
 						}
@@ -171,6 +178,20 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 						return nil
 					},
 				}
+				if scope == target.ScopeGlobal {
+					aliases, err := native.DocumentAliases()
+					if err != nil || len(aliases) != 1 || len(aliases[0]) != 1 {
+						t.Fatal("order-only recovery lost its selected native alias", err)
+					}
+					resolve := options.Resolver
+					unrelated := filepath.Join(t.TempDir(), "unrelated-ordinary.json")
+					options.Resolver = func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (string, error) {
+						if destination == aliases[0][0].AggregateRoot() {
+							return unrelated, nil
+						}
+						return resolve(destination, budget)
+					}
+				}
 				if scope == target.ScopeProject && !committed {
 					denied := errors.New("explicit recovery authority refused")
 					refused := options
@@ -194,7 +215,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 							t.Fatal("refused explicit recovery changed its ordinary participant", err)
 						}
 					}
-					state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+					state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 					if err != nil || !state.Equal(input.CurrentState) {
 						t.Fatal("refused explicit recovery changed durable state", err)
 					}
@@ -230,7 +251,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 					}
 				}
 
-				state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
+				state, err := statefile.LoadOptionalWithOptions(t.Context(), input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: physicalwork.NewCaptureBudget(nil)})
 				if err != nil || !state.Equal(wantedState) {
 					t.Fatal("explicit recovery changed the selected durable state", err)
 				}
@@ -249,29 +270,7 @@ func TestExecuteNativeRecoveryReopensRetainedOrderTransaction(t *testing.T) {
 
 func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, filesystem mutationfs.Store) (journal.NativeRecoveryPlan, journal.PlanLoadOptions) {
 	t.Helper()
-	budget := physicalwork.NewCaptureBudget(nil)
-	reader, err := ownershipstore.NewRecoveryReader(input.Paths.OwnershipRegistryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	readState := func(ctx context.Context) (durable.Snapshot, error) {
-		return statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StateCodec, PhysicalPathBudget: budget})
-	}
-	load := journal.PlanLoadOptions{
-		Resolver: input.Resolver, Filesystem: filesystem, OwnershipRegistry: reader,
-		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
-		NativeDocuments: &journal.Profile{
-			StateCodec: input.StateCodec, Codecs: input.Codecs, StateReader: readState, Budget: budget,
-			Manifest: input.Paths.ManifestRoot, ManifestPath: input.Owner.ManifestPath(),
-			Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
-			ResolveRoot: func(role output.RootRole) (string, error) {
-				if role == output.RootPiAgent {
-					return filepath.Dir(host), nil
-				}
-				return "", errors.New("order recovery has no selected root for this role")
-			},
-		},
-	}
+	load := nativeOrderRecoveryLoadOptions(t, input, host, filesystem)
 	disclosed, err := journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.JournalPaths(), load)
 	if err != nil {
 		t.Fatal(err)
@@ -283,10 +282,146 @@ func nativeOrderRecoveryPlan(t *testing.T, input NativeApplyInput, host string, 
 	return native, load
 }
 
+func nativeOrderRecoveryLoadOptions(t *testing.T, input NativeApplyInput, host string, filesystem mutationfs.Store) journal.PlanLoadOptions {
+	t.Helper()
+	budget := physicalwork.NewCaptureBudget(nil)
+	reader, err := ownershipstore.NewRecoveryReader(input.Paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readState := func(ctx context.Context) (durable.Snapshot, error) {
+		return statefile.LoadOptionalWithOptions(ctx, input.Paths.StatefilePath, statefile.ReadOptions{Codec: input.StatefileCodec, PhysicalPathBudget: budget})
+	}
+	piRoot, err := configuration.RootReferenceForScope(target.TargetPi, target.ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return journal.PlanLoadOptions{
+		Resolver: func(destination output.Destination) (string, error) { return input.Resolver(destination, budget) }, Filesystem: filesystem, OwnershipRegistry: reader,
+		StateReader: readState, StateCodec: input.StateCodec, Codecs: input.Codecs, PhysicalPathBudget: budget,
+		NativeDocuments: &journal.Profile{
+			Protection: namespacetest.Reservations(t),
+			StateCodec: input.StateCodec, StatefileCodec: input.StatefileCodec, Codecs: input.Codecs, StateReader: readState, Budget: budget,
+			Manifest: input.Paths.ManifestRoot, ManifestPath: input.Owner.ManifestPath(),
+			Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
+			ResolveRoot: func(reference output.RootReference) (string, error) {
+				if reference == piRoot {
+					return filepath.Dir(host), nil
+				}
+				return "", errors.New("order recovery has no selected root for this role")
+			},
+		},
+	}
+}
+
+func TestNativeOrdinaryRestorationExcludesFreshForeignOwnership(t *testing.T) {
+	input, host, original := nativeOrderApplyInput(t, target.ScopeProject)
+	input, ordinaryHost := nativeOrderWithOrdinaryMCP(t, input)
+	plan, err := PrepareNativeApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("retain the mixed native journal")
+	refusal := errors.New("refuse automatic compensation")
+	options := nativeOrderApplyOptions(t)
+	accept := options.AcceptVisibilityChanges
+	reached := false
+	options.AcceptVisibilityChanges = func(ctx context.Context) error {
+		if err := accept(ctx); err != nil {
+			return err
+		}
+		current, err := os.ReadFile(host)
+		if err != nil || bytes.Equal(current, original) {
+			return err
+		}
+		if _, err := os.ReadFile(ordinaryHost); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		reached = true
+		return failure
+	}
+	options.ValidateCompensationAuthority = func(context.Context) error { return refusal }
+	if _, err := ApplyNativeWithEffectPlan(t.Context(), input, plan, options); !reached || !errors.Is(err, failure) || !errors.Is(err, refusal) {
+		t.Fatal("mixed native fixture did not retain both actual publications", err)
+	}
+	if err := input.ProjectRoot.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(ordinaryHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = nativeOrderRecoveryPlan(t, input, host, testFilesystem())
+
+	foreignState := filepath.Join(t.TempDir(), "state.json")
+	stateBytes, err := input.StateCodec.Encode(durable.EmptySnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreignState, stateBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateKey, err := mutation.ObservePersistedDirectoryEntryAuthority(foreignState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(stateKey.Exact(), filepath.Join(filepath.Dir(foreignState), "foreign.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := mutation.ObservePersistedDirectoryEntryAuthority(ordinaryHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := ownership.NewManagedAddress(physical.Exact(), output.WholePathFootprint())
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ownership.NewActiveClaim(address, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := ownership.PresentClaim(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := ownership.NewClaimChange(address, ownership.NoClaim(), value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convergence, err := ownership.NewClaimConvergence([]ownership.ClaimChange{change})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := ownershipstore.New(input.Paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Converge(t.Context(), convergence); err != nil {
+		t.Fatal(err)
+	}
+	load := nativeOrderRecoveryLoadOptions(t, input, host, testFilesystem())
+	_, err = journal.LoadRecoverablePlanWithOptions(t.Context(), input.Paths.JournalPaths(), load)
+	var conflict *ownership.ForeignClaimError
+	if !errors.As(err, &conflict) || !conflict.Existing.Equal(claim) {
+		t.Fatal("native ordinary restoration did not apply the current foreign-owner predicate", err)
+	}
+	current, err := os.ReadFile(ordinaryHost)
+	if err != nil || !bytes.Equal(current, before) {
+		t.Fatal("refused native ordinary assessment changed the host", err)
+	}
+	entries, err := os.ReadDir(input.Paths.RecoveryDir)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("refused native ordinary assessment lost the retained journal", err)
+	}
+}
+
 func nativeOrderWithOrdinaryMCP(t *testing.T, input NativeApplyInput) (NativeApplyInput, string) {
 	t.Helper()
 	decisions := aggregatefixture.ClaudeProjectMCP(t, aggregate.AbsentDocument(), []aggregatefixture.MCPEntry{{ServerID: "mixed", Command: "mixed-server"}})
-	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: input.CurrentState, Aggregates: decisions, PiOrders: input.Preparation.PiOrders(), StateCodec: input.StateCodec})
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: input.CurrentState, Aggregates: decisions, SequenceEdits: input.Preparation.SequenceEdits(), StateCodec: input.StateCodec})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,11 +433,11 @@ func nativeOrderWithOrdinaryMCP(t *testing.T, input NativeApplyInput) (NativeApp
 	ordinary := effects[0].DocumentAddress().AggregateRoot()
 	host := filepath.Join(input.Paths.ManifestRoot, ".mcp.json")
 	resolve := input.Resolver
-	input.Resolver = func(destination output.Destination) (string, error) {
+	input.Resolver = func(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (string, error) {
 		if destination == ordinary {
 			return host, nil
 		}
-		return resolve(destination)
+		return resolve(destination, budget)
 	}
 	return input, host
 }

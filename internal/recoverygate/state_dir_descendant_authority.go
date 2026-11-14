@@ -347,6 +347,13 @@ func (authority *StateDirExecutionAuthority) RequireClear(ctx context.Context) e
 	return authority.stateDir.requireClearWithBudget(ctx, authority.budget)
 }
 
+func (authority *StateDirExecutionAuthority) workBudget() stateDirPhysicalWorkBudget {
+	if authority == nil {
+		return nil
+	}
+	return authority.budget
+}
+
 // EnsureOwnedIncarnation consumes the reserved first-incarnation envelope.
 func (authority *StateDirExecutionAuthority) EnsureOwnedIncarnation(ctx context.Context) (bool, error) {
 	if authority == nil || authority.budget == nil {

@@ -514,6 +514,7 @@ type projectPathRecoveryFixture struct {
 	projectRoot string
 	paths       Paths
 	plan        recovery.Plan
+	afterState  durable.Snapshot
 	before      map[string][]byte
 	after       map[string][]byte
 }
@@ -583,11 +584,12 @@ func newProjectPathRecoveryFixture(
 		t.Fatalf("create project root: %v", err)
 	}
 	paths := Paths{
-		RecoveryDir:   filepath.Join(stateDir, "recovery"),
-		StateDir:      stateDir,
-		StatefilePath: filepath.Join(stateDir, "state.json"),
-		ManifestRoot:  projectRoot,
-		DataDir:       filepath.Join(stateDir, "data"),
+		RecoveryDir:           filepath.Join(stateDir, "recovery"),
+		StateDir:              stateDir,
+		StatefilePath:         filepath.Join(stateDir, "state.json"),
+		ManifestRoot:          projectRoot,
+		DataDir:               filepath.Join(stateDir, "data"),
+		OwnershipRegistryPath: filepath.Join(stateDir, "ownership.json"),
 	}
 
 	mutations := make([]journalrecord.ManagedPathMutation, 0, len(specs))
@@ -724,7 +726,7 @@ func newProjectPathRecoveryFixture(
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: mutations,
 			ManagedPathEvidence:  evidence,
-			Resolver:             destinationResolver(paths),
+			Resolver:             journalDestinationResolver(paths),
 			StateCodec:           testStateCodec(),
 		},
 	); err != nil {
@@ -756,6 +758,7 @@ func newProjectPathRecoveryFixture(
 		projectRoot: projectRoot,
 		paths:       paths,
 		plan:        recoveryPlan,
+		afterState:  nextState,
 		before:      beforeContent,
 		after:       afterContent,
 	}

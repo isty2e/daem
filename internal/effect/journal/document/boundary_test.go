@@ -22,7 +22,7 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	groups := []StateGroup{{aliases: []aggregate.DocumentAddress{stateGroupWholeAlias(t, row)}}}
+	groups := []StateGroup{{afterAliases: []aggregate.DocumentAddress{stateGroupWholeAlias(t, row)}}}
 	mode := recovery.PermissionMode(row.FileMode().Perm())
 	identity, err := NewImageIdentity(true, row.ContentHash(), &mode)
 	if err != nil {

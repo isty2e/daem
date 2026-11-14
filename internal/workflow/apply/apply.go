@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
@@ -17,7 +19,6 @@ import (
 
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
-	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
@@ -70,7 +71,8 @@ type runOptions struct {
 	RelationOrderRiskAuthorizer       RelationOrderRiskAuthorizer
 	orderRiskBaseline                 relationOrderRiskBaseline
 	nativeOrderResult                 *relationOrderRunResult
-	deferredNativeOrders              []hostrelation.OrderClassID
+	nativeOrderChecks                 []relationhost.SelectedDocumentEdit
+	deferredNativeOrders              []relationOrderSequenceKey
 	executionGuard                    applyExecutionGuard
 	validateBeforeEffects             func(context.Context, mutation.PhysicalAuthoritySet) error
 	validatePhysicalAuthorityRequests func(context.Context, []mutation.PhysicalAuthorityRequest) error
@@ -85,7 +87,9 @@ type runOptions struct {
 	afterNativeProviders              func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims, mutation.OperationFingerprint) (applyContinuationPlan, error)
 	afterHostRoutes                   func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
 	afterDelegates                    func(context.Context, durable.Snapshot, durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error)
-	persistenceCodec                  durable.SnapshotCodec
+	journalStateCodec                 durable.SnapshotCodec
+	physicalStateCodec                statefile.PhysicalCodec
+	ownerReferences                   []pathauthority.Reference
 	preparedContinuation              applyContinuationPlan
 	currentContinuation               applyContinuationPlan
 	requireContinuation               bool
@@ -103,9 +107,9 @@ func (options runOptions) markAttempted() {
 	}
 }
 
-func (options runOptions) stateCodec() durable.SnapshotCodec {
-	if options.persistenceCodec != nil {
-		return options.persistenceCodec
+func (options runOptions) journalCodec() durable.SnapshotCodec {
+	if options.journalStateCodec != nil {
+		return options.journalStateCodec
 	}
 	return statefile.Codec{}
 }
@@ -220,11 +224,13 @@ func runWithOptions(
 			ManagedPathEvidence:         assessment.ManagedPathEvidence,
 			ConfirmedRelationActions:    assessment.Reconciliation.Relations(),
 			Owner:                       assessment.Owner,
+			OwnerReference:              assessment.OwnerReference,
 			Ownership:                   assessment.Ownership,
 			ProjectRoot:                 options.projectRoot,
 			Codecs:                      aggregatecodec.Catalog(),
 			OwnershipRegistryBinder:     ownershipstore.BindRooted,
-			StateCodec:                  options.stateCodec(),
+			StateCodec:                  options.journalCodec(),
+			StatefileCodec:              options.physicalStateCodec,
 			Filesystem:                  filesystem,
 		}, execute.ApplyOptions{
 			Events:                              options.ExecuteEvents,
@@ -290,11 +296,13 @@ func runWithOptions(
 		Payloads:                    payloads,
 		ConfirmedRelationActions:    assessment.Reconciliation.Relations(),
 		Owner:                       assessment.Owner,
+		OwnerReference:              assessment.OwnerReference,
 		Ownership:                   assessment.Ownership,
 		ProjectRoot:                 options.projectRoot,
 		Codecs:                      aggregatecodec.Catalog(),
 		OwnershipRegistryBinder:     ownershipstore.BindRooted,
-		StateCodec:                  options.stateCodec(),
+		StateCodec:                  options.journalCodec(),
+		StatefileCodec:              options.physicalStateCodec,
 		Filesystem:                  filesystem,
 	}, execute.ApplyOptions{
 		Events:                              options.ExecuteEvents,
@@ -461,7 +469,7 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 		for _, completed := range segment.orders.results {
 			found := false
 			for index, row := range delegateResult.RelationOrderResults {
-				if row.sequenceID == completed.sequenceID {
+				if row.classID == completed.classID && row.sequenceID == completed.sequenceID {
 					delegateResult.RelationOrderResults[index], found = completed, true
 					break
 				}

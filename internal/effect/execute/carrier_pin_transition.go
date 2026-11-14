@@ -8,11 +8,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
-func CommitReservedProjectPinTransition(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, current durable.Snapshot, transition durablecarrier.PinTransition, encoder durable.SnapshotEncoder) (durable.Snapshot, error) {
+func CommitReservedProjectPinTransition(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, current durable.Snapshot, transition durablecarrier.PinTransition, encoder statefile.PhysicalCodec) (durable.Snapshot, error) {
 	next, err := current.WithReservedCarrierPinTransition(transition)
 	if err != nil {
 		return current, err
@@ -23,7 +24,7 @@ func CommitReservedProjectPinTransition(ctx context.Context, filesystem mutation
 	return next, nil
 }
 
-func CommitCompletedProjectPinTransition(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, current durable.Snapshot, transition durablecarrier.PinTransition, observation observerelation.CorrelationResult, encoder durable.SnapshotEncoder) (durable.Snapshot, error) {
+func CommitCompletedProjectPinTransition(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, current durable.Snapshot, transition durablecarrier.PinTransition, observation observerelation.CorrelationResult, encoder statefile.PhysicalCodec) (durable.Snapshot, error) {
 	next, err := current.WithCompletedCarrierPinTransition(transition, observation)
 	if err != nil {
 		return current, err

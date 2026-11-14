@@ -53,8 +53,20 @@ func nativeDocumentClaimBaseline(namespace journalnamespace.DocumentNamespace, o
 			return pathauthority.Exact{}, nil, fmt.Errorf("native history requires a current namespace observation")
 		}
 		previous := owned[missing.CandidateKey()]
+		if legacy, present := missing.LegacyComparisonKey(); present {
+			historical := owned[legacy]
+			if len(previous) != 0 && len(historical) != 0 {
+				return pathauthority.Exact{}, nil, fmt.Errorf("native history has ambiguous legacy and native namespaces")
+			}
+			if len(previous) == 0 {
+				previous = historical
+			}
+		}
 		if len(before) == 0 && len(previous) == 0 {
 			return pathauthority.Exact{}, nil, nil
+		}
+		if len(previous) == 0 && len(before) != 0 {
+			return pathauthority.Exact{}, nil, ownership.ErrClaimMissing
 		}
 		if len(previous) == 0 || !missing.MatchesMissingExact(previous[0].Address().PathAuthority()) {
 			return pathauthority.Exact{}, nil, fmt.Errorf("native history differs from the missing namespace")
@@ -63,10 +75,22 @@ func nativeDocumentClaimBaseline(namespace journalnamespace.DocumentNamespace, o
 	}
 	claims := owned[exact.Key()]
 	if !journaldocument.SameClaimFootprints(before, claims) {
+		present := make(map[output.Footprint]bool, len(claims))
+		for _, claim := range claims {
+			present[claim.Address().Footprint()] = true
+		}
+		for footprint := range before {
+			if !present[footprint] {
+				return pathauthority.Exact{}, nil, ownership.ErrClaimMissing
+			}
+		}
 		return pathauthority.Exact{}, nil, fmt.Errorf("native capture before membership differs from current owned claims")
 	}
 	for _, claim := range claims {
-		if !claim.Address().PathAuthority().Equal(exact) || claim.State() != ownership.ClaimActive {
+		if claim.State() != ownership.ClaimActive {
+			return pathauthority.Exact{}, nil, ownership.ErrClaimMissing
+		}
+		if !claim.Address().PathAuthority().Equal(exact) {
 			return pathauthority.Exact{}, nil, fmt.Errorf("native capture requires active claims at the captured namespace")
 		}
 	}

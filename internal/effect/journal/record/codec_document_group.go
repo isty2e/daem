@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -164,10 +163,6 @@ func (record recoveryDocumentGroup) validate(manifest recoveryRootProvenance) er
 		}
 	}
 	return record.validateRemoval()
-}
-
-func PiOrderDocumentAlias(scope target.Scope) (aggregate.DocumentAddress, error) {
-	return pipackage.SettingsDocumentAddress(scope)
 }
 
 func (record recoveryDocumentAliasRef) canonical() (aggregate.DocumentAddress, error) {

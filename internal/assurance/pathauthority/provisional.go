@@ -46,21 +46,21 @@ func (provisional Provisional) Validate() error {
 	if err := validateWitness(provisional.candidateKey, provisional.candidateWitness); err != nil {
 		return fmt.Errorf("provisional candidate: %w", err)
 	}
-	if !strings.HasPrefix(provisional.candidateWitness, darwinCaseWitnessPrefix) {
+	if !isDarwinWitness(provisional.candidateWitness) {
 		return fmt.Errorf("provisional candidate requires Darwin path semantics")
 	}
 	if err := provisional.namespace.Validate(); err != nil {
 		return fmt.Errorf("provisional namespace: %w", err)
 	}
-	if !strings.HasPrefix(provisional.namespace.Witness(), darwinCaseWitnessPrefix) {
+	if !isDarwinWitness(provisional.namespace.Witness()) {
 		return fmt.Errorf("provisional namespace requires Darwin path semantics")
 	}
 	if !contains(provisional.namespace.Key(), provisional.candidateKey) ||
 		provisional.namespace.Key() == provisional.candidateKey {
 		return fmt.Errorf("provisional candidate must be below its exact namespace")
 	}
-	candidateModes := strings.TrimPrefix(provisional.candidateWitness, darwinCaseWitnessPrefix)
-	namespaceModes := strings.TrimPrefix(provisional.namespace.Witness(), darwinCaseWitnessPrefix)
+	candidateModes := darwinFilesystemModes(provisional.candidateWitness)
+	namespaceModes := darwinFilesystemModes(provisional.namespace.Witness())
 	if !strings.HasPrefix(candidateModes, namespaceModes) {
 		return fmt.Errorf("provisional candidate and namespace have contradictory ancestor semantics")
 	}
@@ -84,7 +84,7 @@ func (provisional Provisional) AdmitsExact(exact Exact) error {
 	if err := exact.Validate(); err != nil {
 		return fmt.Errorf("promoted exact authority: %w", err)
 	}
-	if exact.Witness() != provisional.candidateWitness {
+	if !isDarwinWitness(exact.Witness()) || darwinFilesystemModes(exact.Witness()) != darwinFilesystemModes(provisional.candidateWitness) {
 		return fmt.Errorf("promoted exact authority has different filesystem semantics")
 	}
 	if !contains(provisional.namespace.Key(), exact.Key()) ||
@@ -112,7 +112,143 @@ func (provisional Provisional) CandidateWithin(exact Exact) bool {
 	if provisional.Validate() != nil || exact.Validate() != nil {
 		return false
 	}
-	return contains(exact.Key(), provisional.candidateKey)
+	return contains(exact.Key(), provisional.candidateKey) ||
+		legacyContains(exact.Key(), exact.Witness(), provisional.candidateKey, provisional.candidateWitness)
+}
+
+// CouldEqual excludes incompatible promotion depth or stable ASCII components.
+// A true result retains uncertainty; it never certifies Unicode equivalence.
+func (provisional Provisional) CouldEqual(exact Exact) bool {
+	if provisional.AdmitsExact(exact) != nil {
+		return false
+	}
+	candidate, _ := filepath.Rel(provisional.namespace.Key(), provisional.candidateKey)
+	selected, _ := filepath.Rel(provisional.namespace.Key(), exact.Key())
+	candidateParts := strings.Split(candidate, string(filepath.Separator))
+	selectedParts := strings.Split(selected, string(filepath.Separator))
+	for index, component := range candidateParts {
+		other := selectedParts[index]
+		if !containsNonASCIIByte(component) && !containsNonASCIIByte(other) && component != other {
+			return false
+		}
+	}
+	return true
+}
+
+// ConfinedWithin proves region membership from an existing namespace or a
+// stable ASCII prefix. It does not establish the future entry's exact identity.
+func (provisional Provisional) ConfinedWithin(root Exact) bool {
+	if provisional.Validate() != nil || root.Validate() != nil {
+		return false
+	}
+	if root.Contains(provisional.namespace) {
+		return true
+	}
+	if !provisional.namespace.Contains(root) {
+		return false
+	}
+	selected, _ := filepath.Rel(provisional.namespace.Key(), root.Key())
+	candidate, _ := filepath.Rel(provisional.namespace.Key(), provisional.candidateKey)
+	selectedParts := strings.Split(selected, string(filepath.Separator))
+	candidateParts := strings.Split(candidate, string(filepath.Separator))
+	if len(selectedParts) > len(candidateParts) {
+		return false
+	}
+	for index, component := range selectedParts {
+		if containsNonASCIIByte(component) || component != candidateParts[index] {
+			return false
+		}
+	}
+	return true
+}
+
+// StableRelativePrefix retains observed components and the following ASCII
+// components, stopping before the first normalization-sensitive future name.
+func (provisional Provisional) StableRelativePrefix(root Exact) (string, bool) {
+	if !provisional.ConfinedWithin(root) {
+		return "", false
+	}
+	known := 0
+	if root.Contains(provisional.namespace) && root.Key() != provisional.namespace.Key() {
+		relative, _ := filepath.Rel(root.Key(), provisional.namespace.Key())
+		known = len(strings.Split(relative, string(filepath.Separator)))
+	}
+	relative, _ := filepath.Rel(root.Key(), provisional.candidateKey)
+	parts := strings.Split(relative, string(filepath.Separator))
+	end := 0
+	for index, component := range parts {
+		if index >= known && containsNonASCIIByte(component) {
+			break
+		}
+		end++
+	}
+	if end == 0 {
+		return "", false
+	}
+	return filepath.Join(parts[:end]...), true
+}
+
+// CouldOverlap excludes only regions separated by observed namespaces or stable
+// ASCII components. Unknown normalization remains possible overlap.
+func (provisional Provisional) CouldOverlap(exact Exact) bool {
+	if provisional.Validate() != nil || exact.Validate() != nil {
+		return true
+	}
+	if exact.Contains(provisional.namespace) {
+		return true
+	}
+	if legacyContains(exact.Key(), exact.Witness(), provisional.namespace.Key(), provisional.namespace.Witness()) ||
+		legacyContains(provisional.namespace.Key(), provisional.namespace.Witness(), exact.Key(), exact.Witness()) {
+		return true
+	}
+	if !provisional.namespace.Contains(exact) {
+		return false
+	}
+	selected, _ := filepath.Rel(provisional.namespace.Key(), exact.Key())
+	candidate, _ := filepath.Rel(provisional.namespace.Key(), provisional.candidateKey)
+	selectedParts := strings.Split(selected, string(filepath.Separator))
+	candidateParts := strings.Split(candidate, string(filepath.Separator))
+	for index := range min(len(selectedParts), len(candidateParts)) {
+		left, right := selectedParts[index], candidateParts[index]
+		if !containsNonASCIIByte(left) && !containsNonASCIIByte(right) && left != right {
+			return false
+		}
+	}
+	return true
+}
+
+// CouldOverlapProvisional preserves possible overlap between two future paths.
+// Its candidate projections are comparison evidence, never exact authority.
+func (provisional Provisional) CouldOverlapProvisional(other Provisional) bool {
+	if provisional.Validate() != nil || other.Validate() != nil {
+		return true
+	}
+	leftNamespace, rightNamespace := provisional.Namespace(), other.Namespace()
+	if !leftNamespace.MayOverlap(rightNamespace) {
+		return false
+	}
+	var namespace Exact
+	switch {
+	case leftNamespace.Contains(rightNamespace):
+		namespace = leftNamespace
+	case rightNamespace.Contains(leftNamespace):
+		namespace = rightNamespace
+	default:
+		// Historical comparison domains can overlap without supplying a common
+		// exact namespace from which stable components can be projected.
+		return true
+	}
+	left, _ := filepath.Rel(namespace.Key(), provisional.candidateKey)
+	right, _ := filepath.Rel(namespace.Key(), other.candidateKey)
+	leftParts := strings.Split(left, string(filepath.Separator))
+	rightParts := strings.Split(right, string(filepath.Separator))
+	for index := range min(len(leftParts), len(rightParts)) {
+		left, right := leftParts[index], rightParts[index]
+		if !containsNonASCIIByte(left) && !containsNonASCIIByte(right) && left != right {
+			return false
+		}
+	}
+	return true
 }
 
 // MatchesMissingExact reports whether this missing candidate retains the exact
@@ -122,8 +258,24 @@ func (provisional Provisional) MatchesMissingExact(exact Exact) bool {
 	if provisional.Validate() != nil || exact.Validate() != nil {
 		return false
 	}
-	return provisional.candidateKey == exact.Key() &&
-		provisional.candidateWitness == exact.Witness()
+	if provisional.candidateKey == exact.Key() && provisional.candidateWitness == exact.Witness() {
+		return true
+	}
+	return strings.HasPrefix(exact.Witness(), darwinCaseWitnessPrefix) &&
+		strings.HasPrefix(provisional.candidateWitness, darwinNativeWitnessPrefix) &&
+		darwinFilesystemModes(provisional.candidateWitness) == darwinFilesystemModes(exact.Witness()) &&
+		darwinLegacyComparisonKey(provisional.candidateKey, provisional.candidateWitness) == exact.Key()
+}
+
+// LegacyComparisonKey indexes recorded comparison history, not an access path.
+func (provisional Provisional) LegacyComparisonKey() (string, bool) {
+	if strings.HasPrefix(provisional.candidateWitness, darwinCaseWitnessPrefix) {
+		return provisional.candidateKey, false
+	}
+	if !strings.HasPrefix(provisional.candidateWitness, darwinNativeWitnessPrefix) {
+		return "", false
+	}
+	return darwinLegacyComparisonKey(provisional.candidateKey, provisional.candidateWitness), true
 }
 
 // Equal reports equality of the complete provisional observation.

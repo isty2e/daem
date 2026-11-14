@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
@@ -182,8 +183,13 @@ render_to = "CLAUDE.md"
 	if err != nil {
 		t.Fatalf("ReadFile statefile after apply returned error: %v", err)
 	}
-	if string(stateAfter) != string(stateBefore) {
-		t.Fatalf("failed apply mutated statefile:\nbefore:\n%s\nafter:\n%s", stateBefore, stateAfter)
+	before, err := statefile.DecodePersistedFacts(t.Context(), stateBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := statefile.DecodePersistedFacts(t.Context(), stateAfter)
+	if err != nil || !after.Equal(before) {
+		t.Fatal("failed apply changed logical State", err)
 	}
 	assertNoApplyRollbackTempDirs(t, tempDir)
 }

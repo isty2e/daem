@@ -2,7 +2,6 @@ package recover
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -15,11 +14,10 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
-	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
-	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
+	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
@@ -39,27 +37,42 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 	if err != nil {
 		return journal.PlanLoadOptions{}, err
 	}
+	physicalCodec, err := statefile.NewPhysicalCodec(stateCodec)
+	if err != nil {
+		return journal.PlanLoadOptions{}, err
+	}
 	budget, _ := physicalBudget.(*physicalwork.Budget)
+	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
+	if err != nil {
+		return journal.PlanLoadOptions{}, err
+	}
+	protection, err := nativeconfig.SelectProtectionRoots(locations)
+	if err != nil {
+		return journal.PlanLoadOptions{}, err
+	}
 	profile := &journal.Profile{
-		StateCodec: stateCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
+		StateCodec: stateCodec, StatefileCodec: physicalCodec, Codecs: codecs, Limits: nativeconfig.DocumentLimits(),
 		Manifest: paths.ManifestRoot, ManifestPath: paths.ManifestPath, Budget: budget,
-		ResolveRoot: func(role output.RootRole) (string, error) {
-			switch role {
-			case output.RootPiAgent:
-				return pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{WorkDir: paths.ManifestRoot})
-			case output.RootCodexHome:
-				return codexhostpath.ResolveHomeRoot(paths.ManifestRoot)
-			default:
-				return "", fmt.Errorf("native recovery root role is not selected")
+		Protection:   protection,
+		ResolvePoint: locations.ResolvePoint,
+		ResolveRoot: func(reference output.RootReference) (string, error) {
+			location, err := locations.Resolve(reference)
+			if err != nil {
+				return "", err
 			}
+			return location.Path(), nil
 		},
 		StateReader: func(ctx context.Context) (durable.Snapshot, error) {
-			return statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{Codec: stateCodec, PhysicalPathBudget: budget})
+			return statefile.LoadOptionalWithOptions(ctx, paths.StatefilePath, statefile.ReadOptions{Codec: physicalCodec, PhysicalPathBudget: budget})
+		},
+		RawRegistry: func(ctx context.Context) (ownership.Registry, error) {
+			return ownershipstore.ReadProtectionRegistryBounded(ctx, paths.OwnershipRegistryPath, physicalwork.MaximumPhysicalPathDepth, budget)
 		},
 	}
 	return journal.PlanLoadOptions{
-		Filesystem: filesystem, PhysicalPathBudget: physicalBudget, Resolver: destinationResolver(paths).Resolve,
+		Filesystem: filesystem, PhysicalPathBudget: physicalBudget, Resolver: destinationResolver(paths).ForBudget(physicalBudget).Resolve,
 		OwnershipRegistry: registry, Codecs: aggregatecodec.Catalog(), StateCodec: statefile.Codec{}, StateReader: stateReaderForPath(paths.StatefilePath), NativeDocuments: profile,
+		NativeReleasePaths: &journal.NativeReleasePaths{Manifest: paths.ManifestPath, DefaultLock: paths.LockfilePath, State: paths.StatefilePath},
 	}, nil
 }
 
@@ -83,8 +96,11 @@ func nativeRecoveryOperationFingerprint(paths daempaths.Paths, plan journal.Nati
 	return mutation.NewOperationFingerprint([]byte(paths.ManifestRoot + "\x00" + paths.StatefilePath + "\x00" + paths.RecoveryDir + "\x00" + plan.OperationID() + "\x00" + plan.ObservationFingerprint() + "\x00" + stateFingerprint)), nil
 }
 
-func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority) (recoveryAuthorityEvidence, error) {
-	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority, budget rootedpath.PhysicalTraversalBudget) (recoveryAuthorityEvidence, error) {
+	builder, err := newRecoveryAuthorityBuilder(paths)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	stateFingerprint, err := stateDir.IdentityFingerprint()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
@@ -105,31 +121,29 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		}
 	}
 	resolver := destinationResolver(paths)
-	writeAliases, err := plan.DocumentWriteAliases()
+	writeIndexes, err := plan.DocumentWriteIndexes()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	writes := make(map[aggregate.DocumentAddress]struct{})
-	for _, group := range writeAliases {
-		for _, alias := range group {
-			writes[alias] = struct{}{}
-		}
+	writes := make(map[int]struct{}, len(writeIndexes))
+	for _, index := range writeIndexes {
+		writes[index] = struct{}{}
 	}
 	aliases, err := plan.DocumentAliases()
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	for _, group := range aliases {
-		for _, alias := range group {
-			path, err := resolver.Resolve(alias.AggregateRoot())
-			if err != nil {
-				return recoveryAuthorityEvidence{}, err
-			}
-			if _, write := writes[alias]; write {
-				if err := builder.AddDocumentWritePair(path, string(alias.Target()), string(alias.Scope())); err != nil {
+	for index := range aliases {
+		requests, err := plan.DocumentAuthorityRequests(index)
+		if err != nil {
+			return recoveryAuthorityEvidence{}, err
+		}
+		for _, request := range requests {
+			if _, write := writes[index]; write {
+				if err := builder.AddDocumentWritePair(request.Path, request.Target, request.Scope); err != nil {
 					return recoveryAuthorityEvidence{}, err
 				}
-			} else if err := builder.AddPhysicalPair(path, mutation.AccessExclusive, string(alias.Target()), string(alias.Scope())); err != nil {
+			} else if err := builder.AddPhysicalPair(request.Path, mutation.AccessExclusive, request.Target, request.Scope); err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 		}
@@ -139,7 +153,7 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		if err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
-		path, err := resolver.Resolve(destination)
+		path, err := resolver.Resolve(destination, budget)
 		if err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}

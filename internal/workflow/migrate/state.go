@@ -1,5 +1,5 @@
-// Package migrate coordinates explicit user-state authority transfer without
-// changing declarations, installed content, or host-owned package state.
+// Package migrate coordinates explicit metadata format conversion and user-state
+// authority transfer without reinstalling managed outputs.
 package migrate
 
 import (
@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -56,6 +57,7 @@ type PreparedState struct {
 	from               stateauthority.Authority
 	targetStatefileKey string
 	snapshot           durable.Snapshot
+	stateCodec         statefile.PhysicalCodec
 	outputs            ownership.Registry
 	carriers           carrier.GlobalCarrierClaims
 	disclosure         StateDisclosure
@@ -131,7 +133,7 @@ func PlanState(ctx context.Context, input StateInput) (*PreparedState, error) {
 		prepared.disclosure.Action = string(action)
 	} else {
 		if err := prepared.targetBarrier.Validate(ctx); err != nil {
-			return nil, fmt.Errorf("inspect migration destination (use daem migrate state --recover --dry-run for an interrupted migration): %w", err)
+			return nil, migrationDestinationError(err)
 		}
 		if err := prepared.loadTransfer(ctx); err != nil {
 			return nil, err
@@ -143,12 +145,29 @@ func PlanState(ctx context.Context, input StateInput) (*PreparedState, error) {
 	return prepared, nil
 }
 
+func migrationDestinationError(cause error) error {
+	if recoverygate.IsGlobalMetadataRefusal(cause) || recoverygate.IsCancellation(cause) {
+		return cause
+	}
+
+	return fmt.Errorf("inspect migration destination (use daem migrate state --recover --dry-run for an interrupted migration): %w", cause)
+}
+
 func authorityFor(paths daempaths.Paths) (stateauthority.Authority, error) {
+	authority, _, err := locatedAuthorityFor(paths)
+	return authority, err
+}
+
+func locatedAuthorityFor(paths daempaths.Paths) (stateauthority.Authority, pathauthority.Reference, error) {
 	observed, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
 	if err != nil {
-		return stateauthority.Authority{}, err
+		return stateauthority.Authority{}, pathauthority.Reference{}, err
 	}
-	return stateauthority.New(observed.Exact(), paths.ManifestPath)
+	authority, err := stateauthority.New(observed.Exact(), paths.ManifestPath)
+	if err != nil {
+		return stateauthority.Authority{}, pathauthority.Reference{}, err
+	}
+	return authority, observed.Reference(), nil
 }
 
 func (prepared *PreparedState) loadTransfer(ctx context.Context) error {
@@ -184,10 +203,11 @@ func (prepared *PreparedState) loadTransfer(ctx context.Context) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	prepared.snapshot, err = statefile.LoadOptional(ctx, prepared.legacy.StatefilePath)
+	physicalState, err := statefile.LoadOptionalPhysical(ctx, prepared.legacy.StatefilePath)
 	if err != nil {
 		return err
 	}
+	prepared.snapshot, prepared.stateCodec = physicalState.Snapshot(), physicalState.Codec()
 	if err := prepared.validateSnapshotProvenance(); err != nil {
 		return err
 	}

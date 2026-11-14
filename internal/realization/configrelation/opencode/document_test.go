@@ -3,8 +3,12 @@ package opencode
 import (
 	"bytes"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output"
 )
 
 func TestParseAndRemoveExactSourcePreservesJSONC(t *testing.T) {
@@ -176,32 +180,32 @@ func TestRemoveExactSourcePreservesBytesOutsideSelectedElement(t *testing.T) {
 	tests := map[string]struct {
 		input    string
 		source   string
-		expected string
+		expected []string
 	}{
 		"first": {
 			input:    `{"plugin":[/* selected */"alpha", /* retained */ "beta",], "x": 1,}`,
 			source:   "alpha",
-			expected: `{"plugin":[ /* retained */ "beta",], "x": 1,}`,
+			expected: []string{"beta"},
 		},
 		"middle": {
 			input:    `{"plugin":["alpha", /* selected */ "beta", /* retained */ "gamma",],}`,
 			source:   "beta",
-			expected: `{"plugin":["alpha", /* retained */ "gamma",],}`,
+			expected: []string{"alpha", "gamma"},
 		},
 		"last without trailing comma": {
 			input:    `{"plugin":["alpha", /* selected */ "beta"],}`,
 			source:   "beta",
-			expected: `{"plugin":["alpha"],}`,
+			expected: []string{"alpha"},
 		},
 		"last with trailing comma": {
 			input:    `{"plugin":["alpha", /* selected */ "beta",],}`,
 			source:   "beta",
-			expected: `{"plugin":["alpha",],}`,
+			expected: []string{"alpha"},
 		},
 		"only": {
 			input:    `{"plugin":[ /* selected */ "alpha",],}`,
 			source:   "alpha",
-			expected: `{"plugin":[],}`,
+			expected: nil,
 		},
 	}
 	for name, test := range tests {
@@ -218,10 +222,47 @@ func TestRemoveExactSourcePreservesBytesOutsideSelectedElement(t *testing.T) {
 			if !changed {
 				t.Fatal("RemoveExactSource changed = false, want true")
 			}
-			if string(output) != test.expected {
-				t.Fatalf("output:\n got %q\nwant %q", output, test.expected)
+			candidate, err := Parse(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sources []string
+			for _, entry := range candidate.Entries() {
+				sources = append(sources, entry.Source())
+			}
+			if !slices.Equal(sources, test.expected) {
+				t.Fatalf("surviving sources = %q, want %q", sources, test.expected)
+			}
+			prefix, suffix := test.input[:strings.IndexByte(test.input, '[')+1], test.input[strings.LastIndexByte(test.input, ']'):]
+			if !bytes.HasPrefix(output, []byte(prefix)) || !bytes.HasSuffix(output, []byte(suffix)) {
+				t.Fatal("array removal changed outside bytes")
+			}
+			limits := configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 16}
+			before, err := configdocument.Parse(t.Context(), []byte(test.input), configdocument.JSONC, limits)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := configdocument.Parse(t.Context(), output, configdocument.JSONC, limits)
+			if err != nil || !slices.Equal(before.Comments(), after.Comments()) {
+				t.Fatal("selected or surviving row comments were erased", err)
 			}
 		})
+	}
+}
+
+func TestSharedArrayEditingPreservesLegacyUnrelatedDuplicateFields(t *testing.T) {
+	input := []byte(`{"keep":1,"keep":2,"plugin":[["remove",{"option":/* preserve */true}],"beta","alpha"]}`)
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, changed, err := document.RemoveExactSource("remove")
+	if err != nil || !changed || !bytes.Contains(removed, []byte(`"keep":1,"keep":2`)) || !bytes.Contains(removed, []byte("/* preserve */")) {
+		t.Fatal("common removal narrowed legacy admission or erased nested comments", string(removed), err)
+	}
+	reordered, changed, err := document.PermutePluginRows([]int{0, 2, 1})
+	if err != nil || !changed || string(reordered) != `{"keep":1,"keep":2,"plugin":[["remove",{"option":/* preserve */true}],"alpha","beta"]}` {
+		t.Fatal("common permutation reserialized legacy fields or tuple options", string(reordered), err)
 	}
 }
 
@@ -373,5 +414,74 @@ func TestParseWithoutPluginFieldIsEmpty(t *testing.T) {
 	}
 	if got := document.entries; len(got) != 0 {
 		t.Fatalf("Entries = %v, want empty", got)
+	}
+}
+
+func TestArrayEditingRefusesSemanticRowDriftAcrossBareCRComments(t *testing.T) {
+	input := []byte("{\"plugin\":[\"a\", // c\r /*\n \"b\", /* */ \"e\", // d\r \"f\"\n]}")
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, entry := range document.Entries() {
+		sources = append(sources, entry.Source())
+	}
+	if !slices.Equal(sources, []string{"a", "b", "e"}) {
+		t.Fatal("fixture no longer exercises the legacy semantic parser's row view", sources)
+	}
+	if candidate, changed, err := document.RemoveExactSource("b"); err == nil || changed || candidate != nil {
+		t.Fatal("a semantic row index removed a different syntax row", string(candidate), changed, err)
+	}
+	if candidate, changed, err := document.PermutePluginRows([]int{1, 0, 2}); err == nil || changed || candidate != nil {
+		t.Fatal("permutation accepted uncorrelated syntax-row positions", string(candidate), changed, err)
+	}
+	unchanged, changed, err := document.PermutePluginRows([]int{0, 1, 2})
+	if err != nil || changed || !bytes.Equal(unchanged, input) {
+		t.Fatal("row-view disagreement narrowed a safe byte-exact no-op", err)
+	}
+	unchanged, changed, err = document.RemoveExactSource("absent")
+	if err != nil || changed || !bytes.Equal(unchanged, input) {
+		t.Fatal("uncorrelated row views narrowed an absent-source no-op", err)
+	}
+}
+
+func TestCorrelatedBareCRCommentsRemainEditable(t *testing.T) {
+	input := []byte("{\"plugin\":[\"b\", // comment\r \n \"a\"]}")
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, changed, err := document.PermutePluginRows([]int{1, 0})
+	want := []byte("{\"plugin\":[\"a\", // comment\r \n \"b\"]}")
+	if err != nil || !changed || !bytes.Equal(candidate, want) {
+		t.Fatal("literal qualification became a blanket bare-CR refusal", string(candidate), changed, err)
+	}
+}
+
+func TestSemanticPostChecksRefuseEqualLiteralsFromDifferentPhysicalRows(t *testing.T) {
+	input := []byte("{\"plugin\":[\"a\", // c\r /*\n \"b\", /* */ // d\r \"b\",\n \"e\"]}")
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := output.NewKeyPath("plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := configdocument.Limits{MaximumBytes: int64(len(input)), MaximumDepth: 16}
+	raw, err := configdocument.EditJSONArraySource(t.Context(), input, configdocument.JSONC, limits, path, []string{`"a"`, `"b"`, `"e"`}, []int{1}, []int{0, 1})
+	if err != nil {
+		t.Fatal("fixture no longer reaches the semantic postcondition after literal qualification", err)
+	}
+	legacy, err := Parse(raw)
+	if err != nil || legacy.ExactSourceCount("b") != 1 || len(legacy.Entries()) != 3 {
+		t.Fatal("fixture no longer aliases equal literal bytes at distinct physical tokens", err)
+	}
+	if candidate, changed, err := document.RemoveExactSource("b"); err == nil || changed || candidate != nil {
+		t.Fatal("literal-only qualification bypassed removal's semantic postcondition", string(candidate), changed, err)
+	}
+	if candidate, changed, err := document.PermutePluginRows([]int{0, 2, 1}); err == nil || changed || candidate != nil {
+		t.Fatal("literal-only qualification bypassed permutation's semantic postcondition", string(candidate), changed, err)
 	}
 }

@@ -97,6 +97,13 @@ func (editor *tomlEditor) visit(node *tomlSyntaxNode, before, after Value) error
 		return editor.remove(node)
 	}
 	if node.assignment != nil {
+		if table, inline := editor.index.inlines[node.assignment.value.start]; inline && before.IsObject() && after.IsObject() {
+			rendered, err := editor.inlineTable(table, before, after)
+			if err != nil {
+				return err
+			}
+			return editor.patchAssignmentValue(node.assignment, rendered.text, rendered.displacedComments)
+		}
 		var rendered strings.Builder
 		if err := editor.renderer.value(&rendered, after, len(node.path)); err != nil {
 			return err
@@ -106,17 +113,7 @@ func (editor *tomlEditor) visit(node *tomlSyntaxNode, before, after Value) error
 		if err != nil {
 			return err
 		}
-		if comments == "" {
-			editor.patches = append(editor.patches, tomlPatch{expression.value, rendered.String()})
-		} else {
-			prefix := editor.document.content[expression.span.start:expression.value.start]
-			if err := editor.renderer.charge(int64(len(prefix))); err != nil {
-				return err
-			}
-			text := comments + string(prefix) + rendered.String()
-			editor.patches = append(editor.patches, tomlPatch{expression.span, text})
-		}
-		return nil
+		return editor.patchAssignmentValue(expression, rendered.String(), comments)
 	}
 	if node.coupled || !after.IsObject() {
 		if err := editor.remove(node); err != nil {
@@ -148,6 +145,20 @@ func (editor *tomlEditor) visit(node *tomlSyntaxNode, before, after Value) error
 			return err
 		}
 	}
+	return nil
+}
+
+func (editor *tomlEditor) patchAssignmentValue(expression *tomlExpression, rendered, comments string) error {
+	if comments == "" {
+		editor.patches = append(editor.patches, tomlPatch{expression.value, rendered})
+		return nil
+	}
+	prefix := editor.document.content[expression.span.start:expression.value.start]
+	if err := editor.renderer.charge(int64(len(prefix))); err != nil {
+		return err
+	}
+	text := comments + string(prefix) + rendered
+	editor.patches = append(editor.patches, tomlPatch{expression.span, text})
 	return nil
 }
 

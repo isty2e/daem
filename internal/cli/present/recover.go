@@ -1,6 +1,7 @@
 package clipresent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/recoverygate"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
@@ -28,7 +30,14 @@ func RecoverPlanningDiagnostic(err error, options HumanOptions) FailureDiagnosti
 	fileSetClear := state.FileSetKnown() && state.FileSet() == fileset.FileSetFenceClear
 	if !errors.Is(err, journal.ErrNoRecoverableJournal) ||
 		state.Observed() && !fileSetClear && !state.HasContinuingFileSetFence() {
-		return FailureDiagnosticFromError(err).WithPrefix("recover failed: ")
+		diagnostic := FailureDiagnosticFromError(err)
+		if (!state.Observed() || fileSetClear) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			var protection configuration.NativeProtectionFailure
+			if errors.As(err, &protection) {
+				diagnostic = diagnostic.WithGuidance(NativeProtectionRecoveryGuidance(protection))
+			}
+		}
+		return diagnostic.WithPrefix("recover failed: ")
 	}
 
 	diagnostic := NewFailureDiagnostic("recover failed: no recoverable journal operation").WithGuidance(
@@ -49,6 +58,15 @@ func PrintRecoverPlanWithFenceOptions(
 	fileSetFence fileset.FileSetFenceKind,
 	options HumanOptions,
 ) {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(disclosure); ok {
+		fmt.Fprintf(output, "recover: release_only\noperation: %s\n", release.OperationID())
+		if options.Verbose {
+			fmt.Fprintf(output, "operation directory: %s\n", Escape(release.OperationDir()))
+		}
+		fmt.Fprintln(output, "settle_native_release (local metadata and recorded own management only; host data is unchanged)")
+		printContinuingFileSetFence(output, fileSetFence)
+		return
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
 		printNativeRecoverPlan(output, native, options)
 		printContinuingFileSetFence(output, fileSetFence)
@@ -356,6 +374,14 @@ func recoveryJSONPayload(
 		}
 		disclosure = current
 	}
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(disclosure); ok {
+		return recoveryPlanJSONOutput{
+			SchemaVersion: contractversion.RecoveryJSON, Command: "recover", Mode: mode, Phase: phase, AuthorityKind: journal.RecoveryAuthorityActiveJournal,
+			OperationID: release.OperationID(), OperationDir: release.OperationDir(), Classification: "release_only", ActionCount: 1, HasErrors: release.HasErrors(),
+			Actions: []recoveryPlanJSONAction{{Kind: "settle_native_release", Detail: "settle local files and recorded own management; host data is unchanged"}}, CleanupObligations: []recoveryCleanupObligationOutput{},
+			ContinuingFileSetFence: fileSetFenceValue,
+		}, nil
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
 		return nativeRecoveryJSONPayload(mode, phase, fileSetFenceValue, native), nil
 	}
@@ -400,6 +426,9 @@ func recoveryJSONPayload(
 }
 
 func recoveryOperationID(disclosure journal.RecoverablePlan) string {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(disclosure); ok {
+		return release.OperationID()
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(disclosure); ok {
 		return native.OperationID()
 	}

@@ -17,10 +17,17 @@ import (
 
 // These indexes retain complete state facts, not validated group authority.
 type SnapshotIndex struct {
-	paths            map[topology.SubjectID]durable.ManagedPathState
-	aggregates       map[topology.SubjectID]durable.ManagedAggregateState
-	globalFootprints map[aggregate.DocumentAddress]map[output.Footprint]struct{}
+	paths           map[topology.SubjectID]durable.ManagedPathState
+	aggregates      map[topology.SubjectID]durable.ManagedAggregateState
+	claimFootprints map[aggregate.DocumentAddress]map[output.Footprint]struct{}
 }
+
+type ClaimSelection uint8
+
+const (
+	LegacyGlobalClaims ClaimSelection = iota + 1
+	NativeClaims
+)
 
 type SnapshotIndexes struct {
 	before SnapshotIndex
@@ -43,15 +50,34 @@ func CompareAliases(left, right aggregate.DocumentAddress) int {
 func (indexes SnapshotIndexes) Before() SnapshotIndex { return indexes.before }
 func (indexes SnapshotIndexes) After() SnapshotIndex  { return indexes.after }
 
+func (indexes SnapshotIndexes) SelectedContractsForPlacement(ctx context.Context, subjects []topology.SubjectID, placement PhysicalPlacement, group int) ([]aggregate.Selection, error) {
+	if group < 0 || group >= len(placement.groups) {
+		return nil, fmt.Errorf("selected contracts require a physical group in the placement")
+	}
+	before := make(map[aggregate.DocumentAddress]struct{})
+	for _, alias := range placement.BeforeAliases(group) {
+		before[alias] = struct{}{}
+	}
+	after := make(map[aggregate.DocumentAddress]struct{})
+	for _, alias := range placement.AfterAliases(group) {
+		after[alias] = struct{}{}
+	}
+	return indexes.selectedContractsAt(ctx, subjects, before, after)
+}
+
 func IndexSnapshots(ctx context.Context, before, after durable.Snapshot) (SnapshotIndexes, error) {
+	return IndexSnapshotsForClaims(ctx, before, after, LegacyGlobalClaims)
+}
+
+func IndexSnapshotsForClaims(ctx context.Context, before, after durable.Snapshot, claims ClaimSelection) (SnapshotIndexes, error) {
 	if ctx == nil {
 		return SnapshotIndexes{}, fmt.Errorf("document state context is required")
 	}
-	beforeIndex, err := IndexSnapshot(ctx, before)
+	beforeIndex, err := IndexSnapshotForClaims(ctx, before, claims)
 	if err != nil {
 		return SnapshotIndexes{}, err
 	}
-	afterIndex, err := IndexSnapshot(ctx, after)
+	afterIndex, err := IndexSnapshotForClaims(ctx, after, claims)
 	if err != nil {
 		return SnapshotIndexes{}, err
 	}
@@ -59,17 +85,24 @@ func IndexSnapshots(ctx context.Context, before, after durable.Snapshot) (Snapsh
 }
 
 func IndexSnapshot(ctx context.Context, snapshot durable.Snapshot) (SnapshotIndex, error) {
+	return IndexSnapshotForClaims(ctx, snapshot, LegacyGlobalClaims)
+}
+
+func IndexSnapshotForClaims(ctx context.Context, snapshot durable.Snapshot, claims ClaimSelection) (SnapshotIndex, error) {
 	if ctx == nil {
 		return SnapshotIndex{}, fmt.Errorf("document state context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return SnapshotIndex{}, err
 	}
+	if claims != LegacyGlobalClaims && claims != NativeClaims {
+		return SnapshotIndex{}, fmt.Errorf("document claim membership requires its admitted selection rule")
+	}
 	paths, rows := snapshot.ManagedPaths(), snapshot.ManagedAggregates()
 	index := SnapshotIndex{
-		paths:            make(map[topology.SubjectID]durable.ManagedPathState, len(paths)),
-		aggregates:       make(map[topology.SubjectID]durable.ManagedAggregateState, len(rows)),
-		globalFootprints: make(map[aggregate.DocumentAddress]map[output.Footprint]struct{}),
+		paths:           make(map[topology.SubjectID]durable.ManagedPathState, len(paths)),
+		aggregates:      make(map[topology.SubjectID]durable.ManagedAggregateState, len(rows)),
+		claimFootprints: make(map[aggregate.DocumentAddress]map[output.Footprint]struct{}),
 	}
 	for _, row := range paths {
 		if err := ctx.Err(); err != nil {
@@ -77,7 +110,9 @@ func IndexSnapshot(ctx context.Context, snapshot durable.Snapshot) (SnapshotInde
 		}
 		index.paths[row.Subject()] = row
 		id, native := topologyprojection.EntityID(row.Subject())
-		if !native || id.Kind() != entity.KindHostConfig || row.Scope() != target.ScopeGlobal {
+		native = native && id.Kind() == entity.KindHostConfig
+		selected := native && (claims == NativeClaims || row.Scope() == target.ScopeGlobal) || claims == NativeClaims && row.Scope() == target.ScopeGlobal
+		if !selected {
 			continue
 		}
 		for _, selected := range row.ConsumerTargets() {
@@ -88,7 +123,7 @@ func IndexSnapshot(ctx context.Context, snapshot durable.Snapshot) (SnapshotInde
 			if err != nil {
 				return SnapshotIndex{}, err
 			}
-			index.addGlobalFootprint(address, output.WholePathFootprint())
+			index.addClaimFootprint(address, output.WholePathFootprint())
 		}
 	}
 	for _, row := range rows {
@@ -97,8 +132,9 @@ func IndexSnapshot(ctx context.Context, snapshot durable.Snapshot) (SnapshotInde
 		}
 		index.aggregates[row.Subject()] = row
 		contract := row.Contribution().Contract()
-		if contract.Address().Document().Scope() == target.ScopeGlobal {
-			index.addGlobalFootprint(contract.Address().Document(), contract.Address().Footprint())
+		_, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID())
+		if contract.Address().Document().Scope() == target.ScopeGlobal || claims == NativeClaims && native {
+			index.addClaimFootprint(contract.Address().Document(), contract.Address().Footprint())
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -107,11 +143,11 @@ func IndexSnapshot(ctx context.Context, snapshot durable.Snapshot) (SnapshotInde
 	return index, nil
 }
 
-func (index SnapshotIndex) addGlobalFootprint(address aggregate.DocumentAddress, footprint output.Footprint) {
-	if index.globalFootprints[address] == nil {
-		index.globalFootprints[address] = make(map[output.Footprint]struct{})
+func (index SnapshotIndex) addClaimFootprint(address aggregate.DocumentAddress, footprint output.Footprint) {
+	if index.claimFootprints[address] == nil {
+		index.claimFootprints[address] = make(map[output.Footprint]struct{})
 	}
-	index.globalFootprints[address][footprint] = struct{}{}
+	index.claimFootprints[address][footprint] = struct{}{}
 }
 
 type documentSelectionKey struct {
@@ -126,7 +162,10 @@ func (indexes SnapshotIndexes) SelectedContracts(ctx context.Context, subjects [
 	if err != nil {
 		return nil, err
 	}
+	return indexes.selectedContractsAt(ctx, subjects, addresses, addresses)
+}
 
+func (indexes SnapshotIndexes) selectedContractsAt(ctx context.Context, subjects []topology.SubjectID, beforeAddresses, afterAddresses map[aggregate.DocumentAddress]struct{}) ([]aggregate.Selection, error) {
 	groups := make(map[documentSelectionKey]map[output.KeyPath]aggregate.ProjectionContract)
 	seen := make(map[topology.SubjectID]struct{}, len(subjects))
 	for index, subject := range subjects {
@@ -145,8 +184,8 @@ func (indexes SnapshotIndexes) SelectedContracts(ctx context.Context, subjects [
 		if beforePath || afterPath {
 			return nil, fmt.Errorf("selected subject[%d] is whole-path state, not a selected projection", index)
 		}
-		before, beforePresent := selectedContractAt(indexes.before, subject, addresses)
-		after, afterPresent := selectedContractAt(indexes.after, subject, addresses)
+		before, beforePresent := selectedContractAt(indexes.before, subject, beforeAddresses)
+		after, afterPresent := selectedContractAt(indexes.after, subject, afterAddresses)
 		if !beforePresent && !afterPresent {
 			return nil, fmt.Errorf("selected subject[%d] does not resolve within the document aliases", index)
 		}

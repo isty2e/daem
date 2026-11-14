@@ -46,7 +46,7 @@ func (input nativeCaptureOwnershipInput) membership(ctx context.Context) (native
 	if err := base.Validate(ctx); err != nil {
 		return nativeCaptureMembership{}, err
 	}
-	indexes, err := journaldocument.IndexSnapshots(ctx, input.before, input.after)
+	indexes, err := journaldocument.IndexSnapshotsForClaims(ctx, input.before, input.after, journaldocument.NativeClaims)
 	if err != nil {
 		return nativeCaptureMembership{}, err
 	}
@@ -233,10 +233,14 @@ func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, nam
 	if _, conflict := current.ProvisionalAncestorConflict(provisional); conflict {
 		return nil, nil, fmt.Errorf("provisional native acquisition conflicts with current ownership")
 	}
-	var global aggregate.DocumentAddress
-	for _, alias := range namespace.Addresses() {
+	aliases := namespace.Addresses()
+	if len(aliases) == 0 {
+		return nil, nil, fmt.Errorf("provisional acquisition requires a declared document alias")
+	}
+	selected := aliases[0]
+	for _, alias := range aliases {
 		if alias.Scope() == target.ScopeGlobal {
-			global = alias
+			selected = alias
 			break
 		}
 	}
@@ -245,11 +249,11 @@ func (input nativeCaptureOwnershipInput) documentClaims(ctx context.Context, nam
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		intent, err := ownership.NewProvisionalAcquireIntent(global.AggregateRoot(), footprint, provisional, input.owner, input.operationID)
+		intent, err := ownership.NewProvisionalAcquireIntent(selected.AggregateRoot(), footprint, provisional, input.owner, input.operationID)
 		if err != nil {
 			return nil, nil, err
 		}
-		acquires = append(acquires, journaldocument.NewProvisionalAcquire(global, intent))
+		acquires = append(acquires, journaldocument.NewProvisionalAcquire(selected, intent))
 	}
 	slices.SortFunc(acquires, func(left, right journaldocument.ProvisionalAcquire) int {
 		return output.CompareFootprints(left.Intent().Footprint(), right.Intent().Footprint())

@@ -24,13 +24,18 @@ func TestDocumentMembershipAndBindingTraversalHonorMidOperationCancellation(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	group := &decoded.record.DocumentGroups[0]
+	wire := decoded.native16Record()
+	group := &wire.DocumentGroups[0]
 	for index := 1; index < 8; index++ {
 		alias, binding := group.Aliases[0], group.BindingIntents[0]
 		alias.Address.Destination = fmt.Sprintf("@pi-agent/cancel-%d.json", index)
 		binding.Destination = alias.Address.Destination
 		group.Aliases = append(group.Aliases, alias)
 		group.BindingIntents = append(group.BindingIntents, binding)
+	}
+	decoded, err = newNative16Value(wire, decoded.owner, decoded.before, decoded.after)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if groups, err := decoded.documentBindings(traversal); !errors.Is(err, context.Canceled) || groups != nil {
 		t.Fatalf("binding traversal returned partial groups after cancellation: %v", err)

@@ -4,25 +4,26 @@ import (
 	"testing"
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func TestHostConfigPlacementRejectsMalformedInput(t *testing.T) {
 	valid := hostConfigInput(target.TargetPi, target.ScopeGlobal, "custom.json")
-	for _, mutate := range []func(*HostConfigPlacementInput){
-		func(input *HostConfigPlacementInput) { input.Target = "" },
-		func(input *HostConfigPlacementInput) { input.Target = target.TargetOpenCode },
-		func(input *HostConfigPlacementInput) { input.Scope = "system" },
-		func(input *HostConfigPlacementInput) { input.Path = "" },
-		func(input *HostConfigPlacementInput) { input.Path = "../custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = "/custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = "config//custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = `config\custom.json` },
-		func(input *HostConfigPlacementInput) { input.Path = "C:custom.json" },
-		func(input *HostConfigPlacementInput) { input.Path = "custom\n.json" },
-		func(input *HostConfigPlacementInput) { input.Path = " custom.json" },
-		func(input *HostConfigPlacementInput) { input.Ownership = "merge" },
-		func(input *HostConfigPlacementInput) { input.Syntax = "yaml" },
+	for _, mutate := range []func(*configuration.PlacementInput){
+		func(input *configuration.PlacementInput) { input.Target = "" },
+		func(input *configuration.PlacementInput) { input.Target = "unknown-host" },
+		func(input *configuration.PlacementInput) { input.Scope = "system" },
+		func(input *configuration.PlacementInput) { input.Path = "" },
+		func(input *configuration.PlacementInput) { input.Path = "../custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = "/custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = "config//custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = `config\custom.json` },
+		func(input *configuration.PlacementInput) { input.Path = "C:custom.json" },
+		func(input *configuration.PlacementInput) { input.Path = "custom\n.json" },
+		func(input *configuration.PlacementInput) { input.Path = " custom.json" },
+		func(input *configuration.PlacementInput) { input.Ownership = "merge" },
+		func(input *configuration.PlacementInput) { input.Syntax = "yaml" },
 	} {
 		input := valid
 		mutate(&input)
@@ -40,11 +41,25 @@ func TestHostConfigPlacementRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestHostConfigPlacementRejectsAnAbsentNativePreferencesSurface(t *testing.T) {
+	input := hostConfigInput(target.TargetAntigravityCLI, target.ScopeProject, "custom.json")
+	if _, err := ResolveHostConfigPlacement(input); err == nil {
+		t.Fatal("Antigravity CLI acquired a project preferences surface")
+	}
+}
+
 func TestHostConfigPlacementIdentityPartitionsHostAndScope(t *testing.T) {
 	seen := make(map[string]bool)
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
+	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex, target.TargetClaudeCode, target.TargetOpenCode, target.TargetAntigravityCLI} {
 		for _, scope := range []target.Scope{target.ScopeGlobal, target.ScopeProject} {
-			placement := mustHostConfigPlacement(t, hostConfigInput(selected, scope, "custom.json"))
+			if selected == target.TargetAntigravityCLI && scope == target.ScopeProject {
+				continue
+			}
+			path := "custom.json"
+			if selected == target.TargetOpenCode && scope == target.ScopeProject {
+				path = ".opencode/" + path
+			}
+			placement := mustHostConfigPlacement(t, hostConfigInput(selected, scope, path))
 			if placement.ID() == "" || seen[placement.ID()] {
 				t.Fatalf("host/scope identity collided: %s/%s -> %q", selected, scope, placement.ID())
 			}
@@ -61,18 +76,13 @@ func TestHostConfigPlacementRetainsExplicitGrammarIntent(t *testing.T) {
 	if automatic.Grammar() != explicit.Grammar() || automatic.RequestedSyntax() == explicit.RequestedSyntax() {
 		t.Fatal("explicit intent was lost despite identical logical grammar")
 	}
-	forged := automatic
-	forged.grammar = HostConfigJSONC
-	if err := forged.Validate(); err == nil {
-		t.Fatal("grammar not implied by the retained intent was accepted")
-	}
 }
 
 func TestHostConfigCodexNamedProfileClassification(t *testing.T) {
 	for _, nativePath := range []string{"review.config.toml", "review_2-1.config.toml"} {
 		input := hostConfigInput(target.TargetCodex, target.ScopeGlobal, nativePath)
 		placement := mustHostConfigPlacement(t, input)
-		if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, "plugins")); err == nil {
+		if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, "plugins")); err == nil {
 			t.Fatalf("native profile %q bypassed dedicated ownership", nativePath)
 		}
 	}
@@ -80,7 +90,7 @@ func TestHostConfigCodexNamedProfileClassification(t *testing.T) {
 		input := hostConfigInput(target.TargetCodex, target.ScopeGlobal, nativePath)
 		input.Ownership = desiredhostconfig.OwnershipDocument
 		placement := mustHostConfigPlacement(t, input)
-		if placement.Grammar() != HostConfigTOML {
+		if placement.Grammar() != configuration.TOML {
 			t.Fatalf("ordinary TOML %q misclassified: %q", nativePath, placement.Grammar())
 		}
 	}

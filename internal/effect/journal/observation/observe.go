@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -29,6 +30,7 @@ type Input struct {
 	Before     durable.Snapshot
 	Aliases    []aggregate.DocumentAddress
 	Roots      journalnamespace.Roots
+	Protection journalnamespace.ReservationSelectors
 	Filesystem mutationfs.RootedReader
 	Registry   ownershipmutation.RegistryReader
 	Limits     configdocument.Limits
@@ -80,7 +82,7 @@ func Observe(ctx context.Context, input Input) (Batch, error) {
 			return Batch{}, err
 		}
 	}
-	before, err := journaldocument.IndexSnapshot(ctx, input.Before)
+	before, err := journaldocument.IndexSnapshotForClaims(ctx, input.Before, journaldocument.NativeClaims)
 	if err != nil {
 		return Batch{}, err
 	}
@@ -139,39 +141,39 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 	aliases := slices.Clone(input.Aliases)
 	slices.SortFunc(aliases, journaldocument.CompareAliases)
 	indices := make(map[string]int)
-	var representatives []journalnamespace.DocumentNamespace
+	var representatives []mutation.DirectoryEntryAuthorityObservation
 	var groups [][]aggregate.DocumentAddress
 	for _, alias := range aliases {
-		namespace, err := journalnamespace.Observe(ctx, []aggregate.DocumentAddress{alias}, input.Roots, input.Filesystem, input.Budget)
+		observation, err := journalnamespace.ObserveAlias(ctx, alias, input.Roots, input.Budget)
 		if err != nil {
 			return nil, err
 		}
 		key := ""
-		if exact, known := namespace.Observation().Exact(); known {
+		if exact, known := observation.Exact(); known {
 			key = "exact:" + exact.Key()
 		} else {
-			provisional, _ := namespace.Observation().Provisional()
+			provisional, _ := observation.Provisional()
 			key = "provisional:" + provisional.CandidateKey()
 		}
 		index, present := indices[key]
 		if !present {
 			indices[key] = len(groups)
-			representatives = append(representatives, namespace)
+			representatives = append(representatives, observation)
 			groups = append(groups, []aggregate.DocumentAddress{alias})
 			continue
 		}
-		if !representatives[index].Observation().Equal(namespace.Observation()) {
+		if !representatives[index].Equal(observation) {
 			return nil, fmt.Errorf("native aliases disagree on the same comparison identity")
 		}
 		groups[index] = append(groups[index], alias)
 	}
 	result := make([]journalnamespace.DocumentNamespace, 0, len(groups))
 	for index, aliases := range groups {
-		namespace, err := journalnamespace.Observe(ctx, aliases, input.Roots, input.Filesystem, input.Budget)
+		namespace, err := journalnamespace.Observe(ctx, aliases, input.Roots, input.Protection, input.Filesystem, input.Budget)
 		if err != nil {
 			return nil, err
 		}
-		if !representatives[index].Observation().Equal(namespace.Observation()) {
+		if !representatives[index].Equal(namespace.Observation()) {
 			return nil, fmt.Errorf("native namespace changed while coalescing aliases")
 		}
 		result = append(result, namespace)

@@ -6,10 +6,8 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 )
 
 type ComparisonInput struct {
@@ -29,7 +27,7 @@ type Comparison struct {
 	expectedState recovery.PartialDocumentState
 	limits        configdocument.Limits
 	participants  []compose.Participant
-	order         *piconfig.PackagePermutation
+	sequences     []configdocument.JSONArrayEdit
 	whole         bool
 	initialized   bool
 }
@@ -38,6 +36,7 @@ type ComparisonMatch struct {
 	before      bool
 	expected    bool
 	recoverable bool
+	observed    recovery.PartialDocumentState
 }
 
 func (match ComparisonMatch) MatchesBefore() bool   { return match.before }
@@ -80,9 +79,9 @@ func NewWholeComparison(ctx context.Context, input ComparisonInput) (Comparison,
 	return comparison, nil
 }
 
-// NewSelectedComparison keeps dedicated package order separate from
+// NewSelectedComparison keeps selected native array order separate from
 // aggregate selections. An empty selection compares only regular-root metadata.
-func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, order *piconfig.PackagePermutation) (Comparison, error) {
+func NewSelectedComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant, sequences []configdocument.JSONArrayEdit) (Comparison, error) {
 	comparison, err := newDocumentComparison(ctx, input, participants)
 	if err != nil {
 		return Comparison{}, err
@@ -90,42 +89,44 @@ func NewSelectedComparison(ctx context.Context, input ComparisonInput, participa
 	if _, err := recovery.MatchPartialDocumentStates(comparison.beforeState, comparison.expectedState, comparison.beforeState); err != nil {
 		return Comparison{}, err
 	}
-	if order == nil {
+	if len(sequences) == 0 {
 		return comparison, nil
 	}
-	packages, err := output.NewKeyPath("packages")
+	retained, err := compose.DisjointSelectedSequences(comparison.participants, sequences)
 	if err != nil {
 		return Comparison{}, err
 	}
-	for _, participant := range comparison.participants {
-		for _, area := range participant.RewriteAreas() {
-			if area.Overlaps(packages) {
-				return Comparison{}, fmt.Errorf("selected aggregate area overlaps dedicated Pi package order")
-			}
+	for _, sequence := range retained {
+		before, err := readArrayComparisonDocument(ctx, input.Before, input.Limits, sequence.Syntax())
+		if err != nil {
+			return Comparison{}, err
 		}
-	}
-	before, err := readPiComparisonDocument(ctx, input.Before, input.Limits)
-	if err != nil {
-		return Comparison{}, err
-	}
-	expected, err := readPiComparisonDocument(ctx, input.Expected, input.Limits)
-	if err != nil {
-		return Comparison{}, err
-	}
-	if !order.MatchesBefore(before) || !order.MatchesExpected(expected) {
-		return Comparison{}, fmt.Errorf("Pi package inverse does not match the loaded document witnesses")
+		expected, err := readArrayComparisonDocument(ctx, input.Expected, input.Limits, sequence.Syntax())
+		if err != nil {
+			return Comparison{}, err
+		}
+		matchesBefore, err := sequence.MatchesBefore(ctx, before)
+		if err != nil {
+			return Comparison{}, err
+		}
+		matchesExpected, err := sequence.MatchesExpected(ctx, expected)
+		if err != nil {
+			return Comparison{}, err
+		}
+		if !matchesBefore || !matchesExpected {
+			return Comparison{}, fmt.Errorf("native array inverse does not match the loaded document witnesses")
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return Comparison{}, err
 	}
-	retained := *order
-	comparison.order = &retained
+	comparison.sequences = retained
 	return comparison, nil
 }
 
 func newDocumentComparison(ctx context.Context, input ComparisonInput, participants []compose.Participant) (Comparison, error) {
 	for _, document := range []aggregate.Document{input.Before, input.Expected} {
-		if err := ValidateImage(ctx, document, input.Limits); err != nil {
+		if err := compose.ValidateImage(ctx, document, input.Limits); err != nil {
 			return Comparison{}, err
 		}
 	}
@@ -151,7 +152,7 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	if err := comparison.Validate(); err != nil {
 		return ComparisonMatch{}, err
 	}
-	if err := ValidateImage(ctx, current, comparison.limits); err != nil {
+	if err := compose.ValidateImage(ctx, current, comparison.limits); err != nil {
 		return ComparisonMatch{}, err
 	}
 	observed, err := readComparisonState(ctx, current, mode, comparison.limits, comparison.participants)
@@ -164,7 +165,7 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 		if err := ctx.Err(); err != nil {
 			return ComparisonMatch{}, err
 		}
-		return ComparisonMatch{before: before, expected: expected, recoverable: before || expected}, nil
+		return ComparisonMatch{before: before, expected: expected, recoverable: before || expected, observed: observed}, nil
 	}
 	partial, err := recovery.MatchPartialDocumentStates(comparison.beforeState, comparison.expectedState, observed)
 	if err != nil {
@@ -172,13 +173,17 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	}
 	match := ComparisonMatch{
 		before: partial.MatchesBefore(), expected: partial.MatchesExpected(), recoverable: partial.Recoverable(),
+		observed: observed,
 	}
-	if comparison.order != nil {
-		document, err := readPiComparisonDocument(ctx, current, comparison.limits)
+	for _, sequence := range comparison.sequences {
+		document, err := readArrayComparisonDocument(ctx, current, comparison.limits, sequence.Syntax())
 		if err != nil {
 			return ComparisonMatch{}, err
 		}
-		before, expected := comparison.order.MatchesBefore(document), comparison.order.MatchesExpected(document)
+		before, expected, err := sequence.Match(ctx, document)
+		if err != nil {
+			return ComparisonMatch{}, err
+		}
 		match.before = match.before && before
 		match.expected = match.expected && expected
 		match.recoverable = match.recoverable && (before || expected)
@@ -189,31 +194,11 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 	return match, nil
 }
 
-func readPiComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits) (piconfig.Document, error) {
-	content := document.Content()
-	if _, err := configdocument.Parse(ctx, content, configdocument.JSON, limits); err != nil {
-		return piconfig.Document{}, err
+func readArrayComparisonDocument(ctx context.Context, document aggregate.Document, limits configdocument.Limits, syntax configdocument.Syntax) (configdocument.Document, error) {
+	if !document.Exists() {
+		return configdocument.Document{}, fmt.Errorf("selected native array requires an existing document")
 	}
-	return piconfig.Parse(content)
-}
-
-func ValidateImage(ctx context.Context, document aggregate.Document, limits configdocument.Limits) error {
-	if ctx == nil {
-		return fmt.Errorf("document comparison context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := limits.Validate(); err != nil {
-		return err
-	}
-	if err := document.Validate(); err != nil {
-		return err
-	}
-	if document.ContentSize() > limits.MaximumBytes {
-		return fmt.Errorf("document comparison exceeds the selected byte limit")
-	}
-	return nil
+	return configdocument.Parse(ctx, document.Content(), syntax, limits)
 }
 
 func readComparisonState(ctx context.Context, document aggregate.Document, mode *recovery.PermissionMode, limits configdocument.Limits, participants []compose.Participant) (recovery.PartialDocumentState, error) {

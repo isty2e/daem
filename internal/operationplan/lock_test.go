@@ -13,6 +13,7 @@ func TestCompileLockPreservesDomainAndRevisionOrder(t *testing.T) {
 		ManifestPath:            "/manifest",
 		LockfilePath:            "/lockfile",
 		MetadataTransactionPath: "/metadata",
+		GlobalMetadataPath:      "/global-metadata",
 		LocalPaths:              []string{"/source-b", "/source-a"},
 		StateDirPath:            "/state",
 		StateDirPresent:         true,
@@ -31,6 +32,8 @@ func TestCompileLockPreservesDomainAndRevisionOrder(t *testing.T) {
 		{path: "/metadata", access: mutation.AccessExclusive, effect: mutation.PathEffectDirectoryEntry},
 		{path: "/source-b", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
 		{path: "/source-a", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
+		{path: "/global-metadata", access: mutation.AccessShared, effect: mutation.PathEffectDirectoryEntry},
+		{path: "/global-metadata", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
 		{path: "/state", access: mutation.AccessShared, effect: mutation.PathEffectDirectoryEntry},
 		{path: "/state", access: mutation.AccessShared, effect: mutation.PathEffectReferent},
 	}
@@ -51,8 +54,8 @@ func TestCompileLockPreservesDomainAndRevisionOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(revisions) != 7 {
-		t.Fatalf("revision requests = %d, want 7", len(revisions))
+	if len(revisions) != 9 {
+		t.Fatalf("revision requests = %d, want 9", len(revisions))
 	}
 	index := 0
 	for _, path := range []string{"/manifest", "/lockfile"} {
@@ -76,6 +79,8 @@ func TestCompileLockPreservesDomainAndRevisionOrder(t *testing.T) {
 	}
 	for _, expected := range []mutation.RevisionRequest{
 		mutation.NewBoundedContentRevisionRequest("/metadata", mutation.PathEffectDirectoryEntry),
+		mutation.NewBoundedContentRevisionRequest("/global-metadata", mutation.PathEffectDirectoryEntry),
+		mutation.NewBoundedContentRevisionRequest("/global-metadata", mutation.PathEffectReferent),
 		mutation.NewBoundedContentRevisionRequest("/source-b", mutation.PathEffectReferent),
 		mutation.NewBoundedContentRevisionRequest("/source-a", mutation.PathEffectReferent),
 	} {
@@ -93,6 +98,7 @@ func TestCompileLockUsesExclusiveStateDirDomainsWhenAbsent(t *testing.T) {
 		ManifestPath:            "/manifest",
 		LockfilePath:            "/lockfile",
 		MetadataTransactionPath: "/metadata",
+		GlobalMetadataPath:      "/global-metadata",
 		StateDirPath:            "/state",
 		StateDirPresent:         false,
 		DocumentMaximumBytes:    4096,
@@ -118,6 +124,7 @@ func TestLockProgramReturnsDefensiveCopiesAndValidatesRevisionLimitLazily(t *tes
 		ManifestPath:            "/manifest",
 		LockfilePath:            "/lockfile",
 		MetadataTransactionPath: "/metadata",
+		GlobalMetadataPath:      "/global-metadata",
 		LocalPaths:              inputPaths,
 		StateDirPath:            "/state",
 		DocumentMaximumBytes:    0,

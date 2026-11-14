@@ -21,7 +21,9 @@ import (
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains               []mutation.Domain
+	domains []mutation.Domain
+
+	// This capture binds the Registry view; effect guards re-observe plan requests.
 	documentWrites        mutation.PhysicalAuthoritySet
 	documentWriteRequests []mutation.PhysicalAuthorityRequest
 	metadataRequests      []mutation.PhysicalAuthorityRequest
@@ -48,6 +50,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		0,
 	)
 	physicalOccupancies := make(physicalOccupancyIndex)
+	nativeActors := make(map[aggregate.DocumentAddress]aggregate.DocumentAddress)
+	if planned.nativePlan != nil {
+		for _, group := range planned.assessment.NativeApproval {
+			for _, alias := range group.Aliases {
+				nativeActors[alias] = group.Aliases[0]
+			}
+		}
+	}
 	registryAccess := mutation.AccessShared
 	requiresRegistry := planned.nativePlan != nil
 	if err := builder.AddLogicalPair(result.ManifestPath, mutation.AccessShared, mutation.AccessShared); err != nil {
@@ -192,7 +202,8 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 	}
 
-	addManagedPath := func(
+	addResolvedPath := func(
+		path string,
 		scope target.Scope,
 		destination output.Destination,
 		consumers []target.Target,
@@ -200,16 +211,21 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		aggregateTarget target.Target,
 		write bool,
 	) error {
-		if err := observeProjectDestinationAuthorityFor(ctx, planned, scope, destination); err != nil {
-			return err
-		}
-		path, err := projectDestinationAuthorityPathFor(planned, scope, destination)
-		if err != nil {
-			return err
-		}
-		if err := physicalOccupancies.register(path, physicalOccupancy{
+		occupancy := physicalOccupancy{
 			scope: scope, destination: destination, kind: kind, target: aggregateTarget,
-		}); err != nil {
+		}
+		if kind == physicalOccupancyAggregate {
+			address, err := aggregate.NewDocumentAddress(aggregateTarget, scope, destination)
+			if err != nil {
+				return err
+			}
+			if actor, native := nativeActors[address]; native {
+				occupancy.scope = actor.Scope()
+				occupancy.destination = actor.AggregateRoot()
+				occupancy.target = actor.Target()
+			}
+		}
+		if err := physicalOccupancies.register(path, occupancy); err != nil {
 			return err
 		}
 		for _, consumer := range consumers {
@@ -230,42 +246,77 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 		return nil
 	}
+
+	addManagedPath := func(scope target.Scope, destination output.Destination, consumers []target.Target, kind physicalOccupancyKind, aggregateTarget target.Target, write bool) error {
+		if err := observeProjectDestinationAuthorityFor(ctx, planned, scope, destination); err != nil {
+			return err
+		}
+		path, err := projectDestinationAuthorityPathFor(planned, scope, destination)
+		if err != nil {
+			return err
+		}
+		return addResolvedPath(path, scope, destination, consumers, kind, aggregateTarget, write)
+	}
+
+	addNativeDocument := func(document aggregate.DocumentAddress, write bool) error {
+		request, err := nativeAuthorityRequestFor(planned, document)
+		if err != nil {
+			return err
+		}
+		return addResolvedPath(request.Path, document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), write)
+	}
+
+	addWholePath := func(scope target.Scope, destination output.Destination, consumers []target.Target, native bool) error {
+		if !native {
+			return addManagedPath(scope, destination, consumers, physicalOccupancyWholePath, "", true)
+		}
+		if len(consumers) != 1 {
+			return fmt.Errorf("native whole authority requires one consumer")
+		}
+		document, err := aggregate.NewDocumentAddress(consumers[0], scope, destination)
+		if err != nil {
+			return err
+		}
+		return addNativeDocument(document, true)
+	}
+
 	for _, decision := range planned.assessment.Reconciliation.MutatingManagedPaths() {
 		consumers := decision.ConsumerTargets()
 		previous, hasPrevious := decision.PreviousState()
 		if len(consumers) == 0 && hasPrevious {
 			consumers = previous.ConsumerTargets()
 		}
-		kind, documentTarget := physicalOccupancyWholePath, target.Target("")
-		if aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
-			if len(consumers) != 1 {
-				return applyAuthorityEvidence{}, fmt.Errorf("native whole authority requires one consumer")
-			}
-			kind, documentTarget = physicalOccupancyAggregate, consumers[0]
-		}
-		if err := addManagedPath(
-			decision.Scope(), decision.Destination(), consumers, kind, documentTarget, true,
-		); err != nil {
+		native := aggregate.IsHostConfigDocumentSubject(decision.Subject())
+		if err := addWholePath(decision.Scope(), decision.Destination(), consumers, native); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		if hasPrevious && (previous.Scope() != decision.Scope() || previous.Destination() != decision.Destination()) {
-			if err := addManagedPath(
-				previous.Scope(), previous.Destination(), previous.ConsumerTargets(), kind, documentTarget, true,
-			); err != nil {
+			if err := addWholePath(previous.Scope(), previous.Destination(), previous.ConsumerTargets(), native); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
 		}
 	}
-	for _, decision := range planned.assessment.Reconciliation.MutatingAggregates() {
+	for _, decision := range planned.assessment.Reconciliation.Aggregates() {
 		document := decision.DocumentAddress()
-		if err := addManagedPath(
-			document.Scope(),
-			document.AggregateRoot(),
-			[]target.Target{document.Target()},
-			physicalOccupancyAggregate,
-			document.Target(),
-			true,
-		); err != nil {
+		_, native := nativeActors[document]
+		_, nativeCodec := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID())
+		if native && !nativeCodec {
+			path, err := destinationResolver(planned.context.Paths).Resolve(document.AggregateRoot(), planned.context.physicalBudget)
+			if err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+			if err := builder.AddPhysicalPair(path, mutation.AccessShared, string(document.Target()), string(document.Scope())); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		}
+		if !decision.MutatesHost() && !decision.MutatesState() {
+			continue
+		}
+		if native || nativeCodec {
+			if err := addNativeDocument(document, true); err != nil {
+				return applyAuthorityEvidence{}, err
+			}
+		} else if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), true); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		for _, precondition := range decision.OperationPreconditions() {
@@ -284,7 +335,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	if planned.nativePlan != nil {
 		for _, document := range planned.nativePlan.stateDocuments {
-			if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
+			if err := addNativeDocument(document, false); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
 		}
@@ -293,14 +344,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	if planned.nativePlan != nil && planned.nativePlan.opaque {
 		for _, group := range planned.assessment.NativeApproval {
 			for _, document := range group.Aliases {
-				if err := addManagedPath(document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), false); err != nil {
+				if err := addNativeDocument(document, false); err != nil {
 					return applyAuthorityEvidence{}, err
 				}
-				path, err := projectDestinationAuthorityPathFor(planned, document.Scope(), document.AggregateRoot())
+				request, err := nativeAuthorityRequestFor(planned, document)
 				if err != nil {
 					return applyAuthorityEvidence{}, err
 				}
-				metadataRequests = append(metadataRequests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(document.Target()), Scope: string(document.Scope())})
+				metadataRequests = append(metadataRequests, request)
 			}
 		}
 	}

@@ -14,8 +14,13 @@ const (
 
 	// Journal versions bind the canonical state encoding used by authority hashes.
 	OrdinaryVersion = 15
-	NativeVersion   = 16
+	native16Version = 16
+	NativeVersion   = native17Version
 )
+
+func SupportsNativeVersion(version int) bool {
+	return version == native16Version || version == native17Version
+}
 
 // Fingerprint identifies exact serialized bytes, not validation or host authority.
 func Fingerprint(content []byte) string {

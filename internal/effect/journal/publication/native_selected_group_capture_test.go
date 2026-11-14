@@ -18,9 +18,12 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/realization"
@@ -30,6 +33,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	localcontext "github.com/isty2e/daem/internal/topology/extension"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
@@ -190,9 +194,9 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			if !known {
 				t.Fatal("actual Pi relation has no command context")
 			}
-			roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot())}
+			roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, command.BaseRoot())})
 			if scope == target.ScopeGlobal {
-				roots.PiAgent = nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())
+				roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot()))
 			}
 			fixture := nativeJournalFixture(t)
 			fixture.claims.alias, _ = journalrecord.PiOrderDocumentAlias(scope)
@@ -204,8 +208,11 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			}
 			recorded := capture.recordedGroup(t, group)
 			_, hasOrder, err := recorded.PiQualification()
-			if err != nil || !hasOrder || !comparison.Changed() {
+			if err != nil || hasOrder || !comparison.Changed() {
 				t.Fatalf("real Pi-only group failed: %v", err)
+			}
+			if err := order.VerifyPostContent(comparison.ExpectedDocument().Content(), comparison.ExpectedDocument().Exists()); err != nil {
+				t.Fatal("completed positional image lost the selected package order", err)
 			}
 			subjects, err := recorded.SelectedSubjects(t.Context())
 			if err != nil || len(subjects) != 0 {
@@ -240,7 +247,7 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 	if !known {
 		t.Fatal("actual Pi relation lacks source context")
 	}
-	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, command.BaseRoot()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, command.BaseRoot()), output.RootPiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())})
 	fixture := nativeJournalFixture(t)
 	fixture.claims.alias, _ = journalrecord.PiOrderDocumentAlias(target.ScopeGlobal)
 	before := membershipNativeRow(t, fixture.claims.alias, "native-json-v1", "theme")
@@ -259,8 +266,11 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 		t.Fatal("native/Pi group lost its selected subject", err)
 	}
 	_, hasOrder, err := recorded.PiQualification()
-	if err != nil || !hasOrder || !comparison.Changed() {
+	if err != nil || hasOrder || !comparison.Changed() {
 		t.Fatalf("actual native/Pi plans did not form one group: %v", err)
+	}
+	if err := order.VerifyPackageContent(comparison.ExpectedDocument().Content(), comparison.ExpectedDocument().Exists()); err != nil {
+		t.Fatal("native key completion lost its selected package order", err)
 	}
 	capture.requireCompleteStage(t, group, comparison)
 }
@@ -303,7 +313,7 @@ func TestSelectedGroupCaptureKeepsWholeMembershipSeparateFromNarrowedFrontier(t 
 
 func TestSelectedGroupCaptureRejectsWrongPiCommandRootBeforeRead(t *testing.T) {
 	loaded, order := piEvidenceFixture(t, target.ScopeGlobal)
-	roots := journalnamespace.Roots{Manifest: nativeNamespaceRoot(t, t.TempDir()), PiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, t.TempDir()), output.RootPiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())})
 	fixture := nativeJournalFixture(t)
 	var err error
 	fixture.claims.alias, err = journalrecord.PiOrderDocumentAlias(target.ScopeGlobal)
@@ -315,6 +325,41 @@ func TestSelectedGroupCaptureRejectsWrongPiCommandRootBeforeRead(t *testing.T) {
 	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 	if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {
 		t.Fatalf("wrong Pi command root was admitted or read host bytes: %v", err)
+	}
+}
+
+func TestSelectedGroupCaptureRejectsDifferentSelectedReferentWithEqualBytes(t *testing.T) {
+	loaded, _ := piEvidenceFixture(t, target.ScopeGlobal)
+	command, explicit := loaded.Relations[0].SourceContext()
+	if !explicit {
+		t.Fatal("fixture command context is not explicit")
+	}
+	settingsBase := loaded.SettingsContext.BaseRoot()
+	otherBase := filepath.Join(filepath.Dir(settingsBase), "other-agent")
+	context, err := localcontext.NewLocalSourceContext(otherBase, loaded.SettingsContext.HomeRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.SettingsContext = context
+	order, err := pipackage.ReconstructOrder(loaded)
+	if err != nil || !order.Changed() {
+		t.Fatal("equal-byte second file did not retain valid changed order semantics", err)
+	}
+	requireWholeGroupWrite(t, filepath.Join(otherBase, "settings.json"), loaded.Document.Content(), 0o644)
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{
+		output.RootProject: nativeNamespaceRoot(t, command.BaseRoot()),
+		output.RootPiAgent: nativeNamespaceRoot(t, settingsBase),
+	})
+	fixture := nativeJournalFixture(t)
+	fixture.claims.alias, err = journalrecord.PiOrderDocumentAlias(target.ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.before, fixture.after = durable.EmptySnapshot(), durable.EmptySnapshot()
+	capture := selectedCaptureFixture(t, fixture, loaded.Document, nil, &order, roots)
+	group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
+	if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {
+		t.Fatal("equal bytes substituted for the selected namespace's physical identity", err)
 	}
 }
 
@@ -332,7 +377,7 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 			case "wrong alias":
 				other := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/other.json")
 				var err error
-				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, capture.reader, capture.input.Budget())
+				capture.namespace, err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{other}, capture.roots, namespacetest.Reservations(t), capture.reader, capture.input.Budget())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -342,7 +387,7 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 				capture.input.CaptureInput = reviseCaptureInput(capture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = documentClaimsForTest(t).owner })
 			case "wrong Pi alias":
 				_, order := piEvidenceFixture(t, target.ScopeGlobal)
-				capture.input.order = &order
+				capture.input.sequences = []relationhost.SelectedDocumentEdit{selectedPiDocument(t, order)}
 			}
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {
@@ -434,7 +479,7 @@ func (capture selectedGroupCaptureFixture) requireCompleteStage(t *testing.T, gr
 		t.Fatal(err)
 	}
 	decoded := requireStagedDocumentJournal(t, fixture, journal, []journaldocument.Comparison{comparison})
-	authority, err := capture.roots.Manifest.Root.Authority()
+	authority, err := namespacetest.LegacyRoot(t, capture.roots, output.RootProject).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,11 +511,11 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 	edits := selectedCaptureEdits(t, fixture, original, []aggregate.ProjectionContract{selected.Contribution().Contract()}, []durable.ManagedAggregateState{selected})
 	capture := selectedCaptureFixture(t, fixture, original, edits, nil, journalnamespace.Roots{})
 	roots := capture.roots
-	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
+	if err := os.Symlink(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	observedAlias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/"+fixture.claims.alias.AggregateRoot().RelativePath())
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, capture.reader, capture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{fixture.claims.alias, observedAlias}, roots, namespacetest.Reservations(t), capture.reader, capture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +563,7 @@ func TestNativeSelectedRemovalUsesActualEditsNotObservedAliases(t *testing.T) {
 		removal["demands"] = nativeRecordJSON(t, demands)
 		group["removal"] = nativeRecordJSON(t, removal)
 	})
-	authority, err := capture.roots.Manifest.Root.Authority()
+	authority, err := namespacetest.LegacyRoot(t, capture.roots, output.RootProject).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}

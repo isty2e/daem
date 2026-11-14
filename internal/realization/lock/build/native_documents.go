@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/nativefragment"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
@@ -20,7 +21,7 @@ import (
 
 type nativeDocumentInput struct {
 	config    hostconfig.Config
-	placement profile.HostConfigPlacement
+	placement configuration.Placement
 }
 
 // BuildNativeDocumentsWithOptions locks native whole documents and key fragments.
@@ -44,7 +45,7 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		if err := ctx.Err(); err != nil {
 			return lock.File{}, err
 		}
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
 		if err != nil {
@@ -106,7 +107,7 @@ func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInpu
 		if err != nil {
 			return nil, err
 		}
-	} else if document.placement.Grammar() != profile.HostConfigOpaque {
+	} else if document.placement.Grammar() != configuration.Opaque {
 		syntax, err := configdocument.ParseSyntax(string(document.placement.Grammar()))
 		if err != nil {
 			return nil, err

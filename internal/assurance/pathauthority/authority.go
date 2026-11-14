@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	exactWitnessPrefix       = "exact-v1:"
-	windowsFoldWitnessPrefix = "windows-fold-v1:"
-	darwinCaseWitnessPrefix  = "darwin-case-v1:"
+	exactWitnessPrefix        = "exact-v1:"
+	windowsFoldWitnessPrefix  = "windows-fold-v1:"
+	darwinCaseWitnessPrefix   = "darwin-case-v1:"
+	darwinNativeWitnessPrefix = "darwin-case-v2:"
 )
 
 // Exact is one canonical path key together with the versioned filesystem
@@ -56,6 +57,38 @@ func (authority Exact) Equal(other Exact) bool {
 	return authority == other
 }
 
+// LegacyComparisonKey returns a Darwin comparison domain and whether it is an
+// alias of a native-spelling key. An empty key means no legacy domain exists.
+// It is never a filesystem locator or access grant.
+func (authority Exact) LegacyComparisonKey() (string, bool) {
+	if strings.HasPrefix(authority.witness, darwinCaseWitnessPrefix) {
+		return authority.key, false
+	}
+	if !strings.HasPrefix(authority.witness, darwinNativeWitnessPrefix) {
+		return "", false
+	}
+	return darwinLegacyComparisonKey(authority.key, authority.witness), true
+}
+
+// MatchesLegacyComparison compares an observation at an independently qualified
+// recorded path. It must not select a locator, rekey an owner, or establish equality.
+func (authority Exact) MatchesLegacyComparison(recorded Exact) bool {
+	legacy, present := authority.LegacyComparisonKey()
+	return present && strings.HasPrefix(recorded.witness, darwinCaseWitnessPrefix) &&
+		legacy == recorded.key && darwinFilesystemModes(authority.witness) == darwinFilesystemModes(recorded.witness)
+}
+
+// MayOverlap preserves uncertain legacy comparison domains for exclusion only.
+// It does not establish equality, containment, or mutation authority.
+func (authority Exact) MayOverlap(other Exact) bool {
+	return authority.MayContain(other) || other.MayContain(authority)
+}
+
+// MayContain is conservative exclusion evidence, never a containment proof.
+func (authority Exact) MayContain(other Exact) bool {
+	return authority.Contains(other) || legacyContains(authority.key, authority.witness, other.key, other.witness)
+}
+
 // Compare returns the deterministic order of exact path authorities.
 func (authority Exact) Compare(other Exact) int {
 	return cmp.Or(
@@ -76,6 +109,19 @@ func (authority Exact) Contains(other Exact) bool {
 		(relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }
 
+// ImmediateChildName projects a candidate spelling from canonical path keys.
+// It does not prove matching filesystem semantics or grant entry authority.
+func (authority Exact) ImmediateChildName(other Exact) (string, bool) {
+	if authority.Validate() != nil || other.Validate() != nil {
+		return "", false
+	}
+	relative, err := filepath.Rel(authority.key, other.key)
+	if err != nil || relative == "." || relative == ".." || filepath.Base(relative) != relative {
+		return "", false
+	}
+	return relative, true
+}
+
 // IsZero reports whether no exact authority was initialized.
 func (authority Exact) IsZero() bool {
 	return authority == (Exact{})
@@ -90,8 +136,12 @@ func validateWitness(key string, witness string) error {
 			return fmt.Errorf("Windows-fold path authority key %q must be lowercase", key)
 		}
 		return nil
-	case strings.HasPrefix(witness, darwinCaseWitnessPrefix):
-		modes := strings.TrimPrefix(witness, darwinCaseWitnessPrefix)
+	case isDarwinWitness(witness):
+		modes := darwinWitnessModes(witness)
+		native := strings.HasPrefix(witness, darwinNativeWitnessPrefix)
+		if native && !strings.ContainsRune(modes, 'u') {
+			return fmt.Errorf("Darwin native-spelling witness requires a retained component")
+		}
 		components := rootedComponents(key)
 		if len(modes) != len(components) {
 			return fmt.Errorf(
@@ -102,6 +152,12 @@ func validateWitness(key string, witness string) error {
 			)
 		}
 		for index := range len(modes) {
+			if modes[index] == 'u' && native {
+				if !containsNonASCIIByte(components[index]) || components[index] == strings.ToLower(components[index]) {
+					return fmt.Errorf("Darwin retained component %q must preserve its non-ASCII spelling", components[index])
+				}
+				continue
+			}
 			if modes[index] != 's' && modes[index] != 'i' {
 				return fmt.Errorf(
 					"Darwin path authority witness has unsupported mode %q at component %d",
@@ -122,6 +178,40 @@ func validateWitness(key string, witness string) error {
 	default:
 		return fmt.Errorf("unsupported path authority semantics witness %q", witness)
 	}
+}
+
+func isDarwinWitness(witness string) bool {
+	return strings.HasPrefix(witness, darwinCaseWitnessPrefix) || strings.HasPrefix(witness, darwinNativeWitnessPrefix)
+}
+
+func darwinWitnessModes(witness string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(witness, darwinCaseWitnessPrefix), darwinNativeWitnessPrefix)
+}
+
+func darwinFilesystemModes(witness string) string {
+	return strings.ReplaceAll(darwinWitnessModes(witness), "u", "i")
+}
+
+func darwinLegacyComparisonKey(key, witness string) string {
+	modes := darwinWitnessModes(witness)
+	result := filepath.VolumeName(key) + string(filepath.Separator)
+	for index, component := range rootedComponents(key) {
+		if modes[index] == 'u' {
+			component = strings.ToLower(component)
+		}
+		result = filepath.Join(result, component)
+	}
+	return result
+}
+
+func legacyContains(parentKey, parentWitness, childKey, childWitness string) bool {
+	if strings.HasPrefix(parentWitness, darwinNativeWitnessPrefix) && strings.HasPrefix(childWitness, darwinCaseWitnessPrefix) {
+		return contains(darwinLegacyComparisonKey(parentKey, parentWitness), childKey)
+	}
+	if strings.HasPrefix(parentWitness, darwinCaseWitnessPrefix) && strings.HasPrefix(childWitness, darwinNativeWitnessPrefix) {
+		return contains(parentKey, darwinLegacyComparisonKey(childKey, childWitness))
+	}
+	return false
 }
 
 func rootedComponents(path string) []string {

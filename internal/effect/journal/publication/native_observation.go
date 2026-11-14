@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -14,10 +14,11 @@ import (
 // NativeDocumentObservationBatch pairs evidence with the operation's borrowed
 // roots. Only observation and selection can construct a matching pair.
 type NativeDocumentObservationBatch struct {
-	evidence journalobservation.Batch
-	roots    journalnamespace.Roots
-	owner    stateauthority.Authority
-	budget   *physicalwork.Budget
+	evidence   journalobservation.Batch
+	roots      journalnamespace.Roots
+	protection journalnamespace.ReservationSelectors
+	owner      stateauthority.Authority
+	budget     *physicalwork.Budget
 }
 
 func ObserveNativeDocuments(ctx context.Context, input journalobservation.Input) (NativeDocumentObservationBatch, error) {
@@ -25,7 +26,7 @@ func ObserveNativeDocuments(ctx context.Context, input journalobservation.Input)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
-	return NativeDocumentObservationBatch{evidence: evidence, roots: input.Roots, owner: input.Owner, budget: input.Budget}, nil
+	return NativeDocumentObservationBatch{evidence: evidence, roots: input.Roots, protection: input.Protection, owner: input.Owner, budget: input.Budget}, nil
 }
 
 // Evidence returns observation facts, not the operation's retained root set.
@@ -35,20 +36,20 @@ func (batch NativeDocumentObservationBatch) Evidence() journalobservation.Batch 
 
 // CaptureMembers selects metadata while preserving the original borrowed roots;
 // it neither requalifies those roots nor acquires publication authority.
-func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, []journalobservation.Member, error) {
+func (batch NativeDocumentObservationBatch) CaptureMembers(after durable.Snapshot, operationID string, orders ...relationhost.SelectedDocumentEdit) (NativeDocumentObservationBatch, []journalobservation.Member, error) {
 	selected, members, err := batch.evidence.CaptureMembers(after, operationID, orders...)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, nil, err
 	}
-	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, owner: batch.owner, budget: batch.budget}, members, nil
+	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, protection: batch.protection, owner: batch.owner, budget: batch.budget}, members, nil
 }
 
-func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...pipackage.OrderObservation) (NativeDocumentObservationBatch, error) {
+func (batch NativeDocumentObservationBatch) captureMembers(ctx context.Context, after durable.Snapshot, orders ...relationhost.SelectedDocumentEdit) (NativeDocumentObservationBatch, error) {
 	selected, err := batch.evidence.SelectCaptureMembers(ctx, after, orders...)
 	if err != nil {
 		return NativeDocumentObservationBatch{}, err
 	}
-	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, owner: batch.owner, budget: batch.budget}, nil
+	return NativeDocumentObservationBatch{evidence: selected, roots: batch.roots, protection: batch.protection, owner: batch.owner, budget: batch.budget}, nil
 }
 
 func (batch NativeDocumentObservationBatch) prepareOwnership(ctx context.Context, after durable.Snapshot, operationID string) ([]journalobservation.CaptureInput, error) {

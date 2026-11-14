@@ -46,7 +46,6 @@ func PrintUsage(output io.Writer, context UsageContext) {
 	lines := []string{
 		"daem - manage declarative agent environments",
 		"Usage: daem <command> [options]",
-		"",
 		"Start",
 		"  init       Create a starter manifest.",
 		"  import     Build desired state from existing agent configuration.",
@@ -65,8 +64,9 @@ func PrintUsage(output io.Writer, context UsageContext) {
 		"  probe      Run an explicitly authorized runtime check.",
 		"Operate",
 		"  refresh    Refresh one explicitly selected host extension.",
-		"  unmanage   Stop managing an extension while retaining host state.",
+		"  unmanage   Stop managing a resource while retaining host state.",
 		"Reconcile",
+		"  replace    Explicitly replace selected configuration values.",
 		"  apply      Reconcile the locked environment.",
 		"  recover    Recover an operation or finish journal cleanup.",
 		"  migrate    Move legacy user-state authority without reinstalling.",
@@ -256,21 +256,32 @@ func helpPages(context UsageContext) map[string]helpPage {
 			{"mcp-server", "Remove an MCP server row."},
 			{"skill", "Remove a skill or skill-group resource."},
 		}, "Omitted selectors remove an unambiguous whole resource. Remove writes by default; use --dry-run to preview."),
+		"replace": groupPage("daem replace", "explicitly replace selected configuration values", []helpRow{{"host-config", "Set selected native keys to their locked declaration values."}}, "Ordinary apply never gains replacement authority."),
+		"replace host-config": leaf("daem replace host-config", "daem replace host-config <id> [--manifest <path>] [--key <pointer> ...] [options]", "replace selected native keys using explicit consent", nil,
+			[]helpRow{workspace, {"--key <pointer>", "Narrow the current declared atomic key set using RFC 6901; repeatable."}, dryRun, {"--yes", "Execute only with --expect-plan from a reviewed dry-run."}, {"--expect-plan <fingerprint>", "Require the exact versioned semantic plan; requires --yes."}, diff, jsonOutputWithDiff, verbose},
+			[]helpRow{{"", "Interactive execution shows selected current and declared values, then asks once. Noninteractive execution requires --yes --expect-plan."}, {"", "Replacement does not run host CLIs or modify other resources. --key cannot add undeclared keys or array elements."}},
+			[]string{"daem replace host-config preferences --dry-run --json", "daem replace host-config preferences --key /tui/theme"}, cliDocumentReference),
 		"unmanage": groupPage("daem unmanage", "release daem management while retaining host state", []helpRow{
 			{"extension", "Release one exact extension relation."},
+			{"host-config", "Release a whole native configuration declaration's management."},
 		}, "Unmanage writes metadata by default and never invokes a host route. Target and scope are safety filters."),
 		"migrate": {
 			Path: "daem migrate", Usage: "daem migrate <subject>",
 			Summary: "move management metadata without changing installed outputs",
 			Sections: []helpSection{{Title: "Subjects", Rows: []helpRow{
 				{"state", "Move the default user manifest's legacy state to XDG storage."},
+				{"metadata", "Convert the reachable shared registries and participating State files."},
 			}}},
-			Examples: []string{"daem help migrate state"}, Reference: cliDocumentReference,
+			Examples: []string{"daem help migrate state", "daem help migrate metadata"}, Reference: cliDocumentReference,
 		},
 		"migrate state": leaf("daem migrate state", "daem migrate state [--manifest <path>] [--recover] [--dry-run|--yes] [--json]", "move legacy user-state authority without reinstalling", nil,
 			[]helpRow{workspace, {"--recover", "Restore or finalize an interrupted state migration."}, dryRun, {"--yes", "Authorize metadata transfer or recovery without a terminal prompt."}, {"--json", "Emit one schema-versioned JSON document; requires --dry-run or --yes."}},
 			[]helpRow{{"", "Only the default user manifest is eligible. Destination state must be absent; existing states are not merged."}, {"", "Execution requires terminal stdin/stdout/stderr or --yes. --dry-run and --yes are mutually exclusive."}, {"", "Managed output bytes and host packages are retained. Old local caches are not moved or deleted."}, {"", "Resolve old apply recovery first with recover --legacy-user-state."}},
 			[]string{"daem migrate state --dry-run", "daem migrate state --yes", "daem migrate state --recover --dry-run"}, cliDocumentReference),
+		"migrate metadata": leaf("daem migrate metadata", "daem migrate metadata [--manifest <path>] [--reference <path>] [--recover] [--dry-run|--yes] [--json]", "convert shared management metadata without reinstalling", nil,
+			[]helpRow{workspace, {"--reference", "Supply a path you assert was used for a recorded legacy identity; may be repeated."}, {"--recover", "Restore or finalize the recorded interrupted conversion."}, dryRun, {"--yes", "Authorize the disclosed conversion or recovery without a terminal prompt."}, {"--json", "Emit one schema-versioned JSON document; requires --dry-run or --yes."}},
+			[]helpRow{{"", "The whole reachable registry cohort is converted together; another owner's unresolved evidence can block conversion."}, {"", "Lookup candidates do not replace recorded locators, re-key owners, or bypass qualification. Recovery uses the recorded selection, not new --reference candidates."}, {"", "Execution requires terminal stdin/stdout/stderr or --yes. --dry-run and --yes are mutually exclusive."}, {"", "Installed outputs and host packages are unchanged. This command does not relocate default-user State authority."}},
+			[]string{"daem migrate metadata --dry-run", "daem migrate metadata --yes", "daem migrate metadata --recover --dry-run"}, cliDocumentReference),
 		"list": groupPage("daem list", "enumerate declarations or output ownership", []helpRow{
 			{"resources", "Declared resources and their stable keys."},
 			{"outputs", "Managed outputs and conflicting live destinations."},
@@ -289,8 +300,12 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]string{"daem init", "daem init --manifest ~/.config/daem/daem.toml"}, cliDocumentReference),
 		"import": leaf("daem import", "daem import --target <target> [--target <target> ...] [options]", "build desired state from existing agent configuration", nil,
 			[]helpRow{workspace, target, scope, {"--source-dir <path>", "Destination for copied instruction sources."}, {"--merge", "Merge into an existing selected manifest instead of creating a new one."}, dryRun, diff, jsonOutputWithDiff, verbose},
-			[]helpRow{{"", "At least one --target is required. Import targets: " + context.ImportTargets + "."}, {"", "Extensions are imported only when daem can recover their exact install source; other observed extensions are reported and skipped."}, {"", "Without --manifest, non-merge import creates ./daem.toml; --merge uses existing-workspace selection."}},
+			[]helpRow{{"", "At least one --target is required. Import targets: " + context.ImportTargets + "."}, {"", "Extensions are imported only when daem can recover their exact install source; other observed extensions are reported and skipped."}, {"", "Without --manifest, non-merge import creates ./daem.toml; --merge uses existing-workspace selection."}, {"", "Use daem import host-config <id> for explicit native-value capture. Ordinary import never discovers generic settings."}},
 			[]string{"daem import --target codex", "daem import --target codex --target claude-code --dry-run --diff"}, cliDocumentReference),
+		"import host-config": leaf("daem import host-config", "daem import host-config <id> [--update-source | --target <target> --scope <scope> --host-path <path>] [options]", "capture explicitly selected physical settings into a local source", nil,
+			[]helpRow{workspace, {"--update-source", "Update only existing declared source keys; missing values release keys."}, {"--target <target>", "One supported host for initial capture."}, {"--scope <scope>", "Initial capture: a scope supported by the selected host."}, {"--host-path <path>", "Initial host-root-relative document path."}, {"--key <pointer>", "RFC 6901 selector; repeatable. Initial objects expand to atomic leaves."}, {"--ownership keys|document", "Initial keys (default) or explicit raw whole-document capture."}, {"--syntax <grammar>", "Initial profile-supported grammar override."}, {"--source-dir <path>", "Initial local source directory (default: manifest-name.d)."}, {"--merge", "Required for initial capture into an existing manifest."}, {"--source <path>", "Update into a new local source and switch reference; never overwrite a destination."}, dryRun, diff, jsonOutputWithDiff, verbose, {"--yes --expect-plan <fingerprint>", "Approve the named-file and plaintext-risk disclosure from the reviewed dry-run."}},
+			[]helpRow{{"", "Only source/declaration artifacts change; host files, lock, state and ownership records do not."}, {"", "In-place updates edit a named source file, including its other readers. Only known selected-manifest readers are listed."}, {"", "Pending capture publication is previewed/recovered instead of starting a new capture. Recovery is terminal; review another dry-run afterward."}},
+			[]string{"daem import host-config pi-ui --target pi --scope global --host-path settings.json --key /quietStartup --merge --dry-run --diff", "daem import host-config pi-ui --update-source --dry-run --json"}, cliDocumentReference),
 		"lock": leaf("daem lock", "daem lock [--manifest <path>] [--dry-run] [--json|--verbose]", "resolve the manifest into an exact lockfile", nil,
 			[]helpRow{workspace, dryRun, jsonOutput, verbose},
 			[]helpRow{{"", "The lockfile is always daem.lock.toml beside the selected manifest."}, {"", "Writes by default; the same floating manifest may resolve differently over time."}},
@@ -351,6 +366,11 @@ func helpPages(context UsageContext) map[string]helpPage {
 		[]helpRow{workspace, {"--target <target>", "Require the selected extension to use this exact target."}, {"--scope <scope>", "Require the selected extension to use this exact scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
 		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Unmanage refuses while apply recovery or journal cleanup remains."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
 		[]string{"daem unmanage extension context7 --dry-run --diff", "daem unmanage extension formatter --target opencode --scope project"}, cliDocumentReference)
+	pages["unmanage host-config"] = leaf("daem unmanage host-config", "daem unmanage host-config <id> [--manifest <path>] [--target <target>] [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]", "release complete native configuration management without changing host bytes",
+		[]helpRow{{"<id>", "Exact declaration or retained management identity; no per-key release."}},
+		[]helpRow{workspace, {"--target <target>", "Select one exact retained target."}, {"--scope <scope>", "Select one exact retained scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
+		[]helpRow{{"", "Removes any remaining declaration and locked outputs, then releases only its own recorded management."}, {"", "Sources and a current lock are not required. Missing declaration/lock files remain absent; conflicting or ambiguous identities refuse."}, {"", "Host bytes, including drift, and other owners are preserved. Writes by default; interrupted management release is completed with daem recover."}},
+		[]string{"daem unmanage host-config preferences --dry-run --diff", "daem unmanage host-config preferences --target codex --scope global"}, cliDocumentReference)
 	return pages
 }
 

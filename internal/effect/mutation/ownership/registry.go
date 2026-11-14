@@ -3,6 +3,7 @@ package ownership
 import (
 	"context"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
@@ -19,14 +20,17 @@ type RegistryReader interface {
 }
 
 // RegistryStore applies exact ownership transitions to one durable registry.
+// Convergence selects successor members from an operation's observed reference
+// pool; supplied references cannot change facts or replace retained locators.
 type RegistryStore interface {
 	RegistryReader
 	Path() string
-	Converge(context.Context, outputownership.ClaimConvergence) (outputownership.Registry, error)
+	Converge(context.Context, outputownership.ClaimConvergence, ...pathauthority.Reference) (outputownership.Registry, error)
 	ConvergeRegistry(
 		context.Context,
 		outputownership.ClaimConvergence,
 		outputownership.DocumentBindingConvergence,
+		...pathauthority.Reference,
 	) (outputownership.Registry, error)
 }
 
@@ -38,3 +42,12 @@ type RootedRegistryBinder func(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (RegistryStore, error)
+
+// OwnReleaseRegistryStore cannot acquire claims or host-write authority. Its
+// caller owns the settled release-only intent and the complete lease lifetime.
+type OwnReleaseRegistryStore interface {
+	LoadRecordedRegistry(context.Context) (outputownership.Registry, error)
+	ConvergeOwnReleaseAfterCommit(context.Context, outputownership.OwnDocumentRelease) (outputownership.Registry, error)
+}
+
+type OwnReleaseRegistryBinder func(*rootedpath.CapturedRoot, rootedpath.Destination, int, rootedpath.PhysicalTraversalBudget) (OwnReleaseRegistryStore, error)

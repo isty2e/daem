@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/output"
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -15,15 +17,16 @@ func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, err
 	if scope != target.ScopeProject && scope != target.ScopeGlobal {
 		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings scope is invalid")
 	}
-	path := "@pi-agent/settings.json"
-	if scope == target.ScopeProject {
-		path = ".pi/settings.json"
+	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetPi, scope, desiredextension.CarrierPiPackage)
+	projections := capability.NativeSequences()
+	if !admitted || len(projections) != 1 {
+		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings requires one admitted native sequence projection")
 	}
-	destination, err := output.Parse(path)
-	if err != nil {
-		return aggregate.DocumentAddress{}, err
-	}
-	return aggregate.NewDocumentAddress(target.TargetPi, scope, destination)
+	return aggregate.NewDocumentAddress(target.TargetPi, scope, projections[0].Destination())
+}
+
+func (observation OrderObservation) SelectedSequenceEdit() (observerelation.SelectedSequenceEdit, error) {
+	return observerelation.NewSelectedSequenceEdit(observation.selection.capability, observation.sequence, observation.selection.constraint, nil)
 }
 
 // SameSelection compares replayable order intent, not observed bytes or candidates.
@@ -33,7 +36,8 @@ func (observation OrderObservation) SameSelection(other OrderObservation) bool {
 		return false
 	}
 	right, err := other.CaptureInput()
-	if err != nil || left.Scope != right.Scope || left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
+	if err != nil || left.Scope != right.Scope || !left.Capability.Equal(right.Capability) ||
+		left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
 		return false
 	}
 	return slices.EqualFunc(left.Relations, right.Relations, func(a, b ScopedRelation) bool {
@@ -61,8 +65,9 @@ func (observation OrderObservation) CaptureInput() (LoadedOrderInput, error) {
 		document = aggregate.ExistingDocument(observation.inventory.content)
 	}
 	return LoadedOrderInput{
-		Scope: observation.selection.scope, SettingsContext: *observation.inventory.sourceContext,
-		Document: document, Constraint: observation.selection.constraint,
+		Scope: observation.selection.scope, Capability: observation.selection.capability,
+		SettingsContext: *observation.inventory.sourceContext,
+		Document:        document, Constraint: observation.selection.constraint,
 		Relations: slices.Clone(observation.selection.relations),
 	}, nil
 }

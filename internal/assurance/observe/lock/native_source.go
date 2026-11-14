@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -79,7 +80,7 @@ func (epoch SourceEpoch) NativeSource(ctx context.Context, resource hostconfig.C
 	if !epoch.initialized {
 		return NativeSourceObservation{}, fmt.Errorf("native source epoch is required")
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 		Target: resource.Target(), Scope: resource.Scope(), Path: resource.Path(),
 		Ownership: resource.Ownership(), Syntax: resource.Syntax(),
 	})

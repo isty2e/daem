@@ -43,8 +43,9 @@ func (semantics pathCaseSemantics) canonicalComponent(spelling string) (string, 
 }
 
 type observedPathComponent struct {
-	spelling string
-	caseMode pathCaseSemantics
+	spelling           string
+	caseMode           pathCaseSemantics
+	comparisonSpelling string
 }
 
 type pathSemanticsWitness string
@@ -53,12 +54,25 @@ func newPathSemanticsWitness(platform string, components []observedPathComponent
 	if platform == "" {
 		return "", fmt.Errorf("path semantics witness platform is required")
 	}
+	if slices.ContainsFunc(components, func(component observedPathComponent) bool { return component.comparisonSpelling != "" }) {
+		if platform != "darwin-case-v1" {
+			return "", fmt.Errorf("native comparison spelling requires Darwin semantics")
+		}
+		platform = "darwin-case-v2"
+	}
 	var builder strings.Builder
 	builder.WriteString(platform)
 	builder.WriteByte(':')
 	for _, component := range components {
 		if err := component.caseMode.validate(); err != nil {
 			return "", err
+		}
+		if component.comparisonSpelling != "" {
+			if component.caseMode != pathCaseInsensitive || component.comparisonSpelling != component.spelling {
+				return "", fmt.Errorf("native comparison spelling must retain its insensitive entry")
+			}
+			builder.WriteByte('u')
+			continue
 		}
 		switch component.caseMode {
 		case pathCaseSensitive:
@@ -122,17 +136,7 @@ func CanonicalDirectoryEntryPathBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (string, error) {
-	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
-	if err != nil {
-		return "", err
-	}
-	identity, err := canonicalPathIdentityFromSelectionBounded(
-		path,
-		selection,
-		PathEffectDirectoryEntry,
-		maximumPhysicalDepth,
-		budget,
-	)
+	identity, err := canonicalDirectoryEntryPathIdentityBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return "", err
 	}
@@ -181,17 +185,7 @@ func CanonicalDirectoryEntryKeyBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (string, error) {
-	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
-	if err != nil {
-		return "", err
-	}
-	identity, err := canonicalPathIdentityFromSelectionBounded(
-		path,
-		selection,
-		PathEffectDirectoryEntry,
-		maximumPhysicalDepth,
-		budget,
-	)
+	identity, err := canonicalDirectoryEntryPathIdentityBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return "", err
 	}
@@ -204,6 +198,14 @@ func canonicalPathIdentity(path string, effect PathEffect) (canonicalPath, error
 		return canonicalPath{}, err
 	}
 	return canonicalPathIdentityFromSelection(path, selection, effect)
+}
+
+func canonicalDirectoryEntryPathIdentityBounded(path string, maximumPhysicalDepth int, budget rootedpath.PhysicalTraversalBudget) (canonicalPath, error) {
+	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return canonicalPath{}, err
+	}
+	return canonicalPathIdentityFromSelectionBounded(path, selection, PathEffectDirectoryEntry, maximumPhysicalDepth, budget)
 }
 
 func canonicalPathIdentityFromSelection(
@@ -435,6 +437,9 @@ func canonicalObservedPath(
 		canonical, err := component.caseMode.canonicalComponent(component.spelling)
 		if err != nil {
 			return canonicalPath{}, err
+		}
+		if component.comparisonSpelling != "" {
+			canonical = component.comparisonSpelling
 		}
 		accessPath = filepath.Join(accessPath, component.spelling)
 		keyPath = filepath.Join(keyPath, canonical)

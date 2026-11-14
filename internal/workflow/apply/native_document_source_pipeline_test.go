@@ -30,6 +30,7 @@ import (
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/reconcile"
 	projectionbuild "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -96,7 +97,7 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: selected, Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+			placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,7 +113,11 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			current, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateCodec, PhysicalPathBudget: physicalwork.NewPathBudget()})
+			physicalCodec, err := statefile.NewPhysicalCodec(stateCodec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: physicalCodec, PhysicalPathBudget: physicalwork.NewPathBudget()})
 			if err != nil {
 				t.Fatal(err)
 			}

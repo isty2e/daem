@@ -20,6 +20,7 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -34,6 +35,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -76,12 +78,12 @@ func TestNativeWholeGroupPreservesEmptyFileAndActualPermission(t *testing.T) {
 func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 	roots := fixture.roots
-	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
+	if err := os.Symlink(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
 	aliases := append(fixture.namespace.Addresses(), project)
-	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, fixture.reader, fixture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), aliases, roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,7 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	if err != nil || len(recorded.Aliases()) != 2 {
 		t.Fatal("actual alias grouping lost a recorded alias", err)
 	}
-	authority, err := roots.PiAgent.Root.Authority()
+	authority, err := namespacetest.LegacyRoot(t, roots, output.RootPiAgent).Root.Authority()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,8 +104,11 @@ func TestNativeWholeGroupRetainsActualAliasesAndWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer, relative, err := recorded.Writer()
-	if err != nil || writer != provenance || relative.Path() != "prompts/Caf\u00e9.md" {
+	writer, err := recorded.WriterPin()
+	child, directory := writer.Coordinate().DirectoryChild()
+	reference, bound := writer.RootReference()
+	selectedReference, _ := namespace.WriterPin().RootReference()
+	if err != nil || !bound || reference != selectedReference || writer.Provenance() != provenance || !directory || child != "prompts/Caf\u00e9.md" {
 		t.Fatal("logical project alias replaced the independently selected physical writer", err)
 	}
 	if err := recorded.RequireCapturedNamespace(namespace.Observation()); err != nil {
@@ -174,8 +179,8 @@ func TestNativeWholeGroupRejectsStaticMisjoinsBeforeContentRead(t *testing.T) {
 			f.input.mutation = other.input.mutation
 		}},
 		{"missing manifest grant", func(f *wholeGroupTestFixture) {
-			f.roots.Manifest = journalnamespace.RootSelection{}
-			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, f.reader, f.input.Budget())
+			f.roots = namespacetest.WithLegacyRoot(t, f.roots, output.RootProject, journalnamespace.RootSelection{})
+			observed, err := journalnamespace.Observe(t.Context(), f.namespace.Addresses(), f.roots, namespacetest.Reservations(t), f.reader, f.input.Budget())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -319,7 +324,7 @@ func TestNativeWholeGroupCancellationAndFailedReadKeepNoFacts(t *testing.T) {
 	ctx, cancel = context.WithCancel(t.Context())
 	defer cancel()
 	reader := &imageReader{RootedReader: journalTestFilesystem(), afterRead: cancel}
-	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, reader, fixture.input.Budget())
+	fixture.namespace, err = journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, namespacetest.Reservations(t), reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,33 +348,36 @@ type wholeGroupTestFixture struct {
 
 func (fixture wholeGroupTestFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
 	t.Helper()
-	manifest, err := fixture.roots.Manifest.Root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provenance, err := manifest.Provenance()
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, err := journalrecord.NewNativeCapture(fixture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), fixture.input.Owner(), provenance, fixture.envelope.before, fixture.envelope.after, groups)
+	journal, err := fixture.tryRecordForGroups(t, groups)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return journal
 }
 
+func (fixture wholeGroupTestFixture) tryRecordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) (journalrecord.Native, error) {
+	t.Helper()
+	manifest, roots := native17FixtureRoots(t, fixture.roots, fixture.input.Budget())
+	return journalrecord.NewNative17Capture(t.Context(), fixture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), fixture.input.Owner(), manifest, roots, fixture.envelope.before, fixture.envelope.after, groups, fixture.envelope.codec)
+}
+
 func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope, action string, original, desired []byte) wholeGroupTestFixture {
+	t.Helper()
+	return wholeGroupFixtureAtPath(t, selected, scope, action, "prompts/Caf\u00e9.md", original, desired)
+}
+
+func wholeGroupFixtureAtPath(t *testing.T, selected target.Target, scope target.Scope, action, nativePath string, original, desired []byte) wholeGroupTestFixture {
 	t.Helper()
 	envelope := nativeJournalFixture(t)
 	manifest := nativeNamespaceRoot(t, t.TempDir())
 	host := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "global"))
-	roots := journalnamespace.Roots{Manifest: manifest}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest})
 	if selected == target.TargetPi {
-		roots.PiAgent = host
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, host)
 	} else {
-		roots.CodexHome = host
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, host)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: selected, Scope: scope, Path: "prompts/Caf\u00e9.md", Ownership: "document"})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: nativePath, Ownership: "document"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +398,7 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, reader, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{address}, roots, namespacetest.Reservations(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,36 +488,32 @@ func wholeGroupFixture(t *testing.T, selected target.Target, scope target.Scope,
 		if err != nil {
 			t.Fatal(err)
 		}
-		if scope == target.ScopeGlobal {
-			claim := documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, output.WholePathFootprint())
-			var beforeClaims, afterClaims []ownership.Claim
-			if action != "create" {
-				beforeClaims = []ownership.Claim{claim}
-			}
-			if action != "remove" {
-				afterClaims = []ownership.Claim{claim}
-			}
-			transition, err := ownershipmutation.NewDocumentClaimTransition(beforeClaims, afterClaims, input.OperationID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
+		claim := documentActiveClaim(t, documentClaimFixture{owner: input.Owner(), exact: exact}, output.WholePathFootprint())
+		var beforeClaims, afterClaims []ownership.Claim
+		if action != "create" {
+			beforeClaims = []ownership.Claim{claim}
 		}
+		if action != "remove" {
+			afterClaims = []ownership.Claim{claim}
+		}
+		transition, err := ownershipmutation.NewDocumentClaimTransition(beforeClaims, afterClaims, input.OperationID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Claims = &transition })
 	} else {
 		pending, _ := namespace.Observation().Provisional()
 		binding, err = ownership.NewProvisionalDocumentBindingIntent(input.Owner(), placement.Destination(), pending)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if scope == target.ScopeGlobal {
-			intent, err := ownership.NewProvisionalAcquireIntent(placement.Destination(), output.WholePathFootprint(), pending, input.Owner(), input.OperationID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
-				spec.Provisional = []journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(address, intent)}
-			})
+		intent, err := ownership.NewProvisionalAcquireIntent(placement.Destination(), output.WholePathFootprint(), pending, input.Owner(), input.OperationID())
+		if err != nil {
+			t.Fatal(err)
 		}
+		input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
+			spec.Provisional = []journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(address, intent)}
+		})
 	}
 	input.CaptureInput = reviseCaptureInput(input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
 		spec.Bindings = []ownership.DocumentBindingIntent{binding}

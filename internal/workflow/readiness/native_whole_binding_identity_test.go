@@ -4,6 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -29,7 +32,7 @@ func TestNativeWholeAdoptionUsesBindingOwnerDestinationAndNamespace(t *testing.T
 				destination = fixture.observation.Aliases[0].AggregateRoot()
 			}
 			if test.name == "foreign unrelated namespace" {
-				physical = filepath.Join(fixture.observation.Roots.Manifest.SelectedPath, "unrelated.json")
+				physical = filepath.Join(namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject).SelectedPath, "unrelated.json")
 				requireNativePreparationFile(t, physical, fixture.original)
 			}
 			binding := nativeForeignProjectBinding(t, fixture, destination, physical)
@@ -37,7 +40,7 @@ func TestNativeWholeAdoptionUsesBindingOwnerDestinationAndNamespace(t *testing.T
 				owner := fixture.observation.Owner
 				if test.name == "same owner changed provenance" {
 					var err error
-					owner, err = stateauthority.New(owner.StatefileAuthority(), filepath.Join(fixture.observation.Roots.Manifest.SelectedPath, "moved-manifest.toml"))
+					owner, err = stateauthority.New(owner.StatefileAuthority(), filepath.Join(namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject).SelectedPath, "moved-manifest.toml"))
 					if err != nil {
 						t.Fatal(err)
 					}

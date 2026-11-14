@@ -13,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/protection"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -63,7 +62,11 @@ func (resolution Resolution) CaptureDocument(ctx context.Context, document owner
 		if err != nil {
 			return nil, rootedpath.Destination{}, protection.Refusal(protection.ResolutionContextUnqualified, err)
 		}
-		path, err := managedhostpath.Resolver(contextPaths).Resolve(binding.Destination())
+		path, err := ResolveBindingDestination(contextPaths, binding.Destination(), binding.PathAuthority().Key(), budget)
+		if err != nil {
+			return nil, rootedpath.Destination{}, err
+		}
+		path, err = rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
 		if err != nil {
 			return nil, rootedpath.Destination{}, err
 		}

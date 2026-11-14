@@ -2,14 +2,22 @@ package readiness
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
+	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/target"
+	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 func TestUnsupportedAlternateMCPProjectionConfigUsesCanonicalPlacementPath(t *testing.T) {
@@ -61,5 +69,84 @@ func TestUnsupportedAlternateMCPProjectionConfigUsesCanonicalPlacementPath(t *te
 	}
 	if present {
 		t.Fatalf("conflicting config %q satisfied an absent-document precondition", conflictingConfigPath)
+	}
+}
+
+func TestNativeAggregatePreconditionsUseTheirOwnObservedDocument(t *testing.T) {
+	for _, primaryExists := range []bool{false, true} {
+		for _, retainAlternate := range []bool{false, true} {
+			t.Run(fmt.Sprintf("primary=%t/retained_alternate=%t", primaryExists, retainAlternate), func(t *testing.T) {
+				fixture := newNativePlanningFixture(t, target.ScopeProject, "extension-settings/test.json")
+				subject := testLockedMCPSubjectFor(t, "context7", target.TargetOpenCode, target.ScopeProject)
+				desired, present, err := subject.ManagedAggregateContribution()
+				if err != nil || !present {
+					t.Fatal("fixture has no MCP contribution", err)
+				}
+				contract := desired.Contribution().Contract()
+				preconditions, _, err := aggregate.OperationPreconditionsForContract(contract)
+				if err != nil || len(preconditions) != 1 {
+					t.Fatal("fixture has no alternate-document precondition", err)
+				}
+				primary, alternate := contract.Address().Document(), preconditions[0].DocumentAddress()
+				resolve := managedhostpath.Resolver(fixture.paths, nil).Resolve
+				primaryPath, err := resolve(primary.AggregateRoot())
+				if err != nil {
+					t.Fatal(err)
+				}
+				alternatePath, err := resolve(alternate.AggregateRoot())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if primaryExists {
+					requireNativePreparationFile(t, primaryPath, []byte(`{}`))
+				} else {
+					requireNativePreparationFile(t, alternatePath, []byte(`{}`))
+				}
+				fixture.observation.Aliases = append(fixture.observation.Aliases, primary)
+				if retainAlternate {
+					fixture.observation.Aliases = append(fixture.observation.Aliases, alternate)
+				}
+				documents, err := journalpublication.ObserveNativeDocuments(t.Context(), fixture.observation)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if retainAlternate {
+					if primaryExists {
+						requireNativePreparationFile(t, alternatePath, []byte(`{}`))
+					} else if err := os.Remove(alternatePath); err != nil {
+						t.Fatal(err)
+					}
+				}
+				catalog, err := aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{contract.CodecContractID()}, narrowingLimits, narrowingLimits)
+				if err != nil {
+					t.Fatal(err)
+				}
+				selection, err := targetselection.ForAvailableTargets([]target.Target{target.TargetOpenCode}, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				observations, err := observeAggregateDocuments(t.Context(), resolve, []aggregate.SubjectContribution{desired}, nil, selection, catalog,
+					nativeAssessmentSources{input: &NativeAssessmentInput{Documents: &documents, Budget: fixture.observation.Budget}})
+				if err != nil || len(observations.preconditions) != 1 || observations.preconditions[0].Satisfied() != primaryExists {
+					t.Fatal("alternate-document precondition used the primary or a different epoch", observations.preconditions, err)
+				}
+
+				if primaryExists && retainAlternate {
+					otherPath := filepath.Join(t.TempDir(), "other.json")
+					requireNativePreparationFile(t, otherPath, []byte(`{}`))
+					differentAlternate := func(destination output.Destination) (string, error) {
+						if destination == alternate.AggregateRoot() {
+							return otherPath, nil
+						}
+						return resolve(destination)
+					}
+					observations, err := observeAggregateDocuments(t.Context(), differentAlternate, []aggregate.SubjectContribution{desired}, nil, selection, catalog,
+						nativeAssessmentSources{input: &NativeAssessmentInput{Documents: &documents, Budget: fixture.observation.Budget}})
+					if !errors.Is(err, errOrdinaryNativeSourceMismatch) || len(observations.evidence) != 0 || len(observations.failures) != 0 || len(observations.preconditions) != 0 {
+						t.Fatal("alternate-document source mismatch returned partial observations", observations, err)
+					}
+				}
+			})
+		}
 	}
 }

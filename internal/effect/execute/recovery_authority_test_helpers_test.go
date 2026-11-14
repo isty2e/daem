@@ -22,6 +22,10 @@ func executeRecoveryPlanWithOptionsForTest(
 	paths Paths,
 	options RecoveryOptions,
 ) error {
+	paths.OwnershipRegistryPath = testRecoveryRegistryPath(paths)
+	if options.OwnershipRegistryBinder == nil && !plan.RequiresOwnershipSettlement() {
+		options.OwnershipRegistryBinder = testOwnershipRegistryBinder()
+	}
 	if options.ActiveJournalAuthority.Validate() == nil ||
 		plan.Blocked() ||
 		options.Resolver == nil ||
@@ -169,9 +173,14 @@ func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutat
 
 func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {
 	t.Helper()
+	return mustObservedPathReference(t, path).Identity()
+}
+
+func mustObservedPathReference(t *testing.T, path string) pathauthority.Reference {
+	t.Helper()
 	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
 	if err != nil {
 		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
 	}
-	return authority.Exact()
+	return authority.Reference()
 }

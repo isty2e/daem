@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -78,11 +80,11 @@ func (prepared *PreparedState) Execute(ctx context.Context) (result StateDisclos
 	if err != nil {
 		return StateDisclosure{}, err
 	}
-	to, err := authorityFor(prepared.paths)
+	to, reference, err := locatedAuthorityFor(prepared.paths)
 	if err != nil {
 		return StateDisclosure{}, err
 	}
-	targets, err := prepared.afterImages(to)
+	targets, err := prepared.afterImages(ctx, to, reference)
 	if err != nil {
 		return StateDisclosure{}, err
 	}
@@ -154,7 +156,7 @@ func (prepared *PreparedState) domains() ([]mutation.Domain, error) {
 	return domains, nil
 }
 
-func (prepared *PreparedState) afterImages(to stateauthority.Authority) ([]fileset.FileTarget, error) {
+func (prepared *PreparedState) afterImages(ctx context.Context, to stateauthority.Authority, reference pathauthority.Reference) ([]fileset.FileTarget, error) {
 	snapshot, err := prepared.snapshot.TransferAuthority(prepared.from, to)
 	if err != nil {
 		return nil, err
@@ -167,15 +169,35 @@ func (prepared *PreparedState) afterImages(to stateauthority.Authority) ([]files
 	if err != nil {
 		return nil, err
 	}
-	stateContent, err := statefile.Marshal(snapshot)
+	stateCodec, err := prepared.stateCodec.ForDestination(reference)
 	if err != nil {
 		return nil, err
 	}
-	outputContent, err := ownershipstore.Marshal(outputs)
+	stateContent, err := stateCodec.EncodeState(snapshot)
 	if err != nil {
 		return nil, err
 	}
-	carrierContent, err := carrierclaim.Marshal(carriers)
+	outputStore, err := ownershipstore.New(prepared.paths.OwnershipRegistryPath)
+	if err != nil {
+		return nil, err
+	}
+	var outputReferences []pathauthority.Reference
+	if slices.Contains(ownershipstore.RequiredReferenceIdentities(outputs), reference.Identity()) {
+		outputReferences = []pathauthority.Reference{reference}
+	}
+	outputContent, err := outputStore.PrepareRewrite(ctx, prepared.outputs, outputs, outputReferences...)
+	if err != nil {
+		return nil, err
+	}
+	carrierStore, err := carrierclaim.New(prepared.paths.CarrierClaimRegistryPath)
+	if err != nil {
+		return nil, err
+	}
+	var carrierReferences []pathauthority.Reference
+	if slices.Contains(carrierclaim.RequiredReferenceIdentities(carriers), reference.Identity()) {
+		carrierReferences = []pathauthority.Reference{reference}
+	}
+	carrierContent, err := carrierStore.PrepareRewrite(ctx, prepared.carriers, carriers, carrierReferences...)
 	if err != nil {
 		return nil, err
 	}

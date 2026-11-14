@@ -38,6 +38,7 @@ exit-code behavior.
   [pending Pi pin change](#a-pi-pin-change-is-pending),
   [Pi removal not converged](#pi-package-removal-did-not-converge).
 - Interrupted work: [apply](#apply-was-interrupted),
+  [management metadata conversion](#management-metadata-conversion-was-interrupted),
   [manifest metadata update](#manifest-metadata-update-was-interrupted),
   [journal from an earlier boot](#recovery-journal-from-an-earlier-boot).
 - Other limits: [old durable schemas](#pre-10-durable-authority-schemas),
@@ -85,17 +86,26 @@ Old statefile v7, ownership/carrier registry v1 and journal v7 recorded path
 strings without current filesystem witnesses. Daem cannot infer their case or
 Unicode namespace semantics.
 
+Output ownership registry v4 stores whole-path or native-key claims separately
+from document identity bindings. Populated v2 and v3 registries remain readable
+without rewriting them. The next state-changing guarded write upgrades to v4
+and preserves v2 keys as literal slash-separated segments, not JSON Pointer
+escapes. After that write, use a daem version that understands v4; older binaries
+cannot read the new registry.
+
 Only exact empty artifacts can retire automatically: v7 state with all seven
 fact arrays present/empty, or v1 registries with present/empty `claims`. Reads
 do not rewrite/delete them; the next state-changing guarded write uses current
 schema. Missing, null, populated or unknown fields remain blocked. Fields
 require exact ASCII `lower_snake_case`; `CLAIMS` is not an alias.
 
-Every pre-v13 journal is blocked, never rewritten or adopted. These journals
-lack current recovery authority: v12 removal-demand coverage, v10 durable Linux
-mount identity, v9 transition foreign key/global-root binding, or v8's current
-transaction contract. Ordinarily recover with the writer before upgrading, but
-**v10 requires the continuity check below**.
+Every pre-v15 journal is blocked, never rewritten or adopted. Version 14 used
+the previous canonical state encoding for authority fingerprints. Version 13
+lacks the current tagged ownership footprint. Earlier versions also lack
+recovery authority: v12 removal-demand coverage, v10 durable Linux mount
+identity, v9 transition foreign key/global-root binding, or v8's transaction
+contract. Ordinarily recover with the writer before upgrading, but **v10
+requires the continuity check below**.
 
 Do not unconditionally open a v10 journal with its old writer. That writer can
 authorize Linux recovery with a reusable mount witness that lacks the current
@@ -450,6 +460,42 @@ but `daem recover` has no legal plan for GC-only residue and later commands are
 not blocked. Daem does not automatically sweep the directory after restart
 because the hidden name alone grants no deletion authority. Do not delete it
 solely from its name.
+
+## Management Metadata Conversion Was Interrupted
+
+If a command reports a global metadata boundary with an interrupted transaction
+or invalid recorded conversion evidence, inspect that evidence through daem:
+
+```bash
+daem migrate metadata --recover --dry-run
+daem migrate metadata --recover --yes
+```
+
+Review the first result before running the second command. Keep the same HOME/XDG
+environment and data directory. Recovery identifies the recorded original
+manifest; another workspace sharing the data directory can inspect and complete
+it. The ordinary `daem recover` command handles apply journals, not this metadata
+conversion. Do not delete transaction evidence to unblock other workspaces.
+If the recovery preview refuses damaged evidence, preserve its diagnostic and
+the recorded files rather than guessing a repair. See
+[`migrate metadata`](cli.md#migrate-metadata) for conversion and recovery inputs.
+
+The same boundary can also be refused because metadata is inaccessible, its
+identity cannot be established, or active evidence exceeds observation limits.
+These errors do not establish that conversion was interrupted.
+Follow the reported cause: restore directory access when required and preserve
+the metadata and evidence before retrying. Do not delete them to bypass the
+boundary.
+
+Inactive preparation or retired directories in the shared metadata directory
+do not block other workspaces. The commands above can disclose and authorize
+`cleanup` when no active transaction exists. Daem checks the private namespace,
+ownership, shape and exact directory identities; a filename prefix alone is not
+permission to remove arbitrary files. Unknown artifacts and incomplete active
+evidence are preserved, and deferred cleanup is not a normal-operation fence.
+The [markerless-residue guidance below](#manifest-metadata-update-was-interrupted)
+still applies to ordinary project StateDir transactions, whose recovery policy
+is unchanged.
 
 ## Manifest Metadata Update Was Interrupted
 

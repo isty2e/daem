@@ -59,6 +59,32 @@ func (key CorrelationKey) ExpectedRelation() hostrelation.ExpectedRelation {
 	return key.expected
 }
 
+// RemainingCorrelations removes exact selected expectations. A shared subject
+// alone does not identify a replacement expectation.
+// Invalid, unselected or repeated keys fail without a partial result.
+func RemainingCorrelations(selected, retired []CorrelationKey) (map[CorrelationKey]struct{}, error) {
+	remaining := make(map[CorrelationKey]struct{}, len(selected))
+	for _, key := range selected {
+		if err := key.Validate(); err != nil {
+			return nil, err
+		}
+		if _, duplicate := remaining[key]; duplicate {
+			return nil, fmt.Errorf("selected retirement correlation is duplicated")
+		}
+		remaining[key] = struct{}{}
+	}
+	for _, key := range retired {
+		if err := key.Validate(); err != nil {
+			return nil, err
+		}
+		if _, present := remaining[key]; !present {
+			return nil, fmt.Errorf("retired correlation was not selected or was repeated")
+		}
+		delete(remaining, key)
+	}
+	return remaining, nil
+}
+
 // Correlation binds one exact relation expectation to current evidence. The
 // evidence grants no mutation or ownership authority by itself.
 type Correlation struct {

@@ -7,12 +7,15 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
@@ -32,15 +35,8 @@ type selectedGroupCaptureFixture struct {
 
 func (capture selectedGroupCaptureFixture) recordForGroups(t *testing.T, groups []journalrecord.SealedDocumentGroup) journalrecord.Native {
 	t.Helper()
-	authority, err := capture.roots.Manifest.Root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provenance, err := authority.Provenance()
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, err := journalrecord.NewNativeCapture(capture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), capture.input.Owner(), provenance, capture.fixture.before, capture.fixture.after, groups)
+	manifest, roots := native17FixtureRoots(t, capture.roots, capture.input.Budget())
+	journal, err := journalrecord.NewNative17Capture(t.Context(), capture.input.OperationID(), time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), capture.input.Owner(), manifest, roots, capture.fixture.before, capture.fixture.after, groups, capture.fixture.codec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,21 +55,21 @@ func (capture selectedGroupCaptureFixture) recordedGroup(t *testing.T, group jou
 func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *pipackage.OrderObservation, roots journalnamespace.Roots) selectedGroupCaptureFixture {
 	t.Helper()
 	alias := fixture.claims.alias
-	if roots.Manifest.Root == nil {
-		roots.Manifest = nativeNamespaceRoot(t, t.TempDir())
+	if namespacetest.LegacyRoot(t, roots, output.RootProject).Root == nil {
+		roots = namespacetest.WithLegacyRoot(t, roots, output.RootProject, nativeNamespaceRoot(t, t.TempDir()))
 	}
-	root := roots.Manifest
+	root := namespacetest.LegacyRoot(t, roots, output.RootProject)
 	if alias.Scope() == target.ScopeGlobal {
 		if alias.Target() == target.TargetPi {
-			if roots.PiAgent.Root == nil {
-				roots.PiAgent = nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
+			if namespacetest.LegacyRoot(t, roots, output.RootPiAgent).Root == nil {
+				roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi")))
 			}
-			root = roots.PiAgent
+			root = namespacetest.LegacyRoot(t, roots, output.RootPiAgent)
 		} else {
-			if roots.CodexHome.Root == nil {
-				roots.CodexHome = nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "codex"))
+			if namespacetest.LegacyRoot(t, roots, output.RootCodexHome).Root == nil {
+				roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "codex")))
 			}
-			root = roots.CodexHome
+			root = namespacetest.LegacyRoot(t, roots, output.RootCodexHome)
 		}
 	}
 	path := filepath.Join(root.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
@@ -85,7 +81,7 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, reader, budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +89,11 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	if !known {
 		t.Fatal("fixture path requires normalization-stable exact authority")
 	}
-	input := selectedDocumentCaptureInput{edits: edits, order: order, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.Limits, Budget: budget})}
-	indexes, err := journaldocument.IndexSnapshots(t.Context(), fixture.before, fixture.after)
+	input := selectedDocumentCaptureInput{edits: edits, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.Limits, Budget: budget})}
+	if order != nil {
+		input.sequences = []relationhost.SelectedDocumentEdit{selectedPiDocument(t, *order)}
+	}
+	indexes, err := journaldocument.IndexSnapshotsForClaims(t.Context(), fixture.before, fixture.after, journaldocument.NativeClaims)
 	if err != nil {
 		t.Fatal(err)
 	}

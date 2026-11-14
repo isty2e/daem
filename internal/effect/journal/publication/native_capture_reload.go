@@ -62,7 +62,9 @@ func reloadNativePublication(ctx context.Context, directory, operationID, finger
 		return CapturedNativeJournal{}, err
 	}
 	qualified, err := journalqualification.QualifyDocuments(journal, ctx, journalqualification.ReadOptions{
-		Artifacts: root, Filesystem: options.Filesystem, Budget: batch.budget, Limits: batch.limits,
+		Protection: batch.protection,
+		Rules:      journalqualification.ForwardRuleExpectations(batch.expected),
+		Artifacts:  root, Filesystem: options.Filesystem, Budget: batch.budget, Limits: batch.limits,
 		Codecs: options.Codecs, OrdinaryCapabilities: batch.ordinaryCapabilities,
 	}, batch.roots)
 	if err != nil {
@@ -102,6 +104,9 @@ func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationf
 	case journalrecord.NativeVersion:
 		return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, codec)
 	default:
+		if journalrecord.SupportsNativeVersion(version) {
+			return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, codec)
+		}
 		return journalrecord.Loaded{}, journalrecord.UnsupportedVersion(version)
 	}
 }

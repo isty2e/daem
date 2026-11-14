@@ -58,7 +58,7 @@ type carrierRemovalInput struct {
 	StatePath                 string
 	SelectedRoot              string
 	Current                   durable.Snapshot
-	StateEncoder              durable.SnapshotEncoder
+	StatefileCodec            statefile.PhysicalCodec
 	GlobalClaims              durablecarrier.GlobalCarrierClaims
 	Actions                   []carrierabsence.Action
 	RelationAuthorityPaths    []observerelation.AuthorityPath
@@ -83,13 +83,6 @@ func (input carrierRemovalInput) markAttempted() {
 	if input.MarkExecutionAttempted != nil {
 		input.MarkExecutionAttempted()
 	}
-}
-
-func (input carrierRemovalInput) stateEncoder() durable.SnapshotEncoder {
-	if input.StateEncoder != nil {
-		return input.StateEncoder
-	}
-	return statefile.Codec{}
 }
 
 func (input carrierRemovalInput) closeBoundRemoval(
@@ -165,7 +158,7 @@ func runCarrierRemovalsWithPlans(
 			return result, fmt.Errorf("carrier removal action[%d]: %w", index, err)
 		}
 	}
-	preparedRemoval, currentRemoval, removalRefs, err := bindCarrierRemovalPlans(
+	preparedRemoval, currentRemoval, removalFacts, err := bindCarrierRemovalPlans(
 		input.Actions,
 		prepared,
 		current,
@@ -176,7 +169,7 @@ func runCarrierRemovalsWithPlans(
 	stateAuthority := input.StatefileAuthority
 	ownedStateAuthority := false
 	if stateAuthority == nil {
-		plan, err := carrierRemovalStatefileEffectPlan(input.Actions)
+		plan, err := carrierRemovalStatefileEffectPlanForWorks(carrierScheduleWorks(removalFacts))
 		if err != nil {
 			return result, err
 		}
@@ -219,14 +212,12 @@ func runCarrierRemovalsWithPlans(
 		}
 	}
 	for index, action := range input.Actions {
-		if !action.StateOnly() &&
-			!action.VerifiesPendingRemoval() &&
-			!action.InvokesHostRoute() &&
-			!action.MutatesDirectProjection() {
+		fact := removalFacts[index]
+		if fact.mode == applyCarrierScheduleNone {
 			continue
 		}
-		ref := removalRefs[index]
-		if action.StateOnly() {
+		ref := fact.ref
+		if fact.mode == applyCarrierScheduleNoOp {
 			if continuation != nil {
 				if err := continuation.consume(
 					ref+"/no-op",
@@ -242,7 +233,13 @@ func runCarrierRemovalsWithPlans(
 			}
 			continue
 		}
-		if action.VerifiesPendingRemoval() {
+		if fact.mode == applyCarrierScheduleRetireProject {
+			if err := retireAlreadyAbsentProjectClaim(ctx, input, action, &result, continuation, ref); err != nil {
+				return result, fmt.Errorf("carrier removal action[%d] %s: %w", index, action.Subject().String(), err)
+			}
+			continue
+		}
+		if fact.mode == applyCarrierScheduleVerifyPending {
 			if err := settlePendingRemoval(
 				ctx,
 				input,
@@ -262,10 +259,10 @@ func runCarrierRemovalsWithPlans(
 			continue
 		}
 		var actionErr error
-		switch {
-		case action.InvokesHostRoute():
+		switch fact.mode {
+		case applyCarrierScheduleHostRoute:
 			actionErr = runOne(ctx, input, action, &result, continuation, ref)
-		case action.MutatesDirectProjection():
+		case applyCarrierScheduleDirectProjection:
 			actionErr = runDirectProjectionRemoval(
 				ctx,
 				input,
@@ -294,9 +291,10 @@ func bindCarrierRemovalPlans(
 	actions []carrierabsence.Action,
 	prepared applyContinuationPlan,
 	current applyContinuationPlan,
-) (applyContinuationPlan, applyContinuationPlan, []string, error) {
+) (applyContinuationPlan, applyContinuationPlan, []applyCarrierScheduleFact, error) {
 	if !prepared.valid() && !current.valid() {
-		return applyContinuationPlan{}, applyContinuationPlan{}, make([]string, len(actions)), nil
+		facts, err := applyCarrierScheduleFacts(actions)
+		return applyContinuationPlan{}, applyContinuationPlan{}, facts, err
 	}
 	if !prepared.valid() || !current.valid() {
 		return applyContinuationPlan{}, applyContinuationPlan{}, nil,
@@ -308,7 +306,7 @@ func bindCarrierRemovalPlans(
 		return applyContinuationPlan{}, applyContinuationPlan{}, nil,
 			fmt.Errorf("prepared and current apply continuation plans differ")
 	}
-	refs := make([]string, len(actions))
+	facts := make([]applyCarrierScheduleFact, len(actions))
 	scheduled := 0
 	// Reconciliation and compiled carrier facts share canonical action order.
 	// Bind them in lockstep so semantic verification remains input-linear.
@@ -343,7 +341,7 @@ func bindCarrierRemovalPlans(
 				action.Subject().String(),
 			)
 		}
-		refs[index] = fact.ref
+		facts[index] = fact
 		scheduled++
 	}
 	if scheduled != len(currentRemoval.carrierRemovals) {
@@ -353,7 +351,7 @@ func bindCarrierRemovalPlans(
 			scheduled,
 		)
 	}
-	return preparedRemoval, currentRemoval, refs, nil
+	return preparedRemoval, currentRemoval, facts, nil
 }
 
 func runOne(
@@ -623,7 +621,7 @@ func runOne(
 				}
 				input.markAttempted()
 				commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
-					next, nextPending, err := execute.CommitPendingCarrierRemoval(ctx, filesystem(input), entry, result.State, result.GlobalClaims, action, baselines, input.stateEncoder())
+					next, nextPending, err := execute.CommitPendingCarrierRemoval(ctx, filesystem(input), entry, result.State, result.GlobalClaims, action, baselines, input.StatefileCodec)
 					if err == nil {
 						pending = nextPending
 					}
@@ -1114,7 +1112,7 @@ func persistAttempt(
 				entry,
 				result.State,
 				[]durableattempt.HostRouteAttempt{record},
-				input.stateEncoder(),
+				input.StatefileCodec,
 			)
 			if err != nil {
 				return fmt.Errorf("persist carrier removal attempt: %w", err)

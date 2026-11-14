@@ -2,13 +2,28 @@ package record
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 )
 
 func TestPreparedDocumentRecordEncodesOnlyCompletedImageWitnesses(t *testing.T) {
+	for _, version := range []int{native16Version, native17Version} {
+		t.Run(strconv.Itoa(version), func(t *testing.T) { testPreparedDocumentImageWitnesses(t, version) })
+	}
+}
+
+func testPreparedDocumentImageWitnesses(t *testing.T, version int) {
 	fixture, journal, comparison := preparedNativeFixture(t)
+	if version == native17Version {
+		wire := native17RecordFixture(t, fixture)
+		var err error
+		journal, err = wire.reconstruct(t.Context(), fixture.codec)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	before := nativeRecordJSON(t, journal.record)
 	prepared, err := journal.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison}, fixture.limits, fixture.codecs)
 	if err != nil {

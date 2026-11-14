@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -27,7 +28,7 @@ func TestWriterBindingReobservesAliasesBeforeExposingBorrowedRoot(t *testing.T) 
 	}
 	reader := &nativeNamespaceReader{RootedReader: journalTestFilesystem()}
 	budget := imageBudget(t)
-	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, Roots{Manifest: root}, reader, budget)
+	namespace, err := Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixtureNativeRoots(t, map[output.RootRole]RootSelection{output.RootProject: root}), fixtureProtection(t), reader, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

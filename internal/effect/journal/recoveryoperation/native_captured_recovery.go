@@ -9,6 +9,7 @@ import (
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
@@ -30,12 +31,12 @@ func nativeCaptureResult(source journalinventory.ActiveJournal) journalpublicati
 
 // OpenCapturedNativeRecovery reloads and classifies a published operation for its containing
 // Apply. Root grants and the allocation stay borrowed from that live operation.
-func OpenCapturedNativeRecovery(ctx context.Context, captured journalpublication.CapturedNativeJournal, codec durable.SnapshotCodec, manifest *rootedpath.CapturedRoot, budget *physicalwork.Budget, options journalqualification.NativeRecoveryOptions) (*NativeRecoveryOperation, error) {
+func OpenCapturedNativeRecovery(ctx context.Context, captured journalpublication.CapturedNativeJournal, codec durable.SnapshotCodec, statefileCodec statefile.PhysicalCodec, manifest *rootedpath.CapturedRoot, budget *physicalwork.Budget, options journalqualification.NativeRecoveryOptions) (*NativeRecoveryOperation, error) {
 	if err := captured.RequireRecoverySelection(manifest, budget); err != nil {
 		return nil, err
 	}
-	if codec == nil {
-		return nil, fmt.Errorf("captured native recovery requires its selected codec and roots")
+	if codec == nil || statefileCodec.IsZero() {
+		return nil, fmt.Errorf("captured native recovery requires its journal and statefile codecs and roots")
 	}
 	reader, ok := options.Filesystem.(mutationfs.Reader)
 	if !ok {
@@ -67,17 +68,21 @@ func OpenCapturedNativeRecovery(ctx context.Context, captured journalpublication
 	if err != nil {
 		return nil, err
 	}
-	plan := NativeRecoveryPlan{source: *inventory.Active(), journal: journal, capture: nativeCaptureResult(*inventory.Active()), active: inventory.Active().PhysicalAuthority(), inventory: inv, assessment: observed.Facts(), registryScope: scope}
+	requests, err := nativeDocumentAuthorityRequests(qualified)
+	if err != nil {
+		return nil, err
+	}
+	plan := NativeRecoveryPlan{source: *inventory.Active(), journal: journal, capture: nativeCaptureResult(*inventory.Active()), active: inventory.Active().PhysicalAuthority(), inventory: inv, assessment: observed.Facts(), registryScope: scope, documentRequests: requests}
 	return &NativeRecoveryOperation{
 		plan: plan, captured: &captured, borrowedManifest: manifest,
-		profile:   Profile{StateCodec: codec, Codecs: options.Codecs, Budget: budget},
+		profile:   Profile{StateCodec: codec, StatefileCodec: statefileCodec, Codecs: options.Codecs, Budget: budget},
 		qualified: qualified, initial: observed,
 		resolver: captured.ResolveOrdinaryDestination,
 	}, nil
 }
 
-func (operation *NativeRecoveryOperation) StateCodec() durable.SnapshotCodec {
-	return operation.profile.StateCodec
+func (operation *NativeRecoveryOperation) StatefileCodec() statefile.PhysicalCodec {
+	return operation.profile.StatefileCodec
 }
 
 func (operation *NativeRecoveryOperation) Codecs() aggregate.CodecCatalog {

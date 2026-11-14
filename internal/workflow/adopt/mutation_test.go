@@ -780,8 +780,8 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(domains) != 9 {
-		t.Fatalf("mutation domains = %d, want 5 import domains plus 4 RecoveryDir/StateDir barrier domains", len(domains))
+	if len(domains) != 11 {
+		t.Fatalf("mutation domains = %d, want 5 import domains plus 6 recovery/shared metadata barrier domains", len(domains))
 	}
 	assertImportRevisionRequest(t, requests, alternatePath, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stableRequests, alternatePath, mutation.PathEffectDirectoryEntry)

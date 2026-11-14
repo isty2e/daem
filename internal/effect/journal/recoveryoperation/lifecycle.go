@@ -59,6 +59,7 @@ func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
 	return journalinventory.RequireClear(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: storagecommit.Adapter{},
 		StateCodec: statefile.Codec{},
+		Decoder:    nativeRecoveryInventoryDecoder(statefile.Codec{}, statefile.Codec{}),
 	})
 }
 
@@ -70,6 +71,7 @@ func RequireNoInterruptedApplyBounded(ctx context.Context, recoveryRoot string, 
 	}
 	return journalinventory.RequireClear(ctx, recoveryRoot, journalinventory.Options{
 		Filesystem: storagecommit.Adapter{}, StateCodec: statefile.Codec{}, PhysicalPathBudget: budget,
+		Decoder: nativeRecoveryInventoryDecoder(statefile.Codec{}, statefile.Codec{}),
 	})
 }
 

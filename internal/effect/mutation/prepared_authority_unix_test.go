@@ -3,13 +3,83 @@
 package mutation
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
+
+func TestPreparedReferentPreservesSourceAliasesAndRejectsRetargeting(t *testing.T) {
+	root := t.TempDir()
+	alias, actual := filepath.Join(root, "selected.json"), filepath.Join(root, "actual.json")
+	if err := os.WriteFile(actual, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("actual.json", alias); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PrepareReferentAuthorityBounded(t.Context(), alias, 256, preparedBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := ObserveDirectoryEntryAuthorityBounded(actual, 256, preparedBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection := preparedBudget()
+	if err := plan.ReserveObservation(projection); err != nil {
+		t.Fatal(err)
+	}
+	allocation := &preparedWorkBudget{pathLimit: projection.paths, entryLimit: projection.entries, byteLimit: projection.bytes}
+	got, err := plan.ObserveBounded(t.Context(), allocation)
+	if err != nil || !got.Equal(want) {
+		t.Fatal("prepared source did not observe its referent within the reserved work", err)
+	}
+	entry, err := PrepareDirectoryEntryAuthorityBounded(t.Context(), alias, 256, preparedBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := entry.ObserveBounded(t.Context(), preparedBudget())
+	if err != nil || old.Equal(want) {
+		t.Fatal("directory-entry observation unexpectedly followed the source alias", err)
+	}
+
+	replacement := filepath.Join(root, "replacement")
+	if err := os.WriteFile(replacement, []byte("after"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, actual); err != nil {
+		t.Fatal(err)
+	}
+	got, err = plan.ObserveBounded(t.Context(), preparedBudget())
+	if err != nil || !got.Equal(want) {
+		t.Fatal("replacing the same regular-file entry invalidated its source layout", err)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := plan.ObserveBounded(canceled, preparedBudget()); !errors.Is(err, context.Canceled) {
+		t.Fatal("prepared source lost cancellation", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "other.json"), []byte("after"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("other.json", alias); err != nil {
+		t.Fatal(err)
+	}
+	var changed *rootedpath.Failure
+	if _, err := plan.ObserveBounded(t.Context(), preparedBudget()); !errors.As(err, &changed) || changed.Kind() != rootedpath.FailureRootReplaced {
+		t.Fatal("prepared source did not reject its changed alias layout", err)
+	}
+}
 
 type preparedWorkBudget struct {
 	paths, entries        int

@@ -225,6 +225,7 @@ func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool
 	}
 	if importPath == "internal/workflow/nativeconfig" {
 		return packagePath != "internal/workflow/lock" &&
+			packagePath != "internal/workflow/list" &&
 			packagePath != "internal/workflow/adopt" &&
 			packagePath != "internal/workflow/apply" &&
 			packagePath != "internal/workflow/status" &&

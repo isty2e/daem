@@ -151,6 +151,10 @@ func TestCompilerShadowRejectsForbiddenFixtures(t *testing.T) {
 func TestCompilerShadowAllowsNearNeighbors(t *testing.T) {
 	report := FormatShadowReport(AnalyzeReport([]PackageRecord{
 		{
+			ImportPath: "example.com/project/internal/realization/profile/configuration",
+			Imports:    []string{"example.com/project/internal/hostsurface"},
+		},
+		{
 			ImportPath: "example.com/project/internal/hostsurface/catalog",
 			Imports: []string{
 				"example.com/project/internal/hostsurface",

@@ -188,9 +188,6 @@ func newOrderSelection(
 	constraint hostrelation.RelationOrderConstraint,
 	relations []ScopedRelation,
 ) (orderSelection, error) {
-	if err := constraint.Validate(); err != nil {
-		return orderSelection{}, fmt.Errorf("Pi package order constraint: %w", err)
-	}
 	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
 		target.TargetPi,
 		scope,
@@ -198,6 +195,25 @@ func newOrderSelection(
 	)
 	if !admitted {
 		return orderSelection{}, fmt.Errorf("Pi %s package order is not admitted", scope)
+	}
+	return newOrderSelectionWithCapability(scope, constraint, relations, capability)
+}
+
+func newOrderSelectionWithCapability(
+	scope target.Scope,
+	constraint hostrelation.RelationOrderConstraint,
+	relations []ScopedRelation,
+	capability profile.ExtensionOrderCapability,
+) (orderSelection, error) {
+	if err := constraint.Validate(); err != nil {
+		return orderSelection{}, fmt.Errorf("Pi package order constraint: %w", err)
+	}
+	if err := capability.Validate(); err != nil {
+		return orderSelection{}, err
+	}
+	if capability.Carrier() != desiredextension.CarrierPiPackage || capability.Scope() != scope ||
+		capability.SequenceMembership() != profile.CompleteClassMembership {
+		return orderSelection{}, fmt.Errorf("Pi package order requires its scoped complete-membership capability")
 	}
 	if constraint.ClassID() != capability.ClassID() ||
 		constraint.MemberIdentityContract() != capability.MemberIdentityContract() ||
@@ -272,12 +288,12 @@ func newOrderSelection(
 	}, nil
 }
 
-func observeOrder(
+func normalizedOrderRows(
 	selection orderSelection,
 	inventory Inventory,
-) (OrderObservation, error) {
+) ([]observerelation.ObservedRelationRow, error) {
 	if inventory.scope != selection.scope {
-		return OrderObservation{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"Pi package order inventory scope %q does not match %q",
 			inventory.scope,
 			selection.scope,
@@ -287,14 +303,14 @@ func observeOrder(
 	for index, relation := range selection.relations {
 		stored, err := expectedSettingsSource(relation, inventory.settingsBase)
 		if err != nil {
-			return OrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"derive Pi package order relation[%d] stored source: %w",
 				index,
 				err,
 			)
 		}
 		if previous, duplicate := exactSubjects[stored]; duplicate {
-			return OrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"Pi package order subjects %q and %q map to exact stored source %q",
 				previous,
 				relation.key.Subject(),
@@ -306,13 +322,13 @@ func observeOrder(
 
 	entries, err := inventory.Entries()
 	if err != nil {
-		return OrderObservation{}, err
+		return nil, err
 	}
 	rows := make([]observerelation.ObservedRelationRow, 0, len(entries))
 	for index, entry := range entries {
 		loadIdentity, err := hostrelation.NewHostLoadIdentity(entry.HostLoadIdentity())
 		if err != nil {
-			return OrderObservation{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"normalize Pi package order row[%d] identity: %w",
 				index,
 				err,
@@ -326,16 +342,23 @@ func observeOrder(
 			row, err = observerelation.NewObservedRelationRow(loadIdentity)
 		}
 		if err != nil {
-			return OrderObservation{}, err
+			return nil, err
 		}
 		rows = append(rows, row)
 	}
+	return rows, nil
+}
 
+func observeOrder(selection orderSelection, inventory Inventory) (OrderObservation, error) {
+	rows, err := normalizedOrderRows(selection, inventory)
+	if err != nil {
+		return OrderObservation{}, err
+	}
 	sequence, err := newObservedOrderSequence(selection, rows, inventory.revision)
 	if err != nil {
 		return OrderObservation{}, err
 	}
-	order, changes, err := observerelation.FixedSlotPermutation(selection.constraint, rows)
+	selected, err := observerelation.NewSelectedSequenceEdit(selection.capability, sequence, selection.constraint, nil)
 	if err != nil {
 		return OrderObservation{}, err
 	}
@@ -343,18 +366,14 @@ func observeOrder(
 	candidate := bytes.Clone(inventory.content)
 	changed := false
 	if inventory.exists {
-		candidate, changed, err = inventory.document.PermutePackageRows(order)
+		candidate, changed, err = inventory.document.PermutePackageRows(selected.SurvivorOrder())
 		if err != nil {
 			return OrderObservation{}, err
 		}
 	}
-	expectedRows := make([]observerelation.ObservedRelationRow, len(rows))
-	for destination, source := range order {
-		expectedRows[destination] = rows[source]
-	}
 	expectedSequence, err := newObservedOrderSequence(
 		selection,
-		expectedRows,
+		selected.ExpectedRows(),
 		settingsRevision(candidate),
 	)
 	if err != nil {
@@ -368,7 +387,7 @@ func observeOrder(
 		expectedSequence:  expectedSequence,
 		candidate:         candidate,
 		changed:           changed,
-		precedenceChanges: changes,
+		precedenceChanges: selected.PrecedenceChanges(),
 	}, nil
 }
 
@@ -389,7 +408,7 @@ func newObservedOrderSequence(
 		return observerelation.ObservedRelationSequence{}, err
 	}
 	return observerelation.NewObservedRelationSequence(
-		selection.constraint.ClassID(),
+		selection.capability.ClassID(),
 		sequenceIDs[0],
 		authority,
 		revision,

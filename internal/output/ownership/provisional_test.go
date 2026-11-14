@@ -9,7 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 )
 
-func TestProvisionalAcquireIntentRequiresGlobalDestination(t *testing.T) {
+func TestLegacyProvisionalAcquireIntentRequiresGlobalDestination(t *testing.T) {
 	root := t.TempDir()
 	namespace := filepath.Join(root, "skills")
 	candidate := filepath.Join(namespace, "Caf\u00e9")
@@ -40,5 +40,12 @@ func TestProvisionalAcquireIntentRequiresGlobalDestination(t *testing.T) {
 		"operation-1",
 	); err == nil {
 		t.Fatal("provisional ownership acquisition accepted a project destination")
+	}
+	intent, err := NewProvisionalAcquireIntent(projectDestination, output.WholePathFootprint(), provisional, authority, "operation-1")
+	if err != nil {
+		t.Fatal("native provisional acquisition refused its project destination", err)
+	}
+	if _, err := intent.LegacyContentPath(); err == nil {
+		t.Fatal("project acquisition escaped through the ordinary output projection")
 	}
 }

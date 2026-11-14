@@ -21,5 +21,9 @@ func printApplyPreviewPlan(output io.Writer, planning applyworkflow.CommandResul
 }
 
 func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResult, err error) []clipresent.Guidance {
-	return applyInputWorkflowGuidance(manifestPath, result, err)
+	selectedManifest := result.ManifestPath
+	if selectedManifest == "" {
+		selectedManifest = manifestPath
+	}
+	return append(applyInputWorkflowGuidance(manifestPath, result, err), clipresent.NativeReplacementGuidance(result.Reconciliation, selectedManifest)...)
 }

@@ -65,18 +65,9 @@ func TestAntigravityGlobalMCPProjectionMergeCompareAndPreserveSiblings(t *testin
 	if err != nil {
 		t.Fatalf("MergeAntigravityGlobalMCPServerProjection returned error: %v", err)
 	}
-	for _, want := range []string{
-		`"theme": "dark"`,
-		`"sibling": {`,
-		`"serverUrl": "https://example.invalid/mcp"`,
-		`"context7": {`,
-		`"command": "npx"`,
-		`"args": [`,
-	} {
-		if !strings.Contains(string(merged), want) {
-			t.Fatalf("merged = %s, want %q", merged, want)
-		}
-	}
+	assertMCPJSONSubset(t, merged, `{"theme":"dark","mcpServers":{
+		"sibling":{"serverUrl":"https://example.invalid/mcp","headers":{"Authorization":"Bearer secret"}},
+		"context7":{"command":"npx","args":["-y","@upstash/context7-mcp"]}}}`)
 
 	comparison, err := compareAntigravityGlobalMCPServerProjection(merged, projection)
 	if err != nil {
@@ -251,9 +242,10 @@ func TestAntigravityGlobalMCPProjectionMergeBlocksUnsupportedSameNameEntry(t *te
 	if err != nil {
 		t.Fatalf("MergeAntigravityGlobalMCPServerProjection for new server returned error: %v", err)
 	}
-	if !containsAll(string(merged), `"context7": {`, `"headers": {`, `"sibling": {`, `"new-server": {`) {
-		t.Fatalf("merged = %s, want unsupported siblings preserved when unmanaged", merged)
-	}
+	assertMCPJSONSubset(t, merged, `{"mcpServers":{
+		"context7":{"headers":{"Authorization":"Bearer SECRET_CANARY"}},
+		"sibling":{"serverUrl":"https://example.invalid/mcp","headers":{"Authorization":"Bearer SECRET_CANARY"}},
+		"new-server":{"command":"npx"}}}`)
 }
 
 func mergeAntigravityGlobalMCPServerProjectionForTest(existing []byte, projection AntigravityGlobalMCPServerProjection) ([]byte, error) {

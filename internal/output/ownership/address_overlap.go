@@ -4,11 +4,20 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/output"
 )
 
 type addressOverlapIndex struct {
-	roots map[string]*physicalAddressNode
+	roots  map[string]*physicalAddressNode
+	legacy map[string]*compatibilityPathNode
+	native map[string]*compatibilityPathNode
+}
+
+type compatibilityPathNode struct {
+	children map[string]*compatibilityPathNode
+	first    int
+	terminal int
 }
 
 type physicalAddressNode struct {
@@ -43,6 +52,16 @@ func firstOverlappingAddress(addresses []ManagedAddress) (int, int, bool) {
 }
 
 func (index *addressOverlapIndex) insert(addressIndex int, address ManagedAddress) (int, bool) {
+	comparison, native := address.PathAuthority().LegacyComparisonKey()
+	if comparison != "" {
+		opposite := index.native
+		if native {
+			opposite = index.legacy
+		}
+		if existing, overlap := firstCompatibilityPath(opposite, comparison, true); overlap {
+			return existing, true
+		}
+	}
 	volume, components := physicalPathComponents(address.Path())
 	root := index.roots[volume]
 	if root == nil {
@@ -86,10 +105,95 @@ func (index *addressOverlapIndex) insert(addressIndex int, address ManagedAddres
 			node.first = addressIndex
 		}
 	}
+	if comparison != "" {
+		if native {
+			if index.native == nil {
+				index.native = make(map[string]*compatibilityPathNode)
+			}
+			markCompatibilityPath(index.native, comparison, addressIndex)
+		} else {
+			if index.legacy == nil {
+				index.legacy = make(map[string]*compatibilityPathNode)
+			}
+			markCompatibilityPath(index.legacy, comparison, addressIndex)
+		}
+	}
 	return 0, false
 }
 
+func markCompatibilityPath(roots map[string]*compatibilityPathNode, path string, addressIndex int) {
+	volume, components := physicalPathComponents(path)
+	current := roots[volume]
+	if current == nil {
+		current = &compatibilityPathNode{children: make(map[string]*compatibilityPathNode), first: addressIndex, terminal: -1}
+		roots[volume] = current
+	}
+	for _, component := range components {
+		next := current.children[component]
+		if next == nil {
+			next = &compatibilityPathNode{children: make(map[string]*compatibilityPathNode), first: addressIndex, terminal: -1}
+			current.children[component] = next
+		}
+		current = next
+	}
+	if current.terminal < 0 {
+		current.terminal = addressIndex
+	}
+}
+
+func firstCompatibilityPath(roots map[string]*compatibilityPathNode, path string, descendants bool) (int, bool) {
+	volume, components := physicalPathComponents(path)
+	current := roots[volume]
+	first := -1
+	for depth := 0; current != nil; depth++ {
+		first = earlierAddressIndex(first, current.terminal)
+		if depth == len(components) {
+			if descendants {
+				first = earlierAddressIndex(first, current.first)
+			}
+			break
+		}
+		current = current.children[components[depth]]
+	}
+	return firstAddressIndex(first)
+}
+
 func (index addressOverlapIndex) first(address ManagedAddress) (int, bool) {
+	first := -1
+	if existing, found := index.firstFootprint(address); found {
+		first = existing
+	}
+	comparison, native := address.PathAuthority().LegacyComparisonKey()
+	if existing, found := index.firstComparison(comparison, native, true); found {
+		first = earlierAddressIndex(first, existing)
+	}
+	return firstAddressIndex(first)
+}
+
+func (index addressOverlapIndex) firstProvisional(candidate pathauthority.Provisional) (int, bool) {
+	first := -1
+	if existing, found := index.firstPhysicalAncestor(candidate.CandidateKey()); found {
+		first = existing
+	}
+	comparison, native := candidate.LegacyComparisonKey()
+	if existing, found := index.firstComparison(comparison, native, false); found {
+		first = earlierAddressIndex(first, existing)
+	}
+	return firstAddressIndex(first)
+}
+
+func (index addressOverlapIndex) firstComparison(comparison string, native, descendants bool) (int, bool) {
+	if comparison == "" {
+		return 0, false
+	}
+	opposite := index.native
+	if native {
+		opposite = index.legacy
+	}
+	return firstCompatibilityPath(opposite, comparison, descendants)
+}
+
+func (index addressOverlapIndex) firstFootprint(address ManagedAddress) (int, bool) {
 	volume, components := physicalPathComponents(address.Path())
 	current := index.roots[volume]
 	if current == nil {

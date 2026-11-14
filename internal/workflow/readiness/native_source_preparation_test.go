@@ -22,6 +22,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -43,6 +45,7 @@ import (
 
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -99,7 +102,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: scope, Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: scope, Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +153,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Fatal(err)
 	}
 	budget := physicalwork.NewCaptureBudget(nil)
-	loaded, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: codec, PhysicalPathBudget: budget})
+	loaded, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, codec), PhysicalPathBudget: budget})
 	if err != nil || !loaded.Equal(before) {
 		t.Fatal("actual native state did not retain its baseline", err)
 	}
@@ -166,8 +169,8 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Cleanup(func() { _ = captured.Close() })
 		return journalnamespace.RootSelection{SelectedPath: path, Root: captured}
 	}
-	roots := journalnamespace.Roots{Manifest: rootGrant(root), PiAgent: rootGrant(hostRoot)}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, storagecommit.Adapter{}, budget)
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: rootGrant(root), output.RootPiAgent: rootGrant(hostRoot)})
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), storagecommit.Adapter{}, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,17 +183,15 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 		t.Fatal(err)
 	}
 	var claims []ownership.Claim
-	if scope == target.ScopeGlobal {
-		address, err := ownership.NewManagedAddress(exact, output.WholePathFootprint())
-		if err != nil {
-			t.Fatal(err)
-		}
-		claim, err := ownership.NewActiveClaim(address, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		claims = append(claims, claim)
+	address, err := ownership.NewManagedAddress(exact, output.WholePathFootprint())
+	if err != nil {
+		t.Fatal(err)
 	}
+	claim, err := ownership.NewActiveClaim(address, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims = append(claims, claim)
 	registry, err := ownership.NewRegistry(claims, binding)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +211,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation := journalobservation.Input{Owner: owner, Before: loaded, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Filesystem: storagecommit.Adapter{}, Registry: store, Limits: narrowingLimits, Budget: budget}
+	observation := journalobservation.Input{Owner: owner, Before: loaded, Aliases: []aggregate.DocumentAddress{alias}, Roots: roots, Protection: namespacetest.Reservations(t), Filesystem: storagecommit.Adapter{}, Registry: store, Limits: narrowingLimits, Budget: budget}
 	documents, err := journalpublication.ObserveNativeDocuments(t.Context(), observation)
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +335,7 @@ func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +357,7 @@ func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T)
 		t.Fatal(err)
 	}
 	requireNativePreparationFile(t, fixture.paths.StatefilePath, content)
-	fixture.observation.Before, err = statefile.LoadOptionalWithOptions(t.Context(), fixture.paths.StatefilePath, statefile.ReadOptions{Codec: fixture.codec, PhysicalPathBudget: fixture.observation.Budget})
+	fixture.observation.Before, err = statefile.LoadOptionalWithOptions(t.Context(), fixture.paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.codec), PhysicalPathBudget: fixture.observation.Budget})
 	if err != nil {
 		t.Fatal(err)
 	}

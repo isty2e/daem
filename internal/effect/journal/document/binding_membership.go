@@ -14,7 +14,15 @@ import (
 
 // This operation-wide join checks state membership, not physical path binding
 // or registry phase authority. Untouched destinations need no synthetic group.
-func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Context, owner stateauthority.Authority, aliases []aggregate.DocumentAddress, intents []ownership.DocumentBindingIntent) error {
+func (indexes SnapshotIndexes) ValidateBoundBindingMembership(ctx context.Context, owner stateauthority.Authority, routes []AliasRoute, intents []ownership.DocumentBindingIntent) error {
+	aliases, err := AliasRouteAddresses(ctx, routes)
+	if err != nil {
+		return err
+	}
+	return indexes.validateNativeBindingMembership(ctx, owner, aliases, intents, routes...)
+}
+
+func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Context, owner stateauthority.Authority, aliases []aggregate.DocumentAddress, intents []ownership.DocumentBindingIntent, routes ...AliasRoute) error {
 	if ctx == nil {
 		return fmt.Errorf("native binding membership context is required")
 	}
@@ -46,6 +54,12 @@ func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Conte
 	if err != nil {
 		return err
 	}
+	mcp := indexes.mcpBindingMembership(routes)
+	for _, carrier := range mcp {
+		if carrier.source && !carrier.before {
+			return fmt.Errorf("owned MCP source requires before MCP state")
+		}
+	}
 
 	seen := make(map[output.Destination]struct{}, len(intents))
 	for index, intent := range intents {
@@ -68,10 +82,17 @@ func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Conte
 		seen[destination] = struct{}{}
 		_, nativeBefore := before[destination]
 		_, nativeAfter := after[destination]
+		_, bindingBefore := intent.Before().Get()
+		if carrier, present := mcp[destination]; present && (carrier.before || carrier.after) {
+			if carrier.before && !bindingBefore && !carrier.source {
+				return fmt.Errorf("legacy MCP binding acquisition requires its owned-source route")
+			}
+			nativeBefore = nativeBefore || carrier.before && bindingBefore
+			nativeAfter = nativeAfter || carrier.after
+		}
 		if !nativeBefore && !nativeAfter {
 			return fmt.Errorf("document binding intent[%d] has no native state membership", index)
 		}
-		_, bindingBefore := intent.Before().Get()
 		if bindingBefore != nativeBefore {
 			return fmt.Errorf("document binding intent[%d] before does not match native membership", index)
 		}
@@ -80,7 +101,7 @@ func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Conte
 			if bindingAfter != nativeAfter {
 				return fmt.Errorf("document binding intent[%d] after does not match native membership", index)
 			}
-		} else if nativeBefore || !nativeAfter {
+		} else if !nativeAfter {
 			return fmt.Errorf("document binding intent[%d] provisional acquisition does not match native membership", index)
 		}
 	}
@@ -90,11 +111,45 @@ func (indexes SnapshotIndexes) validateNativeBindingMembership(ctx context.Conte
 		}
 		_, nativeBefore := before[destination]
 		_, nativeAfter := after[destination]
-		if _, present := seen[destination]; !present && (nativeBefore || nativeAfter) {
+		carrier := mcp[destination]
+		needsCarrierBinding := carrier.source && carrier.current && (carrier.before || carrier.after)
+		if _, present := seen[destination]; !present && (nativeBefore || nativeAfter || needsCarrierBinding) {
 			return fmt.Errorf("native document membership requires its binding intent")
 		}
 	}
 	return ctx.Err()
+}
+
+type mcpBindingPhases struct {
+	before, after   bool
+	source, current bool
+}
+
+func (indexes SnapshotIndexes) mcpBindingMembership(routes []AliasRoute) map[output.Destination]mcpBindingPhases {
+	result := make(map[output.Destination]mcpBindingPhases)
+	for _, route := range routes {
+		if !route.OwnedSource() && !route.CurrentCarrier() {
+			continue
+		}
+		destination := route.Address().AggregateRoot()
+		phases := result[destination]
+		phases.source = phases.source || route.OwnedSource()
+		phases.current = phases.current || route.CurrentCarrier()
+		for side, index := range []SnapshotIndex{indexes.before, indexes.after} {
+			for _, row := range index.aggregates {
+				contract := row.Contribution().Contract()
+				if contract.Address().Document() != route.Address() {
+					continue
+				}
+				if _, mcp := aggregate.MCPPlacementForCodec(aggregate.MCPPlacementID(contract.Address().PlacementID()), contract.CodecContractID()); mcp {
+					phases.before = phases.before || side == 0
+					phases.after = phases.after || side == 1
+				}
+			}
+		}
+		result[destination] = phases
+	}
+	return result
 }
 
 func (index SnapshotIndex) NativeDestinations(ctx context.Context) (map[output.Destination]struct{}, error) {

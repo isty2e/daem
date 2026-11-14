@@ -17,7 +17,7 @@ import (
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
-func invocationNativeState(t *testing.T, current durable.Snapshot) (durable.Snapshot, durable.SnapshotCodec) {
+func invocationNativeState(t *testing.T, current durable.Snapshot) (durable.Snapshot, durable.SnapshotCodec, statefile.PhysicalCodec) {
 	t.Helper()
 	_, baseline := nativeAggregatePlanningInput(t, reconcile.AggregateNoOp)
 	current, err := current.WithManagedAggregates(baseline.ManagedAggregates())
@@ -28,16 +28,16 @@ func invocationNativeState(t *testing.T, current durable.Snapshot) (durable.Snap
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, codec, err := nativePersistenceCodecs(t.Context())
+	_, journalCodec, codec, err := nativePersistenceCodecs(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return current, codec
+	return current, journalCodec, codec
 }
 
-func saveInvocationState(t *testing.T, path string, state durable.Snapshot, codec durable.SnapshotCodec) {
+func saveInvocationState(t *testing.T, path string, state durable.Snapshot, codec statefile.PhysicalCodec) {
 	t.Helper()
-	content, err := codec.Encode(state)
+	content, err := codec.EncodeState(state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,13 +49,13 @@ func saveInvocationState(t *testing.T, path string, state durable.Snapshot, code
 	}
 }
 
-func loadInvocationState(t *testing.T, path string, codec durable.SnapshotCodec) durable.Snapshot {
+func loadInvocationState(t *testing.T, path string, codec statefile.PhysicalCodec) durable.Snapshot {
 	t.Helper()
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := codec.Decode(content)
+	state, err := codec.DecodeState(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,13 +77,13 @@ func TestInvocationStateCodecPreservesNativeStateAroundHostRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := planned.planned.context.Paths
-	current, codec := invocationNativeState(t, planned.planned.assessment.CurrentState)
+	current, journalCodec, codec := invocationNativeState(t, planned.planned.assessment.CurrentState)
 	assessment := planned.planned.assessment
 	assessment.CurrentState = current
 	if err := checkNativeCommandSupport(assessment); err != nil {
 		t.Fatal("admitted opaque route lost native codec custody", err)
 	}
-	options := applyDelegateRunOptions(t, paths, runOptions{persistenceCodec: codec})
+	options := applyDelegateRunOptions(t, paths, runOptions{journalStateCodec: journalCodec, physicalStateCodec: codec})
 	saveInvocationState(t, paths.StatefilePath, current, codec)
 	calls := 0
 	options.HostRouteExecutor = subprocess.NewCommandExecutor(subprocess.CommandOptions{
@@ -121,11 +121,11 @@ func TestInvocationStateCodecPreservesNativeStateAroundCarrierRemoval(t *testing
 				if scenario.settlement {
 					fixture.preparePendingSettlement(t)
 				}
-				current, codec := invocationNativeState(t, fixture.current)
+				current, _, codec := invocationNativeState(t, fixture.current)
 				fixture.current = current
 				saveInvocationState(t, fixture.statePath, current, codec)
 				input := fixture.input(t)
-				input.StateEncoder = codec
+				input.StatefileCodec = codec
 				plan := scheduledCarrierRemovalTestPlan(t, input.Actions)
 				result, err := runScheduledCarrierRemovals(t.Context(), input, plan, plan)
 				if err != nil {
@@ -169,7 +169,7 @@ func TestInvocationStateCodecPreservesNativeStateAroundPinTransition(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			current, codec := invocationNativeState(t, current)
+			current, journalCodec, codec := invocationNativeState(t, current)
 			saveInvocationState(t, paths.StatefilePath, current, codec)
 			global := durablecarrier.EmptyGlobalCarrierClaims()
 			if scope == target.ScopeGlobal {
@@ -184,7 +184,8 @@ func TestInvocationStateCodecPreservesNativeStateAroundPinTransition(t *testing.
 			}
 			calls := 0
 			options := applyDelegateRunOptions(t, paths, runOptions{
-				persistenceCodec:        codec,
+				journalStateCodec:       journalCodec,
+				physicalStateCodec:      codec,
 				acceptVisibilityChanges: func(context.Context) error { return nil },
 				HostRouteObserver:       passiveHostRouteObserver(paths, fixture.locked, selection),
 				HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{

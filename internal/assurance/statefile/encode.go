@@ -15,8 +15,12 @@ import (
 )
 
 func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
+	return persistedSnapshotAtVersion(snapshot, snapshotVersion)
+}
+
+func persistedSnapshotAtVersion(snapshot durable.Snapshot, version int) snapshotDTO {
 	persisted := snapshotDTO{
-		Version:                   snapshotVersion,
+		Version:                   version,
 		ManagedPaths:              make([]managedPathDTO, 0, len(snapshot.ManagedPaths())),
 		ManagedAggregateBaselines: make([]managedAggregateV10DTO, 0, len(snapshot.ManagedAggregates())),
 		PendingCarrierInstalls:    make([]pendingCarrierInstallDTO, 0, len(snapshot.PendingCarrierInstalls())),

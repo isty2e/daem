@@ -8,11 +8,15 @@ import (
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired/entity"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	outputmodel "github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -65,6 +69,8 @@ func BuildDryRunDiffs(
 	sourceEpoch lockobserve.SourceEpoch,
 	planResult reconcile.Result,
 	projectRoot *rootedpath.CapturedRoot,
+	physicalBudget rootedpath.PhysicalTraversalBudget,
+	native []journalobservation.ApprovalEvidence,
 ) (result DryRunDiffCollection, resultErr error) {
 	managedPaths, uninspected, err := planResult.ManagedPathsUpTo(
 		maximumDryRunDiffDecisions,
@@ -97,7 +103,7 @@ func BuildDryRunDiffs(
 			resultErr = errors.Join(resultErr, projectRoot.Close())
 		}()
 	}
-	resolver := destinationResolver(paths).Resolve
+	resolver := destinationResolver(paths).ForBudget(physicalBudget).Resolve
 	budget := dryRunDiffCollectionBudget{remainingBytes: maximumDryRunDiffOperationBytes}
 
 	for _, decision := range decisions {
@@ -132,15 +138,19 @@ func BuildDryRunDiffs(
 			currentLimit := min(MaximumDryRunDiffInputBytes, budget.remainingBytes)
 			var omitted bool
 			var readErr error
-			currentContent, omitted, readErr = readManagedFileForDiff(
-				ctx,
-				projectRoot,
-				decision.Scope(),
-				decision.Destination(),
-				decision.LiveHash(),
-				resolver,
-				currentLimit,
-			)
+			if aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+				currentContent, omitted, readErr = readNativeWholeFileForDiff(ctx, native, decision, currentLimit, physicalBudget)
+			} else {
+				currentContent, omitted, readErr = readManagedFileForDiff(
+					ctx,
+					projectRoot,
+					decision.Scope(),
+					decision.Destination(),
+					decision.LiveHash(),
+					resolver,
+					currentLimit,
+				)
+			}
 			if readErr != nil {
 				return DryRunDiffCollection{}, fmt.Errorf("read current destination %q: %w", decision.Destination(), readErr)
 			}
@@ -196,6 +206,30 @@ func BuildDryRunDiffs(
 	return result, nil
 }
 
+func readNativeWholeFileForDiff(ctx context.Context, native []journalobservation.ApprovalEvidence, decision reconcile.ManagedPathDecision, maximumBytes int64, budget rootedpath.PhysicalTraversalBudget) (content []byte, omitted bool, resultErr error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	request, expected, err := nativeWholeAuthorityRequestFor(native, decision.Subject(), decision.Destination())
+	if err != nil {
+		return nil, false, err
+	}
+	path, err := rootedpath.ResolveReferentPathBounded(request.Path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return nil, false, err
+	}
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil || !observed.Equal(expected) {
+		return nil, false, errors.Join(fmt.Errorf("native whole-file diff namespace changed after planning"), err)
+	}
+	root, bound, err := rootedpath.CaptureDestinationBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+	return readBoundFileForDiff(ctx, root, bound, decision.LiveHash(), maximumBytes)
+}
+
 func readManagedFileForDiff(
 	ctx context.Context,
 	projectRoot *rootedpath.CapturedRoot,
@@ -243,6 +277,10 @@ func readManagedFileForDiff(
 	if err != nil {
 		return nil, false, err
 	}
+	return readBoundFileForDiff(ctx, root, bound, expectedHash, maximumBytes)
+}
+
+func readBoundFileForDiff(ctx context.Context, root *rootedpath.CapturedRoot, bound rootedpath.Destination, expectedHash artifact.ContentHash, maximumBytes int64) (content []byte, omitted bool, resultErr error) {
 	capability, err := root.Acquire(bound)
 	if err != nil {
 		return nil, false, err

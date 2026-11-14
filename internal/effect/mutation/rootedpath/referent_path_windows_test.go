@@ -24,6 +24,86 @@ func (budget *referentFrameTestBudget) AdmitPathComponents(count int) error {
 	return budget.err
 }
 
+func TestWindowsRootSelectorUsesAdmittedDOSNormalization(t *testing.T) {
+	base := referentTestRoot(t)
+	actual := filepath.Join(base, "actual", "inner")
+	want := filepath.Join(base, "codex")
+	for _, directory := range []string{actual, want} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "link")
+	referentTestSymlink(t, actual, link)
+	for _, selector := range []string{link + `\..\codex`, want + `\`, want + `\.`} {
+		got, err := ResolveRootSelectorBounded(selector, 256, &referentTestBudget{limit: 10_000})
+		if err != nil || got != want {
+			t.Errorf("DOS selector %q = %q, %v; want %q", selector, got, err, want)
+		}
+	}
+	for _, selector := range []string{`\\server\share\config`, `\\?\C:\config`, `C:\config\NUL`, `C:\config\trailing `} {
+		if got, err := ResolveRootSelectorBounded(selector, 256, &referentTestBudget{limit: 10_000}); !hasFailureKind(err, FailureInvalidRoot) || got != "" {
+			t.Errorf("unsupported Windows selector %q returned %q, %v", selector, got, err)
+		}
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{file + `\`, file + `\.`, file + "/", file + "/.", file + `\child\..`} {
+		if got, err := ResolveRootSelectorBounded(selector, 256, &referentTestBudget{limit: 10_000}); err == nil || got != "" {
+			t.Errorf("directory-requiring DOS selector %q returned %q, %v", selector, got, err)
+		}
+	}
+}
+
+func TestWindowsFutureReferentRevalidatesNestedFramesAndExistingPrefix(t *testing.T) {
+	for _, changeSource := range []bool{false, true} {
+		name := "existing-prefix"
+		if changeSource {
+			name = "outer-frame"
+		}
+		t.Run(name, func(t *testing.T) {
+			base := referentTestRoot(t)
+			vault := filepath.Join(base, "vault")
+			if err := os.Mkdir(vault, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			referentTestSymlink(t, filepath.FromSlash("vault/missing"), filepath.Join(base, "inner"))
+			alias := filepath.Join(base, "outer")
+			referentTestSymlink(t, "inner", alias)
+			_, components, err := prepareWindowsAbsolutePath(alias, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			budget := &referentFrameTestBudget{at: len(components) + 3, change: func() error {
+				if changeSource {
+					if err := os.Remove(alias); err != nil {
+						return err
+					}
+					return os.Symlink("other-missing", alias)
+				}
+				if err := os.Rename(vault, filepath.Join(base, "old-vault")); err != nil {
+					return err
+				}
+				return os.Mkdir(vault, 0o700)
+			}}
+			got, err := ResolveFutureReferentPathBounded(alias, 256, budget)
+			if budget.visits != budget.at || budget.err != nil {
+				t.Fatalf("retarget fixture did not reach missing target: visits=%d, err=%v", budget.visits, budget.err)
+			}
+			var failure *Failure
+			wantPath := vault
+			if changeSource {
+				wantPath = alias
+			}
+			if got != "" || !errors.Is(err, errWindowsReparseChanged) || !errors.As(err, &failure) || failure.Path() != wantPath {
+				t.Fatalf("changed future target returned %q, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestWindowsReferentLeafCompletesPendingReparseVerification(t *testing.T) {
 	base := referentTestRoot(t)
 	for _, name := range []string{"original", "other"} {

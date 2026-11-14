@@ -231,12 +231,13 @@ func (pending *windowsPendingPath) pushFront(names []string, required bool) {
 func (pending *windowsPendingPath) pushReparseTarget(
 	names []string,
 	frame windowsReparseFrame,
+	required bool,
 ) {
 	frameIndex := len(pending.frames)
 	pending.frames = append(pending.frames, frame)
 	pending.stack = append(pending.stack, windowsPendingComponent{frameIndex: frameIndex})
 	for index := len(names) - 1; index >= 0; index-- {
-		pending.stack = append(pending.stack, windowsPendingComponent{name: names[index], required: true, frameIndex: -1})
+		pending.stack = append(pending.stack, windowsPendingComponent{name: names[index], required: required, frameIndex: -1})
 	}
 }
 
@@ -276,6 +277,26 @@ func (pending *windowsPendingPath) remainingInOrder() []string {
 		}
 	}
 	return remaining
+}
+
+func (pending *windowsPendingPath) verifyRemainingReparseFrames(platform *capturedRootPlatform) error {
+	for _, component := range pending.stack {
+		if component.frameIndex < 0 {
+			continue
+		}
+		if component.frameIndex >= len(pending.frames) {
+			return fmt.Errorf("Windows pending reparse frame is unavailable")
+		}
+		frame := pending.frames[component.frameIndex]
+		if err := verifyWindowsReparseObservation(frame.parent, frame.parentCaseSensitive, frame.name, frame.observation); err != nil {
+			return windowsReparseFailure(frame.path, "revalidate future reparse source", err, true)
+		}
+	}
+	if err := verifyWindowsResolvedTarget(platform, nil); err != nil {
+		path := platform.directories[len(platform.directories)-1].path
+		return windowsReparseFailure(path, "revalidate future directory binding", err, true)
+	}
+	return nil
 }
 
 func admitWindowsReparseExpansion(expansions *int) error {
@@ -832,6 +853,16 @@ func resolveWindowsPendingPath(
 				return nil, newFailure(failureKind, candidatePath, detail, nil)
 			}
 			missing := append([]string{component.name}, pending.remainingInOrder()...)
+			for _, name := range missing {
+				if name == ".." {
+					return nil, newFailure(FailureRootUnavailable, candidatePath, "unavailable path component cannot be parent-traversed", nil)
+				}
+			}
+			if traversal != nil && traversal.allowMissingAliasTargets {
+				if err := pending.verifyRemainingReparseFrames(platform); err != nil {
+					return nil, err
+				}
+			}
 			return missing, nil
 		}
 		if probe.reparse {
@@ -865,7 +896,7 @@ func resolveWindowsPendingPath(
 				requiresDirectory: probe.facts.isDirectory ||
 					strings.HasSuffix(observation.target.path, `\`) ||
 					strings.HasSuffix(observation.target.path, "/"),
-			})
+			}, traversal == nil || !traversal.allowMissingAliasTargets)
 			continue
 		}
 

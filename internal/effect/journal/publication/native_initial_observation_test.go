@@ -8,6 +8,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
+
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
@@ -115,7 +118,8 @@ func nativeInitialFixture(t *testing.T, scope target.Scope, action string) (whol
 	reader := &nativeInitialRegistryReader{store: store}
 	input := journalobservation.Input{
 		Owner: legacy.owner, Before: legacy.before, Aliases: fixture.namespace.Addresses(),
-		Roots: fixture.roots, Filesystem: fixture.reader, Registry: reader,
+		Protection: namespacetest.Reservations(t),
+		Roots:      fixture.roots, Filesystem: fixture.reader, Registry: reader,
 		Limits: legacy.limits, Budget: budget,
 	}
 	return fixture, input, reader, registryPath
@@ -154,8 +158,15 @@ func TestNativeInitialObservationRetainsActualFactsBeforeAfterState(t *testing.T
 				if input.Budget.RemainingBytes() != remaining-int64(len(fixture.original.Content())) || input.Budget.RequireCapturePending() != nil || input.Budget.AdmitObservation() == nil {
 					t.Fatal("continuation reset work or opened removal admission")
 				}
-				if scope == target.ScopeProject && prepared[0].Claims() != nil || len(prepared[0].Bindings()) != 1 {
-					t.Fatal("project binding was lost or treated as an exclusive claim")
+				if len(prepared[0].Bindings()) != 1 {
+					t.Fatal("native document lost its binding")
+				}
+				if _, pending := fixture.namespace.Observation().Provisional(); pending {
+					if prepared[0].Claims() != nil || len(prepared[0].Provisional()) != 1 {
+						t.Fatal("new native document lost its provisional acquisition")
+					}
+				} else if prepared[0].Claims() == nil || len(prepared[0].Provisional()) != 0 {
+					t.Fatal("exact native document lost its claim transition")
 				}
 				fixture.requireUnchangedHost(t)
 				for _, capability := range fixture.reader.capabilities {
@@ -163,7 +174,7 @@ func TestNativeInitialObservationRetainsActualFactsBeforeAfterState(t *testing.T
 						t.Fatal("initial observation leaked a namespace read capability")
 					}
 				}
-				if _, err := input.Roots.Manifest.Root.Authority(); err != nil {
+				if _, err := namespacetest.LegacyRoot(t, input.Roots, output.RootProject).Root.Authority(); err != nil {
 					t.Fatal("observation closed its borrowed root", err)
 				}
 				if action == "create" {

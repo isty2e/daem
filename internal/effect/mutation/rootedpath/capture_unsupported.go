@@ -3,9 +3,14 @@
 package rootedpath
 
 import (
+	"context"
 	"fmt"
 	"os"
 )
+
+func readDirectoryNamesPlatform(_ context.Context, _ *capturedRootPlatform, _ DirectoryObservationBudget) ([]string, error) {
+	return nil, newFailure(FailureUnsupportedPlatform, "", "read-only directory enumeration is unavailable on this platform", nil)
+}
 
 type capturedRootPlatform struct{}
 
@@ -38,6 +43,10 @@ func resolveDirectoryPathPlatform(
 
 func validateCapturedRootPlatform(_ *capturedRootPlatform) error {
 	return newFailure(FailureUnsupportedPlatform, "", "native rooted-path authority is unavailable on this platform", nil)
+}
+
+func validateObservedDirectoryPlatform(_ *capturedRootPlatform) error {
+	return newFailure(FailureUnsupportedPlatform, "", "read-only directory observation is unavailable on this platform", nil)
 }
 
 func cloneCapturedRootPlatform(_ *capturedRootPlatform) (capturedRootPlatform, error) {

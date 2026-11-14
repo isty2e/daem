@@ -2,6 +2,7 @@ package record
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -15,12 +16,18 @@ import (
 type Loaded struct {
 	ordinary    *Ordinary
 	native      *Native
+	release     *NativeRelease
 	nativeCodec durable.SnapshotCodec
 }
 
 func (record Loaded) Initialized() bool {
-	return record.ordinary != nil && record.native == nil && record.nativeCodec == nil && record.ordinary.Validate() == nil ||
-		record.native != nil && record.ordinary == nil && record.native.requireNativeValue() == nil && record.nativeCodec != nil
+	if record.ordinary != nil {
+		return record.native == nil && record.release == nil && record.nativeCodec == nil && record.ordinary.Validate() == nil
+	}
+	if record.native != nil {
+		return record.release == nil && record.nativeCodec != nil && record.native.requireNativeValue() == nil
+	}
+	return record.release != nil && record.nativeCodec != nil && record.release.Validate() == nil
 }
 
 func (record Loaded) Ordinary() (Ordinary, bool) {
@@ -37,6 +44,13 @@ func (record Loaded) Native() (Native, bool) {
 	return *record.native, true
 }
 
+func (record Loaded) NativeRelease() (NativeRelease, bool) {
+	if !record.Initialized() || record.release == nil {
+		return NativeRelease{}, false
+	}
+	return *record.release, true
+}
+
 // OperationID returns the decoded operation identity, or an empty string for zero.
 func (record Loaded) OperationID() string {
 	if !record.Initialized() {
@@ -44,6 +58,9 @@ func (record Loaded) OperationID() string {
 	}
 	if record.ordinary != nil {
 		return record.ordinary.OperationID()
+	}
+	if record.release != nil {
+		return record.release.OperationID()
 	}
 	return record.native.OperationID()
 }
@@ -55,8 +72,15 @@ func (record Loaded) AuthorityFingerprint(ctx context.Context, codec durable.Sna
 	if record.ordinary != nil {
 		return record.ordinary.AuthorityFingerprint(ctx, codec)
 	}
+	if record.release != nil {
+		content, err := record.release.encode(ctx, record.nativeCodec)
+		if err != nil {
+			return "", err
+		}
+		return Fingerprint(content), nil
+	}
 	journal := *record.native
-	content, err := marshalNativeJournalRecord(ctx, journal.record, journal.before, journal.after, record.nativeCodec)
+	content, err := journal.encode(ctx, record.nativeCodec)
 	if err != nil {
 		return "", err
 	}
@@ -89,8 +113,23 @@ func DecodeNativeSnapshot(ctx context.Context, snapshot mutationfs.RegularFileSn
 	if err != nil {
 		return Loaded{}, err
 	}
-	if version != NativeVersion {
+	if !SupportsNativeVersion(version) {
 		return Loaded{}, UnsupportedVersion(version)
+	}
+	if version == native17Version {
+		var purpose struct {
+			Purpose string `json:"purpose"`
+		}
+		if err := json.Unmarshal(content, &purpose); err != nil {
+			return Loaded{}, err
+		}
+		if purpose.Purpose == "release-only" {
+			release, err := decodeNativeRelease(ctx, content, codec)
+			if err != nil {
+				return Loaded{}, err
+			}
+			return Loaded{release: &release, nativeCodec: codec}, nil
+		}
 	}
 	journal, err := decodeNativeJournalRecord(ctx, content, codec)
 	if err != nil {

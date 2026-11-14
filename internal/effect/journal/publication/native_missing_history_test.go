@@ -18,9 +18,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -69,10 +72,8 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					t.Fatal(err)
 				}
 				var claims []ownership.Claim
-				if scope == target.ScopeGlobal {
-					for _, row := range before.ManagedAggregates() {
-						claims = append(claims, documentActiveClaim(t, documentClaimFixture{owner: owner, exact: exact}, row.Contribution().Contract().Address().Footprint()))
-					}
+				for _, row := range before.ManagedAggregates() {
+					claims = append(claims, documentActiveClaim(t, documentClaimFixture{owner: owner, exact: exact}, row.Contribution().Contract().Address().Footprint()))
 				}
 				current, err := ownership.NewRegistry(claims, binding)
 				if err != nil {
@@ -98,7 +99,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				if err := os.Remove(fixture.path); err != nil {
 					t.Fatal(err)
 				}
-				namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, fixture.input.Budget())
+				namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -109,13 +110,12 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				if !pending.MatchesMissingExact(exact) {
 					t.Fatal("current missing observation does not match the actual historical namespace")
 				}
-				if scope == target.ScopeGlobal {
-					if _, err := store.Load(t.Context()); err == nil {
-						t.Fatal("default registry read was widened to historical missing claims")
-					}
+				if _, err := store.Load(t.Context()); err == nil {
+					t.Fatal("default registry read was widened to historical missing claims")
 				}
 				input := nativeCaptureOwnershipInput{
 					owner: owner, operationID: fixture.input.OperationID(), before: before, after: after,
+					protection: namespacetest.Reservations(t),
 					namespaces: []journalnamespace.DocumentNamespace{namespace}, registry: store,
 					roots: fixture.roots, limits: fixture.input.Limits(), budget: physicalwork.NewCaptureBudget(nil),
 				}
@@ -128,7 +128,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 				if !ready || hasBinding != retained || retained && !settledBinding.Equal(binding) {
 					t.Fatal("historical binding retirement/retention needs invented promotion")
 				}
-				if scope == target.ScopeGlobal && (prepared[0].Claims() == nil || len(prepared[0].Claims().Before()) != 2 || len(prepared[0].Claims().After()) != len(after.ManagedAggregates())) {
+				if prepared[0].Claims() == nil || len(prepared[0].Claims().Before()) != 2 || len(prepared[0].Claims().After()) != len(after.ManagedAggregates()) {
 					t.Fatal("missing historical claim fragment was lost or promoted")
 				}
 
@@ -167,9 +167,6 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					state, want := before, recovery.ClassificationCleanBefore
 					if committed {
 						state, want = after, recovery.ClassificationNeedsFinalize
-						if retained && scope == target.ScopeProject {
-							want = recovery.ClassificationCleanAfter
-						}
 					}
 					stateBytes, err := fixture.envelope.codec.Encode(state)
 					if err != nil {
@@ -183,7 +180,7 @@ func TestNativeMissingHistoryCapturesAndSettlesWithoutHostPublication(t *testing
 					assessment, err := journalqualification.AssessNativeDocuments(journal, t.Context(), journalqualification.NativeReadOptions{
 						Documents: documents, Roots: fixture.roots, Registry: store,
 						State: func(ctx context.Context) (durable.Snapshot, error) {
-							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: fixture.envelope.codec, PhysicalPathBudget: documents.Budget})
+							return statefile.LoadOptionalWithOptions(ctx, statePath, statefile.ReadOptions{Codec: stateimage.Physical(t, fixture.envelope.codec), PhysicalPathBudget: documents.Budget})
 						},
 					})
 					if err != nil || assessment.Facts().Classification() != want || assessment.Facts().DocumentCount() != 1 || requireAssessedDocument(t, assessment, 0).Restoration().Changed() {
@@ -244,7 +241,7 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 	if err := os.Remove(fixture.path); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, fixture.reader, fixture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.namespace.Addresses(), fixture.roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +254,7 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		manifest, err := fixture.roots.Manifest.Root.Authority()
+		manifest, err := namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).Root.Authority()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,7 +267,7 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 			aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 		}
 		pin := namespace.WriterPin()
-		draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, provenance)
+		draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, provenance)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,7 +283,15 @@ func TestNativeMissingHistoryRequalificationKeepsOriginalExactNamespace(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		return fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
+		basis, err := fixture.envelope.journal.OrdinaryCaptureBasis()
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal, err := journalrecord.NewNativeCapture(fixture.input.OperationID(), basis.CreatedAt(), fixture.input.Owner(), provenance, fixture.envelope.before, fixture.envelope.after, []journalrecord.SealedDocumentGroup{group})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return journal
 	}
 	journal := build(fixture.input.Claims(), fixture.input.Bindings())
 	recorded, err := journal.DocumentAt(0)

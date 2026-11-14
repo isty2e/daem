@@ -160,7 +160,7 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 		t.Fatal(err)
 	}
 	input := pipackage.LoadedOrderInput{
-		Scope: scope, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
+		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
 		Document: aggregate.ExistingDocument([]byte(`{"packages":[{"source":` + string(quotedB) + `,"opaque":{"User-Key":null}},"npm:foreign@1",` + string(quotedA) + `],"theme":"day"}`)),
 	}
 	observation, err := pipackage.ReconstructOrder(input)

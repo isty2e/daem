@@ -7,6 +7,7 @@ import (
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -18,14 +19,14 @@ func promoteNativeCapturedDocument(ctx context.Context, captured journalpublicat
 		NativeRecoveryOptions: journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Codecs: input.Codecs, Registry: store,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
-				return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+				return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 			},
 		},
 		RecordAuthority: authority.recoveryJournalRecord, StateCodec: input.StateCodec,
 	})
 }
 
-func reserveNativePromotedDocument(ctx context.Context, store ownershipmutation.RegistryStore, document journalpublication.CapturedNativeDocument) error {
+func reserveNativePromotedDocument(ctx context.Context, store ownershipmutation.RegistryStore, document journalpublication.CapturedNativeDocument, references ...pathauthority.Reference) error {
 	if len(document.ProvisionalAcquires()) != 0 {
 		return fmt.Errorf("native claim promotion is incomplete")
 	}
@@ -49,6 +50,6 @@ func reserveNativePromotedDocument(ctx context.Context, store ownershipmutation.
 	if err != nil {
 		return err
 	}
-	_, err = store.ConvergeRegistry(ctx, convergence, bindings)
+	_, err = store.ConvergeRegistry(ctx, convergence, bindings, references...)
 	return err
 }

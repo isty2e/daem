@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
@@ -125,6 +128,19 @@ func executeWithDependencies(
 		return disclose(planned), err
 	}
 
+	metadataErr := attemptMetadataConversion(ctx, planned)
+	if recoverygate.IsCancellation(metadataErr) {
+		return disclose(planned), metadataErr
+	}
+	if err := ctx.Err(); err != nil {
+		return disclose(planned), err
+	}
+	defer func() {
+		if metadataErr != nil && recoverygate.IsGlobalMetadataRefusal(returnErr) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("automatic metadata conversion: %w", metadataErr))
+		}
+	}()
+
 	store, err := mutation.NewStore(planned.context.Paths.DataDir)
 	if err != nil {
 		return disclose(planned), err
@@ -233,6 +249,9 @@ func executeWithDependencies(
 		return disclose(current), err
 	} else if !matches {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
+	}
+	if covered, err := leases.CoversPhysicalAuthority(currentAuthority.documentWrites); err != nil || !covered {
+		return disclose(current), staleApplyError(options.PlanWasDisclosed, err)
 	}
 	if err := preflightMCPEnvironmentSources(
 		ctx,
@@ -382,15 +401,11 @@ func executeWithDependencies(
 	}
 	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
 		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
-			matches, err := leases.DomainsMatchCurrent(ctx)
+			matches, err := leases.MatchCurrentPhysicalRequests(ctx, currentAuthority.documentWriteRequests...)
 			if err != nil || !matches {
 				return matches, err
 			}
 			covered, err := leases.CoversPhysicalAuthority(authority)
-			if err != nil || !covered {
-				return covered, err
-			}
-			covered, err = leases.CoversPhysicalAuthority(currentAuthority.documentWrites)
 			if err != nil || !covered {
 				return covered, err
 			}
@@ -399,13 +414,10 @@ func executeWithDependencies(
 	}
 	validatePhysicalAuthorityRequests := func(ctx context.Context, requests []mutation.PhysicalAuthorityRequest) error {
 		return validateBeforeEffectsWith(ctx, func(ctx context.Context) (bool, error) {
-			matches, err := leases.MatchCurrentPhysicalRequests(ctx, requests...)
+			selected := slices.Concat(requests, currentAuthority.documentWriteRequests)
+			matches, err := leases.MatchCurrentPhysicalRequests(ctx, selected...)
 			if err != nil || !matches {
 				return matches, err
-			}
-			covered, err := leases.CoversPhysicalAuthority(currentAuthority.documentWrites)
-			if err != nil || !covered {
-				return covered, err
 			}
 			return true, currentAuthority.documentView.RequireProtectionClear()
 		})
@@ -462,7 +474,17 @@ func executeWithDependencies(
 	if carrierRemovalBaselineObserver == nil {
 		carrierRemovalBaselineObserver = passiveCarrierRemovalBaselineObserver(current.context.Paths)
 	}
+	physicalStateCodec, err := current.context.PersistenceEpoch.PhysicalStateCodec(statefile.DefaultPhysicalCodec())
+	if err != nil {
+		return current.result, err
+	}
+	ownerReference, err := statefile.SelectStatefileReference(physicalStateCodec.StatefileReference(), current.assessment.OwnerReference)
+	if err != nil {
+		return current.result, fmt.Errorf("select carrier-owner lookup evidence: %w", err)
+	}
 	executionOptions := runOptions{
+		physicalStateCodec:             physicalStateCodec,
+		ownerReferences:                []pathauthority.Reference{ownerReference},
 		ExecuteEvents:                  options.ExecuteEvents,
 		HostRouteExecutor:              options.HostRouteExecutor,
 		HostRouteObserver:              hostRouteObserver,
@@ -504,8 +526,12 @@ func executeWithDependencies(
 			native.ApplyInput.Filesystem = options.NativeFilesystem
 		}
 		executionOptions.nativeInput = &native
-		executionOptions.persistenceCodec = current.nativePlan.stateCodec
+		executionOptions.journalStateCodec = current.nativePlan.stateCodec
+		executionOptions.physicalStateCodec = current.nativePlan.statefileCodec
 		executionOptions.nativeInvocations = nativeInvocations
+		if !current.nativePlan.opaque {
+			executionOptions.nativeOrderChecks = current.nativePlan.orders
+		}
 		if current.nativePlan.opaque {
 			originalOwnership := current.assessment.Ownership
 			requalificationInput := func() applyRequalificationInput {
@@ -594,8 +620,8 @@ func executeWithDependencies(
 					if err != nil {
 						return nativeSegmentResult{}, err
 					}
-					reconciliation := current.assessment.Reconciliation
 					current, currentAuthority, firstEffectRevisions, stateDirBoundaryValidated, revisionsValidated = updated.plan, updated.authority, updated.revisions, updated.stateDirBoundaryValidated, false
+					reconciliation := current.assessment.Reconciliation
 					input, plan := remainder.input, remainder.plan
 					if options.NativeFilesystem != nil {
 						input.Filesystem = options.NativeFilesystem
@@ -619,7 +645,7 @@ func executeWithDependencies(
 			}
 			if stateDirPlan.schedule.delegateSuffix != nil {
 				for _, order := range current.nativePlan.orders {
-					executionOptions.deferredNativeOrders = append(executionOptions.deferredNativeOrders, order.Sequence().ClassID())
+					executionOptions.deferredNativeOrders = append(executionOptions.deferredNativeOrders, selectedOrderSequenceKey(order))
 				}
 				executionOptions.afterDelegates = func(ctx context.Context, state durable.Snapshot, claims durablecarrier.GlobalCarrierClaims) (nativeSegmentResult, error) {
 					qualification := requalificationInput()
@@ -645,8 +671,8 @@ func executeWithDependencies(
 					if err != nil {
 						return nativeSegmentResult{}, err
 					}
-					reconciliation := current.assessment.Reconciliation
 					current, currentAuthority, firstEffectRevisions, stateDirBoundaryValidated, revisionsValidated = updated.plan, updated.authority, updated.revisions, updated.stateDirBoundaryValidated, false
+					reconciliation := current.assessment.Reconciliation
 					input := remainder.input
 					if options.NativeFilesystem != nil {
 						input.Filesystem = options.NativeFilesystem
@@ -751,6 +777,7 @@ func executeWithDependencies(
 	}
 	if providerPhase.rebound {
 		leases = providerPhase.leases
+		currentAuthority = providerPhase.authorityEvidence
 		firstEffectRevisions = providerPhase.firstEffectRevisions
 		stateDirBoundaryValidated, revisionsValidated = false, false
 		executionOptions.currentContinuation = providerPhase.currentContinuation
@@ -814,8 +841,7 @@ func staleApplyError(disclosed bool, cause error) error {
 	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
 		return cause
 	}
-	state := recoverygate.StateOf(cause)
-	if state.Observed() {
+	if recoverygate.IsBarrierRefusal(cause) {
 		return cause
 	}
 	var stale error = mutation.StaleSnapshotError{}

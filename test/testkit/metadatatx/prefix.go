@@ -25,6 +25,7 @@ type Write struct {
 	Before      *Image
 	After       []byte
 	CommitPoint bool
+	Retain      bool
 }
 
 // WritePrefix installs persisted before/after evidence and a selected prefix of
@@ -72,7 +73,13 @@ func WritePrefix(t testing.TB, stateDir string, writes []Write, visible int) {
 		Targets []row `json:"targets"`
 	}{Version: contractversion.MetadataTransaction}
 	for index, write := range writes {
-		entry := row{Path: write.Path, AfterHash: contentHash(write.After), Write: true, CommitPoint: write.CommitPoint}
+		if write.Retain && write.CommitPoint {
+			t.Fatal("retained fixture target cannot be a commit point")
+		}
+		entry := row{Path: write.Path, Write: !write.Retain, CommitPoint: write.CommitPoint}
+		if !write.Retain {
+			entry.AfterHash = contentHash(write.After)
+		}
 		mode := os.FileMode(0o600)
 		if write.Before != nil {
 			backup := filepath.Join(root, fmt.Sprintf("target-%03d.before", index))
@@ -83,14 +90,14 @@ func WritePrefix(t testing.TB, stateDir string, writes []Write, visible int) {
 			mode = write.Before.Mode
 		}
 		marker.Targets = append(marker.Targets, entry)
-		if index >= visible && write.Before == nil {
+		if (index >= visible || write.Retain) && write.Before == nil {
 			if err := os.Remove(write.Path); err != nil && !os.IsNotExist(err) {
 				t.Fatal(err)
 			}
 			continue
 		}
 		content := write.After
-		if index >= visible {
+		if index >= visible || write.Retain {
 			content = write.Before.Content
 		}
 		if err := os.MkdirAll(filepath.Dir(write.Path), 0o700); err != nil {

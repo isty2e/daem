@@ -3,7 +3,6 @@ package instructions
 import (
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"unicode"
@@ -131,7 +130,7 @@ func validateSource(value source.Source, scope target.Scope) error {
 		if local.Mode() != source.LocalSourceModeVendor {
 			return fmt.Errorf("instruction local sources must use vendor mode")
 		}
-		if scope == target.ScopeGlobal && !filepath.IsAbs(local.Path()) {
+		if scope == target.ScopeGlobal && !local.IsAbsolute() {
 			return fmt.Errorf("global local filesystem sources must use an absolute path")
 		}
 	}

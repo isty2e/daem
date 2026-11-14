@@ -10,6 +10,7 @@ import (
 	mcpeffectivehost "github.com/isty2e/daem/internal/assurance/observe/mcp/effective/host"
 	mcpprovider "github.com/isty2e/daem/internal/assurance/observe/mcp/provider"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -38,6 +39,7 @@ type assessmentPlanInput struct {
 	aggregateInputs        managedAggregatePlanningInputs
 	managedEvidence        []observe.ManagedPathEvidence
 	owner                  stateauthority.Authority
+	ownerReference         pathauthority.Reference
 	ownershipObservations  []observe.OwnershipObservation
 	mcpEffective           mcpeffectivehost.ObservationSet
 	relationObservations   relationobserve.Batch
@@ -200,6 +202,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		Reconciliation:         result,
 		RelationObservations:   input.relationObservations,
 		Owner:                  input.owner,
+		OwnerReference:         input.ownerReference,
 		Ownership:              input.ownershipObservations,
 		SelectedTargets:        input.selectedTargets,
 		NativeSources:          input.nativeSources,

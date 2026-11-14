@@ -62,7 +62,7 @@ func compilerShadowImportFinding(packagePath string, imported string) []Guardrai
 			}}
 		}
 	case isTopologyPackage(packagePath) || isRealizationPackage(packagePath):
-		if isHostSurfaceCompilerPackage(imported) {
+		if isPackageOrChild(imported, "internal/hostsurface/catalog") {
 			return []GuardrailFinding{{
 				Rule:        ruleCompilerOwnerCatalogImport,
 				PackagePath: packagePath,

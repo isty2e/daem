@@ -7,14 +7,14 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 func TestNativeRecordAliasAndAnchorQueriesReturnCompleteIndependentFacts(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	value := fixture.nativeValue(t)
 	aliases, err := value.DocumentAliases()
 	if err != nil || len(aliases) != 1 || len(aliases[0]) != 1 || aliases[0][0] != fixture.claims.alias {
 		t.Fatal("complete aliases changed", err)
@@ -25,29 +25,31 @@ func TestNativeRecordAliasAndAnchorQueriesReturnCompleteIndependentFacts(t *test
 		t.Fatal("caller changed recorded aliases", err)
 	}
 	anchors, err := value.RecordedRootAnchors()
+	manifestReference, referenceErr := configuration.ProjectRootReference()
+	if referenceErr != nil {
+		t.Fatal(referenceErr)
+	}
 	manifest, manifestErr := fixture.record.ManifestRootProvenance.canonical()
-	if err != nil || manifestErr != nil || anchors[output.RootProject] != manifest {
+	if err != nil || manifestErr != nil || anchors[manifestReference] != manifest {
 		t.Fatal("recorded manifest anchor changed", err, manifestErr)
 	}
-	delete(anchors, output.RootProject)
+	delete(anchors, manifestReference)
 	againAnchors, err := value.RecordedRootAnchors()
-	if err != nil || againAnchors[output.RootProject] != manifest {
+	if err != nil || againAnchors[manifestReference] != manifest {
 		t.Fatal("caller changed recorded anchors", err)
 	}
-	bad := value.record.DocumentGroups[0].Aliases[0]
+	bad := fixture.record.DocumentGroups[0].Aliases[0]
 	bad.Address.Destination = ""
-	value.record.DocumentGroups[0].Aliases = append(value.record.DocumentGroups[0].Aliases, bad)
-	if result, err := value.DocumentAliases(); err == nil || result != nil {
-		t.Fatal("invalid trailing alias supplied partial groups")
-	}
-	if result, err := value.RecordedRootAnchors(); err == nil || result != nil {
-		t.Fatal("invalid trailing alias supplied partial anchors")
+	fixture.record.DocumentGroups[0].Aliases = append(fixture.record.DocumentGroups[0].Aliases, bad)
+	invalid, err := newNative16Value(fixture.record, fixture.claims.owner, fixture.before, fixture.after)
+	if err == nil || invalid.requireNativeValue() == nil {
+		t.Fatal("invalid trailing alias supplied a partially lowered journal", err)
 	}
 }
 
 func TestNativeRecordEncodingKeepsTheExistingFamilyAdmission(t *testing.T) {
 	fixture := nativeJournalFixture(t)
-	value := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	value := fixture.nativeValue(t)
 	want, err := marshalNativeJournalRecord(t.Context(), fixture.record, fixture.before, fixture.after, fixture.codec)
 	if err != nil {
 		t.Fatal(err)
@@ -87,9 +89,11 @@ func TestNativeRecordTransitionsAndAliasQueriesRefuseZero(t *testing.T) {
 func TestNativeOrdinaryPromotionKeepsFactsSeparateFromFamilyAdmission(t *testing.T) {
 	fixture := ordinaryPromotionRecordFixture(t)
 	ordinary := fixture.record
-	value := Native{record: nativeJournalRecord{
-		Version: NativeVersion, OperationID: ordinary.OperationID(),
-		Entries: ordinary.record.Entries, ClaimTransitions: ordinary.record.ClaimTransitions, ProvisionalAcquires: ordinary.record.ProvisionalAcquires,
+	value := Native{record: nativeRuntimeRecord{
+		Version: native16Version, nativeRecordBody: nativeRecordBody{
+			OperationID: ordinary.OperationID(),
+			Entries:     ordinary.record.Entries, ClaimTransitions: ordinary.record.ClaimTransitions, ProvisionalAcquires: ordinary.record.ProvisionalAcquires,
+		},
 	}}
 	if _, err := value.ProvisionalAcquireEntry(fixture.intent); err != nil {
 		t.Fatal("matching ordinary entry was lost", err)

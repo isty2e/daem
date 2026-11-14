@@ -191,7 +191,7 @@ func TestAntigravityGlobalRemovalBlocksForAnotherDaemKnownConsumer(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Upsert(t.Context(), sharedClaim); err != nil {
+	if _, err := store.Upsert(t.Context(), sharedClaim, testkit.MustObservedPathReference(t, sharedClaim.Owner().StatefileKey())); err != nil {
 		t.Fatal(err)
 	}
 	fixture.removeDeclaration(t)

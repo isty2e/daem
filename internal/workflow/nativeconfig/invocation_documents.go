@@ -18,8 +18,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
-	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/topology"
@@ -62,7 +60,7 @@ type InvocationBaseline struct {
 	whole     map[aggregate.DocumentAddress]aggregate.Document
 }
 
-func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, input readiness.NativeAssessmentInput, sources []lockobserve.NativeSourceObservation) (InvocationDocuments, error) {
+func PrepareInvocationDocuments(ctx context.Context, input readiness.NativeAssessmentInput, sources []lockobserve.NativeSourceObservation) (InvocationDocuments, error) {
 	if ctx == nil || input.Documents == nil || input.Budget == nil {
 		return InvocationDocuments{}, fmt.Errorf("native invocation documents require retained input and allocation")
 	}
@@ -99,11 +97,11 @@ func PrepareInvocationDocuments(ctx context.Context, paths daempaths.Paths, inpu
 	}
 	for _, namespace := range input.Documents.Evidence().Namespaces() {
 		aliases := namespace.Addresses()
-		path, err := managedhostpath.Resolver(paths).Resolve(aliases[0].AggregateRoot())
+		request, err := namespace.Aliases()[0].PhysicalAuthorityRequest()
 		if err != nil {
 			return InvocationDocuments{}, err
 		}
-		layout, err := rootedpath.CaptureDirectoryEntryLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, input.Budget)
+		layout, err := rootedpath.CaptureDirectoryEntryLayoutBounded(request.Path, physicalwork.MaximumPhysicalPathDepth, input.Budget)
 		if err != nil {
 			return InvocationDocuments{}, err
 		}

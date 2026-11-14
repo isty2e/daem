@@ -177,7 +177,7 @@ jobs:
             goos: darwin
             goarch: arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}

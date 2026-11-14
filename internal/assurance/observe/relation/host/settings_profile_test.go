@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -59,6 +60,32 @@ func settingsProfileDocument(t *testing.T, syntax configdocument.Syntax, text st
 	return document
 }
 
+func TestClaudeOpaqueInvocationKeepsConfigurationAndOverriddenPluginStore(t *testing.T) {
+	paths := settingsProfilePaths(t)
+	config := filepath.Join(paths.ManifestRoot, "config")
+	store := filepath.Join(paths.ManifestRoot, "plugin-store")
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", store)
+	key := settingsProfileKey(t, desiredextension.CarrierClaudeCodePlugin, target.TargetClaudeCode, target.ScopeGlobal, "alpha@market")
+	selected, err := NativeSettingsProfileFor(key, lock.OperationInstall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathsToPreserve, err := selected.ExclusionPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{config, store} {
+		found := false
+		for _, actual := range pathsToPreserve {
+			found = found || actual.Path() == expected && actual.Target() == target.TargetClaudeCode && actual.Scope() == target.ScopeGlobal
+		}
+		if !found {
+			t.Error("opaque invocation lost a selected configuration or plugin store", expected, pathsToPreserve)
+		}
+	}
+}
+
 func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 	for _, row := range []struct {
 		carrier    desiredextension.Carrier
@@ -69,7 +96,7 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 	}{
 		{desiredextension.CarrierPiPackage, target.TargetPi, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "npm:@acme/tools@1", 0},
 		{desiredextension.CarrierCodexPlugin, target.TargetCodex, []target.Scope{target.ScopeGlobal}, "alpha@market", 0},
-		{desiredextension.CarrierClaudeCodePlugin, target.TargetClaudeCode, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "alpha@market", 1},
+		{desiredextension.CarrierClaudeCodePlugin, target.TargetClaudeCode, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "alpha@market", 2},
 		{desiredextension.CarrierAntigravityCLIPlugin, target.TargetAntigravityCLI, []target.Scope{target.ScopeGlobal}, "acme/tools", 2},
 		{desiredextension.CarrierOpenCodePlugin, target.TargetOpenCode, []target.Scope{target.ScopeProject, target.ScopeGlobal}, "@acme/tools@1", 4},
 	} {
@@ -104,7 +131,7 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 					if (err == nil) != (want == lock.ActuationDelegatedHostRoute) {
 						t.Fatal("direct removal gained an invocation rewrite", err)
 					}
-					rewrite, err := selected.RewritePaths(paths)
+					rewrite, err := selected.RewritePaths(paths, nil)
 					var expectedRewrite []string
 					switch row.carrier {
 					case desiredextension.CarrierPiPackage:
@@ -128,7 +155,7 @@ func TestNativeSettingsProfileOperationMatrix(t *testing.T) {
 						}
 					}
 					if operation == lock.OperationRefresh {
-						fence, err := selected.FencePaths(paths)
+						fence, err := selected.FencePaths(paths, nil)
 						if row.carrier == desiredextension.CarrierPiPackage {
 							count = 2
 						}
@@ -160,7 +187,7 @@ func TestNativeSettingsPiBindingRetainsOperationAndAliasSemantics(t *testing.T) 
 	global, _ := pipackage.SettingsDocumentAddress(target.ScopeGlobal)
 	groups := [][]aggregate.DocumentAddress{{project, global}}
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -19,13 +19,12 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -42,7 +41,7 @@ type NativeApplyInput struct {
 	Registry    ownership.Registry
 	Budget      *physicalwork.Budget
 	// RecoveryCodecs reconstructs the same profile without inheriting forward cancellation.
-	RecoveryCodecs func(context.Context) (aggregate.CodecCatalog, durable.SnapshotCodec, error)
+	RecoveryCodecs func(context.Context) (catalog aggregate.CodecCatalog, journalCodec durable.SnapshotCodec, statefileCodec statefile.PhysicalCodec, err error)
 }
 
 type nativeApplyWork struct {
@@ -70,7 +69,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	if !input.Preparation.BeforeState().Equal(input.CurrentState) || !input.Documents.Evidence().BeforeState().Equal(input.CurrentState) || input.Budget == nil {
 		return nativeApplyWork{}, fmt.Errorf("native execution inputs differ from their complete observed Before")
 	}
-	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), journalpublication.PlanningOperationID(), input.Preparation.PiOrders()...)
+	documents, members, err := input.Documents.CaptureMembers(input.Preparation.AfterState(), journalpublication.PlanningOperationID(), input.Preparation.SequenceEdits()...)
 	if err != nil {
 		return nativeApplyWork{}, err
 	}
@@ -81,7 +80,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	}
 	work := nativeApplyWork{
 		documents: documents, promoting: promoting, mutating: make([]bool, len(namespaces)),
-		managed: input.Preparation.ManagedPathEffects(), changed: !input.CurrentState.Equal(input.Preparation.AfterState()),
+		managed: input.Preparation.ManagedPathEffects(), changed: input.Preparation.StateChanged(),
 	}
 	var registryAliases []aggregate.DocumentAddress
 	wholeGroups := make(map[int]struct{})
@@ -217,11 +216,8 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		work.changed = true
 	}
 	work.changed = work.changed || len(work.managed) != 0
-	for _, order := range input.Preparation.PiOrders() {
-		alias, err := pipackage.SettingsDocumentAddress(order.Scope())
-		if err != nil {
-			return nativeApplyWork{}, err
-		}
+	for _, order := range input.Preparation.SequenceEdits() {
+		alias := order.DocumentAddress()
 		found := false
 		for index, namespace := range namespaces {
 			if slices.Contains(namespace.Addresses(), alias) {
@@ -379,7 +375,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		defer func() { resultErr = errors.Join(resultErr, execution.Finish(resultErr)) }()
 		return ApplyResult{ApplyResult: execute.ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}}, nil
 	}
-	stateContent, err := input.StateCodec.Encode(input.Preparation.AfterState())
+	if input.StatefileCodec.IsZero() {
+		return ApplyResult{}, fmt.Errorf("native statefile codec is required")
+	}
+	stateContent, err := input.StatefileCodec.EncodeState(input.Preparation.AfterState())
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -388,6 +387,13 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, authority.close()) }()
+	if !input.OwnerReference.IsZero() {
+		input.OwnerReference, err = statefile.SelectStatefileReference(input.StatefileCodec.StatefileReference(), input.OwnerReference)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+	}
+	authority.ownerReference = input.OwnerReference
 	if err := authority.bindProjectStatefile(input.Paths.ManifestRoot, input.Paths.StatefilePath); err != nil {
 		return ApplyResult{}, err
 	}
@@ -408,12 +414,12 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	}
 	input.Registry = actualRegistry
 	for _, namespace := range work.documents.Evidence().Namespaces() {
-		for _, alias := range namespace.Addresses() {
-			path, err := input.Resolver(alias.AggregateRoot())
+		for _, alias := range namespace.Aliases() {
+			request, err := alias.PhysicalAuthorityRequest()
 			if err != nil {
 				return ApplyResult{}, err
 			}
-			authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(alias.Target()), Scope: string(alias.Scope())})
+			authority.physicalAuthorityRequests = append(authority.physicalAuthorityRequests, request)
 		}
 	}
 	if err := bindNativeOrdinaryApply(ctx, input, work, authority); err != nil {
@@ -465,7 +471,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
 			ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
 			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
-		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), OrderObservations: input.Preparation.PiOrders(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
+		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), SequenceEdits: input.Preparation.SequenceEdits(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
 		if err != nil {
 			return err
 		}
@@ -490,7 +496,10 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	defer func() { resultErr = errors.Join(resultErr, retiring.Close()) }()
-	if err := run("apply/native-ownership-preparation", func() error { _, err := store.ConvergeRegistry(ctx, preparation, emptyBindings); return err }); err != nil {
+	if err := run("apply/native-ownership-preparation", func() error {
+		_, err := store.ConvergeRegistry(ctx, preparation, emptyBindings, authority.registryReferences(captured)...)
+		return err
+	}); err != nil {
 		return result, settle(err)
 	}
 	for index := range work.mutating {
@@ -518,7 +527,9 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			}); err != nil {
 				return result, settle(err)
 			}
-			if err := run(prefix+"/claims", func() error { return reserveNativePromotedDocument(ctx, store, captured.Documents()[index]) }); err != nil {
+			if err := run(prefix+"/claims", func() error {
+				return reserveNativePromotedDocument(ctx, store, captured.Documents()[index], authority.registryReferences(captured)...)
+			}); err != nil {
 				return result, settle(err)
 			}
 		}
@@ -571,7 +582,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	if err := stateGate.ApplyEffect(func() error {
-		before, err := authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+		before, err := authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 		if err != nil || !before.Equal(input.CurrentState) {
 			return errors.Join(fmt.Errorf("native state changed before commit"), err)
 		}

@@ -143,7 +143,7 @@ func writeCLIClaudeGlobalManagedCarrierState(
 	if err != nil {
 		t.Fatalf("open carrier claim registry: %v", err)
 	}
-	if _, err := store.Upsert(context.Background(), claim); err != nil {
+	if _, err := store.Upsert(context.Background(), claim, testkit.MustObservedPathReference(t, claim.Owner().StatefileKey())); err != nil {
 		t.Fatalf("persist global managed carrier claim: %v", err)
 	}
 	attempt := mustCLIObservedPresentHostRouteAttempt(

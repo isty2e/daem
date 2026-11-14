@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // ObserveRemovalNamespace checks fresh parent facts using the retained writer
@@ -28,19 +29,69 @@ func (namespace DocumentNamespace) ObserveRemovalNamespace(ctx context.Context, 
 }
 
 func (grant RootGrant) ObserveRoute(ctx context.Context, destination output.Destination, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
-	capability, err := grant.acquireRoute(ctx, destination, budget)
+	selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	capability, err := grant.acquireRoute(ctx, selected, budget)
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
 	return ObserveWriterCapability(ctx, capability, budget)
 }
 
-func (grant RootGrant) acquireRoute(ctx context.Context, destination output.Destination, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
+func (alias Alias) ObserveRoute(ctx context.Context, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
+	point := alias.location.Coordinate().Kind() == configuration.CoordinatePointSelf
+	if point != (alias.root.selection.endpoint != nil) {
+		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native alias coordinate and selected root kind differ")
+	}
+	if point {
+		return alias.root.observeEndpointRoute(ctx, budget)
+	}
+	capability, err := alias.root.acquireRoute(ctx, alias.relative, budget)
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	return ObserveWriterCapability(ctx, capability, budget)
+}
+
+func (grant RootGrant) observeEndpointRoute(ctx context.Context, budget *physicalwork.Budget) (mutation.DirectoryEntryAuthorityObservation, error) {
+	if ctx == nil || budget == nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("endpoint route observation requires context and original allocation")
+	}
+	if err := grant.selection.qualifyLocator(ctx, budget); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	if grant.selection.creation != nil {
+		if _, err := grant.selection.qualifyCreation(ctx, budget); err != nil {
+			return mutation.DirectoryEntryAuthorityObservation{}, err
+		}
+	} else if err := grant.selection.capturedRoot().ValidateSelectionBounded(grant.selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	route, _, err := endpointRoutePath(ctx, grant.selection.endpoint.selected, budget)
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(route, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err := errors.Join(err, ctx.Err()); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	return observed, nil
+}
+
+func (grant RootGrant) acquireRoute(ctx context.Context, selected rootedpath.RelativeDestination, budget *physicalwork.Budget) (rootedpath.CommitCapability, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if grant.selection.endpoint != nil {
+		return nil, fmt.Errorf("endpoint witness cannot authorize a directory-relative route")
+	}
 	if grant.selection.Root == nil {
 		return nil, fmt.Errorf("writer route requires its selected retained root")
+	}
+	if err := selected.Validate(); err != nil {
+		return nil, err
 	}
 
 	physical := grant.authority.PhysicalRoot()
@@ -51,10 +102,6 @@ func (grant RootGrant) acquireRoute(ctx context.Context, destination output.Dest
 			return nil, err
 		}
 	} else if err := grant.selection.Root.ValidateSelectionBounded(grant.selection.SelectedPath, physicalwork.MaximumPhysicalPathDepth, budget); err != nil {
-		return nil, err
-	}
-	selected, err := rootedpath.NewRelativeDestination(destination.RelativePath())
-	if err != nil {
 		return nil, err
 	}
 	path, err := filepath.Rel(grant.authority.PhysicalRoot(), filepath.Join(physical, filepath.FromSlash(selected.Path())))

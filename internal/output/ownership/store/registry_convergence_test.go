@@ -202,7 +202,7 @@ func TestStoreCreatesBindingOnlyRegistryAndRetiresRemovedClaimTogether(t *testin
 		t.Fatal(err)
 	}
 	acquire := mustStoreBindingConvergence(t, storeBindingIntent(t, binding, false, true))
-	result, err := store.ConvergeRegistry(t.Context(), emptyClaims, acquire)
+	result, err := store.ConvergeRegistry(t.Context(), emptyClaims, acquire, storeClaimReferences(t, claim)...)
 	want, wantErr := ownership.NewRegistry(nil, binding)
 	if err != nil || wantErr != nil || !result.Equal(want) {
 		t.Fatalf("binding-only registry creation differs: %v, %v", err, wantErr)

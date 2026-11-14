@@ -7,6 +7,7 @@ import (
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -16,6 +17,8 @@ import (
 )
 
 type nativePublicationContext struct {
+	protection           journalnamespace.ReservationSelectors
+	expected             []journalnamespace.DocumentNamespace
 	owner                stateauthority.Authority
 	before               durable.Snapshot
 	roots                journalnamespace.Roots
@@ -23,10 +26,11 @@ type nativePublicationContext struct {
 	budget               *physicalwork.Budget
 	resolver             func(output.Destination) (string, error)
 	ordinaryCapabilities journalnamespace.CapabilityResolver
+	references           []pathauthority.Reference
 }
 
 func reloadNativeCapture(ctx context.Context, directory, operationID, fingerprint string, batch NativeDocumentObservationBatch, after durable.Snapshot, options CaptureOptions) (CapturedNativeJournal, error) {
-	return reloadNativePublication(ctx, directory, operationID, fingerprint, nativePublicationContext{owner: batch.owner, before: batch.Evidence().BeforeState(), roots: batch.roots, limits: batch.Evidence().DocumentLimits(), budget: batch.budget, resolver: options.Resolver, ordinaryCapabilities: options.RootedCapability}, after, options)
+	return reloadNativePublication(ctx, directory, operationID, fingerprint, nativePublicationContext{owner: batch.owner, before: batch.Evidence().BeforeState(), roots: batch.roots, protection: batch.protection, expected: batch.Evidence().Namespaces(), limits: batch.Evidence().DocumentLimits(), budget: batch.budget, resolver: options.Resolver, ordinaryCapabilities: options.RootedCapability}, after, options)
 }
 
 type NativePromotionOptions struct {
@@ -48,7 +52,7 @@ func (captured CapturedNativeJournal) PromoteDocument(ctx context.Context, index
 	if _, err := captured.journal.DocumentAt(index); err != nil {
 		return CapturedNativeJournal{}, fmt.Errorf("native promotion requires selected record authority, codec and group")
 	}
-	observed, err := captured.AssessRecovery(ctx, options.NativeRecoveryOptions)
+	observed, err := captured.AssessForward(ctx, options.NativeRecoveryOptions)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}

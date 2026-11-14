@@ -258,14 +258,20 @@ func (destination Destination) Relative() RelativeDestination {
 	return destination.relative
 }
 
+// RootValidationWork returns the captured physical-root path's component count,
+// the work unit for a full root validation on admitted platforms.
+func (destination Destination) RootValidationWork() (int, error) {
+	if err := destination.Validate(); err != nil {
+		return 0, err
+	}
+	return absolutePathDepth(destination.root.physicalRoot)
+}
+
 // ParentChainValidationWork returns the component work for one bounded
 // destination-parent validation. The gate verifies the retained physical root
 // before and after checking every root-relative parent binding.
 func (destination Destination) ParentChainValidationWork() (int, error) {
-	if err := destination.Validate(); err != nil {
-		return 0, err
-	}
-	rootDepth, err := absolutePathDepth(destination.root.physicalRoot)
+	rootDepth, err := destination.RootValidationWork()
 	if err != nil {
 		return 0, err
 	}

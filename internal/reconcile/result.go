@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
@@ -285,6 +286,17 @@ func (result Result) CarrierAdoptions() []carrieradoption.Action {
 // CarrierAbsences returns a defensive copy of canonical absence decisions.
 func (result Result) CarrierAbsences() []carrierabsence.Action {
 	return append([]carrierabsence.Action(nil), result.absences...)
+}
+
+func (result Result) CarrierRetirementClaims() []durablecarrier.ManagedCarrierClaim {
+	var claims []durablecarrier.ManagedCarrierClaim
+	for _, action := range result.CarrierAbsences() {
+		switch action.Decision() {
+		case carrierabsence.DecisionRemove, carrierabsence.DecisionVerifyPendingRemoval:
+			claims = append(claims, action.Claim())
+		}
+	}
+	return claims
 }
 
 // Delegates returns a defensive copy of canonical delegated-route decisions.

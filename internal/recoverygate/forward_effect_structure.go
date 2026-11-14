@@ -3,6 +3,7 @@ package recoverygate
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
 )
@@ -289,6 +290,26 @@ func (authority EffectAuthority) lowerForwardPlan(
 	)
 	if err != nil {
 		return loweredForwardPlan{}, err
+	}
+	if fileSetCensuses != 0 {
+		census, err := fileset.MaximumFenceCensusWork(authority.globalMetadataRoot, defaultStateDirMaximumPhysicalDepth)
+		if err != nil {
+			return loweredForwardPlan{}, err
+		}
+		globalWork, err := (stateDirPhysicalWork{
+			pathComponents: census.PathComponents, entries: census.Entries, bytes: census.Bytes,
+		}).multiply(fileSetCensuses)
+		if err != nil {
+			return loweredForwardPlan{}, err
+		}
+		planned.stateWork, err = planned.stateWork.add(globalWork)
+		if err != nil {
+			return loweredForwardPlan{}, err
+		}
+		planned.totalWork, err = planned.totalWork.add(globalWork)
+		if err != nil {
+			return loweredForwardPlan{}, err
+		}
 	}
 	return loweredForwardPlan{
 		planned: planned,

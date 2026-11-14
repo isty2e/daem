@@ -79,7 +79,7 @@ func TestPiNativeCatalogObservesExplicitRootsWithoutHome(t *testing.T) {
 }
 
 func TestPiCatalogPreservesBackendHomeRequirementsAndRootRefusals(t *testing.T) {
-	for _, configuredRoot := range []string{"", "~/agent", "invalid-root "} {
+	for _, configuredRoot := range []string{"", "~/agent", "file://%zz"} {
 		t.Run("Native root refusal/"+configuredRoot, func(t *testing.T) {
 			workDir := t.TempDir()
 			withoutPiUserHome(t)

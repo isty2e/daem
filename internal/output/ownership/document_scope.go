@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 )
 
 // DocumentScope retains qualified comparison namespaces, not filesystem rights.
@@ -46,6 +47,40 @@ func (scope DocumentScope) Equal(other DocumentScope) bool {
 func (scope DocumentScope) contains(physical pathauthority.Exact) bool {
 	_, intersects := scope.intersection(physical)
 	return intersects
+}
+
+// Positive retained-document identity is narrower than the protection envelope.
+// Possible ancestor/sibling overlap cannot select metadata for removal.
+func (scope DocumentScope) matchesRetainedDocument(physical pathauthority.Exact) bool {
+	for _, namespace := range scope.exact {
+		if namespace.Equal(physical) {
+			return true
+		}
+	}
+	for _, missing := range scope.missing {
+		if missing.MatchesMissingExact(physical) {
+			return true
+		}
+	}
+	return false
+}
+
+// OwnClaims selects positive document identity, not possible protection overlap.
+// Reserved facts are retained so a release constructor can refuse them.
+func (scope DocumentScope) OwnClaims(registry Registry, owner stateauthority.Authority) ([]Claim, error) {
+	if !scope.initialized || !registry.initialized {
+		return nil, fmt.Errorf("own claim selection requires a qualified document scope and Registry")
+	}
+	if err := owner.Validate(); err != nil {
+		return nil, err
+	}
+	var claims []Claim
+	for _, claim := range registry.claims {
+		if claim.Owner().Equal(owner) && scope.matchesRetainedDocument(claim.Address().PathAuthority()) {
+			claims = append(claims, claim)
+		}
+	}
+	return claims, nil
 }
 
 func (scope DocumentScope) intersection(physical pathauthority.Exact) (pathauthority.Exact, bool) {

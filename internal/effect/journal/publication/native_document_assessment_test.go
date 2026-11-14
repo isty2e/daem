@@ -17,8 +17,10 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
@@ -139,7 +141,7 @@ func TestNativeDocumentAssessmentRequiresCompleteClaimAndBindingPhases(t *testin
 			if test.binding == "after" {
 				bindings = append(bindings, binding)
 			} else if test.binding == "third" {
-				other := filepath.Join(setup.roots.PiAgent.SelectedPath, "foreign.json")
+				other := filepath.Join(namespacetest.LegacyRoot(t, setup.roots, output.RootPiAgent).SelectedPath, "foreign.json")
 				if err := os.WriteFile(other, []byte("foreign binding target"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -312,7 +314,7 @@ func (setup *nativeAssessmentFixture) reader(t *testing.T) (journalrecord.Native
 	documents := setup.fixture.read
 	documents.Budget = imageBudget(t)
 	return setup.fixture.journal, journalqualification.NativeReadOptions{Documents: documents, Roots: setup.roots, Registry: registry, State: func(ctx context.Context) (durable.Snapshot, error) {
-		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: setup.fixture.codec, PhysicalPathBudget: documents.Budget})
+		return statefile.LoadOptionalWithOptions(ctx, setup.statePath, statefile.ReadOptions{Codec: stateimage.Physical(t, setup.fixture.codec), PhysicalPathBudget: documents.Budget})
 	}}
 }
 

@@ -46,7 +46,7 @@ func (after SnapshotIndex) ValidateExpectedBaselines(ctx context.Context, groups
 	}
 	aliases := make(map[aggregate.DocumentAddress]int)
 	for index, group := range groups {
-		for _, alias := range group.aliases {
+		for _, alias := range group.afterAliases {
 			aliases[alias] = index
 		}
 	}

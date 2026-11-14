@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
@@ -25,6 +26,10 @@ func (codec *codecCatalogTestCodec) MaximumDocumentBytes() int64 {
 		return 1024
 	}
 	return codec.maximumBytes
+}
+
+func (*codecCatalogTestCodec) RewriteLayout(Selection) (string, []output.KeyPath, error) {
+	return "", nil, errors.New("test codec has no native rewrite layout")
 }
 
 func (codec *codecCatalogTestCodec) ValidateContributions(ContributionSet) error {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 func TestApplyWithOptionsRejectsMissingDestinationResolverBeforeEffects(t *testing.T) {
@@ -61,7 +62,7 @@ func TestApplyWithOptionsRejectsStateEncodingFailureBeforeEffects(t *testing.T) 
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	input := fixture.input([]applyEventAction{action})
 	codecErr := errors.New("injected state encoding failure")
-	input.StateCodec = failingStateCodec{encodeErr: codecErr}
+	input.StatefileCodec = stateimage.Physical(t, failingStateCodec{encodeErr: codecErr})
 	var events []executionevent.Event
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{

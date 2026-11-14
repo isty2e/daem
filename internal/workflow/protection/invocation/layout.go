@@ -18,7 +18,6 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/executionidentity"
 	"github.com/isty2e/daem/internal/output"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -123,17 +122,21 @@ func (prepared *prospectiveInvocation) prepareDocument(ctx context.Context, memb
 	if err != nil {
 		return prospectiveInvocationDocument{}, err
 	}
+	physicalPoint, err := member.Namespace().WriterPath()
+	if err != nil {
+		return prospectiveInvocationDocument{}, err
+	}
 	document := prospectiveInvocationDocument{intents: intents}
 	for _, intent := range intents {
 		paths, err := namespace.NewResolution(prepared.qualification.paths, prepared.owner).BindingContext(intent.Owner(), budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
-		path, err := managedhostpath.Resolver(paths).Resolve(intent.Destination())
+		path, err := namespace.ResolveBindingDestination(paths, intent.Destination(), physicalPoint, budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
-		plan, err := mutation.PrepareDirectoryEntryAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
+		plan, err := mutation.PrepareReferentAuthorityBounded(ctx, path, physicalwork.MaximumPhysicalPathDepth, budget)
 		if err != nil {
 			return prospectiveInvocationDocument{}, err
 		}
@@ -143,7 +146,7 @@ func (prepared *prospectiveInvocation) prepareDocument(ctx context.Context, memb
 		}
 		document.target.bindings = append(document.target.bindings, invocationBinding{owner: intent.Owner(), observation: plan})
 		if len(document.target.bindings) == 1 {
-			document.target.layout, err = rootedpath.CaptureDirectoryEntryLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
+			document.target.layout, err = rootedpath.CaptureReferentLayoutBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
 			if err != nil {
 				return prospectiveInvocationDocument{}, err
 			}

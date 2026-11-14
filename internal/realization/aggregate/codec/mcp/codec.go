@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -119,6 +120,18 @@ func (codec mcpProjectionCodec) ContractID() aggregate.CodecContractID {
 }
 
 func (mcpProjectionCodec) MaximumDocumentBytes() int64 { return maximumDocumentBytes }
+
+func (codec mcpProjectionCodec) RewriteLayout(selection aggregate.Selection) (string, []output.KeyPath, error) {
+	operations, _, failure := codec.selectedProjections(aggregate.AbsentDocument(), selection)
+	if failure != nil {
+		return "", nil, failure
+	}
+	area, err := operations.Placement().NativeKeyPrefix()
+	if err != nil {
+		return "", nil, err
+	}
+	return operations.syntax.String(), []output.KeyPath{area}, nil
+}
 
 func (codec mcpProjectionCodec) Read(document aggregate.Document, selection aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
 	content := document.Content()

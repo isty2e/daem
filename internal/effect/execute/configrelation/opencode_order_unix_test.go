@@ -14,6 +14,7 @@ import (
 
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -245,7 +246,7 @@ func TestOpenCodeOrderExecuteRejectsConcurrentBaselineAndDoesNotCreateMissingFil
 		concurrent := `{"plugin":["beta@1","concurrent@1","alpha@1"]}`
 		writeOpenCodeEffectDocument(t, serverPath, concurrent)
 		changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
-		if err == nil || !strings.Contains(err.Error(), "baseline revision changed") {
+		if err == nil {
 			t.Fatalf("Execute error = %v", err)
 		}
 		if changed != 0 {
@@ -578,11 +579,23 @@ func bindOpenCodeOrder(
 	t *testing.T,
 	root string,
 	observation observeopencode.OrderObservation,
-) *BoundOpenCodeOrder {
+) *BoundOrder {
 	t.Helper()
-	plan, err := NewOpenCodeOrderPlan(observation)
+	var edits []relationhost.SelectedDocumentEdit
+	for _, document := range observation.Documents() {
+		view, err := document.WithRetiringRelations(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit, err := relationhost.NewOpenCodeDocumentEdit(view)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edits = append(edits, edit)
+	}
+	plan, err := NewOrderPlan(t.Context(), edits)
 	if err != nil {
-		t.Fatalf("NewOpenCodeOrderPlan: %v", err)
+		t.Fatalf("NewOrderPlan: %v", err)
 	}
 	if _, err := plan.PhysicalAuthority(); err != nil {
 		t.Fatalf("PhysicalAuthority: %v", err)

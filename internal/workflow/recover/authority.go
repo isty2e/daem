@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/output"
@@ -73,6 +74,12 @@ func recoveryOperationFingerprint(
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
 ) (mutation.OperationFingerprint, error) {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return mutation.OperationFingerprint{}, fmt.Errorf("active native release StateDir authority is required")
+		}
+		return nativeReleaseRecoveryFingerprint(paths, release, stateDir)
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
 		if !activeStateDir {
 			return mutation.OperationFingerprint{}, fmt.Errorf("active native recovery StateDir authority is required")
@@ -232,12 +239,19 @@ func buildRecoveryAuthorityEvidence(
 	selection journal.RecoverablePlan,
 	stateDir recoverygate.StateDirAuthority,
 	activeStateDir bool,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (recoveryAuthorityEvidence, error) {
+	if release, ok := journal.NativeReleaseActiveRecoveryPlan(selection); ok {
+		if !activeStateDir {
+			return recoveryAuthorityEvidence{}, fmt.Errorf("active native release StateDir authority is required")
+		}
+		return buildNativeReleaseRecoveryAuthority(paths, release, stateDir)
+	}
 	if native, ok := journal.NativeActiveRecoveryPlan(selection); ok {
 		if !activeStateDir {
 			return recoveryAuthorityEvidence{}, fmt.Errorf("active native recovery StateDir authority is required")
 		}
-		return buildNativeRecoveryAuthorityEvidence(paths, native, stateDir)
+		return buildNativeRecoveryAuthorityEvidence(paths, native, stateDir, budget)
 	}
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
@@ -250,7 +264,7 @@ func buildRecoveryAuthorityEvidence(
 		if !activeStateDir {
 			return recoveryAuthorityEvidence{}, fmt.Errorf("active recovery StateDir authority is required")
 		}
-		return buildActiveRecoveryAuthorityEvidence(paths, plan, stateDir)
+		return buildActiveRecoveryAuthorityEvidence(paths, plan, stateDir, budget)
 	case journal.RecoveryAuthorityJournalCleanup:
 		plan, ok := journal.JournalCleanupPlan(selection)
 		if !ok {
@@ -271,16 +285,21 @@ func buildActiveRecoveryAuthorityEvidence(
 	paths daempaths.Paths,
 	plan recovery.Plan,
 	stateDir recoverygate.StateDirAuthority,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (recoveryAuthorityEvidence, error) {
 	resolvedDestinations, removalPaths, err := resolveRecoveryAuthorityPaths(
 		paths,
 		plan.GuardedActions(),
 		plan.RemovalIntents(),
+		budget,
 	)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	builder, err := newRecoveryAuthorityBuilder(paths)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	for _, effect := range []mutation.PathEffect{
 		mutation.PathEffectDirectoryEntry,
 		mutation.PathEffectReferent,
@@ -327,9 +346,13 @@ func buildActiveRecoveryAuthorityEvidence(
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
-	if len(plan.ClaimTransitions()) != 0 {
+	if len(plan.ClaimTransitions()) != 0 || plan.RequiresHostWriteExclusion() {
+		access := mutation.AccessShared
+		if len(plan.ClaimTransitions()) != 0 {
+			access = mutation.AccessExclusive
+		}
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-			if err := builder.AddLogical(paths.OwnershipRegistryPath, mutation.AccessExclusive, effect); err != nil {
+			if err := builder.AddLogical(paths.OwnershipRegistryPath, access, effect); err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 		}
@@ -431,7 +454,10 @@ func buildCleanupRecoveryAuthorityEvidence(
 		filepath.Join(paths.RecoveryDir, authority.ResidueName()),
 		filepath.Join(paths.RecoveryDir, authority.GCName()),
 	}
-	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	builder, err := newRecoveryAuthorityBuilder(paths)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	for _, path := range recoveryPaths {
 		for _, effect := range []mutation.PathEffect{
 			mutation.PathEffectDirectoryEntry,
@@ -455,6 +481,18 @@ func buildCleanupRecoveryAuthorityEvidence(
 		domains:              domains,
 		authorityFingerprint: fingerprint,
 	}, nil
+}
+
+func newRecoveryAuthorityBuilder(paths daempaths.Paths) (*operationplan.Builder, error) {
+	marker, err := recoverygate.GlobalMetadataAuthorityPath(paths)
+	if err != nil {
+		return nil, err
+	}
+	builder := operationplan.NewBuilder(operationplan.RevisionsOff, nil, 0)
+	if err := builder.AddLogicalPair(marker, mutation.AccessShared, mutation.AccessShared); err != nil {
+		return nil, err
+	}
+	return builder, nil
 }
 
 func lowerRecoveryAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
@@ -493,6 +531,7 @@ func resolveRecoveryAuthorityPaths(
 	paths daempaths.Paths,
 	actions []recovery.Action,
 	removalIntents []recovery.RemovalIntent,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (
 	map[recoveryDestinationKey]string,
 	map[recoveryDestinationKey]recoveryRemovalAuthorityPaths,
@@ -513,7 +552,7 @@ func resolveRecoveryAuthorityPaths(
 		path, present := resolved[key]
 		if !present {
 			var err error
-			path, err = resolver.Resolve(key.destination)
+			path, err = resolver.Resolve(key.destination, budget)
 			if err != nil {
 				return nil, nil, fmt.Errorf("resolve recovery destination %q: %w", action.Destination, err)
 			}
@@ -549,7 +588,7 @@ func resolveRecoveryAuthorityPaths(
 		path, present := resolved[key]
 		if !present {
 			var err error
-			path, err = resolver.Resolve(key.destination)
+			path, err = resolver.Resolve(key.destination, budget)
 			if err != nil {
 				return nil, nil, fmt.Errorf(
 					"resolve recovery removal destination %q: %w",

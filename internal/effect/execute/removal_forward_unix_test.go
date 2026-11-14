@@ -75,8 +75,8 @@ func TestApplyRejectsDeepDirectoryRemovalCapacityBeforeJournalPublication(t *tes
 		ManagedPathEvidence: []observe.ManagedPathEvidence{evidence},
 		CurrentState:        durable.EmptySnapshot(),
 		Payloads:            payloads,
-		StateCodec:          testStateCodec(),
-		Filesystem:          testFilesystem(),
+		StateCodec:          testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
+		Filesystem: testFilesystem(),
 	}, ApplyOptions{})
 	if err == nil || !strings.Contains(err.Error(), "maximum depth 64") {
 		t.Fatalf("ApplyWithOptions error = %v, want bounded tree-depth rejection", err)

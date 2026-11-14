@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -100,13 +101,13 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 	}
 	manifest := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "manifest"))
 	pi := nativeNamespaceRoot(t, filepath.Join(manifest.SelectedPath, "host"))
-	rootSet := journalnamespace.Roots{Manifest: manifest, PiAgent: pi}
+	rootSet := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: manifest, output.RootPiAgent: pi})
 	original := aggregate.ExistingDocument([]byte(`{"model":true,"outside":1}`))
 	if err := os.WriteFile(filepath.Join(pi.SelectedPath, "custom.json"), original.Content(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	setupBudget := nativeFixtureBudget(t)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{claims.alias}, rootSet, journalTestFilesystem(), setupBudget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{claims.alias}, rootSet, namespacetest.Reservations(t), journalTestFilesystem(), setupBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +140,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifestGrant.Provenance())
+	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, manifestGrant.Provenance())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +158,7 @@ func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 		t.Fatal(err)
 	}
 	decoded, artifacts := publishNativeFixture(t, journal, comparison, journalpublication.StageOptions{StateCodec: codec, Codecs: codecs, Limits: limits, Budget: setupBudget})
-	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
+	return nativeRecordFixture{journal: decoded, before: before, after: after, codec: codec, read: journalqualification.ReadOptions{Protection: namespacetest.Reservations(t), Rules: journalqualification.RecordedRuleExpectations(), Artifacts: artifacts, Filesystem: journalTestFilesystem(), Budget: nativeFixtureBudget(t), Limits: limits, Codecs: codecs}, claims: claims, roots: rootSet, comparison: comparison, capturedGroups: []journalrecord.SealedDocumentGroup{group}}
 }
 
 func publishedNativeComparison(t *testing.T, before aggregate.Document, row durable.ManagedAggregateState, codecs aggregate.CodecCatalog, limits configdocument.Limits) journaldocument.Comparison {

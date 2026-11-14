@@ -268,7 +268,7 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	group.ExclusiveClaims, err = persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.claims.alias, intent)})
+	group.ExclusiveClaims, err = persistedDocumentProvisionalClaims([]journaldocument.ProvisionalAcquire{journaldocument.NewProvisionalAcquire(fixture.claims.alias, intent)}, journaldocument.LegacyGlobalClaims)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if len(loaded.provisional[0]) != 1 || len(loaded.claims[0].After()) != 0 {
 		t.Fatal("provisional record fabricated exact claims before promotion")
 	}
-	current := Native{record: fixture.record, owner: fixture.claims.owner, before: fixture.before, after: fixture.after}
+	current := fixture.nativeValue(t)
 	original, err := current.Encode(t.Context(), fixture.codec)
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ func TestNativeJournalProvisionalClaimsPromoteWithinTheSameCompleteRecord(t *tes
 	if err != nil || !bytes.Equal(original, unchanged) {
 		t.Fatal("promotion changed its input record", err)
 	}
-	fixture.record = promoted.record
+	fixture.record = promoted.native16Record()
 	group = &fixture.record.DocumentGroups[0]
 	loaded = nativeRecordLoadFixture(t, fixture)
 	if len(loaded.provisional[0]) != 0 || len(loaded.claims[0].Prepared()) != 1 || loaded.images[0].original.document.Exists() {

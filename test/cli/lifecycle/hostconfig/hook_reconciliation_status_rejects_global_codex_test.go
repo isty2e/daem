@@ -286,7 +286,7 @@ targets = ["claude-code"]
 			t.Fatalf("stdout = %q, want subject-level transition %q", stdout.String(), want)
 		}
 	}
-	testkit.AssertFileContent(t, filepath.Join(tempDir, ".claude/settings.json"), newProjectSettings)
+	assertHookDocumentMeaning(t, filepath.Join(tempDir, ".claude/settings.json"), newProjectSettings)
 	if _, err := os.Stat(filepath.Join(homeDir, ".claude/settings.json")); !os.IsNotExist(err) {
 		t.Fatalf("removed global hook settings exists or stat failed: %v", err)
 	}

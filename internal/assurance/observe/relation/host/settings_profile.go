@@ -7,9 +7,11 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -77,7 +79,7 @@ func (profile NativeSettingsProfile) ExclusionPaths(paths daempaths.Paths) ([]re
 	return values, err
 }
 
-func (profile NativeSettingsProfile) FencePaths(paths daempaths.Paths) ([]relationobserve.AuthorityPath, error) {
+func (profile NativeSettingsProfile) FencePaths(paths daempaths.Paths, budget rootedpath.PhysicalTraversalBudget) ([]relationobserve.AuthorityPath, error) {
 	if profile.operation != lock.OperationRefresh {
 		return nil, fmt.Errorf("native refresh fence requires its refresh profile")
 	}
@@ -85,14 +87,14 @@ func (profile NativeSettingsProfile) FencePaths(paths daempaths.Paths) ([]relati
 	if err != nil {
 		return nil, err
 	}
-	rewrite, err := profile.RewritePaths(paths)
+	rewrite, err := profile.RewritePaths(paths, budget)
 	if err != nil {
 		return nil, err
 	}
 	return append(result, rewrite...), nil
 }
 
-func (profile NativeSettingsProfile) RewritePaths(paths daempaths.Paths) ([]relationobserve.AuthorityPath, error) {
+func (profile NativeSettingsProfile) RewritePaths(paths daempaths.Paths, budget rootedpath.PhysicalTraversalBudget) ([]relationobserve.AuthorityPath, error) {
 	if err := profile.validate(); err != nil {
 		return nil, err
 	}
@@ -119,7 +121,7 @@ func (profile NativeSettingsProfile) RewritePaths(paths daempaths.Paths) ([]rela
 		addresses = append(addresses, address)
 	}
 	for _, address := range addresses {
-		path, err := managedhostpath.Resolver(paths).Resolve(address.AggregateRoot())
+		path, err := physicalhostpath.NewResolver(paths).Resolve(address.AggregateRoot(), budget)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +200,7 @@ func (profile NativeSettingsProfile) BindInvocationRewrites(paths daempaths.Path
 		selectedSource = absolute.Path()
 	}
 	bind := func(address aggregate.DocumentAddress, aliases []aggregate.DocumentAddress) (settingsRewrite, error) {
-		path, err := managedhostpath.Resolver(paths).Resolve(address.AggregateRoot())
+		path, err := managedhostpath.Resolver(paths, nil).Resolve(address.AggregateRoot())
 		if err != nil {
 			return settingsRewrite{}, err
 		}

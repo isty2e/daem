@@ -130,7 +130,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				printLockCommandHint(stdout, planning.ManifestPath, *manifestPath)
 			}
 			clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
-			if clipresent.PrintReconciliationGuidance(stdout, planning.Reconciliation) {
+			if clipresent.PrintReconciliationGuidance(stdout, planning.Reconciliation, planning.ManifestPath) {
 				printReconciliationInspectionHint(stdout, planning.ManifestPath, *manifestPath, targetValues, *verbose)
 			}
 			if planning.Reconciliation.HasErrors() {
@@ -209,7 +209,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
 			}
 			printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
-			if readinessPlanning.ReconciliationReady && clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation) {
+			if readinessPlanning.ReconciliationReady && clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation, readinessPlanning.ManifestPath) {
 				printReconciliationInspectionHint(stderr, readinessPlanning.ManifestPath, *manifestPath, targetValues, *verbose)
 			}
 			if readinessPlanning.ReconciliationReady && readinessPlanning.Reconciliation.HasLockReadinessErrors() {
@@ -340,7 +340,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				result,
 				*verbose,
 			)
-			if clipresent.PrintReconciliationFailureGuidance(stderr, result.Reconciliation) {
+			if clipresent.PrintReconciliationFailureGuidance(stderr, result.Reconciliation, result.ManifestPath) {
 				printReconciliationInspectionHint(stderr, result.ManifestPath, *manifestPath, targetValues, *verbose)
 			}
 			return 1
@@ -484,9 +484,19 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 	}
 	if stage == applyFailurePlanning || stage == applyFailureExecution {
 		failure := applyworkflow.ClassifyFailure(err, result)
+		if failure.Phase() == applyworkflow.FailurePhasePreflight {
+			if diagnostic, globalMetadata := clipresent.GlobalMetadataFailureDiagnostic(err); globalMetadata {
+				return diagnostic, failure.Reason()
+			}
+		}
 		if stage == applyFailurePlanning {
 			if cause, ok := applyInputErrorCause(err, failure); ok {
 				return clipresent.FailureDiagnosticFromError(cause), failure.Reason()
+			}
+			if failure.Phase() == applyworkflow.FailurePhasePreflight && failure.Reason() == applyworkflow.FailureReasonApplyRefused {
+				if diagnostic, native := clipresent.NativePlanningFailureDiagnostic(err); native {
+					return diagnostic, failure.Reason()
+				}
 			}
 		}
 		return clipresent.NewFailureDiagnostic(failure.PrimaryDetail()), failure.Reason()

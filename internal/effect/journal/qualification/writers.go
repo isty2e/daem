@@ -38,7 +38,7 @@ func QualifyWriterPartition(ctx context.Context, entries []journalrecord.PathEnt
 			return err
 		}
 		for _, alias := range namespace.Aliases() {
-			observation, err := alias.Root().ObserveRoute(ctx, alias.Address().AggregateRoot(), budget)
+			observation, err := alias.ObserveRoute(ctx, budget)
 			if err != nil {
 				return err
 			}

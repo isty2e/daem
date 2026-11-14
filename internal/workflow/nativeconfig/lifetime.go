@@ -3,8 +3,8 @@ package nativeconfig
 import (
 	"context"
 	"errors"
+	"io"
 
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -19,7 +19,7 @@ type AssessmentOperation struct {
 // containing operation owns the borrowed persistence allocation and authority.
 type DocumentObservation struct {
 	native *readiness.NativeAssessmentInput
-	roots  []*rootedpath.CapturedRoot
+	roots  []io.Closer
 	closed bool
 }
 

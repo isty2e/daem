@@ -2,12 +2,17 @@ package configrelation
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 )
 
@@ -37,120 +42,161 @@ func (sink OrderSequenceEventSink) emit(event OrderSequenceEvent) {
 	}
 }
 
-// OrderPlan is the host-neutral effect boundary for one freshly observed
-// extension-order class. Host-specific plan selection remains private to this
-// admitted specialization package.
-type OrderPlan struct {
-	pi       *PiOrderPlan
-	openCode *OpenCodeOrderPlan
+type selectedOrderDocument struct {
+	edit      relationhost.SelectedDocumentEdit
+	completed relationhost.VerifiedSelectedImage
 }
 
-// NewOrderPlan converts exactly one fresh host observation into its direct
-// mutation plan.
-func NewOrderPlan(observation relationhost.OrderObservation) (OrderPlan, error) {
-	piObservation, hasPi := observation.Pi()
-	openCodeObservation, hasOpenCode := observation.OpenCode()
-	if hasPi == hasOpenCode {
-		return OrderPlan{}, fmt.Errorf(
-			"extension order observation requires exactly one host-native value",
-		)
+// OrderPlan owns independently publishable documents, not an atomic class write.
+type OrderPlan struct {
+	documents []selectedOrderDocument
+}
+
+func NewOrderPlan(ctx context.Context, edits []relationhost.SelectedDocumentEdit) (OrderPlan, error) {
+	if len(edits) == 0 {
+		return OrderPlan{}, fmt.Errorf("extension order requires its selected document edits")
 	}
-	if hasPi {
-		plan, err := NewPiOrderPlan(piObservation)
+	plan := OrderPlan{documents: make([]selectedOrderDocument, 0, len(edits))}
+	paths := make(map[string]bool, len(edits))
+	for _, edit := range edits {
+		if paths[edit.SelectedPath()] {
+			return OrderPlan{}, fmt.Errorf("extension order requires one selected edit per document path")
+		}
+		paths[edit.SelectedPath()] = true
+		limits := configdocument.Limits{MaximumBytes: edit.MaximumBytes(), MaximumDepth: max(1, int(edit.Original().ContentSize()))}
+		completed, err := relationhost.CompleteSelectedImage(ctx, edit.Original(), limits, nil, []relationhost.SelectedDocumentEdit{edit})
 		if err != nil {
 			return OrderPlan{}, err
 		}
-		return OrderPlan{pi: &plan}, nil
+		plan.documents = append(plan.documents, selectedOrderDocument{edit: edit, completed: completed})
 	}
-	plan, err := NewOpenCodeOrderPlan(openCodeObservation)
-	if err != nil {
-		return OrderPlan{}, err
-	}
-	return OrderPlan{openCode: &plan}, nil
+	return plan, nil
 }
 
-// PhysicalAuthority returns every exact path the selected host plan may mutate.
+// PhysicalAuthority returns every exact path this document set may mutate.
 func (plan OrderPlan) PhysicalAuthority() (mutation.PhysicalAuthoritySet, error) {
-	switch {
-	case plan.pi != nil && plan.openCode == nil:
-		return plan.pi.PhysicalAuthority()
-	case plan.openCode != nil && plan.pi == nil:
-		return plan.openCode.PhysicalAuthority()
-	default:
-		return mutation.PhysicalAuthoritySet{}, fmt.Errorf(
-			"extension order plan is incomplete",
-		)
+	if len(plan.documents) == 0 {
+		return mutation.PhysicalAuthoritySet{}, fmt.Errorf("extension order plan is incomplete")
 	}
+	requests := make([]mutation.PhysicalAuthorityRequest, 0, len(plan.documents))
+	for _, document := range plan.documents {
+		if err := document.edit.Validate(); err != nil {
+			return mutation.PhysicalAuthoritySet{}, err
+		}
+		path := document.edit.SelectedPath()
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return mutation.PhysicalAuthoritySet{}, fmt.Errorf("extension order document path is not canonical")
+		}
+		address := document.edit.DocumentAddress()
+		requests = append(requests, mutation.PhysicalAuthorityRequest{Path: path, Target: string(address.Target()), Scope: string(address.Scope())})
+	}
+	return mutation.NewPhysicalAuthoritySet(requests...)
 }
 
-// Bind captures exact rooted entry authority for the selected host plan.
+// Bind captures exact rooted entry authority for every selected document.
 func (plan OrderPlan) Bind(
 	selectedRoot *rootedpath.CapturedRoot,
 	selectedRootPath string,
 ) (*BoundOrder, error) {
-	switch {
-	case plan.pi != nil && plan.openCode == nil:
-		bound, err := plan.pi.Bind(selectedRoot, selectedRootPath)
-		if err != nil {
-			return nil, err
-		}
-		return &BoundOrder{pi: bound}, nil
-	case plan.openCode != nil && plan.pi == nil:
-		bound, err := plan.openCode.Bind(selectedRoot, selectedRootPath)
-		if err != nil {
-			return nil, err
-		}
-		return &BoundOrder{openCode: bound}, nil
-	default:
-		return nil, fmt.Errorf("extension order plan is incomplete")
+	if _, err := plan.PhysicalAuthority(); err != nil {
+		return nil, err
 	}
+	order := &BoundOrder{plan: plan}
+	for _, document := range plan.documents {
+		authority, err := rootedpath.BindSelectedEntryAuthority(selectedRoot, selectedRootPath, document.edit.SelectedPath())
+		if err != nil {
+			return nil, errors.Join(err, order.Close())
+		}
+		order.authorities = append(order.authorities, authority)
+	}
+	return order, nil
 }
 
-// BoundOrder owns one closed host-specific binding behind a host-neutral
-// execution surface.
 type BoundOrder struct {
-	pi       *BoundPiOrder
-	openCode *BoundOpenCodeOrder
+	plan        OrderPlan
+	authorities []*rootedpath.EntryAuthority
+	closed      bool
 }
 
-// Execute converges physical sequences in their host-defined stable order.
+// Execute preserves completed earlier documents when a later publication fails.
 func (order *BoundOrder) Execute(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
 	events OrderSequenceEventSink,
 ) (int, error) {
-	if order == nil {
+	if order == nil || order.closed || ctx == nil || filesystem == nil || len(order.plan.documents) == 0 || len(order.authorities) != len(order.plan.documents) {
 		return 0, fmt.Errorf("bound extension order is unavailable")
 	}
-	switch {
-	case order.pi != nil && order.openCode == nil:
-		changed, err := order.pi.Execute(ctx, filesystem, events)
+	changedDocuments := 0
+	for index, document := range order.plan.documents {
+		sequenceID := document.edit.Sequence().SequenceID()
+		events.emit(OrderSequenceEvent{Kind: OrderSequenceStarted, SequenceID: sequenceID})
+		changed, err := executeSelectedOrderDocument(ctx, filesystem, order.authorities[index], document.completed)
 		if changed {
-			return 1, err
+			changedDocuments++
 		}
-		return 0, err
-	case order.openCode != nil && order.pi == nil:
-		return order.openCode.Execute(ctx, filesystem, events)
-	default:
-		return 0, fmt.Errorf("bound extension order is incomplete")
+		event := OrderSequenceEvent{Kind: OrderSequenceDone, SequenceID: sequenceID, Changed: changed}
+		if err != nil {
+			event.Kind, event.Err = OrderSequenceFailed, err
+		}
+		events.emit(event)
+		if err != nil {
+			return changedDocuments, err
+		}
 	}
+	return changedDocuments, nil
 }
 
-// Close releases every retained host entry authority.
+// Close releases every retained entry authority.
 func (order *BoundOrder) Close() error {
-	if order == nil {
+	if order == nil || order.closed {
 		return nil
 	}
-	switch {
-	case order.pi != nil && order.openCode == nil:
-		err := order.pi.Close()
-		order.pi = nil
-		return err
-	case order.openCode != nil && order.pi == nil:
-		err := order.openCode.Close()
-		order.openCode = nil
-		return err
-	default:
-		return fmt.Errorf("bound extension order is incomplete")
+	order.closed = true
+	err := closeAuthorities(order.authorities)
+	order.authorities = nil
+	return err
+}
+
+func executeSelectedOrderDocument(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, completed relationhost.VerifiedSelectedImage) (bool, error) {
+	if err := completed.Validate(); err != nil {
+		return false, err
 	}
+	capability, err := authority.Acquire()
+	if err != nil {
+		return false, err
+	}
+	content, mode, identity, err := filesystem.ReadRootedRegularFileUpTo(ctx, capability, completed.Limits().MaximumBytes)
+	current := aggregate.ExistingDocument(content)
+	if errors.Is(err, os.ErrNotExist) {
+		current, err = aggregate.AbsentDocument(), nil
+	}
+	if err != nil {
+		return false, errors.Join(err, capability.Close())
+	}
+	if current.Equal(completed.Expected()) {
+		return false, capability.Close()
+	}
+	if !current.Equal(completed.Original()) {
+		return false, errors.Join(fmt.Errorf("extension order original changed before publication"), capability.Close())
+	}
+	if !completed.Expected().Exists() || !current.Exists() {
+		return false, errors.Join(fmt.Errorf("extension ordering cannot create or remove a document"), capability.Close())
+	}
+	if err := filesystem.ReplaceRootedFile(ctx, capability, completed.Expected().Content(), mode, identity); err != nil {
+		return false, err
+	}
+	post, err := authority.Acquire()
+	if err != nil {
+		return true, fmt.Errorf("extension order post-observation: %w", err)
+	}
+	content, _, _, readErr := filesystem.ReadRootedRegularFileUpTo(ctx, post, completed.Limits().MaximumBytes)
+	closeErr := post.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return true, fmt.Errorf("extension order post-observation: %w", err)
+	}
+	if !aggregate.ExistingDocument(content).Equal(completed.Expected()) {
+		return true, fmt.Errorf("extension order post-observation differs from its verified completion")
+	}
+	return true, nil
 }

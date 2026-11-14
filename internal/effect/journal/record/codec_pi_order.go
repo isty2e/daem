@@ -68,6 +68,13 @@ func persistedPiOrderEvidence(observation pipackage.OrderObservation) (recoveryP
 	if err != nil {
 		return recoveryPiOrderEvidence{}, err
 	}
+	capability, err := native16PiOrderCapability(input.Scope)
+	if err != nil {
+		return recoveryPiOrderEvidence{}, err
+	}
+	if !input.Capability.Equal(capability) {
+		return recoveryPiOrderEvidence{}, fmt.Errorf("Pi order capability differs from native16's interpretation")
+	}
 	if !observation.Changed() {
 		return recoveryPiOrderEvidence{}, fmt.Errorf("unchanged Pi order has no selected recovery evidence")
 	}
@@ -118,6 +125,10 @@ func (record recoveryPiOrderEvidence) canonical(ctx context.Context, original ag
 	if err != nil {
 		return pipackage.OrderObservation{}, err
 	}
+	capability, err := native16PiOrderCapability(scope)
+	if err != nil {
+		return pipackage.OrderObservation{}, err
+	}
 	sequenceID, err := hostrelation.NewPhysicalSequenceID(record.SequenceID)
 	if err != nil {
 		return pipackage.OrderObservation{}, err
@@ -142,7 +153,7 @@ func (record recoveryPiOrderEvidence) canonical(ctx context.Context, original ag
 		relations = append(relations, relation)
 	}
 	observation, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
-		Scope: scope, SettingsContext: settings, Document: original, Constraint: constraint, Relations: relations,
+		Scope: scope, Capability: capability, SettingsContext: settings, Document: original, Constraint: constraint, Relations: relations,
 	})
 	if err != nil {
 		return pipackage.OrderObservation{}, err

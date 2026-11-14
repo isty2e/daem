@@ -2,7 +2,13 @@ package readiness
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
 
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
@@ -37,6 +43,18 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestNativeAssessmentProjectsMissingClaimReasonWithoutLosingItsCause(t *testing.T) {
+	cause := fmt.Errorf("native baseline: %w", ownership.ErrClaimMissing)
+	classified := nativeAssessmentError(cause)
+	if !errors.Is(classified, ownership.ErrClaimMissing) || !strings.HasPrefix(classified.Error(), string(reconcile.ReasonOwnershipClaimMissing)+":") {
+		t.Fatal("native claim refusal lost its reason or typed cause", classified)
+	}
+	other := errors.New("changed namespace")
+	if nativeAssessmentError(other) != other {
+		t.Fatal("unrelated observation failure was classified as missing ownership")
+	}
+}
 
 type assessmentRegistryReader struct {
 	ownershipmutation.RegistryReader
@@ -118,7 +136,7 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	}
 	input := Input{
 		Context: reconcile.ContextInspect, Paths: fixture.paths,
-		Resolver:    liveobserve.DestinationResolver(managedhostpath.Resolver(fixture.paths).Resolve),
+		Resolver:    liveobserve.DestinationResolver(managedhostpath.Resolver(fixture.paths, nil).Resolve),
 		Environment: fixture.input.Environment, Lockfile: locked, Selection: fixture.input.Selection,
 		SourceEpoch: &fixture.input.SourceEpoch, PersistenceEpoch: &epoch, Codecs: codecs,
 		HookContributionEncoder: hookcodec.CanonicalHookContribution, MCPContributionEncoder: mcpcodec.CanonicalMCPBindingContribution,
@@ -147,7 +165,7 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	if err := documents.Evidence().ValidateBefore(t.Context()); err != nil || reader.loads != 1 || fixture.observation.Budget.RemainingBytes() != remaining || fixture.observation.Budget.RequireCapturePending() != nil {
 		t.Fatalf("assessment closed/reread/reset the borrowed observation: %v loads=%d", err, reader.loads)
 	}
-	root := fixture.observation.Roots.Manifest
+	root := namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject)
 	if err := root.Root.ValidateSelectionBounded(root.SelectedPath, physicalwork.MaximumPhysicalPathDepth, fixture.observation.Budget); err != nil {
 		t.Fatalf("assessment closed the externally owned root: %v", err)
 	}

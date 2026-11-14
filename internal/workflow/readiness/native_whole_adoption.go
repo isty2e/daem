@@ -3,16 +3,13 @@ package readiness
 import (
 	"context"
 	"fmt"
-	"os"
 
-	"github.com/isty2e/daem/internal/assurance/observe"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile/build/projection"
-	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 type NativeWholeAdoptionInput struct {
@@ -44,21 +41,11 @@ func PrepareNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionIn
 	if err != nil {
 		return projection.NativeWholeAdoptionPlan{}, err
 	}
-	document, mode, observed := input.Documents.Evidence().Document(alias)
-	if !observed || document.Exists() && mode == nil {
-		return projection.NativeWholeAdoptionPlan{}, fmt.Errorf("whole adoption requires its retained original document and mode")
-	}
 	subject, err := aggregate.HostConfigDocumentSubject(source.EntityID(), placement.Target(), placement.Scope())
 	if err != nil {
 		return projection.NativeWholeAdoptionPlan{}, err
 	}
-	var fileMode os.FileMode
-	var hash artifact.ContentHash
-	if document.Exists() {
-		fileMode = mode.FileMode()
-		hash = artifact.HashFileContent(document.Content())
-	}
-	current, err := observe.NewManagedPathEvidence(subject, placement.Destination(), document.Exists(), hash, fileMode)
+	current, err := nativeWholePathEvidence(ctx, subject, alias, input.Documents.Evidence())
 	if err != nil {
 		return projection.NativeWholeAdoptionPlan{}, err
 	}

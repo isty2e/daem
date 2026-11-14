@@ -10,6 +10,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 )
 
@@ -31,7 +32,9 @@ func newRestorationTestOperation(t *testing.T, root string, filesystem mutationf
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := mutationnamespace.New(hostpath.NewResolver(root).Resolve, phase)
+	namespace, err := mutationnamespace.New(func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
+		return hostpath.NewResolver(root).Resolve(destination)
+	}, phase)
 	if err != nil {
 		t.Fatal(err)
 	}

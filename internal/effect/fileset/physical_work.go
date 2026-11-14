@@ -146,19 +146,38 @@ func observeClearFence(ctx context.Context, stateDir string) error {
 	)
 }
 
-// ObserveClearFenceAt inspects published file-set evidence at an already
-// canonical StateDir path while charging the caller-owned budget.
+// ObserveClearFenceAt inspects published evidence at an absolute clean StateDir
+// spelling while charging the caller-owned budget. It does not establish
+// canonical selection or incarnation authority; unprovable access is refused.
 func ObserveClearFenceAt(
 	ctx context.Context,
-	canonicalStateDir string,
+	stateDir string,
 	maximumPhysicalDepth int,
 	physicalWorkBudget PhysicalWorkBudget,
 ) error {
 	return requireClearFileSetAtCanonicalPath(
 		ctx,
-		canonicalStateDir,
+		stateDir,
 		maximumPhysicalDepth,
 		physicalWorkBudget,
+	)
+}
+
+// ObserveClearPublicationFenceAt recognizes legacy-3 and containing-intent-5
+// markers without opening the intent or target paths. Inactive siblings are not
+// transaction evidence. This observation grants no recovery or GC authority.
+func ObserveClearPublicationFenceAt(
+	ctx context.Context,
+	evidenceRoot string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget PhysicalWorkBudget,
+) error {
+	return requireClearFileSetAtCanonicalPathVersion(
+		ctx,
+		evidenceRoot,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		contractversion.MetadataTransactionIntent,
 	)
 }
 

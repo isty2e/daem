@@ -7,14 +7,15 @@ import (
 
 	desiredhostconfig "github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
 
-func hostConfigInput(selected target.Target, scope target.Scope, nativePath string) HostConfigPlacementInput {
-	return HostConfigPlacementInput{Target: selected, Scope: scope, Path: nativePath}
+func hostConfigInput(selected target.Target, scope target.Scope, nativePath string) configuration.PlacementInput {
+	return configuration.PlacementInput{Target: selected, Scope: scope, Path: nativePath}
 }
 
-func mustHostConfigPlacement(t *testing.T, input HostConfigPlacementInput) HostConfigPlacement {
+func mustHostConfigPlacement(t *testing.T, input configuration.PlacementInput) configuration.Placement {
 	t.Helper()
 	placement, err := ResolveHostConfigPlacement(input)
 	if err != nil {
@@ -55,22 +56,22 @@ func TestHostConfigStaticPlacementFacts(t *testing.T) {
 			placement := mustHostConfigPlacement(t, input)
 			if placement.Target() != tc.target || placement.Scope() != tc.scope ||
 				placement.NativePath() != input.Path || placement.Destination().String() != tc.root+input.Path ||
-				placement.Ownership() != desiredhostconfig.OwnershipKeys || placement.Grammar() != HostConfigJSON ||
+				placement.Ownership() != desiredhostconfig.OwnershipKeys || placement.Grammar() != configuration.JSON ||
 				placement.RequestedSyntax() != desiredhostconfig.SyntaxDefault {
 				t.Fatalf("incorrect placement facts: %#v", placement)
 			}
-			if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, "globalConcurrencyLimit")); err != nil {
+			if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, "globalConcurrencyLimit")); err != nil {
 				t.Fatal(err)
 			}
 			input.Path = "another-config.json"
 			if other := mustHostConfigPlacement(t, input); other.ID() != placement.ID() {
 				t.Fatal("static placement identity depends on an individual document")
 			}
-			want := []HostConfigObservation{HostConfigObserveReferentAliases, HostConfigObserveInstalledClaims}
+			want := []configuration.Observation{configuration.ReferentAliases, configuration.InstalledClaims}
 			if tc.target == target.TargetPi {
-				want = append(want, HostConfigObservePiLoader)
+				want = append(want, configuration.PiLoader)
 			} else {
-				want = append(want, HostConfigObserveCodexRuntimeLocations)
+				want = append(want, configuration.CodexRuntimeLocations)
 			}
 			observations := placement.RequiredObservations()
 			if !slices.Equal(observations, want) {
@@ -118,7 +119,7 @@ func TestHostConfigReservedGlobalPathsInBothModes(t *testing.T) {
 					input := hostConfigInput(selected, scope, nativePath)
 					input.Ownership, input.Syntax = ownership, desiredhostconfig.SyntaxJSON
 					_, err := ResolveHostConfigPlacement(input)
-					if !errors.Is(err, ErrHostConfigReserved) {
+					if !errors.Is(err, configuration.ErrReserved) {
 						t.Fatalf("%s/%s/%s %q = %v, want reserved", selected, scope, ownership, nativePath, err)
 					}
 				}
@@ -140,7 +141,7 @@ func TestHostConfigOrdinaryDefinitionsRemainAvailable(t *testing.T) {
 				input := hostConfigInput(selected, scope, nativePath)
 				input.Ownership = desiredhostconfig.OwnershipDocument
 				placement := mustHostConfigPlacement(t, input)
-				if err := placement.ValidateStaticFootprint(output.WholePathFootprint()); err != nil {
+				if err := ValidateHostConfigFootprint(placement, output.WholePathFootprint()); err != nil {
 					t.Fatalf("%s/%s %q: %v", selected, scope, nativePath, err)
 				}
 			}
@@ -166,30 +167,30 @@ func TestHostConfigSharedDocumentsAndNativeReservations(t *testing.T) {
 			placement := mustHostConfigPlacement(t, input)
 			for _, field := range tc.fields {
 				for _, segments := range [][]string{{field}, {field, "entry"}} {
-					if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, segments...)); !errors.Is(err, ErrHostConfigReserved) {
+					if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, segments...)); !errors.Is(err, configuration.ErrReserved) {
 						t.Fatalf("%s %q: %v, want reserved", tc.path, segments, err)
 					}
 				}
 				for _, literal := range []string{field + "_extra", field + "/entry", field + "~entry"} {
-					if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, literal)); err != nil {
+					if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, literal)); err != nil {
 						t.Fatalf("literal native key %q: %v", literal, err)
 					}
 				}
 			}
 			for _, segments := range [][]string{{""}, {"."}, {"0"}, {"tui", "theme"}, {"subagents", "agentOverrides"}, {"enabledModels"}} {
-				if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, segments...)); err != nil {
+				if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, segments...)); err != nil {
 					t.Fatal(err)
 				}
 			}
 			input.Ownership = desiredhostconfig.OwnershipDocument
-			if _, err := ResolveHostConfigPlacement(input); !errors.Is(err, ErrHostConfigReserved) {
+			if _, err := ResolveHostConfigPlacement(input); !errors.Is(err, configuration.ErrReserved) {
 				t.Fatalf("whole shared document: %v", err)
 			}
 		}
 	}
 	pi := mustHostConfigPlacement(t, hostConfigInput(target.TargetPi, target.ScopeGlobal, "settings.json"))
 	for _, field := range []string{"prompts", "themes", "npmCommand"} {
-		if err := pi.ValidateStaticFootprint(mustHostConfigKey(t, field)); err != nil {
+		if err := ValidateHostConfigFootprint(pi, mustHostConfigKey(t, field)); err != nil {
 			t.Fatalf("host preference %q was given a new dedicated owner: %v", field, err)
 		}
 	}
@@ -202,21 +203,21 @@ func TestHostConfigGrammarSelection(t *testing.T) {
 		path      string
 		ownership desiredhostconfig.Ownership
 		syntax    desiredhostconfig.Syntax
-		want      HostConfigGrammar
+		want      configuration.Grammar
 	}{
-		{target.TargetPi, target.ScopeGlobal, "settings.json", "", "", HostConfigJSON},
-		{target.TargetPi, target.ScopeGlobal, "models.json", "", "", HostConfigJSONLineComments},
-		{target.TargetPi, target.ScopeProject, "models.json", "", "", HostConfigJSON},
-		{target.TargetCodex, target.ScopeGlobal, "config.toml", "", "", HostConfigTOML},
-		{target.TargetCodex, target.ScopeGlobal, "review.config.toml", "", "", HostConfigTOML},
-		{target.TargetPi, target.ScopeGlobal, "custom.JSON", "", "", HostConfigJSON},
-		{target.TargetPi, target.ScopeGlobal, "custom.JsonC", "", "", HostConfigJSONC},
-		{target.TargetPi, target.ScopeGlobal, "custom.TOML", "", "", HostConfigTOML},
-		{target.TargetPi, target.ScopeGlobal, "custom", "", desiredhostconfig.SyntaxTOML, HostConfigTOML},
-		{target.TargetPi, target.ScopeGlobal, "custom.json", "", desiredhostconfig.SyntaxJSONLineComments, HostConfigJSONLineComments},
-		{target.TargetPi, target.ScopeGlobal, "reviewer.md", desiredhostconfig.OwnershipDocument, "", HostConfigOpaque},
-		{target.TargetPi, target.ScopeGlobal, "config.yaml", desiredhostconfig.OwnershipDocument, "", HostConfigOpaque},
-		{target.TargetCodex, target.ScopeProject, "review.config.toml", desiredhostconfig.OwnershipDocument, "", HostConfigTOML},
+		{target.TargetPi, target.ScopeGlobal, "settings.json", "", "", configuration.JSON},
+		{target.TargetPi, target.ScopeGlobal, "models.json", "", "", configuration.JSONLineComments},
+		{target.TargetPi, target.ScopeProject, "models.json", "", "", configuration.JSON},
+		{target.TargetCodex, target.ScopeGlobal, "config.toml", "", "", configuration.TOML},
+		{target.TargetCodex, target.ScopeGlobal, "review.config.toml", "", "", configuration.TOML},
+		{target.TargetPi, target.ScopeGlobal, "custom.JSON", "", "", configuration.JSON},
+		{target.TargetPi, target.ScopeGlobal, "custom.JsonC", "", "", configuration.JSONC},
+		{target.TargetPi, target.ScopeGlobal, "custom.TOML", "", "", configuration.TOML},
+		{target.TargetPi, target.ScopeGlobal, "custom", "", desiredhostconfig.SyntaxTOML, configuration.TOML},
+		{target.TargetPi, target.ScopeGlobal, "custom.json", "", desiredhostconfig.SyntaxJSONLineComments, configuration.JSONLineComments},
+		{target.TargetPi, target.ScopeGlobal, "reviewer.md", desiredhostconfig.OwnershipDocument, "", configuration.Opaque},
+		{target.TargetPi, target.ScopeGlobal, "config.yaml", desiredhostconfig.OwnershipDocument, "", configuration.Opaque},
+		{target.TargetCodex, target.ScopeProject, "review.config.toml", desiredhostconfig.OwnershipDocument, "", configuration.TOML},
 	} {
 		input := hostConfigInput(tc.target, tc.scope, tc.path)
 		input.Ownership, input.Syntax = tc.ownership, tc.syntax
@@ -237,7 +238,7 @@ func TestHostConfigGrammarSelection(t *testing.T) {
 	} {
 		input := hostConfigInput(target.TargetPi, target.ScopeGlobal, tc.path)
 		input.Syntax = tc.syntax
-		if _, err := ResolveHostConfigPlacement(input); !errors.Is(err, ErrHostConfigGrammar) {
+		if _, err := ResolveHostConfigPlacement(input); !errors.Is(err, configuration.ErrGrammar) {
 			t.Fatalf("%s/%s = %v, want grammar refusal", tc.path, tc.syntax, err)
 		}
 	}
@@ -246,25 +247,20 @@ func TestHostConfigGrammarSelection(t *testing.T) {
 func TestHostConfigStaticValidationDoesNotCertifyValuesOrEffects(t *testing.T) {
 	placement := mustHostConfigPlacement(t, hostConfigInput(target.TargetPi, target.ScopeGlobal, "models.json"))
 	for _, key := range [][]string{{"providers", "example", "apiKey"}, {"providers", "example", "headers"}, {"a", "0"}} {
-		if err := placement.ValidateStaticFootprint(mustHostConfigKey(t, key...)); err != nil {
+		if err := ValidateHostConfigFootprint(placement, mustHostConfigKey(t, key...)); err != nil {
 			t.Fatalf("static validation interpreted value/schema at %q: %v", key, err)
 		}
 	}
-	if err := placement.ValidateStaticFootprint(output.WholePathFootprint()); err == nil {
+	if err := ValidateHostConfigFootprint(placement, output.WholePathFootprint()); err == nil {
 		t.Fatal("key placement accepted whole-path authority")
 	}
 	input := hostConfigInput(target.TargetPi, target.ScopeGlobal, "agents/reviewer.md")
 	input.Ownership = desiredhostconfig.OwnershipDocument
 	document := mustHostConfigPlacement(t, input)
-	if err := document.ValidateStaticFootprint(mustHostConfigKey(t, "a")); err == nil {
+	if err := ValidateHostConfigFootprint(document, mustHostConfigKey(t, "a")); err == nil {
 		t.Fatal("whole-document placement accepted partial authority")
 	}
-	if err := (HostConfigPlacement{}).ValidateStaticFootprint(mustHostConfigKey(t, "a")); err == nil {
+	if err := ValidateHostConfigFootprint(configuration.Placement{}, mustHostConfigKey(t, "a")); err == nil {
 		t.Fatal("zero placement accepted authority")
-	}
-	forged := placement
-	forged.destination = document.destination
-	if err := forged.Validate(); err == nil {
-		t.Fatal("mismatched cached destination accepted")
 	}
 }

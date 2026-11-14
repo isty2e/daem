@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // NativeAggregateOperationContract binds a selected native codec to one logical
@@ -11,7 +12,7 @@ import (
 // or filesystem, publication or recovery authority.
 type NativeAggregateOperationContract struct {
 	selection aggregate.Selection
-	placement HostConfigPlacement
+	placement configuration.Placement
 	codec     aggregate.Codec
 }
 
@@ -27,22 +28,22 @@ func NewNativeAggregateOperationContract(catalog aggregate.CodecCatalog, selecti
 	return NativeAggregateOperationContract{selection: selection, placement: placement, codec: codec}, nil
 }
 
-func nativeAggregateOperationPlacement(selection aggregate.Selection) (HostConfigPlacement, error) {
+func nativeAggregateOperationPlacement(selection aggregate.Selection) (configuration.Placement, error) {
 	if _, native := aggregate.HostConfigSyntaxForCodec(selection.CodecContractID()); !native {
-		return HostConfigPlacement{}, fmt.Errorf("native aggregate operation requires a native selection")
+		return configuration.Placement{}, fmt.Errorf("native aggregate operation requires a native selection")
 	}
 	contracts := selection.Contracts()
 	if len(contracts) == 0 {
-		return HostConfigPlacement{}, fmt.Errorf("native aggregate operation requires a nonempty selection")
+		return configuration.Placement{}, fmt.Errorf("native aggregate operation requires a nonempty selection")
 	}
-	var expected HostConfigPlacement
+	var expected configuration.Placement
 	for index, contract := range contracts {
 		placement, err := HostConfigPlacementForContract(contract)
 		if err != nil {
-			return HostConfigPlacement{}, fmt.Errorf("native aggregate operation contract[%d]: %w", index, err)
+			return configuration.Placement{}, fmt.Errorf("native aggregate operation contract[%d]: %w", index, err)
 		}
 		if index != 0 && placement != expected {
-			return HostConfigPlacement{}, fmt.Errorf("native aggregate operation mixes host placements")
+			return configuration.Placement{}, fmt.Errorf("native aggregate operation mixes host placements")
 		}
 		expected = placement
 	}
@@ -86,14 +87,10 @@ func (operation NativeAggregateOperationContract) Codec() aggregate.Codec {
 	return operation.codec
 }
 
-func (operation NativeAggregateOperationContract) Placement() HostConfigPlacement {
+func (operation NativeAggregateOperationContract) Placement() configuration.Placement {
 	return operation.placement
 }
 
-func (operation NativeAggregateOperationContract) RequiredObservations() []HostConfigObservation {
+func (operation NativeAggregateOperationContract) RequiredObservations() []configuration.Observation {
 	return operation.placement.RequiredObservations()
-}
-
-func (operation NativeAggregateOperationContract) OperationRoute(kind Operation) (OperationRoute, error) {
-	return operation.placement.KeyOperationRoute(kind)
 }

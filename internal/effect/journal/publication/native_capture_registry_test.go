@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
@@ -22,36 +23,47 @@ import (
 )
 
 func TestNativeCaptureRegistrySelectedAbsenceIsNotMissingSelection(t *testing.T) {
-	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeProject, "create", nil, []byte("after"))
-	input, _ := captureOwnershipFixture(t, fixture)
-	input.registry = nil
-	if result, err := input.prepare(t.Context()); err == nil || result != nil {
-		t.Fatal("project-only native capture treated no selected reader as empty state")
+	for _, scenario := range []struct{ name, path string }{
+		{name: "ascii", path: "prompts/example.md"},
+		{name: "unicode", path: "prompts/Caf\u00e9.md"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := wholeGroupFixtureAtPath(t, target.TargetPi, target.ScopeProject, "create", scenario.path, nil, []byte("after"))
+			input, _ := captureOwnershipFixture(t, fixture)
+			input.registry = nil
+			if result, err := input.prepare(t.Context()); err == nil || result != nil {
+				t.Fatal("project-only native capture treated no selected reader as empty state")
+			}
+			registryPath := filepath.Join(t.TempDir(), "ownership.json")
+			root, destination, err := rootedpath.CaptureDestination(registryPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = root.Close() })
+			input.registry, err = ownershipstore.BindRooted(root, destination, physicalwork.MaximumPhysicalPathDepth, input.budget)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := input.prepare(t.Context())
+			if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 1 {
+				t.Fatalf("selected rooted absence did not admit project binding acquisition: %v", err)
+			}
+			binding := prepared[0].Bindings()[0]
+			if _, present := binding.Before().Get(); present || !binding.Owner().ExactEqual(input.owner) || binding.Destination() != fixture.namespace.Addresses()[0].AggregateRoot() {
+				t.Fatal("selected empty registry did not acquire the document for its exact owner")
+			}
+			if _, err := os.Lstat(registryPath); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("capture preparation published a registry: %v", err)
+			}
+			if err := root.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if result, err := input.prepare(t.Context()); err == nil || result != nil {
+				t.Fatal("failed selected registry read was replaced by empty state")
+			}
+			fixture.requireUnchangedHost(t)
+		})
 	}
-	registryPath := filepath.Join(t.TempDir(), "ownership.json")
-	root, destination, err := rootedpath.CaptureDestination(registryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	input.registry, err = ownershipstore.BindRooted(root, destination, physicalwork.MaximumPhysicalPathDepth, input.budget)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := input.prepare(t.Context())
-	if err != nil || len(prepared) != 1 || len(prepared[0].Bindings()) != 1 || prepared[0].Claims() != nil {
-		t.Fatalf("selected rooted absence did not admit project binding acquisition: %v", err)
-	}
-	if _, err := os.Lstat(registryPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("capture preparation published a registry: %v", err)
-	}
-	if err := root.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if result, err := input.prepare(t.Context()); err == nil || result != nil {
-		t.Fatal("failed selected registry read was replaced by empty state")
-	}
-	fixture.requireUnchangedHost(t)
 }
 
 func TestNativeCaptureRegistryChecksAcquisitionAgainstForeignClaims(t *testing.T) {
@@ -102,7 +114,7 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	alias := contribution.Contract().Address().Document()
-	input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
+	input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, namespacetest.Reservations(t), fixture.reader, input.budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,9 +124,9 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 	if !known {
 		// The binding is an existing baseline, so create the actual document and
 		// observe it again rather than fabricating exact authority.
-		destination := filepath.Join(fixture.roots.Manifest.SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
+		destination := filepath.Join(namespacetest.LegacyRoot(t, fixture.roots, output.RootProject).SelectedPath, filepath.FromSlash(alias.AggregateRoot().RelativePath()))
 		requireWholeGroupWrite(t, destination, []byte("model=1\n"), 0o644)
-		input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, fixture.reader, input.budget)
+		input.namespaces[0], err = journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, fixture.roots, namespacetest.Reservations(t), fixture.reader, input.budget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,7 +139,7 @@ func TestNativeCaptureRegistryMCPDoesNotKeepNativeBindingAlive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader.value, err = ownership.NewRegistry(nil, binding)
+	reader.value, err = ownership.NewRegistry(native17FixtureClaims(t, input.owner, input.namespaces[0], input.before), binding)
 	if err != nil {
 		t.Fatal(err)
 	}

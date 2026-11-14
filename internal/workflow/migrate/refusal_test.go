@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,6 +16,34 @@ import (
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
+
+func TestStateMigrationDestinationFailurePreservesScope(t *testing.T) {
+	paths, _ := migrationFixture(t)
+	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+	global := recoverygate.RequireGlobalMetadataClear(t.Context(), paths)
+	if !recoverygate.IsGlobalMetadataRefusal(global) {
+		t.Fatal("fixture has no global refusal", global)
+	}
+	for _, test := range []struct {
+		name  string
+		cause error
+	}{
+		{name: "global", cause: global},
+		{name: "canceled", cause: context.Canceled},
+		{name: "deadline", cause: context.DeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := migrationDestinationError(test.cause)
+			if !errors.Is(err, test.cause) || err.Error() != test.cause.Error() {
+				t.Fatal("nonlocal refusal was reinterpreted as destination recovery", err)
+			}
+		})
+	}
+	local := errors.New("local destination barrier")
+	if err := migrationDestinationError(local); !errors.Is(err, local) || err.Error() == local.Error() {
+		t.Fatal("local destination context was lost", err)
+	}
+}
 
 func TestStateMigrationRefusesConflictingOrMissingManagement(t *testing.T) {
 	for _, name := range []string{"destination", "reserved", "shared_authority", "foreign_authority", "destination_claim", "missing_snapshot", "no_management", "metadata_overlap", "metadata_ancestor"} {

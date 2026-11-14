@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -42,6 +44,7 @@ func TestNativeMixedJournalCombinesSelectedWholeAndDirectoryBackups(t *testing.T
 		t.Fatal(err)
 	}
 	fixture.groups = append(fixture.groups, group)
+	fixture.expected = append(fixture.expected, capture.namespace)
 	root := fixture.paths.ManifestRoot
 	directory := filepath.Join(root, ".agents", "skills", "directory")
 	requireWholeGroupWrite(t, filepath.Join(directory, "nested", "run"), []byte("executable directory backup\n"), 0o700)
@@ -315,7 +318,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				authority, err := fixture.whole.roots.Manifest.Root.Authority()
+				authority, err := namespacetest.LegacyRoot(t, fixture.whole.roots, output.RootProject).Root.Authority()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -324,12 +327,21 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 					t.Fatal(err)
 				}
 				operationID, created, before, after := basis.OperationID(), basis.CreatedAt(), basis.Before(), basis.After()
+				groups := []journalrecord.SealedDocumentGroup(nil)
+				control, err := journalrecord.NewNativeCapture(operationID, created, fixture.whole.input.Owner(), manifest, before, after, groups)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := control.WithOrdinaryEvidence(source.record); err != nil {
+					t.Fatal("frozen header-only control did not admit matching ordinary evidence", err)
+				}
 				switch change {
 				case "operation":
 					operationID = "other"
 				case "time":
 					created = created.Add(time.Second)
 				case "provenance":
+					// Isolate the header join from contradictory project-alias facts.
 					other := nativeNamespaceRoot(t, t.TempDir())
 					otherAuthority, err := other.Root.Authority()
 					if err != nil {
@@ -351,7 +363,7 @@ func TestNativeMixedJournalRefusesMisjoinedFactsBeforeWriter(t *testing.T) {
 				case "after state":
 					after = durable.EmptySnapshot()
 				}
-				journal, err = journalrecord.NewNativeCapture(operationID, created, fixture.whole.input.Owner(), manifest, before, after, fixture.groups)
+				journal, err = journalrecord.NewNativeCapture(operationID, created, fixture.whole.input.Owner(), manifest, before, after, groups)
 				if err != nil {
 					t.Fatal(err)
 				}

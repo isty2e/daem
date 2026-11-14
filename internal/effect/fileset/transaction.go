@@ -103,11 +103,25 @@ func commitWithOperationsVersion(
 	version int,
 	retainReference bool,
 ) error {
+	return commitWithOperationsIntentVersion(ctx, input, ops, version, retainReference, nil)
+}
+
+func commitWithOperationsIntentVersion(
+	ctx context.Context,
+	input FileSetInput,
+	ops operations,
+	version int,
+	retainReference bool,
+	expected map[string]RecoveryTarget,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if expected != nil && version != contractversion.MetadataTransaction {
+		return fmt.Errorf("containing file-set intent requires transaction version %d", contractversion.MetadataTransaction)
 	}
 	maximumPhysicalDepth := 0
 	var physicalWorkBudget *fenceObservationBudget
@@ -149,7 +163,9 @@ func commitWithOperationsVersion(
 		allowed = append(allowed, target.path)
 	}
 	var recoveryErr error
-	if version == contractversion.MetadataTransactionReference {
+	if expected != nil {
+		recoveryErr = ObserveClearFenceAt(ctx, stateDir, mutationfs.MaximumPhysicalPathDepth, &fenceObservationBudget{})
+	} else if version == contractversion.MetadataTransactionReference {
 		recoveryErr = recoverFileSet4WithBudget(
 			ctx,
 			stateDir,
@@ -164,7 +180,7 @@ func commitWithOperationsVersion(
 	if recoveryErr != nil {
 		return recoveryErr
 	}
-	marker, err := prepareMarkerVersion(ctx, stateDir, targets, version, retainReference)
+	marker, err := prepareMarkerIntentVersion(ctx, stateDir, targets, version, retainReference, expected)
 	if err != nil {
 		return err
 	}
@@ -261,6 +277,9 @@ func requireClearFileSetAtCanonicalPathVersion(
 	}
 	info, err := os.Lstat(evidencePath)
 	if errors.Is(err, os.ErrNotExist) {
+		if version == contractversion.MetadataTransactionIntent {
+			return ctx.Err()
+		}
 		return rejectAbandonedFileSetResidueWithBudget(
 			ctx,
 			stateDir,
@@ -297,6 +316,8 @@ func requireClearFileSetAtCanonicalPathVersion(
 			maximumPhysicalDepth,
 			physicalWorkBudget,
 		)
+	} else if version == contractversion.MetadataTransactionIntent {
+		markerErr = loadPublicationFenceMarker(ctx, activeMarkerPath)
 	} else {
 		_, markerErr = loadMarkerAtCanonicalPath(ctx, activeMarkerPath)
 	}
@@ -371,7 +392,10 @@ func recoverWithOperationsVersion(
 			return RecoveryAuthorityError{Path: target.Path}
 		}
 	}
+	return recoverLoadedFileSet(ctx, stateDir, marker, ops)
+}
 
+func recoverLoadedFileSet(ctx context.Context, stateDir string, marker transactionMarker, ops operations) error {
 	classification, err := classifyTargets(ctx, marker)
 	if err != nil {
 		return err

@@ -8,15 +8,16 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 // NewHostConfigDocumentSubjectContract projects static declaration intent into its whole-file subject.
-func NewHostConfigDocumentSubjectContract(id entity.ID, placement profile.HostConfigPlacement) (LockedSubjectContract, error) {
+func NewHostConfigDocumentSubjectContract(id entity.ID, placement configuration.Placement) (LockedSubjectContract, error) {
 	if id.Kind() != entity.KindHostConfig {
 		return LockedSubjectContract{}, fmt.Errorf("native document requires a host configuration entity")
 	}
-	spec, err := placement.DocumentProjection()
+	spec, err := profile.HostConfigDocumentProjection(placement)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
@@ -24,11 +25,11 @@ func NewHostConfigDocumentSubjectContract(id entity.ID, placement profile.HostCo
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	write, err := placement.DocumentOperationRoute(profile.OperationWrite)
+	write, err := profile.HostConfigOperationRoute(placement, profile.OperationWrite)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	remove, err := placement.DocumentOperationRoute(profile.OperationRemove)
+	remove, err := profile.HostConfigOperationRoute(placement, profile.OperationRemove)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
@@ -97,7 +98,7 @@ func validateNativeLockedCollection(index lockedCollectionIndex) error {
 		for _, contract := range contracts {
 			spec, _ := contract.Realization()
 			contribution, _ := spec.ManagedAggregateContribution()
-			expected, err := placement.ProjectionContract(contribution.Footprint())
+			expected, err := profile.HostConfigProjectionContract(placement, contribution.Footprint())
 			if err != nil || !expected.Equal(contribution.Contract()) {
 				return fmt.Errorf("native key projection for %q does not match its source placement", id)
 			}

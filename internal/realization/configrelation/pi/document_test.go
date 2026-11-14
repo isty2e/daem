@@ -138,3 +138,17 @@ func TestParseEnforcesPiSettingsDepthLimit(t *testing.T) {
 		t.Fatalf("Parse error = %v", err)
 	}
 }
+
+func TestPermutationRetainsTheSemanticParserDepthBoundary(t *testing.T) {
+	deep := strings.Repeat("[", 31) + "[]" + strings.Repeat("]", 31)
+	input := []byte(`{"packages":["npm:b","npm:a"],"nested":` + deep + `}`)
+	document, err := piconfig.Parse(input)
+	if err != nil {
+		t.Fatal("semantic parser rejected its admitted depth boundary", err)
+	}
+	candidate, changed, err := document.PermutePackageRows([]int{1, 0})
+	want := bytes.Replace(input, []byte(`["npm:b","npm:a"]`), []byte(`["npm:a","npm:b"]`), 1)
+	if err != nil || !changed || !bytes.Equal(candidate, want) {
+		t.Fatal("shared token editing narrowed the Pi parser's depth envelope", changed, err)
+	}
+}

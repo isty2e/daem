@@ -19,7 +19,9 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -39,7 +41,7 @@ func TestQualifiedNativeRecordRefusesWriterOrLogicalRootSubstitution(t *testing.
 			provenance := captureFixtureProvenance(t, other.SelectedPath)
 			wireRoot := nativeRecordJSON(t, map[string]string{"physical_root": provenance.PhysicalRoot(), "object_fingerprint": provenance.ObjectFingerprint(), "mount_fingerprint": provenance.MountFingerprint()})
 			if change == "writer path" {
-				if err := os.WriteFile(filepath.Join(roots.PiAgent.SelectedPath, "other.json"), []byte("foreign"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, "other.json"), []byte("foreign"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -92,7 +94,7 @@ func TestQualifiedNativeRecordRefusesWriterOrLogicalRootSubstitution(t *testing.
 
 func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.T) {
 	fixture, roots := nativeNamespaceRecordFixture(t)
-	if err := os.Symlink("custom.json", filepath.Join(roots.PiAgent.SelectedPath, "alias.json")); err != nil {
+	if err := os.Symlink("custom.json", filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, "alias.json")); err != nil {
 		t.Fatal(err)
 	}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/alias.json")
@@ -111,7 +113,7 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	}
 	before := selectionState(t, fixture.before.ManagedAggregates()[0], other)
 	after := selectionState(t, fixture.after.ManagedAggregates()[0], other)
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), fixture.read.Budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), fixture.read.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,13 +129,13 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := captureFixtureProvenance(t, roots.Manifest.SelectedPath)
+	manifest := captureFixtureProvenance(t, namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath)
 	aliases := make([]journalrecord.DocumentGroupAlias, 0, len(namespace.Aliases()))
 	for _, alias := range namespace.Aliases() {
 		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifest)
+	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,9 +249,9 @@ func TestQualifiedNativePiRecordKeepsCapturedLexicalContextSeparateFromPhysicalR
 func TestNativeNamespaceReobservesRealCreationWithoutForgingExactAuthority(t *testing.T) {
 	pi := nativeNamespaceRoot(t, filepath.Join(t.TempDir(), "pi"))
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/Caf\u00e9.json")
-	roots := journalnamespace.Roots{PiAgent: pi}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: pi})
 	budget := imageBudget(t)
-	before, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	before, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +264,7 @@ func TestNativeNamespaceReobservesRealCreationWithoutForgingExactAuthority(t *te
 	if err := journalTestFilesystem().CreateRootedFile(t.Context(), capability, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	after, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	after, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,8 +303,8 @@ func TestNativeMissingRootSelectionRetainsOriginalAnchorWithoutCreatingIt(t *tes
 	}
 	t.Cleanup(func() { _ = root.Root.Close() })
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/settings.json")
-	roots := journalnamespace.Roots{PiAgent: root}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, journalTestFilesystem(), budget)
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: root})
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +327,7 @@ func TestNativeMissingRootSelectionRetainsOriginalAnchorWithoutCreatingIt(t *tes
 		t.Fatal(err)
 	}
 	defer reopened.Root.Close()
-	current, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, journalnamespace.Roots{PiAgent: reopened}, journalTestFilesystem(), budget)
+	current, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootPiAgent: reopened}), namespacetest.Reservations(t), journalTestFilesystem(), budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +352,7 @@ func namespaceRecordViewForTest(t *testing.T, namespace journalnamespace.Documen
 		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, pin.Provenance())
+	draft, err = draft.WithNamespace(t.Context(), namespace.Observation(), pin.Provenance(), pin.Coordinate(), aliases, pin.Provenance())
 	if err != nil {
 		t.Fatal(err)
 	}

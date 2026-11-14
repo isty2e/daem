@@ -366,7 +366,7 @@ func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) 
 	var leasedRemovalPaths []string
 	var oneParentPath string
 	for _, intent := range intents {
-		destinationPath, err := resolver.Resolve(intent.Destination())
+		destinationPath, err := resolver.Resolve(intent.Destination(), prepared.lifecycle.planned.(recoveryPreparation).physicalPathBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -418,6 +418,59 @@ func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) 
 	if err == nil || (!errors.Is(err, context.DeadlineExceeded) &&
 		!strings.Contains(err.Error(), "contains the lease store")) {
 		t.Fatalf("overlapping removal-parent lease error = %v, want exclusion", err)
+	}
+}
+
+func TestHostRestorationRetainsSharedRegistryLeaseWithoutClaimSettlement(t *testing.T) {
+	fixture := prepareRecoveryFixture(t, true)
+	prepared, err := Plan(t.Context(), fixture.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	active, present := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !present || active.RequiresOwnershipSettlement() || !active.RequiresHostWriteExclusion() {
+		t.Fatal("fixture does not separate host-write observation from claim settlement")
+	}
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := prepared.lifecycle.planned.(recoveryPreparation).authorityEvidence
+	store, err := mutation.NewStore(paths.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := store.Acquire(t.Context(), evidence.domains...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leases.Release()
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		reader, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: paths.OwnershipRegistryPath, Access: mutation.AccessShared, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		shared, err := store.Acquire(t.Context(), reader)
+		if err != nil {
+			t.Fatal("a concurrent Registry reader was unnecessarily excluded", err)
+		}
+		if err := shared.Release(); err != nil {
+			t.Fatal(err)
+		}
+		writer, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: paths.OwnershipRegistryPath, Access: mutation.AccessExclusive, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		other, acquireErr := store.Acquire(ctx, writer)
+		cancel()
+		if acquireErr == nil {
+			_ = other.Release()
+		}
+		if !errors.Is(acquireErr, context.DeadlineExceeded) {
+			t.Fatalf("Registry publication raced a host restoration: %v", acquireErr)
+		}
 	}
 }
 
@@ -796,7 +849,7 @@ func TestResolveRecoveryGuardedDestinationsRejectsPhysicalAliases(t *testing.T) 
 			Scope:       target.ScopeGlobal,
 			Destination: "~/.agents/skills/review",
 		},
-	}, nil)
+	}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "aliases incompatible logical occupancies") {
 		t.Fatalf("resolveRecoveryAuthorityPaths error = %v, want physical occupancy rejection", err)
 	}
@@ -820,7 +873,7 @@ func TestResolveRecoveryGuardedDestinationsAllowsSharedAggregateDocument(t *test
 			Destination: destination,
 			ContentPath: "/hooks/PostToolUse",
 		},
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

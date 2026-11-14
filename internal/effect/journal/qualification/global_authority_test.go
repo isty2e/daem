@@ -4,15 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -137,6 +140,65 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "root selection changed") {
 		t.Fatalf("different physical root error = %v, want root-selection drift refusal", err)
+	}
+}
+
+func TestCodexParentSelectorDoesNotRedirectAnOldLexicalGlobalBinding(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Win32 parent selection already has lexical semantics")
+	}
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lexical, physical := filepath.Join(base, "codex"), filepath.Join(base, "physical", "codex")
+	for _, path := range []string{lexical, physical, filepath.Join(base, "physical", "inner")} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "root-link")
+	if err := os.Symlink(filepath.Join(base, "physical", "inner"), link); err != nil {
+		t.Skipf("directory symlinks are unavailable: %v", err)
+	}
+	oldRoot, err := rootedpath.CaptureRoot(lexical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := oldRoot.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	authority, err := oldRoot.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenance, err := authority.Provenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := output.Parse("@codex-home/config.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(lexical, "config.toml")
+	entry := globalEntryForTest(t, destination, oldPath, journalrecord.NewGlobalBinding(oldPath, provenance))
+	t.Setenv("CODEX_HOME", link+"/../codex")
+	budget := newRecoveryPathBudget(t)
+	resolver := physicalhostpath.NewResolver(daempaths.Paths{ManifestRoot: base}).ForBudget(budget).Resolve
+	err = journalqualification.ValidateGlobalPathBindings(t.Context(), []journalrecord.PathEntry{entry}, resolver, nil, budget)
+	if err == nil || !strings.Contains(err.Error(), "root selection changed") || !strings.Contains(err.Error(), "select the original host directory explicitly") {
+		t.Fatal("the old lexical journal was redirected or lost repair guidance", err)
+	}
+	t.Setenv("CODEX_HOME", lexical)
+	if err := journalqualification.ValidateGlobalPathBindings(t.Context(), []journalrecord.PathEntry{entry}, resolver, nil, budget); err != nil {
+		t.Fatal("selecting the original directory did not restore recovery admission", err)
+	}
+	for _, path := range []string{oldPath, filepath.Join(physical, "config.toml")} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("binding validation created an output", path, err)
+		}
 	}
 }
 

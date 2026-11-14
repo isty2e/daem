@@ -29,7 +29,11 @@ func (store Store) RemoveClaim(
 		return ownership.Registry{}, fmt.Errorf("removed ownership claim: %w", err)
 	}
 
-	current, expectedEntry, exists, capability, err := store.loadForClaimRemovals(ctx, []ownership.Claim{expected})
+	observations, err := store.newPathAuthorityObservationSession()
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	current, expectedEntry, exists, capability, err := store.loadForUpdate(ctx, []ownership.Claim{expected}, observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -40,9 +44,9 @@ func (store Store) RemoveClaim(
 		}
 	}()
 
-	actual, present := current.Conflict(expected.Address())
+	actual, present := current.registry.Conflict(expected.Address())
 	if !present {
-		return current, nil
+		return current.registry, nil
 	}
 	expectedValue, _ := ownership.PresentClaim(expected)
 	actualValue, _ := ownership.PresentClaim(actual)
@@ -51,11 +55,11 @@ func (store Store) RemoveClaim(
 			Address: expected.Address(), Expected: expectedValue, Actual: actualValue,
 		}
 	}
-	next, err := current.Apply(expected.Address(), expectedValue, ownership.NoClaim())
+	next, err := current.registry.Apply(expected.Address(), expectedValue, ownership.NoClaim())
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	content, err := encode(next)
+	content, err := current.encodeSuccessor(ctx, next, nil, observations)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -78,21 +82,18 @@ func (store Store) RemoveClaim(
 	return next, nil
 }
 
-func (store Store) loadForClaimRemovals(
+func (store Store) loadForUpdate(
 	ctx context.Context,
 	expected []ownership.Claim,
+	observations *pathAuthorityObservationSession,
 ) (
-	ownership.Registry,
+	registryDocument,
 	storagecommit.EntryIdentity,
 	bool,
 	rootedpath.CommitCapability,
 	error,
 ) {
 	if store.root != nil {
-		observations, observationErr := store.newPathAuthorityObservationSession()
-		if observationErr != nil {
-			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, observationErr
-		}
 		return store.loadRootedForCommit(ctx, expected, observations)
 	}
 
@@ -103,15 +104,15 @@ func (store Store) loadForClaimRemovals(
 	)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return ownership.EmptyRegistry(), storagecommit.EntryIdentity{}, false, nil, nil
+			return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, nil, nil
 		}
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 			"read ownership registry: %w",
 			err,
 		)
 	}
 	if snapshot.Mode().Perm()&0o077 != 0 {
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 			"ownership registry %q permissions %04o expose authority metadata",
 			store.path,
 			snapshot.Mode().Perm(),
@@ -119,19 +120,19 @@ func (store Store) loadForClaimRemovals(
 	}
 	identity, ok := snapshot.Identity().(storagecommit.EntryIdentity)
 	if !ok {
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 			"ownership registry snapshot has unsupported entry identity %T",
 			snapshot.Identity(),
 		)
 	}
-	registry, err := decodePersistedRegistryForClaimRemovals(
+	document, err := decodePersistedDocument(
 		ctx,
 		snapshot.Content(),
 		expected,
-		newPathAuthorityObservationSession(),
+		observations,
 	)
 	if err != nil {
-		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, err
 	}
-	return registry, identity, true, nil, nil
+	return document, identity, true, nil, nil
 }

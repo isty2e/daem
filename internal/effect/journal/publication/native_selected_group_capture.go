@@ -16,8 +16,9 @@ import (
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
 	"github.com/isty2e/daem/internal/topology"
@@ -25,8 +26,8 @@ import (
 
 type selectedDocumentCaptureInput struct {
 	journalobservation.CaptureInput
-	edits []compose.ProjectionEdit
-	order *pipackage.OrderObservation
+	edits     []compose.ProjectionEdit
+	sequences []relationhost.SelectedDocumentEdit
 }
 
 type documentCaptureContractKey struct {
@@ -122,16 +123,8 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	var orderAlias *aggregate.DocumentAddress
-	if input.order != nil && input.order.Changed() {
-		var facts journalrecord.PiQualification
-		draft, facts, err = draft.WithPiOrder(*input.order)
-		if err != nil {
-			return nativeDocumentCaptureCandidate{}, err
-		}
-		alias := facts.Alias()
-		orderAlias = &alias
-		if err := journalqualification.QualifyPiContext(ctx, facts, manifest, namespace, input.Budget()); err != nil {
+	for _, selected := range input.sequences {
+		if err := journalqualification.QualifySelectedContext(ctx, selected, manifest, namespace, input.Budget()); err != nil {
 			return nativeDocumentCaptureCandidate{}, err
 		}
 	}
@@ -140,7 +133,22 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	expected, participants, err := journaldocument.PrepareSelectedImage(ctx, original, input.Limits(), input.edits, input.order)
+	completed, err := relationhost.CompleteSelectedImage(ctx, original, input.Limits(), input.edits, input.sequences)
+	if err != nil {
+		return nativeDocumentCaptureCandidate{}, err
+	}
+	expected, participants := completed.Expected(), completed.Participants()
+	var arrays []configdocument.JSONArrayEdit
+	witnesses := make([]journalrecord.SequenceWitness, 0, len(completed.Sequences()))
+	for _, selected := range completed.Sequences() {
+		array := selected.ArrayEdit()
+		witness, err := journalrecord.NewSequenceWitness(selected.DocumentAddress(), array)
+		if err != nil {
+			return nativeDocumentCaptureCandidate{}, err
+		}
+		arrays, witnesses = append(arrays, array), append(witnesses, witness)
+	}
+	draft, err = draft.WithSequences(witnesses)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -157,7 +165,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 			}
 		}
 	}
-	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: input.Limits()}, participants, input.order)
+	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: completed.Limits()}, participants, arrays)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
@@ -167,14 +175,14 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 		return nativeDocumentCaptureCandidate{}, err
 	}
 
-	relations := make([]aggregate.DocumentAddress, 0, len(input.edits)+1)
+	relations := make([]aggregate.DocumentAddress, 0, len(input.edits)+len(input.sequences))
 	for _, edit := range input.edits {
 		for _, contract := range edit.Participant().Selection().Contracts() {
 			relations = append(relations, contract.Address().Document())
 		}
 	}
-	if orderAlias != nil {
-		relations = append(relations, *orderAlias)
+	for _, selected := range input.sequences {
+		relations = append(relations, selected.DocumentAddress())
 	}
 	if err := ctx.Err(); err != nil {
 		return nativeDocumentCaptureCandidate{}, err

@@ -7,6 +7,8 @@ import (
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -20,7 +22,6 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -46,8 +47,9 @@ type Assessment struct {
 	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
-	PiOrders               []pipackage.OrderObservation
+	SequenceEdits          []relationhost.SelectedDocumentEdit
 	Owner                  stateauthority.Authority
+	OwnerReference         pathauthority.Reference
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
 	NativeSources          []lockobserve.NativeSourceObservation
@@ -130,7 +132,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 
 	native, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch)
 	if err != nil {
-		return Assessment{}, err
+		return Assessment{}, nativeAssessmentError(err)
 	}
 	assessment, err := buildAssessment(
 		ctx,
@@ -155,7 +157,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 		return Assessment{}, err
 	}
 	if _, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch); err != nil {
-		return Assessment{}, err
+		return Assessment{}, nativeAssessmentError(err)
 	}
 	return assessment, nil
 }
@@ -223,16 +225,15 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-	managedEvidence, err := liveobserve.ManagedPathEvidence(ctx, resolver, managedInputs.requests)
+	managedEvidence, err := observeManagedPaths(ctx, resolver, managedInputs.requests, native...)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe managed paths: %w", err)
 	}
-	var owner stateauthority.Authority
-	var ownershipObservations []observe.OwnershipObservation
+	var ownershipResult ownershipobserve.Result
 	if len(native) != 0 && native[0].input != nil && native[0].input.Documents != nil {
-		owner, ownershipObservations, err = nativeOwnershipObservations(ctx, paths, liveDestinationResolver(resolver), managedInputs, aggregateInputs, currentState, selection, native[0].input)
+		ownershipResult, err = nativeOwnershipObservations(ctx, paths, liveDestinationResolver(resolver), managedInputs, aggregateInputs, currentState, selection, native[0].input)
 	} else {
-		owner, ownershipObservations, err = buildOwnershipObservations(
+		ownershipResult, err = buildOwnershipObservations(
 			ctx,
 			paths,
 			liveDestinationResolver(resolver),
@@ -258,7 +259,7 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-	configReader, err := nativeConfigReader(native, resolver)
+	configReader, err := nativeConfigReader(native)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -301,8 +302,9 @@ func buildAssessment(
 		managedInputs:          managedInputs,
 		aggregateInputs:        aggregateInputs,
 		managedEvidence:        managedEvidence,
-		owner:                  owner,
-		ownershipObservations:  ownershipObservations,
+		owner:                  ownershipResult.Owner,
+		ownerReference:         ownershipResult.OwnerReference,
+		ownershipObservations:  ownershipResult.Observations,
 		mcpEffective:           mcpEffective,
 		relationObservations:   relationObservations,
 		providerObservations:   providerObservations,
@@ -315,16 +317,25 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
+	var retiring []durablecarrier.ManagedCarrierClaim
 	if len(native) != 0 && native[0].input != nil {
 		assessment.nativeRegistry = native[0].input.Registry
+		retiring = assessment.Reconciliation.CarrierRetirementClaims()
 	}
 	for _, fact := range extensionOrderFacts {
 		if fact.observeErr == nil {
-			if order, pi := fact.observation.Pi(); pi {
-				assessment.PiOrders = append(assessment.PiOrders, order)
+			edits, err := fact.observation.SelectedEdits(retiring)
+			if err != nil {
+				return Assessment{}, err
 			}
+			assessment.SequenceEdits = append(assessment.SequenceEdits, edits...)
 		}
 	}
+	edits, err := observeClasslessRetirementEdits(paths, locked, retiring)
+	if err != nil {
+		return Assessment{}, err
+	}
+	assessment.SequenceEdits = append(assessment.SequenceEdits, edits...)
 	return assessment, nil
 }
 

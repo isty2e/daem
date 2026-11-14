@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -64,7 +64,21 @@ func UnmanageExtension(
 	if optimistic.request.Mode == UnmanageModeDryRun {
 		return resultFromCandidate(optimistic, false), nil
 	}
-	return commitUnmanageCandidate(ctx, optimistic)
+	var metadataErr error
+	if optimistic.stateChanged || optimistic.registryChanged {
+		metadataErr = metadataconversion.ConvertIfNeeded(ctx, optimistic.barrier)
+		if recoverygate.IsCancellation(metadataErr) {
+			return UnmanageExtensionResult{}, metadataErr
+		}
+		if err := ctx.Err(); err != nil {
+			return UnmanageExtensionResult{}, err
+		}
+	}
+	result, err := commitUnmanageCandidate(ctx, optimistic)
+	if metadataErr != nil && recoverygate.IsGlobalMetadataRefusal(err) {
+		err = errors.Join(err, fmt.Errorf("automatic metadata conversion: %w", metadataErr))
+	}
+	return result, err
 }
 
 func recoverUnmanageFileSetBeforeRead(
@@ -89,8 +103,9 @@ func recoverUnmanageFileSetBeforeRead(
 	}
 	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(
 		operationplan.MetadataDomainInput{
-			TargetPaths: targetPaths,
-			MarkerPath:  markerPath,
+			TargetPaths:     targetPaths,
+			MarkerPath:      markerPath,
+			TrailingDomains: barrier.Domains(),
 		},
 	))
 	if err != nil {
@@ -247,6 +262,16 @@ func commitUnmanageCandidate(
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
+	if matches, err := revisions.MatchesCurrent(ctx); err != nil {
+		return UnmanageExtensionResult{}, err
+	} else if !matches {
+		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
+	}
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return UnmanageExtensionResult{}, err
+	} else if !matches {
+		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
+	}
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -270,13 +295,20 @@ func fileTargets(ctx context.Context, current unmanageCandidate) ([]fileset.File
 	if err := current.lockfile.target.Validate(ctx); err != nil {
 		return nil, err
 	}
-	stateContent, err := statefile.Marshal(current.nextState)
+	stateContent, err := current.stateCodec.EncodeState(current.nextState)
 	if err != nil {
 		return nil, fmt.Errorf("marshal unmanage statefile: %w", err)
 	}
-	registryContent, err := carrierclaim.Marshal(current.nextRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("marshal unmanage carrier registry: %w", err)
+	var registryContent []byte
+	if current.registryChanged {
+		store, err := carrierclaim.New(current.document.Paths.CarrierClaimRegistryPath)
+		if err != nil {
+			return nil, err
+		}
+		registryContent, err = store.PrepareRewrite(ctx, current.beforeRegistry, current.nextRegistry)
+		if err != nil {
+			return nil, fmt.Errorf("prepare unmanage carrier registry: %w", err)
+		}
 	}
 	specs := []struct {
 		path    string

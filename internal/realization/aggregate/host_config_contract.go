@@ -39,8 +39,8 @@ func HostConfigSyntaxForCodec(id CodecContractID) (string, bool) {
 }
 
 func HostConfigPlacementID(selected target.Target, scope target.Scope) (string, error) {
-	if selected != target.TargetPi && selected != target.TargetCodex {
-		return "", fmt.Errorf("native key projection target is unsupported")
+	if _, err := target.ParseTarget(string(selected)); err != nil {
+		return "", err
 	}
 	if _, err := target.ParseScope(string(scope)); err != nil {
 		return "", err

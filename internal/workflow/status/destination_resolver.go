@@ -1,11 +1,10 @@
 package status
 
 import (
-	"github.com/isty2e/daem/internal/output/hostpath"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
-func destinationResolver(paths daempaths.Paths) hostpath.Resolver {
-	return managedhostpath.Resolver(paths)
+func destinationResolver(paths daempaths.Paths) physicalhostpath.Resolver {
+	return physicalhostpath.NewResolver(paths)
 }

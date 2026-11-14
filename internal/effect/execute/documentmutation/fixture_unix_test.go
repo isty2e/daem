@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -42,7 +43,9 @@ func projectMutationDestinationForTest(t *testing.T, root, relative string) (*Op
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := mutationnamespace.New(hostpath.NewResolver(root).Resolve, phase)
+	namespace, err := mutationnamespace.New(func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
+		return hostpath.NewResolver(root).Resolve(destination)
+	}, phase)
 	if err != nil {
 		t.Fatal(err)
 	}

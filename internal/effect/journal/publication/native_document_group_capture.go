@@ -98,10 +98,18 @@ func nativeDocumentGroupMetadata(ctx context.Context, namespace journalnamespace
 
 	aliases := make([]journalrecord.DocumentGroupAlias, 0, len(namespace.Aliases()))
 	for _, alias := range namespace.Aliases() {
-		aliases = append(aliases, journalrecord.NewDocumentGroupAlias(alias.Address(), alias.Root().Provenance(), alias.Observation()))
+		binding, bound := alias.Binding()
+		if !bound {
+			return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, fmt.Errorf("native17 capture requires the actual alias binding")
+		}
+		aliases = append(aliases, journalrecord.NewBoundDocumentGroupAlias(alias.Address(), binding, alias.Root().Provenance(), alias.Observation()))
 	}
 	pin := namespace.WriterPin()
-	draft, err = draft.WithNamespace(ctx, namespace.Observation(), pin.Provenance(), pin.Relative(), aliases, manifest.Provenance())
+	spelling, err := namespace.WriterPath()
+	if err != nil {
+		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, err
+	}
+	draft, err = draft.WithBoundNamespace(ctx, namespace.Observation(), pin, spelling, aliases, manifest.Provenance())
 	if err != nil {
 		return journalrecord.DocumentGroupDraft{}, journalnamespace.RootGrant{}, err
 	}

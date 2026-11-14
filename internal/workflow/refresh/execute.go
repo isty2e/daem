@@ -8,13 +8,14 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/operationplan"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -74,10 +75,38 @@ func Execute(
 		) {
 		return staleBeforeAttempt(result, errors.Join(mutation.StalePlanError{}, err))
 	}
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, execution.planned.paths); err != nil {
+		return staleBeforeAttempt(result, err)
+	}
 	if matches, revisionErr := execution.planned.revisions.MatchesCurrent(ctx); revisionErr != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, revisionErr)
 	} else if !matches {
 		return staleBeforeAttempt(result, mutation.StalePlanError{})
+	}
+
+	metadata, metadataErr := metadataconversion.PrepareForCommand(ctx, execution.planned.barrier)
+	replan := metadataErr == nil && metadata.Changed()
+	if replan {
+		metadataErr = metadata.Execute(ctx)
+	}
+	if recoverygate.IsCancellation(metadataErr) {
+		return cancelledBeforeAttempt(result, metadataErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return cancelledBeforeAttempt(result, err)
+	}
+	defer func() {
+		if metadataErr != nil && recoverygate.IsGlobalMetadataRefusal(returnErr) {
+			returnErr = errors.Join(returnErr, fmt.Errorf("automatic metadata conversion: %w", metadataErr))
+		}
+	}()
+	if replan {
+		if err := replanAfterMetadataConversion(ctx, &execution); err != nil {
+			if recoverygate.IsCancellation(err) {
+				return cancelledBeforeAttempt(result, err)
+			}
+			return staleBeforeAttempt(result, err)
+		}
 	}
 
 	store, err := mutation.NewStore(execution.planned.paths.DataDir)
@@ -101,6 +130,9 @@ func Execute(
 			))
 		}
 	}()
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, effectPaths); err != nil {
+		return staleBeforeAttempt(result, err)
+	}
 	if matches, matchErr := leases.DomainsMatchCurrent(ctx); matchErr != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, matchErr)
 	} else if !matches {
@@ -569,7 +601,7 @@ func Execute(
 							entry,
 							current.currentState,
 							[]durableattempt.HostRouteAttempt{record},
-							statefile.Codec{},
+							current.physicalStateCodec,
 						)
 						return commitErr
 					},

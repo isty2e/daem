@@ -13,6 +13,7 @@ import (
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -99,6 +100,33 @@ func prospectiveLayoutFixture(t *testing.T, fixture ownershiptest.PermissionReco
 		}
 		input.Leases = invocationFixtureLeases(t, fixture.Paths, input.Requests)
 	}
+	registry, err := fixture.Store.LoadProtectionRegistry(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, row := range beforeRows {
+		address, err := ownership.NewManagedAddress(fixture.Protection.Documents()[index].PathAuthority(), row.Contribution().Contract().Address().Footprint())
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim, err := ownership.NewActiveClaim(address, fixture.Owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current, present := registry.Exact(address); present {
+			if !current.Equal(claim) {
+				t.Fatal("fixture before state has a different ownership claim")
+			}
+			continue
+		}
+		replacement, _ := ownership.PresentClaim(claim)
+		registry, err = registry.Apply(address, ownership.NoClaim(), replacement)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	publishLayoutFixtureRegistry(t, fixture, registry)
+
 	before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedAggregates: beforeRows})
 	if err != nil {
 		t.Fatal(err)
@@ -116,8 +144,9 @@ func prospectiveLayoutFixture(t *testing.T, fixture ownershiptest.PermissionReco
 		budget = physicalwork.NewCaptureBudget(nil)
 	}
 	batch, err := journalpublication.ObserveNativeDocuments(t.Context(), journalobservation.Input{
-		Owner: fixture.Owner, Before: before, Aliases: aliases,
-		Roots:      journalnamespace.Roots{Manifest: journalnamespace.RootSelection{SelectedPath: fixture.Paths.ManifestRoot, Root: root}},
+		Protection: namespacetest.Reservations(t),
+		Owner:      fixture.Owner, Before: before, Aliases: aliases,
+		Roots:      namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: {SelectedPath: fixture.Paths.ManifestRoot, Root: root}}),
 		Filesystem: storagecommit.Adapter{}, Registry: fixture.Store,
 		Limits: configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}, Budget: budget,
 	})
@@ -146,6 +175,77 @@ func publishLayoutFixtureRegistry(t *testing.T, fixture ownershiptest.Permission
 	}
 	if err := os.WriteFile(fixture.Paths.OwnershipRegistryPath, content, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInvocationProtectsLeafAliasReferentsThroughBothPreparations(t *testing.T) {
+	for _, prospective := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prospective=%t", prospective), func(t *testing.T) {
+			fixture, input, bind := invocationFixture(t)
+			if err := input.Leases.Release(); err != nil {
+				t.Fatal(err)
+			}
+			alias := fixture.Documents[1]
+			actual := filepath.Join(filepath.Dir(alias), "actual.json")
+			if err := os.Rename(alias, actual); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("actual.json", alias); err != nil {
+				t.Fatal(err)
+			}
+			observed, err := mutation.ObservePersistedDirectoryEntryAuthority(actual)
+			if err != nil {
+				t.Fatal(err)
+			}
+			documents := fixture.Protection.Documents()
+			previous := documents[1].Bindings()[0]
+			binding, err := ownership.NewDocumentBinding(fixture.Owner, previous.Destination(), observed.Exact())
+			if err != nil {
+				t.Fatal(err)
+			}
+			documents[1], err = ownership.NewProtectedDocument([]ownership.DocumentBinding{binding}, documents[1].UserID(), documents[1].GroupID(), documents[1].ModeCap())
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := fixture.Store.LoadProtectionRegistry(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, _ := ownership.PresentDocumentBinding(previous)
+			after, _ := ownership.PresentDocumentBinding(binding)
+			current, err = current.ApplyDocumentBinding(fixture.Owner.Key(), binding.Destination(), before, after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			publishLayoutFixtureRegistry(t, fixture, current)
+			fixture.Protection, err = ownership.NewArmedProtection(fixture.Owner, fixture.Protection.Invocation(), fixture.Protection.Correlation(), documents)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input.Protection = fixture.Protection
+			input.Leases = invocationFixtureLeases(t, fixture.Paths, input.Requests)
+
+			var prepared InvocationInput
+			if prospective {
+				layout, budget := prospectiveLayoutFixture(t, fixture, input, false, nil)
+				if err := layout.ReserveWork(budget, physicalwork.InvocationWork{}); err != nil {
+					t.Fatal(err)
+				}
+				prepared, err = layout.AttachProtection(t.Context())
+			} else {
+				prepared, err = prepareInvocationFixture(t.Context(), input)
+			}
+			if err != nil {
+				t.Fatal("permission preparation rejected its selected referent", err)
+			}
+			result, err := ExecuteInvocation(t.Context(), prepared, subprocess.CommandExecutor{}, subprocess.CommandAttemptRequest{
+				Command: "/bin/sh", Args: []string{"-c", `/bin/chmod 664 "$1" "$2"`, "protected", fixture.Documents[0], alias},
+			}, bind, nil)
+			if !errors.Is(err, ErrInvocationPermissionsExpanded) {
+				t.Fatal("permission expansion through the source alias was not contained", err)
+			}
+			assertInvocationSettled(t, fixture, result)
+		})
 	}
 }
 

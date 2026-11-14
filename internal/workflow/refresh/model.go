@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -306,24 +307,25 @@ func commandResultDisclosure(
 }
 
 type plan struct {
-	result            CommandResult
-	paths             daempaths.Paths
-	lockfile          lock.File
-	subject           topology.SubjectID
-	contract          lock.LockedSubjectContract
-	routeRequest      realizationdelegate.Request
-	operationContract lock.OperationContract
-	command           CommandSpec
-	preObservation    *observerelation.CorrelationResult
-	authorityPaths    []observerelation.AuthorityPath
-	pinClaimRegistry  bool
-	currentState      durable.Snapshot
-	timeout           HostCommandTimeout
-	fingerprint       mutation.OperationFingerprint
-	authority         authorityEvidence
-	revisions         mutation.RevisionSet
-	barrier           recoverygate.EffectAuthority
-	native            *nativeRefreshInputs
-	protectionFence   refreshProtectionFence
-	settingsProfile   relationhost.NativeSettingsProfile
+	result             CommandResult
+	paths              daempaths.Paths
+	lockfile           lock.File
+	subject            topology.SubjectID
+	contract           lock.LockedSubjectContract
+	routeRequest       realizationdelegate.Request
+	operationContract  lock.OperationContract
+	command            CommandSpec
+	preObservation     *observerelation.CorrelationResult
+	authorityPaths     []observerelation.AuthorityPath
+	pinClaimRegistry   bool
+	currentState       durable.Snapshot
+	physicalStateCodec statefile.PhysicalCodec
+	timeout            HostCommandTimeout
+	fingerprint        mutation.OperationFingerprint
+	authority          authorityEvidence
+	revisions          mutation.RevisionSet
+	barrier            recoverygate.EffectAuthority
+	native             *nativeRefreshInputs
+	protectionFence    refreshProtectionFence
+	settingsProfile    relationhost.NativeSettingsProfile
 }

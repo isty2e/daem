@@ -81,7 +81,7 @@ func (observation OwnershipObservation) Validate() error {
 			if err := claim.Validate(); err != nil {
 				return fmt.Errorf("claim: %w", err)
 			}
-			if !claim.Address().Overlaps(observation.address) {
+			if !claim.Address().MayOverlap(observation.address) {
 				return fmt.Errorf("ownership observation claim does not overlap its exact address")
 			}
 		}

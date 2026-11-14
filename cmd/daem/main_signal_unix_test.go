@@ -24,6 +24,7 @@ func TestSignalLifecyclePreservesFirstSignalExitCode(t *testing.T) {
 	}{
 		{name: "SIGINT", signal: os.Interrupt, wantExit: 130},
 		{name: "SIGTERM", signal: syscall.SIGTERM, wantExit: 143},
+		{name: "SIGHUP", signal: syscall.SIGHUP, wantExit: 129},
 	}
 
 	for _, test := range tests {
@@ -39,6 +40,16 @@ func TestSignalLifecyclePreservesFirstSignalExitCode(t *testing.T) {
 	}
 }
 
+func TestSignalLifecycleOwnsExitBeforeLateHangup(t *testing.T) {
+	cmd, lines := startSignalLifecycleHelper(t, "late-hangup")
+	waitForSignalLifecycleLine(t, lines, "ready")
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	waitForSignalLifecycleLine(t, lines, "canceled")
+	assertSignalLifecycleExit(t, cmd, 129)
+}
+
 func TestSignalLifecycleSecondSignalForcesFirstSignalExitCode(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -50,6 +61,8 @@ func TestSignalLifecycleSecondSignalForcesFirstSignalExitCode(t *testing.T) {
 		{name: "SIGTERM then SIGINT", first: syscall.SIGTERM, second: os.Interrupt, wantExit: 143},
 		{name: "SIGINT then SIGINT", first: os.Interrupt, second: os.Interrupt, wantExit: 130},
 		{name: "SIGTERM then SIGTERM", first: syscall.SIGTERM, second: syscall.SIGTERM, wantExit: 143},
+		{name: "SIGHUP then SIGTERM", first: syscall.SIGHUP, second: syscall.SIGTERM, wantExit: 129},
+		{name: "SIGTERM then SIGHUP", first: syscall.SIGTERM, second: syscall.SIGHUP, wantExit: 143},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -73,7 +86,7 @@ func TestSignalLifecycleHelperProcess(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	exitCode := runWithSignalLifecycle(func(ctx context.Context) int {
+	run := func(ctx context.Context) int {
 		fmt.Println("ready")
 		if mode == "force-tree" || mode == "mcp-tree" {
 			return runSignalLifecycleTreeMode(ctx, mode)
@@ -86,8 +99,14 @@ func TestSignalLifecycleHelperProcess(t *testing.T) {
 			}
 		}
 		return 1
-	})
-	os.Exit(exitCode)
+	}
+	exitWithSignalLifecycle(run)
+	if mode == "late-hangup" {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGHUP)
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 }
 
 func startSignalLifecycleHelper(t *testing.T, mode string) (*exec.Cmd, <-chan string) {

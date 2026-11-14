@@ -313,6 +313,41 @@ func TestUnmanageMetadataRecoveryRefusesJournalBeforeRepairingFileSet(t *testing
 	}
 }
 
+func TestUnmanagePreReadRecoverySharesGlobalMetadataLease(t *testing.T) {
+	root := t.TempDir()
+	configureUnmanageTestHomes(t, root)
+	paths := unmanageTestPaths(t, root)
+	metadatatx.WriteInterruptedForAbsentTarget(t, paths.StateDir, paths.LockfilePath)
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := recoverygate.GlobalMetadataAuthorityPath(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: marker, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := mutation.NewStore(paths.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.Acquire(t.Context(), writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	err = recoverUnmanageFileSetBeforeRead(ctx, paths, paths.LockfilePath, barrier)
+	var canceled mutation.CancellationError
+	if !errors.As(err, &canceled) {
+		t.Fatal("unmanage recovery bypassed the global publisher lease", err)
+	}
+}
+
 func TestUnmanageMutationAuthorityConflictsWithRecoveryWriters(t *testing.T) {
 	root := t.TempDir()
 	configureUnmanageTestHomes(t, root)

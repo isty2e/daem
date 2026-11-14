@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -26,8 +27,8 @@ func TestNativeWholeAdoptionRefusesForeignProjectBindingWithoutClaim(t *testing.
 	fixture := newNativePlanningFixture(t, target.ScopeProject, "extension-settings/test.json")
 	binding := nativeForeignProjectBinding(t, fixture, outputtest.Parse(t, "shared/peer.json"), fixture.hostPath)
 	registry, err := fixture.observation.Registry.Load(t.Context())
-	if err != nil || len(registry.Claims()) != 0 {
-		t.Fatal("project fixture unexpectedly depends on an exclusive claim", err)
+	if err != nil || len(registry.Claims()) != 1 || !registry.Claims()[0].OwnedBy(fixture.observation.Owner) {
+		t.Fatal("project fixture lost its complete own native claim", err)
 	}
 	registry, err = ownership.NewRegistry(registry.Claims(), append(registry.DocumentBindings(), binding)...)
 	if err != nil {
@@ -103,7 +104,7 @@ func nativeForeignProjectBinding(t *testing.T, fixture nativePlanningFixture, de
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := fixture.observation.Roots.Manifest.SelectedPath
+	root := namespacetest.LegacyRoot(t, fixture.observation.Roots, output.RootProject).SelectedPath
 	statePath := filepath.Join(root, "foreign-state.json")
 	requireNativePreparationFile(t, statePath, content)
 	state, err := mutation.ObservePersistedDirectoryEntryAuthority(statePath)
@@ -123,7 +124,7 @@ func nativeForeignProjectBinding(t *testing.T, fixture nativePlanningFixture, de
 			t.Fatal(err)
 		}
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{contract.Address().Document()}, fixture.observation.Roots, fixture.observation.Filesystem, fixture.observation.Budget)
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{contract.Address().Document()}, fixture.observation.Roots, fixture.observation.Protection, fixture.observation.Filesystem, fixture.observation.Budget)
 	if err != nil {
 		t.Fatal(err)
 	}

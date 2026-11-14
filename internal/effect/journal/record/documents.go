@@ -41,7 +41,7 @@ func (demand ImageDemand) Original() DocumentImage { return demand.original }
 func (demand ImageDemand) Expected() DocumentImage { return demand.expected }
 
 type documentReconstructionGroup struct {
-	record             recoveryDocumentGroup
+	record             nativeDocumentRecord
 	original, expected DocumentImage
 	aliases            []aggregate.DocumentAddress
 	subjects           []topology.SubjectID
@@ -59,6 +59,7 @@ type LoadedReconstruction struct {
 	limits    configdocument.Limits
 	codecs    aggregate.CodecCatalog
 	indexes   journaldocument.SnapshotIndexes
+	placement journaldocument.PhysicalPlacement
 	bindings  [][]ownership.DocumentBindingIntent
 	prepared  []journaldocument.Comparison
 	canonical []journaldocument.Comparison
@@ -99,11 +100,15 @@ func newDocumentReconstruction(ctx context.Context, journal Native, limits confi
 		return nil, fmt.Errorf("document reconstruction requires its selected image source")
 	}
 
-	indexes, err := journaldocument.IndexSnapshots(ctx, journal.before, journal.after)
+	indexes, err := journaldocument.IndexSnapshotsForClaims(ctx, journal.before, journal.after, journal.namespace.claims)
 	if err != nil {
 		return nil, err
 	}
 	bindings, err := journal.documentBindings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	placement, err := journal.documentPlacement(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +119,7 @@ func newDocumentReconstruction(ctx context.Context, journal Native, limits confi
 	}
 	return &LoadedReconstruction{
 		mode: mode, phase: phase, journal: journal, limits: limits, codecs: codecs,
-		indexes: indexes, bindings: bindings, prepared: slices.Clone(prepared),
+		indexes: indexes, placement: placement, bindings: bindings, prepared: slices.Clone(prepared),
 	}, nil
 }
 
@@ -141,7 +146,7 @@ func (session *LoadedReconstruction) Next(ctx context.Context) (ImageDemand, boo
 
 	record := session.journal.record.DocumentGroups[session.cursor]
 	if session.mode == documentReconstructionPrepared {
-		if err := record.validate(session.journal.record.ManifestRootProvenance); err != nil {
+		if err := record.validate(); err != nil {
 			return ImageDemand{}, false, session.reject(err)
 		}
 	}
@@ -149,11 +154,11 @@ func (session *LoadedReconstruction) Next(ctx context.Context) (ImageDemand, boo
 	if err != nil {
 		return ImageDemand{}, false, session.reject(err)
 	}
-	selections, err := session.indexes.SelectedContracts(ctx, subjects, aliases)
+	selections, err := session.indexes.SelectedContractsForPlacement(ctx, subjects, session.placement, session.cursor)
 	if err != nil {
 		return ImageDemand{}, false, session.reject(err)
 	}
-	claims, provisional, err := session.journal.documentClaims(ctx, session.indexes, record, aliases)
+	claims, provisional, err := session.journal.documentClaims(ctx, session.indexes, record, session.placement.BeforeAliases(session.cursor), session.placement.AfterAliases(session.cursor))
 	if err != nil {
 		return ImageDemand{}, false, session.reject(err)
 	}
@@ -176,7 +181,7 @@ func (session *LoadedReconstruction) supplyPreparedImages(ctx context.Context, d
 		return session.reject(fmt.Errorf("document reconstruction has no matching prepared-image demand"))
 	}
 
-	images, err := preparedNativeDocumentImages(ctx, session.pending.record, session.prepared[session.cursor], session.limits)
+	images, err := preparedNativeDocumentImages(ctx, session.pending.record.nativeDocumentBody, session.prepared[session.cursor], session.limits)
 	if err != nil {
 		return session.reject(err)
 	}
@@ -223,7 +228,18 @@ func (session *LoadedReconstruction) completeImages(ctx context.Context, demand 
 		session.canonical = append(session.canonical, reconstructed)
 	}
 
-	session.inputs = append(session.inputs, journaldocument.NewStateGroupInput(group.aliases, group.subjects, completion, session.bindings[session.cursor]))
+	input := journaldocument.NewStateGroupInput(group.aliases, group.subjects, completion, session.bindings[session.cursor])
+	if session.journal.record.Version == native17Version {
+		routes, err := group.record.namespace.boundRoutes(ctx)
+		if err != nil {
+			return session.reject(err)
+		}
+		input, err = journaldocument.NewBoundStateGroupInput(ctx, routes, group.subjects, completion, session.bindings[session.cursor])
+		if err != nil {
+			return session.reject(err)
+		}
+	}
+	session.inputs = append(session.inputs, input)
 	session.result.images = append(session.result.images, images)
 	session.result.claims = append(session.result.claims, group.claims)
 	session.result.provisional = append(session.result.provisional, group.provisional)

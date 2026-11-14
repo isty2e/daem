@@ -33,7 +33,10 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 			return err
 		}
 		var err error
-		input.Codecs, input.StateCodec, err = input.RecoveryCodecs(recoveryCtx)
+		input.Codecs, input.StateCodec, input.StatefileCodec, err = input.RecoveryCodecs(recoveryCtx)
+		if err == nil && (input.StateCodec == nil || input.StatefileCodec.IsZero()) {
+			return fmt.Errorf("native settlement requires journal and statefile codecs")
+		}
 		return err
 	}); err != nil {
 		return refuse(err)
@@ -49,10 +52,10 @@ func settleNativeApplyFailure(ctx context.Context, primary error, input NativeAp
 	var operation *journal.NativeRecoveryOperation
 	if err := execution.Observe(prefix+"/journal-load", applyprogram.FailureUnavailable, func() error {
 		var err error
-		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
+		operation, err = journal.OpenCapturedNativeRecovery(recoveryCtx, captured, input.StateCodec, input.StatefileCodec, authority.capturedRoot, input.Budget, journalqualification.NativeRecoveryOptions{
 			Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal, Registry: store, Codecs: input.Codecs,
 			State: func(ctx context.Context) (durable.Snapshot, error) {
-				return authority.projectStatefile.Read(ctx, input.StateCodec, input.Budget)
+				return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 			},
 		})
 		return err

@@ -65,23 +65,6 @@ func (observation OrderObservation) Physical() []PhysicalOrderObservation {
 	return append([]PhysicalOrderObservation(nil), observation.physical...)
 }
 
-// Pi returns the host-native Pi observation when Pi owns this order class.
-func (observation OrderObservation) Pi() (observepipackage.OrderObservation, bool) {
-	if observation.pi == nil {
-		return observepipackage.OrderObservation{}, false
-	}
-	return *observation.pi, true
-}
-
-// OpenCode returns the host-native OpenCode observation when OpenCode owns this
-// order class.
-func (observation OrderObservation) OpenCode() (observeopencode.OrderObservation, bool) {
-	if observation.openCode == nil {
-		return observeopencode.OrderObservation{}, false
-	}
-	return *observation.openCode, true
-}
-
 // OrderAuthorityPaths returns the complete static path set whose selection may
 // change before post-carrier reobservation.
 func OrderAuthorityPaths(input OrderInput) ([]OrderAuthorityPath, error) {
@@ -172,16 +155,17 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		settings := observepipackage.SettingsInput{
 			WorkDir: input.Paths.ManifestRoot, ProjectRoot: input.Paths.ManifestRoot, Scope: capability.Scope(),
 		}
-		var observation observepipackage.OrderObservation
+		var document aggregate.Document
 		if input.PiDocument != nil {
-			observation, err = reconstructPiOrder(input, settings, relations)
+			document = *input.PiDocument
 		} else {
-			observation, err = observepipackage.ReadOrder(observepipackage.OrderInput{
-				Settings:   settings,
-				Constraint: input.Constraint,
-				Relations:  relations,
-			})
+			inventory, err := observepipackage.ReadSettings(settings)
+			if err != nil {
+				return OrderObservation{}, err
+			}
+			document = inventory.Document()
 		}
+		observation, err := reconstructPiOrder(input, settings, relations, capability, document)
 		if err != nil {
 			return OrderObservation{}, err
 		}
@@ -230,7 +214,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	)
 }
 
-func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation) (observepipackage.OrderObservation, error) {
+func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation, capability profile.ExtensionOrderCapability, document aggregate.Document) (observepipackage.OrderObservation, error) {
 	home, err := input.Paths.UserHomeDir()
 	if err != nil {
 		return observepipackage.OrderObservation{}, err
@@ -258,7 +242,8 @@ func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInpu
 	}
 
 	return observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
-		Scope: settings.Scope, SettingsContext: settingsContext, Document: *input.PiDocument, Constraint: input.Constraint, Relations: bound,
+		Scope: settings.Scope, Capability: capability, SettingsContext: settingsContext,
+		Document: document, Constraint: input.Constraint, Relations: bound,
 	})
 }
 

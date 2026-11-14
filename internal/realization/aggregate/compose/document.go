@@ -33,8 +33,9 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 	if err != nil {
 		return DocumentCandidate{}, err
 	}
-	var changes []configdocument.Change
+	var candidates []configdocument.Projection
 	privateExpected := make([]aggregate.Snapshot, len(edits))
+	absenceRequested := false
 	for index, edit := range edits {
 		if err := ctx.Err(); err != nil {
 			return DocumentCandidate{}, err
@@ -50,16 +51,24 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		selected, err := projectedChanges(ctx, rendered.Document(), limits, edit.projection)
+		semanticDocument := rendered.Document()
+		selected, err := nativeProjection(ctx, semanticDocument, limits, edit.projection)
 		if err != nil {
 			return DocumentCandidate{}, err
 		}
-		changes = append(changes, selected...)
+		candidates = append(candidates, selected)
 		privateExpected[index] = rendered.Expected()
+		absenceRequested = absenceRequested || !semanticDocument.Exists()
 	}
-	updated, err := configdocument.Edit(ctx, original, changes)
+	updated, err := configdocument.Project(ctx, original, candidates)
 	if err != nil {
 		return DocumentCandidate{}, err
+	}
+	if absenceRequested {
+		updated, err = omitEmptyDocument(updated, projections[0].syntax, limits)
+		if err != nil {
+			return DocumentCandidate{}, err
+		}
 	}
 	final := nativeDocument(updated)
 	expected := make([]aggregate.Snapshot, 0, len(edits))
@@ -68,7 +77,7 @@ func Render(ctx context.Context, document aggregate.Document, limits configdocum
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		if !actual.Equal(privateExpected[index]) {
+		if !actual.SameManagedProjection(privateExpected[index]) {
 			return DocumentCandidate{}, fmt.Errorf("composed document differs from a semantic projection candidate")
 		}
 		if _, err := aggregate.NewRenderedDocument(final, edit.plan, actual); err != nil {
@@ -94,7 +103,7 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		return DocumentCandidate{}, err
 	}
 	beforeExisted := baselines[0].baseline.DocumentExisted()
-	var changes []configdocument.Change
+	var candidates []configdocument.Projection
 	privateExpected := make([]aggregate.Snapshot, len(baselines))
 	for index, baseline := range baselines {
 		if err := ctx.Err(); err != nil {
@@ -107,27 +116,21 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		selected, err := projectedChanges(ctx, restored.Document(), limits, baseline.projection)
+		selected, err := nativeProjection(ctx, restored.Document(), limits, baseline.projection)
 		if err != nil {
 			return DocumentCandidate{}, err
 		}
-		changes = append(changes, selected...)
+		candidates = append(candidates, selected)
 		privateExpected[index] = restored.Expected()
 	}
-	updated, err := configdocument.Edit(ctx, original, changes)
+	updated, err := configdocument.Project(ctx, original, candidates)
 	if err != nil {
 		return DocumentCandidate{}, err
 	}
 	if !beforeExisted {
-		root, present, err := updated.Lookup(output.KeyPath{})
+		updated, err = omitEmptyDocument(updated, projections[0].syntax, limits)
 		if err != nil {
 			return DocumentCandidate{}, err
-		}
-		if present && root.IsObject() && root.IsAtomic() && len(updated.Comments()) == 0 {
-			updated, err = configdocument.Absent(projections[0].syntax, limits)
-			if err != nil {
-				return DocumentCandidate{}, err
-			}
 		}
 	}
 	final := nativeDocument(updated)
@@ -137,7 +140,7 @@ func Restore(ctx context.Context, document aggregate.Document, limits configdocu
 		if failure != nil {
 			return DocumentCandidate{}, failure
 		}
-		if !sameRestoredProjection(privateExpected[index], actual) {
+		if !privateExpected[index].SameManagedProjection(actual) {
 			return DocumentCandidate{}, fmt.Errorf("composed document differs from a semantic recovery candidate")
 		}
 		if _, err := aggregate.NewRestoredDocumentWithExpected(final, baseline.baseline, actual); err != nil {
@@ -180,46 +183,19 @@ func prepare(ctx context.Context, document aggregate.Document, limits configdocu
 	return parse(ctx, document, projections[0].syntax, limits)
 }
 
-func projectedChanges(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projection Participant) ([]configdocument.Change, error) {
+func nativeProjection(ctx context.Context, document aggregate.Document, limits configdocument.Limits, projection Participant) (configdocument.Projection, error) {
 	parsed, err := parse(ctx, document, projection.syntax, limits)
 	if err != nil {
-		return nil, err
+		return configdocument.Projection{}, err
 	}
-	changes := make([]configdocument.Change, 0, len(projection.areas))
-	for _, area := range projection.areas {
-		value, present, err := parsed.Lookup(area)
-		if err != nil {
-			return nil, err
-		}
-		var change configdocument.Change
-		if present {
-			change, err = configdocument.Set(area, value)
-		} else {
-			change, err = configdocument.Remove(area)
-		}
-		if err != nil {
-			return nil, err
-		}
-		changes = append(changes, change)
-	}
-	return changes, nil
+	return configdocument.Projection{Document: parsed, Areas: projection.areas}, nil
 }
 
-func sameRestoredProjection(expected, actual aggregate.Snapshot) bool {
-	left, right := expected.States(), actual.States()
-	if len(left) != len(right) {
-		return false
+func omitEmptyDocument(document configdocument.Document, syntax configdocument.Syntax, limits configdocument.Limits) (configdocument.Document, error) {
+	if document.HasValues() || len(document.Comments()) != 0 {
+		return document, nil
 	}
-	for index, state := range left {
-		if _, native := aggregate.HostConfigSyntaxForCodec(state.Contract().CodecContractID()); native {
-			if !state.SelectedValueEqual(right[index]) {
-				return false
-			}
-		} else if !state.Equal(right[index]) {
-			return false
-		}
-	}
-	return true
+	return configdocument.Absent(syntax, limits)
 }
 
 func parse(ctx context.Context, document aggregate.Document, syntax configdocument.Syntax, limits configdocument.Limits) (configdocument.Document, error) {

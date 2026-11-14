@@ -3,17 +3,107 @@ package recover
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
+
+func TestRecoverRefusesGlobalMetadataTransaction(t *testing.T) {
+	fixture := prepareRecoveryFixture(t, true)
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+	for _, legacy := range []bool{false, true} {
+		input := fixture.input
+		input.LegacyUserState = legacy
+		prepared, err := Plan(t.Context(), input)
+		if prepared != nil || !errors.Is(err, recoverygate.ErrGlobalMetadataFence) {
+			t.Fatalf("recovery with legacy=%t bypassed the shared transaction: %v", legacy, err)
+		}
+	}
+	if _, err := os.Lstat(fixture.operationDir); err != nil {
+		t.Fatal("blocked recovery changed the active journal", err)
+	}
+}
+
+func TestRecoverExecutionPreservesGlobalMetadataRefusal(t *testing.T) {
+	fixture := prepareRecoveryFixture(t, true)
+	prepared, err := Plan(t.Context(), fixture.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = prepared.Close() })
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+	_, err = Execute(t.Context(), prepared, ExecuteOptions{})
+	var stale mutation.StaleSnapshotError
+	if !errors.Is(err, recoverygate.ErrGlobalMetadataFence) || errors.As(err, &stale) {
+		t.Fatal("global metadata refusal became stale recovery evidence", err)
+	}
+}
+
+func TestRecoveryAuthoritySharesGlobalMetadataLease(t *testing.T) {
+	for _, cleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			var fixture recoveryFixture
+			if cleanup {
+				fixture = prepareCleanupRecoveryFixture(t, retirement.PhasePrepared, true).recoveryFixture
+			} else {
+				fixture = prepareRecoveryFixture(t, true)
+			}
+			prepared, err := Plan(t.Context(), fixture.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = prepared.Close() })
+			planned := prepared.lifecycle.planned.(recoveryPreparation)
+			marker, err := recoverygate.GlobalMetadataAuthorityPath(planned.paths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writer, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: marker, Access: mutation.AccessExclusive, Effect: mutation.PathEffectDirectoryEntry})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, err := mutation.NewStore(planned.paths.DataDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lease, err := store.Acquire(t.Context(), writer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.Release()
+			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+			defer cancel()
+			peer, err := store.Acquire(ctx, planned.authorityEvidence.domains...)
+			if err == nil {
+				_ = peer.Release()
+				t.Fatal("journal recovery bypassed the global publisher lease")
+			}
+			var canceled mutation.CancellationError
+			if !errors.As(err, &canceled) {
+				t.Fatal("recovery lease failed for an unrelated reason", err)
+			}
+		})
+	}
+}
 
 func TestRecoverNoJournalRetainsFileSetEvidenceWithoutRecoveryAuthority(t *testing.T) {
 	t.Run("published marker", func(t *testing.T) {

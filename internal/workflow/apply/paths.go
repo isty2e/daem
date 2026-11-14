@@ -1,14 +1,13 @@
 package apply
 
 import (
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/effect/execute"
-	"github.com/isty2e/daem/internal/output/hostpath"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
-func destinationResolver(paths daempaths.Paths) hostpath.Resolver {
-	return managedhostpath.Resolver(paths)
+func destinationResolver(paths daempaths.Paths) physicalhostpath.Resolver {
+	return physicalhostpath.NewResolver(paths)
 }
 
 func executePaths(paths daempaths.Paths, statefilePath string) execute.Paths {

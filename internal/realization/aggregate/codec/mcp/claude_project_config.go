@@ -9,6 +9,7 @@ import (
 	"maps"
 	"sort"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -170,6 +171,7 @@ type mcpConfigSpec struct {
 	label             string
 	serversKey        string
 	serversPath       string
+	syntax            configdocument.Syntax
 	documentAdmission func([]byte, mcpConfigSpec) error
 }
 
@@ -193,11 +195,15 @@ func antigravityGlobalMCPConfigSpec() mcpConfigSpec {
 }
 
 func openCodeProjectMCPConfigSpec() mcpConfigSpec {
-	return mcpConfigSpecForPlacement(aggregate.MCPPlacementOpenCodeProject, "OpenCode project MCP", openCodeProjectMCPManagedField)
+	spec := mcpConfigSpecForPlacement(aggregate.MCPPlacementOpenCodeProject, "OpenCode project MCP", openCodeProjectMCPManagedField)
+	spec.syntax = configdocument.JSONC
+	return spec
 }
 
 func openCodeGlobalMCPConfigSpec() mcpConfigSpec {
-	return mcpConfigSpecForPlacement(aggregate.MCPPlacementOpenCodeGlobal, "OpenCode global MCP", openCodeProjectMCPManagedField)
+	spec := mcpConfigSpecForPlacement(aggregate.MCPPlacementOpenCodeGlobal, "OpenCode global MCP", openCodeProjectMCPManagedField)
+	spec.syntax = configdocument.JSONC
+	return spec
 }
 
 func mcpConfigSpecForPlacement(id aggregate.MCPPlacementID, label string, serversKey string) mcpConfigSpec {
@@ -210,13 +216,16 @@ func mcpConfigSpecForPlacement(id aggregate.MCPPlacementID, label string, server
 		label:       label,
 		serversKey:  serversKey,
 		serversPath: string(placement.ContentPathPrefix()),
+		syntax:      configdocument.JSON,
 	}
 }
 
 type mcpConfig struct {
-	spec    mcpConfigSpec
-	top     map[string]json.RawMessage
-	servers map[string]json.RawMessage
+	spec          mcpConfigSpec
+	top           map[string]json.RawMessage
+	servers       map[string]json.RawMessage
+	original      []byte
+	beforeServers map[string]json.RawMessage
 }
 
 func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
@@ -252,9 +261,13 @@ func decodeMCPConfigContext(ctx context.Context, content []byte, spec mcpConfigS
 			spec.label+" config JSON is empty",
 		)
 	}
+	standard, err := standardMCPJSON(ctx, content, spec)
+	if err != nil {
+		return mcpConfig{}, err
+	}
 	admit := spec.documentAdmission
 	if admit == nil {
-		if err := admitStrictMCPJSONDocumentContext(ctx, content, spec); err != nil {
+		if err := admitStrictMCPJSONDocumentContext(ctx, standard, spec); err != nil {
 			return mcpConfig{}, err
 		}
 	} else if err := admit(content, spec); err != nil {
@@ -267,7 +280,7 @@ func decodeMCPConfigContext(ctx context.Context, content []byte, spec mcpConfigS
 		return mcpConfig{}, err
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder := json.NewDecoder(bytes.NewReader(standard))
 	if err := decoder.Decode(&config.top); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return mcpConfig{}, contextErr
@@ -288,6 +301,7 @@ func decodeMCPConfigContext(ctx context.Context, content []byte, spec mcpConfigS
 			spec.label+" config JSON must be an object",
 		)
 	}
+	config.original = bytes.Clone(content)
 
 	rawServers, ok := config.top[spec.serversKey]
 	if !ok {
@@ -299,6 +313,7 @@ func decodeMCPConfigContext(ctx context.Context, content []byte, spec mcpConfigS
 		}
 		return mcpConfig{}, err
 	}
+	config.beforeServers = maps.Clone(config.servers)
 	if err := ctx.Err(); err != nil {
 		return mcpConfig{}, err
 	}
@@ -391,6 +406,9 @@ func (config mcpConfig) encodePreservingMCPParent(parentExistedBefore bool) ([]b
 	plan, err := config.encodingPlan(parentExistedBefore)
 	if err != nil {
 		return nil, false, err
+	}
+	if config.original != nil {
+		return config.editExisting(plan)
 	}
 	if !plan.keepDocument {
 		return nil, false, nil

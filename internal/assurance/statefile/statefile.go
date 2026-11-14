@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -24,34 +23,20 @@ const (
 
 // Load reads current state or one exact empty retired statefile into canonical durable state.
 func Load(ctx context.Context, path string) (durable.Snapshot, error) {
-	content, err := readStatefile(ctx, path)
+	state, err := LoadPhysical(ctx, path)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	snapshot, err := decodePersisted(ctx, content)
-	if err != nil {
-		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
-	}
-	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
-	if err != nil {
-		return durable.Snapshot{}, fmt.Errorf("canonicalize statefile authority key: %w", err)
-	}
-	if err := validateLoadedStateAuthority(snapshot, authority); err != nil {
-		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
-	}
-	return snapshot, nil
+	return state.Snapshot(), nil
 }
 
 // LoadOptional reads admissible persisted state or returns the canonical empty snapshot.
 func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
-	snapshot, err := Load(ctx, path)
-	if err == nil {
-		return snapshot, nil
+	state, err := LoadOptionalPhysical(ctx, path)
+	if err != nil {
+		return durable.Snapshot{}, fmt.Errorf("read statefile: %w", err)
 	}
-	if errors.Is(err, fs.ErrNotExist) {
-		return durable.EmptySnapshot(), nil
-	}
-	return durable.Snapshot{}, fmt.Errorf("read statefile: %w", err)
+	return state.Snapshot(), nil
 }
 
 // Decode decodes one strict current or explicitly supported legacy state JSON value.
@@ -80,10 +65,14 @@ func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, err
 		return durable.Snapshot{}, err
 	}
 	switch version {
-	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion:
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion:
 		codec, err := currentSnapshotCodec(ctx)
 		if err != nil {
 			return durable.Snapshot{}, err
+		}
+		if version == locatedSnapshotVersion {
+			image, err := unmarshalImage(content, codec)
+			return image.Snapshot(), err
 		}
 		return decodeSupported(content, version, codec)
 	case retiredStatefileVersion:
@@ -195,8 +184,12 @@ func validateLoadedStateAuthority(
 	snapshot durable.Snapshot,
 	authority mutation.PersistedDirectoryEntryAuthority,
 ) error {
+	return validateSnapshotStatefileIdentity(snapshot, authority.Exact())
+}
+
+func validateSnapshotStatefileIdentity(snapshot durable.Snapshot, authority pathauthority.Exact) error {
 	for index, pending := range snapshot.PendingCarrierInstalls() {
-		if !authority.Exact().Equal(pending.Owner().StatefileAuthority()) {
+		if !authority.Equal(pending.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"pending_carrier_installs[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
@@ -206,7 +199,7 @@ func validateLoadedStateAuthority(
 		}
 	}
 	for index, pending := range snapshot.PendingCarrierRemovals() {
-		if !authority.Exact().Equal(pending.Owner().StatefileAuthority()) {
+		if !authority.Equal(pending.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"pending_carrier_removals[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
@@ -216,7 +209,7 @@ func validateLoadedStateAuthority(
 		}
 	}
 	for index, claim := range snapshot.ManagedCarrierClaims() {
-		if !authority.Exact().Equal(claim.Owner().StatefileAuthority()) {
+		if !authority.Equal(claim.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"managed_carrier_claims[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,

@@ -82,12 +82,16 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"add", "skill", "--help"},
 		{"apply", "--help"},
 		{"import", "--help"},
+		{"import", "host-config", "--help"},
+		{"replace", "--help"},
+		{"replace", "host-config", "--help"},
 		{"init", "--help"},
 		{"lock", "--help"},
 		{"outdated", "--help"},
 		{"recover", "--help"},
 		{"migrate", "--help"},
 		{"migrate", "state", "--help"},
+		{"migrate", "metadata", "--help"},
 		{"refresh", "--help"},
 		{"refresh", "extension", "--help"},
 		{"remove", "--help"},
@@ -95,6 +99,7 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"remove", "skill", "--help"},
 		{"unmanage", "--help"},
 		{"unmanage", "extension", "--help"},
+		{"unmanage", "host-config", "--help"},
 	}
 
 	for _, args := range tests {
@@ -162,6 +167,8 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 		gated = append(gated, []string{"remove", subject})
 	}
 	gated = append(gated, []string{"unmanage", "extension"})
+	gated = append(gated, []string{"unmanage", "host-config"})
+	gated = append(gated, []string{"import", "host-config"}, []string{"replace", "host-config"}, []string{"migrate", "metadata"})
 	for _, args := range gated {
 		if !requiresPlatformAdmission(args) {
 			t.Errorf("requiresPlatformAdmission(%#v) = false, want true", args)
@@ -212,6 +219,7 @@ func TestCommandAdmissionCatalogRoutesEveryRegisteredRoot(t *testing.T) {
 		"recover":   {"recover", "--help"},
 		"refresh":   {"refresh", "--help"},
 		"remove":    {"remove", "--help"},
+		"replace":   {"replace", "--help"},
 		"status":    {"status", "--help"},
 		"unmanage":  {"unmanage", "--help"},
 		"version":   {"version", "--help"},
@@ -515,13 +523,17 @@ func platformGatedCommandExamples(manifestPath string) [][]string {
 		{"add", "skill", "example", "./skill", "--manifest", manifestPath},
 		{"apply", "--yes", "--manifest", manifestPath},
 		{"import", "--target", "codex", "--manifest", manifestPath},
+		{"import", "host-config", "example", "--manifest", manifestPath},
+		{"replace", "host-config", "example", "--manifest", manifestPath},
 		{"init", "--manifest", manifestPath},
 		{"lock", "--manifest", manifestPath},
 		{"outdated", "--manifest", manifestPath},
 		{"recover", "--yes", "--manifest", manifestPath},
 		{"migrate", "state", "--yes", "--manifest", manifestPath},
+		{"migrate", "metadata", "--dry-run", "--manifest", manifestPath},
 		{"refresh", "extension", "example", "--yes", "--manifest", manifestPath},
 		{"remove", "skill", "example", "--manifest", manifestPath},
 		{"unmanage", "extension", "example", "--manifest", manifestPath},
+		{"unmanage", "host-config", "example", "--manifest", manifestPath},
 	}
 }

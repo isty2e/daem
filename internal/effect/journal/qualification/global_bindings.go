@@ -289,7 +289,7 @@ func MatchRecordedGlobalBinding(
 	}
 	if current.resolvedPath != expectedPath {
 		return fmt.Errorf(
-			"resolved to %q, not capture-time path %q; root selection changed",
+			"resolved to %q, not capture-time path %q; root selection changed; select the original host directory explicitly before retrying recovery",
 			current.resolvedPath,
 			expectedPath,
 		)

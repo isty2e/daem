@@ -129,48 +129,64 @@ func applyEnvelopeFor(
 		}
 		executeGates = 0
 	}
-	orderClasses, err := admittedOrderClasses(current)
+	work, err := applyEnvelopeWorkFor(current, providerActions, applyInput.CurrentState)
 	if err != nil {
 		return operationplan.Envelope{}, 0, err
+	}
+	work.ExecuteGates = executeGates
+	work.PrefixExecuteGates = prefixGates
+	work.PostRouteExecuteGates = postRouteGates
+	work.PostDelegateExecuteGates = postDelegateGates
+	envelope, err := operationplan.CompileApply(work)
+	if err != nil {
+		return operationplan.Envelope{}, 0, err
+	}
+	return envelope, executeGates, nil
+}
+
+func applyEnvelopeWorkFor(
+	current commandPlan,
+	providerActions []reconcile.RelationAction,
+	baseline durable.Snapshot,
+) (operationplan.ApplyWork, error) {
+	orderClasses, err := admittedOrderClasses(current)
+	if err != nil {
+		return operationplan.ApplyWork{}, err
 	}
 	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(
 		current.assessment.Reconciliation.CarrierAbsences(),
 	)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
 	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(
 		current.assessment.CurrentState,
 		current.assessment.Reconciliation.CarrierAdoptions(),
 	)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
-	finalRelations, err := finalRelationActions(current, applyInput.CurrentState)
+	finalRelations, err := finalRelationActions(current, baseline)
 	if err != nil {
-		return operationplan.Envelope{}, 0, err
+		return operationplan.ApplyWork{}, err
 	}
-	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		ExecuteGates:             executeGates,
-		PrefixExecuteGates:       prefixGates,
-		PostRouteExecuteGates:    postRouteGates,
-		PostDelegateExecuteGates: postDelegateGates,
-		ProviderActions:          routeWorks(current.assessment.CurrentState, providerActions),
+	carrierFacts, err := commandCarrierScheduleFacts(current)
+	if err != nil {
+		return operationplan.ApplyWork{}, err
+	}
+	return operationplan.ApplyWork{
+		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
-			applyInput.CurrentState,
+			baseline,
 			finalRelations,
 		),
-		CarrierRemovals:         carrierWorks(current.assessment.Reconciliation.CarrierAbsences()),
+		CarrierRemovals:         carrierScheduleWorks(carrierFacts),
 		GlobalCarrierRetirement: len(globalRetirements) != 0,
 		GlobalCarrierAdoption:   len(globalAdoptions) != 0,
 		OrderClasses:            orderClasses,
 		Delegates:               delegateWorks(current.assessment.Reconciliation.Delegates()),
 		StatefilePath:           current.assessment.StatePath,
-	})
-	if err != nil {
-		return operationplan.Envelope{}, 0, err
-	}
-	return envelope, executeGates, nil
+	}, nil
 }
 
 func applyPlanFromDemand(demand operationplan.Demand) applyStateDirEffectPlan {
@@ -220,8 +236,14 @@ func hostRouteStatefileEffectPlanForWorks(
 func carrierRemovalStatefileEffectPlan(
 	actions []carrierabsence.Action,
 ) (statefileEffectPlan, error) {
+	return carrierRemovalStatefileEffectPlanForWorks(carrierWorks(actions))
+}
+
+func carrierRemovalStatefileEffectPlanForWorks(
+	works []operationplan.CarrierWork,
+) (statefileEffectPlan, error) {
 	envelope, err := operationplan.CompileApply(operationplan.ApplyWork{
-		CarrierRemovals: carrierWorks(actions),
+		CarrierRemovals: works,
 	})
 	if err != nil {
 		return statefileEffectPlan{}, err
@@ -288,12 +310,11 @@ func delegateWorks(actions []reconcile.DelegateAction) []operationplan.DelegateW
 }
 
 type admittedOrderClass struct {
-	target      target.Target
-	scope       target.Scope
-	classID     string
-	fingerprint string
-	decisions   []reconcile.RelationOrderDecision
-	native      bool
+	target           target.Target
+	scope            target.Scope
+	classID          string
+	fingerprint      string
+	requiresMutation bool
 }
 
 func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, error) {
@@ -304,7 +325,7 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 	works := make([]operationplan.OrderClassWork, 0, len(classes))
 	for _, class := range classes {
 		works = append(works, operationplan.OrderClassWork{
-			RequiresMutation: relationOrderMutationRequired(class.decisions) && !class.native,
+			RequiresMutation: class.requiresMutation,
 		})
 	}
 	return works, nil
@@ -340,22 +361,26 @@ func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) 
 		if _, ok := selected[string(selectedTarget)]; !ok {
 			continue
 		}
-		native := false
+		nativeSequences := make(map[relationOrderSequenceKey]bool)
 		if current.nativePlan != nil {
-			for _, order := range current.nativePlan.state.PiOrders() {
-				native = native || order.Sequence().ClassID() == constraint.ClassID()
+			for _, order := range current.nativePlan.state.SequenceEdits() {
+				nativeSequences[selectedOrderSequenceKey(order)] = true
 			}
 			for _, order := range current.nativePlan.orders {
-				native = native || order.Sequence().ClassID() == constraint.ClassID()
+				nativeSequences[selectedOrderSequenceKey(order)] = true
 			}
 		}
+		requiresMutation := false
+		for _, decision := range classDecisions {
+			key := relationOrderSequenceKey{decision.ClassID(), decision.SequenceID()}
+			requiresMutation = requiresMutation || decision.RequiresMutation() && !nativeSequences[key]
+		}
 		result = append(result, admittedOrderClass{
-			target:      selectedTarget,
-			scope:       capability.Scope(),
-			classID:     classID,
-			fingerprint: constraint.Fingerprint(),
-			decisions:   append([]reconcile.RelationOrderDecision(nil), classDecisions...),
-			native:      native,
+			target:           selectedTarget,
+			scope:            capability.Scope(),
+			classID:          classID,
+			fingerprint:      constraint.Fingerprint(),
+			requiresMutation: requiresMutation,
 		})
 	}
 	if len(result) != len(classes) {

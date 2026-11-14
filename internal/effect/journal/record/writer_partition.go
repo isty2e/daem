@@ -52,6 +52,15 @@ func (partition *WriterPartition) Validate(ctx context.Context) error {
 
 // Metadata partitioning does not qualify current roots or replace alias leases.
 func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Context) error {
+	_, documents, err := lowerNative16Namespace(record)
+	if err != nil {
+		return err
+	}
+	body, _ := lowerNative16Record(record, documents)
+	return body.validateWriterSpellingPartition(ctx)
+}
+
+func (record nativeRuntimeRecord) validateWriterSpellingPartition(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("document writer partition context is required")
 	}
@@ -74,25 +83,29 @@ func (record nativeJournalRecord) validateWriterSpellingPartition(ctx context.Co
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		writer, err := documentRootedWriterPath(group.Writer.Root, group.Writer.RelativePath)
+		writer, err := group.writerPath()
 		if err != nil {
 			return err
 		}
 		if err := appendPath(writer, index); err != nil {
 			return err
 		}
-		for _, alias := range group.Aliases {
+		for _, alias := range group.namespace.aliases {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			address, err := alias.Address.canonical()
-			if err != nil {
-				return err
+			address, location := alias.address, alias.location
+			// A global provenance may identify an ancestor anchor, not the
+			// selected root. Its alias route is qualified live before effects;
+			// these bytes cannot reconstruct that missing prefix.
+			if address.Scope() != target.ScopeProject {
+				continue
 			}
-			if err := alias.LogicalRoot.validate(address.Scope(), record.ManifestRootProvenance); err != nil {
-				return err
+			child, directory := location.Coordinate().DirectoryChild()
+			if !directory {
+				return fmt.Errorf("project alias must retain its directory-child coordinate")
 			}
-			selected, err := documentRootedWriterPath(alias.LogicalRoot.Provenance, address.AggregateRoot().RelativePath())
+			selected, err := documentRootedWriterPath(record.ManifestRootProvenance, child)
 			if err != nil {
 				return err
 			}
@@ -129,6 +142,14 @@ func documentRootedWriterPath(root recoveryRootProvenance, relative string) (str
 }
 
 func (record nativeJournalRecord) ordinaryWriterPath(entry recoveryEntry) (string, error) {
+	return ordinaryWriterPath(record.ManifestRootProvenance, entry)
+}
+
+func (record nativeRuntimeRecord) ordinaryWriterPath(entry recoveryEntry) (string, error) {
+	return ordinaryWriterPath(record.ManifestRootProvenance, entry)
+}
+
+func ordinaryWriterPath(manifest recoveryRootProvenance, entry recoveryEntry) (string, error) {
 	view := recordedPathEntryView(entry)
 	scope, destination, err := view.WriterAddress()
 	if err != nil {
@@ -139,7 +160,7 @@ func (record nativeJournalRecord) ordinaryWriterPath(entry recoveryEntry) (strin
 		if destination.RootRole() != output.RootProject {
 			return "", fmt.Errorf("project writer has a non-project destination")
 		}
-		return documentRootedWriterPath(record.ManifestRootProvenance, destination.RelativePath())
+		return documentRootedWriterPath(manifest, destination.RelativePath())
 	case target.ScopeGlobal:
 		if !view.HasGlobalBinding() {
 			return "", fmt.Errorf("global writer requires its capture-time path binding")

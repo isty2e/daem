@@ -77,6 +77,29 @@ func TestExactEqualityIncludesSemanticsWitness(t *testing.T) {
 	}
 }
 
+func TestExactProjectsOnlyImmediateChildCandidateNames(t *testing.T) {
+	base := t.TempDir()
+	root, err := pathauthority.NewExact(base, "exact-v1:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct{ path, name string }{
+		{filepath.Join(base, "work.config.toml"), "work.config.toml"},
+		{base, ""},
+		{filepath.Join(base, "nested", "work.config.toml"), ""},
+		{filepath.Join(filepath.Dir(base), "outside"), ""},
+	} {
+		child, err := pathauthority.NewExact(scenario.path, "exact-v1:")
+		if err != nil {
+			t.Fatal(err)
+		}
+		name, present := root.ImmediateChildName(child)
+		if present != (scenario.name != "") || name != scenario.name {
+			t.Fatalf("candidate name = %q, %t; want %q", name, present, scenario.name)
+		}
+	}
+}
+
 func splitRootedPath(path string) []string {
 	root := filepath.VolumeName(path) + string(filepath.Separator)
 	relative, err := filepath.Rel(root, path)

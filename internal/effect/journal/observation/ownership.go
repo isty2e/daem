@@ -44,7 +44,7 @@ func (batch Batch) Ownership(ctx context.Context) (OwnershipProjection, error) {
 	if err := errors.Join(ctx.Err(), batch.budget.RequireCapturePending()); err != nil {
 		return OwnershipProjection{}, err
 	}
-	before, err := journaldocument.IndexSnapshot(ctx, batch.before)
+	before, err := journaldocument.IndexSnapshotForClaims(ctx, batch.before, journaldocument.NativeClaims)
 	if err != nil {
 		return OwnershipProjection{}, err
 	}

@@ -48,7 +48,6 @@ func TestResolveAgentRootUsesDefaultCustomRelativeAndTildeRoots(t *testing.T) {
 
 func TestResolveAgentRootRejectsUnsafeInputs(t *testing.T) {
 	for _, input := range []AgentRootInput{
-		{ExplicitRoot: " relative ", WorkDir: t.TempDir()},
 		{ExplicitRoot: "relative", WorkDir: "relative"},
 		{ExplicitRoot: "bad\x00root", WorkDir: t.TempDir()},
 	} {

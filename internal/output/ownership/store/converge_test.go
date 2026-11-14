@@ -19,10 +19,10 @@ func TestStoreConvergesMultipleClaimsThroughOneCanonicalSuccessor(t *testing.T) 
 	alphaValue, _ := ownership.PresentClaim(alpha)
 	betaValue, _ := ownership.PresentClaim(beta)
 	gammaValue, _ := ownership.PresentClaim(gamma)
-	if _, err := registryStore.Apply(t.Context(), alpha.Address(), ownership.NoClaim(), alphaValue); err != nil {
+	if _, err := registryStore.Apply(t.Context(), alpha.Address(), ownership.NoClaim(), alphaValue, storeClaimReferences(t, alpha)...); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registryStore.Apply(t.Context(), beta.Address(), ownership.NoClaim(), betaValue); err != nil {
+	if _, err := registryStore.Apply(t.Context(), beta.Address(), ownership.NoClaim(), betaValue, storeClaimReferences(t, beta)...); err != nil {
 		t.Fatal(err)
 	}
 	convergence, err := ownership.NewClaimConvergence([]ownership.ClaimChange{
@@ -34,7 +34,7 @@ func TestStoreConvergesMultipleClaimsThroughOneCanonicalSuccessor(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	result, err := registryStore.Converge(context.Background(), convergence)
+	result, err := registryStore.Converge(context.Background(), convergence, storeClaimReferences(t, gamma)...)
 	if err != nil {
 		t.Fatalf("Store.Converge returned error: %v", err)
 	}

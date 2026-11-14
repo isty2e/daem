@@ -193,7 +193,7 @@ func finishRecoveryPreparation(
 		physicalPathBudget: physicalPathBudget,
 	}
 	if !plan.Blocked() && !plan.HasErrors() {
-		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir)
+		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir, physicalPathBudget)
 		if err != nil {
 			return recoveryPreparation{}, fmt.Errorf("derive recovery mutation authority: %w", err)
 		}
@@ -273,6 +273,7 @@ func Execute(
 		execution.plan,
 		execution.stateDirAuthority,
 		execution.activeStateDir,
+		execution.physicalPathBudget,
 	)
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
@@ -310,6 +311,9 @@ func Execute(
 		execution.physicalPathBudget,
 	)
 	if err != nil {
+		if recoverygate.IsCancellation(err) || recoverygate.IsGlobalMetadataRefusal(err) {
+			return result, err
+		}
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	if current.plan.Blocked() || current.plan.HasErrors() {
@@ -358,6 +362,11 @@ func Execute(
 		}
 		if !matches {
 			return mutation.StaleSnapshotError{}
+		}
+		if _, release := journal.NativeReleaseActiveRecoveryPlan(current.plan); release {
+			if err := recoverygate.RequireGlobalMetadataClear(ctx, effectPaths); err != nil {
+				return err
+			}
 		}
 		if execution.activeStateDir {
 			return execution.stateDirAuthority.Validate(ctx)
@@ -409,6 +418,19 @@ func Execute(
 	}
 	switch current.plan.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
+		if release, ok := journal.NativeReleaseActiveRecoveryPlan(current.plan); ok {
+			loadOptions, err := recoveryLoadOptions(ctx, effectPaths, filesystem, execution.physicalPathBudget)
+			if err != nil {
+				return result, err
+			}
+			budget, _ := execution.physicalPathBudget.(*physicalwork.Budget)
+			err = nativeoperation.ExecuteNativeReleaseRecovery(ctx, release, executePaths(effectPaths), nativeoperation.ReleaseOptions{
+				ValidateBeforeEffects: validateBeforeActiveEffects, ValidateVisibilityAuthority: validateVisibilityAuthority,
+				AcceptVisibilityChanges: acceptVisibilityChanges, Filesystem: filesystem, RegistryBinder: ownershipstore.BindOwnReleaseRooted,
+				Budget: budget, StateCodec: loadOptions.NativeDocuments.StateCodec, StateReader: loadOptions.NativeDocuments.StateReader,
+			})
+			return classifyPostExecutionAuthority(ctx, execution, filesystem, result, err)
+		}
 		if native, ok := journal.NativeActiveRecoveryPlan(current.plan); ok {
 			loadOptions, err := recoveryLoadOptions(ctx, effectPaths, filesystem, execution.physicalPathBudget)
 			if err != nil {

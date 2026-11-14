@@ -12,9 +12,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
@@ -268,6 +272,9 @@ func FailureDiagnosticFromError(err error) FailureDiagnostic {
 	if err == nil {
 		return FailureDiagnostic{}
 	}
+	if diagnostic, recognized := GlobalMetadataFailureDiagnostic(err); recognized {
+		return diagnostic
+	}
 	if operation, ok := err.(authoring.OperationError); ok && operation.Phase == authoring.OperationPhaseBuildLockfile && operation.Err != nil {
 		return FailureDiagnosticFromError(operation.Err)
 	}
@@ -306,4 +313,93 @@ func FailureDiagnosticFromError(err error) FailureDiagnostic {
 		return NewFailureDiagnostic(err.Error()).WithGuidance(guidance)
 	}
 	return NewFailureDiagnostic(err.Error())
+}
+
+func GlobalMetadataFailureDiagnostic(err error) (FailureDiagnostic, bool) {
+	if !recoverygate.IsGlobalMetadataRefusal(err) || recoverygate.IsCancellation(err) {
+		return FailureDiagnostic{}, false
+	}
+	diagnostic := NewFailureDiagnostic(err.Error())
+	var purpose string
+	switch fileset.ObserveFileSetFence(err).Kind() {
+	case fileset.FileSetFencePublishedTransaction:
+		purpose = "to inspect the interrupted metadata conversion before recovery"
+	case fileset.FileSetFenceInvalidEvidence:
+		purpose = "to inspect the recorded metadata conversion evidence diagnostic"
+	case fileset.FileSetFenceAccessUnprovable:
+		return diagnostic.WithGuidance(InstructionGuidance("restore access to the data directory's metadata and ensure it is a directory; preserve its contents before retrying")), true
+	default:
+		return diagnostic.WithGuidance(InstructionGuidance("resolve the reported metadata observation failure before retrying; preserve its files and transaction evidence")), true
+	}
+	guidance, _ := CommandGuidance([]string{"daem", "migrate", "metadata", "--recover", "--dry-run"}, purpose)
+	return diagnostic.WithGuidance(guidance), true
+}
+
+// NativePlanningFailureDiagnostic is called only by an effect-free planning
+// boundary. Generic error rendering must not promote this cause through a
+// recovery or execution wrapper that owns a stronger lifecycle summary.
+func NativePlanningFailureDiagnostic(err error) (FailureDiagnostic, bool) {
+	var protection configuration.NativeProtectionFailure
+	if errors.As(err, &protection) {
+		return NativeProtectionPlanningDiagnostic(protection), true
+	}
+	var claim configuration.NativeClaimFailure
+	if errors.As(err, &claim) {
+		return NativeClaimPlanningDiagnostic(claim), true
+	}
+	return FailureDiagnostic{}, false
+}
+
+func NativeProtectionPlanningDiagnostic(failure configuration.NativeProtectionFailure) FailureDiagnostic {
+	if failure == nil {
+		return FailureDiagnostic{}
+	}
+	diagnostic := NewFailureDiagnostic(failure.Error())
+	if failure.Kind() == configuration.ProtectionReserved {
+		return diagnostic.WithGuidance(InstructionGuidance(fmt.Sprintf("check this document's links and the reserved %s endpoint; point the document at an ordinary configuration file outside reserved data, or remove the declaration", failure.Host())))
+	}
+	return diagnostic.WithGuidance(InstructionGuidance(nativeProtectionVerificationRepair(failure) + ", then retry"))
+}
+
+func NativeClaimPlanningDiagnostic(failure configuration.NativeClaimFailure) FailureDiagnostic {
+	diagnostic := NewFailureDiagnostic(failure.Error())
+	if failure.Kind() == configuration.NativeClaimScopeTransfer {
+		return diagnostic.WithGuidance(InstructionGuidance("first remove the old declaration and apply to retire its management (this removes its managed values), then add the declaration at the new scope and apply again. The --manage-existing option does not transfer an existing claim between scopes"))
+	}
+	if failure.Kind() == configuration.NativeClaimPhysicalRole {
+		diagnostic = diagnostic.WithGuidance(InstructionGuidance("manage only ordinary configuration keys with key ownership; use the dedicated resource for reserved entries"))
+	}
+	if _, global := failure.GlobalLocation(); global && failure.Address().Scope() == target.ScopeProject {
+		return diagnostic.WithGuidance(InstructionGuidance("use a project file outside global host configuration. To move existing project management to global scope, first remove the project declaration and apply to retire it (this removes its managed values), then add the global declaration with its host-native path and apply again; changing scope in one apply does not transfer the existing claim"))
+	}
+	return diagnostic
+}
+
+func NativeProtectionRecoveryGuidance(failure configuration.NativeProtectionFailure) Guidance {
+	if failure.Kind() == configuration.ProtectionReserved {
+		return InstructionGuidance("preserve the journal and recovery artifacts; use daem recover --dry-run --verbose to inspect the recorded path and repair any unintended link mapping. Changing the manifest declaration does not change recorded aliases; an intentional reserved-data overlap cannot be recovered automatically")
+	}
+	return InstructionGuidance(nativeProtectionVerificationRepair(failure) + ", then rerun daem recover --dry-run; preserve the journal and recovery artifacts")
+}
+
+func nativeProtectionVerificationRepair(failure configuration.NativeProtectionFailure) string {
+	switch failure.Uncertainty() {
+	case configuration.ProtectionDocumentIndeterminate, configuration.ProtectionRegionIndeterminate:
+		return "use a location that already exists, or choose an ordinary configuration path whose filesystem spelling can be verified"
+	case configuration.ProtectionDocumentUnavailable:
+		return "check this document's parent directories and links"
+	case configuration.ProtectionEndpointUnavailable:
+		return fmt.Sprintf("check access to the %s %q endpoint and repair its links", failure.Host(), failure.Endpoint())
+	case configuration.ProtectionSelectorMissing:
+		return "restore the required native protection-location information; if it remains missing, report this error"
+	case configuration.ProtectionAllocationUnavailable:
+		return "retry the command with its normal operation context; if the shared filesystem-work allocation remains unavailable, report this error"
+	case configuration.ProtectionWorkLimit:
+		return "check the host locations for unexpectedly large directories or excessive link chains; retry after reducing the required filesystem work"
+	}
+	location := configuration.NativeRootDescription(failure.Reference())
+	if source := failure.Source(); source != "" && source != "default location" && source != "selected location" {
+		return fmt.Sprintf("check that %s selects an accessible %s and that its links resolve", source, location)
+	}
+	return "check access to the " + location + " and its links"
 }

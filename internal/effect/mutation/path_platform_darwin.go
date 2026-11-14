@@ -5,6 +5,7 @@ package mutation
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,7 +135,11 @@ func canonicalDarwinPath(
 		if err != nil {
 			return canonicalPath{}, fmt.Errorf("observe case semantics for directory %q: %w", parent, err)
 		}
-		components = append(components, observedPathComponent{spelling: name, caseMode: caseMode})
+		component, err := observedDarwinComponent(parent, name, caseMode, false, observation)
+		if err != nil {
+			return canonicalPath{}, err
+		}
+		components = append(components, component)
 		parent = filepath.Join(parent, name)
 	}
 	if len(missing) != 0 {
@@ -143,7 +148,11 @@ func canonicalDarwinPath(
 			return canonicalPath{}, fmt.Errorf("observe case semantics for existing ancestor %q: %w", actualExisting, err)
 		}
 		for _, name := range missing {
-			components = append(components, observedPathComponent{spelling: name, caseMode: caseMode})
+			component, err := observedDarwinComponent(actualExisting, name, caseMode, true, observation)
+			if err != nil {
+				return canonicalPath{}, err
+			}
+			components = append(components, component)
 		}
 	}
 	identity, err := canonicalObservedPath(root, components, "darwin-case-v1")
@@ -179,6 +188,25 @@ func canonicalDarwinPath(
 		identity.provisional = provisional
 	}
 	return identity, nil
+}
+
+func observedDarwinComponent(parent, name string, caseMode pathCaseSemantics, missing bool, observation darwinPathObservation) (observedPathComponent, error) {
+	component := observedPathComponent{spelling: name, caseMode: caseMode}
+	folded := strings.ToLower(name)
+	if caseMode != pathCaseInsensitive || !containsNonASCII(name) || folded == name {
+		return component, nil
+	}
+	if !missing {
+		stored, err := observation.descriptorPath(filepath.Join(parent, folded), true)
+		if err != nil && !os.IsNotExist(err) && !errors.Is(err, unix.ENAMETOOLONG) {
+			return observedPathComponent{}, fmt.Errorf("qualify folded entry spelling for %q: %w", filepath.Join(parent, name), err)
+		}
+		if err == nil && filepath.Clean(stored) == filepath.Join(parent, name) {
+			return component, nil
+		}
+	}
+	component.comparisonSpelling = name
+	return component, nil
 }
 
 func containsNonASCIIPathComponent(components []string) bool {

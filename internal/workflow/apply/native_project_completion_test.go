@@ -73,7 +73,9 @@ func TestNativePreparationCompletesExactPendingProjectInstall(t *testing.T) {
 	for _, kind := range []reconcile.AggregateDecisionKind{reconcile.AggregateCreate, reconcile.AggregateNoOp} {
 		t.Run(string(kind), func(t *testing.T) {
 			assessment, pending := nativeProjectCompletionFixture(t, kind, true)
-			planned := commandPlan{assessment: assessment}
+			planned := commandPlan{assessment: assessment, context: commandContext{
+				PersistenceEpoch: readiness.NewPersistenceEpoch(assessment.CurrentState, durablecarrier.EmptyGlobalCarrierClaims()),
+			}}
 			if err := admitNativeCommandPlan(t.Context(), &planned); err != nil {
 				t.Fatal(err)
 			}
@@ -138,7 +140,9 @@ func TestNativePreparationCannotCompleteFromPendingHistoryAlone(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			planned := commandPlan{assessment: assessment}
+			planned := commandPlan{assessment: assessment, context: commandContext{
+				PersistenceEpoch: readiness.NewPersistenceEpoch(assessment.CurrentState, durablecarrier.EmptyGlobalCarrierClaims()),
+			}}
 			err = admitNativeCommandPlan(t.Context(), &planned)
 			if scenario == "stale evidence" {
 				if err == nil || planned.nativePlan != nil {

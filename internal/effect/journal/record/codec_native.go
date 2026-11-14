@@ -39,10 +39,13 @@ type recoveryStateAuthority struct {
 }
 
 type Native struct {
-	record nativeJournalRecord
-	owner  stateauthority.Authority
-	before durable.Snapshot
-	after  durable.Snapshot
+	record    nativeRuntimeRecord
+	legacy    *native16Envelope
+	current   *native17Envelope
+	namespace nativeNamespaceFacts
+	owner     stateauthority.Authority
+	before    durable.Snapshot
+	after     durable.Snapshot
 }
 
 func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durable.SnapshotCodec) (Native, error) {
@@ -59,7 +62,10 @@ func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durabl
 	if err != nil {
 		return Native{}, err
 	}
-	if version != NativeVersion {
+	if version == native17Version {
+		return decodeNative17(ctx, content, codec)
+	}
+	if version != native16Version {
 		return Native{}, UnsupportedVersion(version)
 	}
 	if err := requireRecoveryJSONFields(content, "native recovery journal",
@@ -76,7 +82,7 @@ func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durabl
 }
 
 func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, codec durable.SnapshotCodec) (Native, error) {
-	if record.Version != NativeVersion || record.Operation != OperationApply || !IsSafeOperationID(record.OperationID) {
+	if record.Version != native16Version || record.Operation != OperationApply || !IsSafeOperationID(record.OperationID) {
 		return Native{}, fmt.Errorf("native journal has invalid version, operation or operation identity")
 	}
 	if _, err := time.Parse(time.RFC3339, record.CreatedAt); err != nil {
@@ -110,23 +116,8 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 		return Native{}, err
 	}
 	workItems := len(record.Entries) + len(record.ClaimTransitions) + len(record.ProvisionalAcquires) + len(record.RemovalIntents)
-	for _, entry := range record.Entries {
-		subject, err := entry.Subject.canonical()
-		if err != nil {
-			return Native{}, err
-		}
-		if id, backed := topologyprojection.EntityID(subject); backed && id.Kind() == entity.KindHostConfig {
-			return Native{}, fmt.Errorf("native whole-file state cannot be encoded as a legacy entry")
-		}
-		if entry.Aggregate != nil {
-			contract, err := entry.Aggregate.canonical()
-			if err != nil {
-				return Native{}, err
-			}
-			if _, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID()); native {
-				return Native{}, fmt.Errorf("native keys cannot be encoded as a legacy entry")
-			}
-		}
+	if err := validateNativeOrdinaryEntries(record.Entries); err != nil {
+		return Native{}, err
 	}
 	if len(record.DocumentGroups) == 0 && len(record.Entries) == 0 && before.Equal(after) {
 		return Native{}, fmt.Errorf("native journal has no host or state work")
@@ -158,7 +149,11 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 			return Native{}, err
 		}
 	}
-	if err := record.validateWriterSpellingPartition(ctx); err != nil {
+	value, err := newNative16Value(record, owner, before, after)
+	if err != nil {
+		return Native{}, err
+	}
+	if err := value.record.validateWriterSpellingPartition(ctx); err != nil {
 		return Native{}, err
 	}
 	if err := record.validateRemovalCoverage(); err != nil {
@@ -182,7 +177,29 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 	if err := ctx.Err(); err != nil {
 		return Native{}, err
 	}
-	return Native{record: record, owner: owner, before: before, after: after}, nil
+	return value, nil
+}
+
+func validateNativeOrdinaryEntries(entries []recoveryEntry) error {
+	for _, entry := range entries {
+		subject, err := entry.Subject.canonical()
+		if err != nil {
+			return err
+		}
+		if id, backed := topologyprojection.EntityID(subject); backed && id.Kind() == entity.KindHostConfig {
+			return fmt.Errorf("native whole-file state cannot be encoded as a legacy entry")
+		}
+		if entry.Aggregate != nil {
+			contract, err := entry.Aggregate.canonical()
+			if err != nil {
+				return err
+			}
+			if _, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID()); native {
+				return fmt.Errorf("native keys cannot be encoded as a legacy entry")
+			}
+		}
+	}
+	return nil
 }
 
 func marshalNativeJournalRecord(ctx context.Context, record nativeJournalRecord, before, after durable.Snapshot, codec durable.SnapshotCodec) ([]byte, error) {

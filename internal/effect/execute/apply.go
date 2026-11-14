@@ -21,6 +21,8 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -77,12 +79,15 @@ type ApplyInput struct {
 	Payloads                    payload.PayloadSet
 	ConfirmedRelationActions    []reconciliation.RelationAction
 	Owner                       stateauthority.Authority
+	OwnerReference              pathauthority.Reference
 	Ownership                   []observe.OwnershipObservation
 	ProjectRoot                 *rootedpath.CapturedRoot
 	Codecs                      aggregate.CodecCatalog
 	OwnershipRegistryBinder     ownershipmutation.RootedRegistryBinder
-	StateCodec                  durable.SnapshotCodec
-	Filesystem                  mutationfs.Store
+	// StateCodec is frozen journal encoding; StatefileCodec selects actual file bytes.
+	StateCodec     durable.SnapshotCodec
+	StatefileCodec statefile.PhysicalCodec
+	Filesystem     mutationfs.Store
 }
 
 // ApplyOptions configures the final apply boundary and observational execution events.
@@ -205,10 +210,13 @@ func applyWithOptions(
 	if input.StateCodec == nil {
 		return ApplyResult{}, fmt.Errorf("apply state codec is required")
 	}
+	if input.StatefileCodec.IsZero() {
+		return ApplyResult{}, fmt.Errorf("apply statefile codec is required")
+	}
 	if input.Filesystem == nil {
 		return ApplyResult{}, fmt.Errorf("apply filesystem is required")
 	}
-	stateContent, err := input.StateCodec.Encode(nextState)
+	stateContent, err := input.StatefileCodec.EncodeState(nextState)
 	if err != nil {
 		return ApplyResult{}, fmt.Errorf("marshal statefile: %w", err)
 	}
@@ -288,6 +296,13 @@ func applyWithOptions(
 	)
 	if err != nil {
 		return ApplyResult{}, err
+	}
+	mutationAuthority.ownerReference = input.OwnerReference
+	if !input.OwnerReference.IsZero() {
+		mutationAuthority.ownerReference, err = statefile.SelectStatefileReference(input.StatefileCodec.StatefileReference(), input.OwnerReference)
+		if err != nil {
+			return ApplyResult{}, errors.Join(err, mutationAuthority.close())
+		}
 	}
 	defer func() {
 		if closeErr := options.closeAuthority(mutationAuthority); closeErr != nil {
@@ -456,6 +471,7 @@ func applyWithOptions(
 		registryStore,
 		ownershipState.Transitions(),
 		ownershipPreparationGate,
+		mutationAuthority.registryReferences()...,
 	); err != nil {
 		return ApplyResult{}, settlePreHostApplyFailure(
 			ctx,

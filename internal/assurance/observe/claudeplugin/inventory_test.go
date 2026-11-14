@@ -47,6 +47,56 @@ func TestReadInstalledInventoryResolvesRelativeClaudeConfigFromHostWorkDir(t *te
 	assertState(t, observeclaudeplugin.Correlate(subject, inventory), observerelation.StateExactCorrelation, observerelation.ReasonNone)
 }
 
+func TestInstalledInventoryUsesTheSelectedClaudeStore(t *testing.T) {
+	for _, mode := range []string{"empty configuration", "normalized configuration", "plugin override", "explicit reader", "absolute without home"} {
+		t.Run(mode, func(t *testing.T) {
+			work, home := t.TempDir(), t.TempDir()
+			config := filepath.Join(work, "config")
+			store := filepath.Join(config, "plugins")
+			input := observeclaudeplugin.InstalledInventoryInput{WorkDir: work, ProjectRoot: work}
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			t.Setenv("CLAUDE_CONFIG_DIR", config)
+			t.Setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", "")
+			switch mode {
+			case "empty configuration":
+				t.Setenv("CLAUDE_CONFIG_DIR", "")
+				store = filepath.Join(work, "plugins")
+			case "normalized configuration":
+				t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(work, "Cafe\u0301"))
+				store = filepath.Join(work, "Café", "plugins")
+			case "plugin override":
+				t.Setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", "~/store")
+				store = filepath.Join(home, "store")
+			case "explicit reader":
+				input.ConfigRoot = filepath.Join(work, "explicit")
+				t.Setenv("CLAUDE_CODE_PLUGIN_CACHE_DIR", "~/store")
+				store = filepath.Join(input.ConfigRoot, "plugins")
+			case "absolute without home":
+				t.Setenv("HOME", "")
+				t.Setenv("USERPROFILE", "")
+			}
+
+			if err := os.MkdirAll(store, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(store, "installed_plugins.json"), []byte(`{"version":2,"plugins":{"context7@market":[{"scope":"user"}]}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			selected, err := observeclaudeplugin.InstalledInventoryPath(input)
+			if err != nil || selected != filepath.Join(store, "installed_plugins.json") {
+				t.Error("inventory path does not follow its host store", selected, err)
+			}
+			inventory, err := observeclaudeplugin.ReadInstalledInventory(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			subject := mustDelegatedRelationWithScope(t, desiredextension.SourceKindMarketplace, "context7@market", "context7", "context7@market", target.ScopeGlobal)
+			assertState(t, observeclaudeplugin.Correlate(subject, inventory), observerelation.StateExactCorrelation, observerelation.ReasonNone)
+		})
+	}
+}
+
 func TestReadInstalledInventoryFiltersProjectRowsAndAttachesExactCorrelation(t *testing.T) {
 	configRoot := t.TempDir()
 	projectRoot := t.TempDir()

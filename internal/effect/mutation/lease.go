@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
 const (
@@ -413,6 +415,7 @@ func hasExclusivePathAncestor(
 
 func (store Store) normalize(domains []Domain) ([]normalizedDomain, error) {
 	paths := make(map[string]*pathDomainFact)
+	compatibilityPaths := make(map[string]AccessMode)
 	hosts := make(map[string][2]string)
 	routes := make([]Domain, 0)
 	for _, domain := range domains {
@@ -433,6 +436,15 @@ func (store Store) normalize(domains []Domain) ([]normalizedDomain, error) {
 			}
 			if pathContains(leasePath, store.rootKey) {
 				return nil, fmt.Errorf("mutation lease path %q contains the lease store", leasePath)
+			}
+			authority, err := pathauthority.NewExact(leasePath, string(leaseWitness))
+			if err != nil {
+				return nil, fmt.Errorf("mutation path %q compatibility lease authority: %w", leasePath, err)
+			}
+			if legacy, present := authority.LegacyComparisonKey(); present {
+				if previous, found := compatibilityPaths[legacy]; !found || previous != AccessExclusive {
+					compatibilityPaths[legacy] = domain.access
+				}
 			}
 			fact := paths[leasePath]
 			if fact == nil {
@@ -480,10 +492,27 @@ func (store Store) normalize(domains []Domain) ([]normalizedDomain, error) {
 	for _, fact := range paths {
 		add(pathKey(fact.path), strconv.Quote(fact.path), fact.access)
 	}
+	for path, access := range compatibilityPaths {
+		add(pathKey(path), strconv.Quote(path), access)
+	}
 	expandedAncestors := make(map[string]struct{})
 	for _, fact := range paths {
 		ancestor := filepath.Dir(fact.path)
 		for ancestor != fact.path {
+			add(pathKey(ancestor), strconv.Quote(ancestor), AccessShared)
+			if _, expanded := expandedAncestors[ancestor]; expanded {
+				break
+			}
+			expandedAncestors[ancestor] = struct{}{}
+			parent := filepath.Dir(ancestor)
+			if parent == ancestor {
+				break
+			}
+			ancestor = parent
+		}
+	}
+	for path := range compatibilityPaths {
+		for ancestor := filepath.Dir(path); ancestor != path; {
 			add(pathKey(ancestor), strconv.Quote(ancestor), AccessShared)
 			if _, expanded := expandedAncestors[ancestor]; expanded {
 				break

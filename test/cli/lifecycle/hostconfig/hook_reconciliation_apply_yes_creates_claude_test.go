@@ -218,7 +218,7 @@ targets = ["codex"]
 			t.Fatalf("stdout = %q, want subject-level transition %q", stdout.String(), want)
 		}
 	}
-	testkit.AssertFileContent(t, filepath.Join(tempDir, ".codex/hooks.json"), "{\n  \"hooks\": {\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"Write\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"make fmt\"\n          }\n        ]\n      }\n    ]\n  },\n  \"meta\": {\n    \"keep\": true\n  }\n}\n")
+	assertHookDocumentMeaning(t, filepath.Join(tempDir, ".codex/hooks.json"), "{\n  \"hooks\": {\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"Write\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"make fmt\"\n          }\n        ]\n      }\n    ]\n  },\n  \"meta\": {\n    \"keep\": true\n  }\n}\n")
 	testkit.AssertFileContent(t, filepath.Join(homeDir, ".codex/hooks.json"), "{\n  \"meta\": {\n    \"keep\": true\n  }\n}\n")
 
 	state, err := statefile.Load(t.Context(), statefilePath)

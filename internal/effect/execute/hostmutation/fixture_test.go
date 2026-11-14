@@ -28,7 +28,7 @@ func projectMutationOperation(t *testing.T, root string, filesystem mutationfs.S
 	if err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := mutationnamespace.New(func(destination output.Destination) (string, error) {
+	namespace, err := mutationnamespace.New(func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
 		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), nil
 	}, phase)
 	if err != nil {

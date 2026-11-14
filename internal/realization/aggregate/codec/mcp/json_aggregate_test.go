@@ -61,9 +61,10 @@ func TestMCPJSONAggregateAlgorithmsPreserveSiblingsAndRestoreParentSemantics(t *
 			if err != nil {
 				t.Fatalf("restoreRemove(parent present before) returned error: %v", err)
 			}
-			if !keepFile || !containsAll(string(restored), fmt.Sprintf(`"%s": {}`, tc.parentKey)) {
+			if !keepFile {
 				t.Fatalf("restored = %s, keepFile = %t; want retained empty parent", restored, keepFile)
 			}
+			assertMCPJSONSubset(t, restored, fmt.Sprintf(`{%q:{}}`, tc.parentKey))
 		})
 	}
 }
@@ -76,9 +77,7 @@ func TestMCPJSONAggregateAlgorithmsExtractCanonicalBytesAfterMerge(t *testing.T)
 			if err != nil {
 				t.Fatalf("merge returned error: %v", err)
 			}
-			if !containsAll(string(merged), `"comment": "keep"`, fmt.Sprintf(`"%s": {`, tc.parentKey), `"context7": {`) {
-				t.Fatalf("merged = %s, want top-level field plus managed server", merged)
-			}
+			assertMCPJSONSubset(t, merged, fmt.Sprintf(`{"comment":"keep",%q:{"context7":%s}}`, tc.parentKey, canonical))
 
 			extracted, present, err := tc.extractBytes(merged, "context7")
 			if err != nil {

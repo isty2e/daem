@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -27,8 +28,8 @@ func NewSelected(filesystem mutationfs.Store, entry *rootedpath.EntryAuthority, 
 	return &Selected{filesystem: filesystem, entry: entry, budget: budget}
 }
 
-func (selected *Selected) Read(ctx context.Context, codec durable.SnapshotCodec, budget *physicalwork.Budget) (result durable.Snapshot, resultErr error) {
-	if ctx == nil || selected == nil || selected.entry == nil || codec == nil || budget == nil || selected.budget != budget {
+func (selected *Selected) Read(ctx context.Context, codec statefile.PhysicalCodec, budget *physicalwork.Budget) (result durable.Snapshot, resultErr error) {
+	if ctx == nil || selected == nil || selected.entry == nil || codec.IsZero() || budget == nil || selected.budget != budget {
 		return durable.Snapshot{}, fmt.Errorf("native state read requires selected authority, codec and original allocation")
 	}
 	if err := ctx.Err(); err != nil {
@@ -61,7 +62,7 @@ func (selected *Selected) Read(ctx context.Context, codec durable.SnapshotCodec,
 	if readErr != nil {
 		return durable.Snapshot{}, readErr
 	}
-	return codec.Decode(content)
+	return codec.DecodeState(content)
 }
 
 func (selected *Selected) Commit(ctx context.Context, content []byte, mode os.FileMode) Outcome {

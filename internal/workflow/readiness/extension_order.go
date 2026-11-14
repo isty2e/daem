@@ -3,7 +3,9 @@ package readiness
 import (
 	"fmt"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -23,6 +25,32 @@ type extensionOrderObservation struct {
 	constraint     hostrelation.RelationOrderConstraint
 	observation    relationhost.OrderObservation
 	observeErr     error
+}
+
+func observeClasslessRetirementEdits(
+	paths daempaths.Paths,
+	locked lock.File,
+	retiring []durablecarrier.ManagedCarrierClaim,
+) ([]relationhost.SelectedDocumentEdit, error) {
+	if len(retiring) == 0 {
+		return nil, nil
+	}
+	var edits []relationhost.SelectedDocumentEdit
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetOpenCode, scope, desiredextension.CarrierOpenCodePlugin)
+		if !admitted {
+			continue
+		}
+		if _, lockedClass := locked.Locked.OrderConstraint(capability.ClassID()); lockedClass {
+			continue
+		}
+		selected, err := relationhost.ObserveOpenCodeRetirementEdits(paths, locked, scope, retiring)
+		if err != nil {
+			return nil, err
+		}
+		edits = append(edits, selected...)
+	}
+	return edits, nil
 }
 
 func observeExtensionOrders(
@@ -152,7 +180,7 @@ func DecideExtensionOrderObservation(
 			var err error
 			physicalConstraint, admitted, err = projectPhysicalOrderConstraint(
 				constraint,
-				physical,
+				physical.Sequence().OrderedRows(),
 				pendingInstalls,
 			)
 			if err != nil {
@@ -180,13 +208,51 @@ func DecideExtensionOrderObservation(
 	return decisions, nil
 }
 
+// DecideSelectedExtensionOrder classifies a native combined edit using the
+// same per-document membership projection as ordinary order planning.
+// Retirement-only and empty loaded subsets have no order decision.
+func DecideSelectedExtensionOrder(
+	edit relationhost.SelectedDocumentEdit,
+	actions []reconcile.RelationAction,
+) (reconcile.RelationOrderDecision, bool, error) {
+	if err := edit.Validate(); err != nil {
+		return reconcile.RelationOrderDecision{}, false, err
+	}
+	selected := edit.SelectedSequence()
+	constraint, ordered := selected.Constraint()
+	if !ordered {
+		return reconcile.RelationOrderDecision{}, false, nil
+	}
+	selectedTarget, capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapabilityForClass(constraint.ClassID())
+	if !admitted || selectedTarget != edit.DocumentAddress().Target() || capability.Scope() != edit.Scope() ||
+		!capability.AdmitsPhysicalSequenceID(selected.Original().SequenceID()) {
+		return reconcile.RelationOrderDecision{}, false, fmt.Errorf("selected order edit has no matching surface capability")
+	}
+	pendingInstalls := pendingOrderInstalls(actions, selectedTarget, capability.Scope(), capability.Carrier())
+	if capability.SequenceMembership() == profile.LoadedClassSubset {
+		var err error
+		constraint, admitted, err = projectPhysicalOrderConstraint(constraint, selected.SurvivingRows(), pendingInstalls)
+		if err != nil || !admitted {
+			return reconcile.RelationOrderDecision{}, false, err
+		}
+	}
+	decision, err := reconcile.NewSelectedRelationOrderDecision(reconcile.SelectedRelationOrderDecisionInput{
+		Target:          selectedTarget,
+		Scope:           capability.Scope(),
+		Constraint:      constraint,
+		Selected:        selected,
+		PendingInstalls: pendingInstalls,
+	})
+	return decision, err == nil, err
+}
+
 func projectPhysicalOrderConstraint(
 	constraint hostrelation.RelationOrderConstraint,
-	sequence relationhost.PhysicalOrderObservation,
+	rows []observerelation.ObservedRelationRow,
 	pendingInstalls []topology.SubjectID,
 ) (hostrelation.RelationOrderConstraint, bool, error) {
 	selected := make(map[topology.SubjectID]struct{})
-	for _, row := range sequence.Sequence().OrderedRows() {
+	for _, row := range rows {
 		if subject, correlated := row.CorrelatedSubject(); correlated {
 			selected[subject] = struct{}{}
 		}

@@ -49,11 +49,16 @@ func newDocumentPathAuthorityObservationSession(ctx context.Context, owner state
 		if err := namespace.Validate(); err != nil {
 			return nil, err
 		}
-		key := namespace.CandidateKey()
-		if previous, found := observations.missingDocuments[key]; found && !previous.Equal(namespace) {
-			return nil, fmt.Errorf("document registry read repeats a contradictory missing namespace")
+		keys := []string{namespace.CandidateKey()}
+		if legacy, present := namespace.LegacyComparisonKey(); present {
+			keys = append(keys, legacy)
 		}
-		observations.missingDocuments[key] = namespace
+		for _, key := range keys {
+			if previous, found := observations.missingDocuments[key]; found && !previous.Equal(namespace) {
+				return nil, fmt.Errorf("document registry read repeats a contradictory missing namespace")
+			}
+			observations.missingDocuments[key] = namespace
+		}
 	}
 	return observations, nil
 }

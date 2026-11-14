@@ -89,7 +89,7 @@ func TestNFSConcurrentGitCacheBootstrap(t *testing.T) {
 		{"doctor", "--json"},
 	} {
 		args := append(command, "--manifest", manifest)
-		exit, stdout, stderr := runOwnershipCLI(args...)
+		exit, stdout, stderr := testkit.RunCapturedCLI(args...)
 		if exit != 0 {
 			t.Fatalf("%v: exit=%d stdout=%q stderr=%q", args, exit, stdout, stderr)
 		}
@@ -113,7 +113,7 @@ func TestNFSSingleClientLifecycle(t *testing.T) {
 	root, home := newNFSCLIEnvironment(t)
 	run := func(args ...string) string {
 		t.Helper()
-		exit, stdout, stderr := runOwnershipCLI(args...)
+		exit, stdout, stderr := testkit.RunCapturedCLI(args...)
 		if exit != 0 {
 			t.Fatalf("%v: exit=%d stdout=%q stderr=%q", args, exit, stdout, stderr)
 		}
@@ -161,7 +161,7 @@ func TestNFSSingleClientLifecycle(t *testing.T) {
 	}
 
 	fixture := writeInterruptedRecoveryFixture(t, filepath.Join(root, "interrupted"), home)
-	if exit, _, _ := runOwnershipCLI("doctor", "--manifest", fixture.manifestPath, "--json"); exit == 0 {
+	if exit, _, _ := testkit.RunCapturedCLI("doctor", "--manifest", fixture.manifestPath, "--json"); exit == 0 {
 		t.Fatal("doctor ran through an active recovery journal")
 	}
 	run("recover", "--manifest", fixture.manifestPath, "--dry-run")

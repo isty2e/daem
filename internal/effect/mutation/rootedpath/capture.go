@@ -152,6 +152,13 @@ type physicalWorkBudget interface {
 	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error
 }
 
+// ChildExistsNoFollow observes one immediate child without interpreting its name
+// as a path or following a final symlink.
+func (root *CapturedRoot) ChildExistsNoFollow(ctx context.Context, name string, budget PhysicalTraversalBudget) (bool, error) {
+	result, err := root.childrenExistNoFollow(ctx, []string{name}, budget)
+	return result[0], err
+}
+
 // ChildrenExistNoFollow observes one immediate-child pair through one fresh
 // retained-root validation without interpreting names as paths or following
 // symlinks.
@@ -160,6 +167,10 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 	names [2]string,
 	budget PhysicalTraversalBudget,
 ) ([2]bool, error) {
+	return root.childrenExistNoFollow(ctx, names[:], budget)
+}
+
+func (root *CapturedRoot) childrenExistNoFollow(ctx context.Context, names []string, budget PhysicalTraversalBudget) ([2]bool, error) {
 	if root == nil {
 		return [2]bool{}, newFailure(FailureRootUnavailable, "", "captured root is required", nil)
 	}
@@ -172,6 +183,9 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 	if budget == nil {
 		return [2]bool{}, fmt.Errorf("root child observation budget is required")
 	}
+	if len(names) != 1 && len(names) != 2 {
+		return [2]bool{}, fmt.Errorf("root child observation requires one name or a pair")
+	}
 	for _, name := range names {
 		if name == "" || name == "." || name == ".." || filepath.Clean(name) != name ||
 			filepath.IsAbs(name) || filepath.Base(name) != name ||
@@ -182,7 +196,7 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 			return [2]bool{}, err
 		}
 	}
-	if names[0] == names[1] {
+	if len(names) == 2 && names[0] == names[1] {
 		return [2]bool{}, newFailure(FailureInvalidDestination, names[0], "immediate child name is duplicated", nil)
 	}
 

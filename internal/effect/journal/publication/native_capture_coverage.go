@@ -202,7 +202,11 @@ func validateNativePublicationPartition(ctx context.Context, directory string, b
 	for _, action := range mutations {
 		var path string
 		if action.Scope() == target.ScopeProject {
-			path = filepath.Join(batch.roots.Manifest.SelectedPath, filepath.FromSlash(action.Destination().RelativePath()))
+			manifest, supplied := batch.roots.Manifest()
+			if !supplied {
+				return fmt.Errorf("ordinary project publication requires its selected manifest binding")
+			}
+			path = filepath.Join(manifest.SelectedPath, filepath.FromSlash(action.Destination().RelativePath()))
 		} else {
 			if resolver == nil {
 				return fmt.Errorf("ordinary publication partition requires its selected global resolver")

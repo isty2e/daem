@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	os.Exit(runWithSignalLifecycle(func(ctx context.Context) int {
+	exitWithSignalLifecycle(func(ctx context.Context) int {
 		return cli.RunWithOptions(os.Args[1:], cli.RunOptions{
 			Context:              ctx,
 			Stdin:                os.Stdin,
@@ -19,5 +19,5 @@ func main() {
 			StderrIsTerminal:     isTerminal(os.Stderr),
 			ReadConfirmationLine: readTerminalConfirmationLine,
 		})
-	}))
+	})
 }

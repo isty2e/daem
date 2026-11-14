@@ -131,6 +131,12 @@ func (paths Paths) WithDataDir(dataDir string) (Paths, error) {
 	return updated, nil
 }
 
+// GlobalMetadataDir isolates shared transaction evidence from a selected
+// StateDir, including when XDG data and state roots coincide.
+func (paths Paths) GlobalMetadataDir() string {
+	return filepath.Join(paths.DataDir, "metadata")
+}
+
 func implicitPaths(home homeSelection) (Paths, error) {
 	workingDirectory, err := os.Getwd()
 	if err != nil {

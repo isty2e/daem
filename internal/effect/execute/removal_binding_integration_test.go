@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -54,7 +55,7 @@ func TestRemovalBindingReusesCanonicalGlobalDestination(t *testing.T) {
 		}},
 		demands,
 		nil,
-		func(output.Destination) (string, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (string, error) {
 			resolverCalls++
 			if resolverCalls == 1 {
 				return selectedPath, nil

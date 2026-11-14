@@ -54,7 +54,7 @@ func TestJointRegistryConvergenceKeepsCapturedRootAndSharedTraversalBudget(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := store.ConvergeRegistry(t.Context(), claims, bindings); err != nil || !result.Equal(want) {
+	if result, err := store.ConvergeRegistry(t.Context(), claims, bindings, storeClaimReferences(t, claim)...); err != nil || !result.Equal(want) {
 		t.Fatalf("rooted joint registry write failed: %v", err)
 	}
 	actual := mustStore(t, filepath.Join(dataA, "claims.json"))

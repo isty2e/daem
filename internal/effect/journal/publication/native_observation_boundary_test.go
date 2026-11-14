@@ -8,7 +8,9 @@ import (
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	"github.com/isty2e/daem/internal/output"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -29,7 +31,7 @@ func TestObservationSelectionKeepsBorrowedCustodyWithoutRequalification(t *testi
 	if fixture.batch.Evidence().Namespaces()[0].Observation().Validate() != nil {
 		t.Fatal("evidence exposed its namespace slice")
 	}
-	if err := fixture.batch.roots.Manifest.Root.Close(); err != nil {
+	if err := namespacetest.LegacyRoot(t, fixture.batch.roots, output.RootProject).Root.Close(); err != nil {
 		t.Fatal(err)
 	}
 	selected, members, err := fixture.batch.CaptureMembers(fixture.after, "read-only-selection")

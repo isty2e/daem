@@ -6,17 +6,22 @@ import (
 	"fmt"
 	"os"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/output/hostpath"
-	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 func recoveryPaths(ctx context.Context, input PlanInput) (daempaths.Paths, error) {
 	paths, err := daempaths.Resolve(input.ManifestPath)
-	if err != nil || !input.LegacyUserState {
+	if err != nil {
 		return paths, err
+	}
+	if err := recoverygate.RequireGlobalMetadataClear(ctx, paths); err != nil {
+		return daempaths.Paths{}, err
+	}
+	if !input.LegacyUserState {
+		return paths, nil
 	}
 	legacy, err := paths.LegacyUserState()
 	if err != nil {
@@ -36,6 +41,6 @@ func recoveryPaths(ctx context.Context, input PlanInput) (daempaths.Paths, error
 	return legacy, nil
 }
 
-func destinationResolver(paths daempaths.Paths) hostpath.Resolver {
-	return managedhostpath.Resolver(paths)
+func destinationResolver(paths daempaths.Paths) physicalhostpath.Resolver {
+	return physicalhostpath.NewResolver(paths)
 }

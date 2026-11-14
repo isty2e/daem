@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -14,6 +15,7 @@ import (
 
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
 func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
@@ -33,11 +35,12 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			operation, err := OpenCapturedNativeRecovery(t.Context(), captured, input.options.StateCodec, input.options.ManifestRoot, input.budget, journalqualification.NativeRecoveryOptions{
+			physicalCodec := stateimage.Physical(t, input.options.StateCodec)
+			operation, err := OpenCapturedNativeRecovery(t.Context(), captured, input.options.StateCodec, physicalCodec, input.options.ManifestRoot, input.budget, journalqualification.NativeRecoveryOptions{
 				Filesystem: input.options.Filesystem, OperationAuthority: input.options.OperationAuthority,
 				Registry: registry, Codecs: input.options.Codecs,
 				State: func(ctx context.Context) (durable.Snapshot, error) {
-					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: input.options.StateCodec, PhysicalPathBudget: input.budget})
+					return statefile.LoadOptionalWithOptions(ctx, input.paths.StatefilePath, statefile.ReadOptions{Codec: physicalCodec, PhysicalPathBudget: input.budget})
 				},
 			})
 			if err != nil {
@@ -63,6 +66,22 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 				}
 			}
 			plan := operation.Plan()
+			if !plan.SameExecutionAuthority(plan) {
+				t.Fatal("actual recovery plan did not retain its own execution authority")
+			}
+			changed := plan
+			changed.documentRequests = slices.Clone(plan.documentRequests)
+			for index, requests := range changed.documentRequests {
+				if len(requests) == 0 {
+					continue
+				}
+				changed.documentRequests[index] = slices.Clone(requests)
+				changed.documentRequests[index][0].Path = filepath.Join(t.TempDir(), "different-native.json")
+				break
+			}
+			if len(changed.documentRequests) == 0 || plan.SameExecutionAuthority(changed) {
+				t.Fatal("recovery accepted a different native authority route")
+			}
 			aliases, err := plan.DocumentWriteAliases()
 			if err != nil {
 				t.Fatal("live operation could not freeze document write facts", err)
@@ -76,6 +95,21 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 			}
 			if len(operation.Documents()) != 0 || operation.InitialAssessment().CleanBefore() {
 				t.Fatal("closed recovery exposed live documents or assessment")
+			}
+			authorityAliases, err := plan.DocumentAliases()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for index := range authorityAliases {
+				requests, err := plan.DocumentAuthorityRequests(index)
+				if err != nil || len(requests) == 0 {
+					t.Fatal("closing recovery lost its qualified native routes", err)
+				}
+				for _, request := range requests {
+					if request.Path == "" {
+						t.Fatal("closing recovery lost its qualified native route")
+					}
+				}
 			}
 			input.requireUnchanged(t)
 			if _, err := os.Stat(residue); err != nil {

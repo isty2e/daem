@@ -17,7 +17,6 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	nativecodec "github.com/isty2e/daem/internal/realization/aggregate/codec/native"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
-	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -279,15 +278,20 @@ func TestDocumentStateGroupsKeepPiOrderSeparateFromNativeMembership(t *testing.T
 		t.Fatal(err)
 	}
 	beforeBytes, afterBytes := []byte(`{"packages":["a","b"]}`), []byte(`{"packages":["b","a"]}`)
-	before, err := piconfig.Parse(beforeBytes)
+	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
+	before, err := configdocument.Parse(t.Context(), beforeBytes, configdocument.JSON, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := piconfig.Parse(afterBytes)
+	after, err := configdocument.Parse(t.Context(), afterBytes, configdocument.JSON, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	order, err := piconfig.NewPackagePermutation(before, after)
+	path, err := output.NewKeyPath("packages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	order, err := configdocument.NewJSONArrayEdit(t.Context(), before, after, path, nil, []int{1, 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +299,7 @@ func TestDocumentStateGroupsKeepPiOrderSeparateFromNativeMembership(t *testing.T
 	comparison, err := NewSelectedComparison(t.Context(), ComparisonInput{
 		Before: aggregate.ExistingDocument(beforeBytes), Expected: aggregate.ExistingDocument(afterBytes),
 		BeforeMode: mode, ExpectedMode: mode, Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
-	}, nil, &order)
+	}, nil, []configdocument.JSONArrayEdit{order})
 	if err != nil {
 		t.Fatal(err)
 	}

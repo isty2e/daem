@@ -261,6 +261,9 @@ func TestReserveDestinationAccessMatchesBoundedAcquisitionAndUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if work, err := destination.RootValidationWork(); err != nil || work != rootDepth {
+		t.Fatalf("destination root work = %d, err=%v, captured witness work %d", work, err, rootDepth)
+	}
 	destinationDepth, err := absolutePathDepth(filepath.Join(path, "nested", "entry"))
 	if err != nil {
 		t.Fatal(err)

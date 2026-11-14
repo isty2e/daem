@@ -35,7 +35,14 @@ func (captured CapturedNativeJournal) RequireRecoverySelection(manifest *rootedp
 	if err != nil {
 		return err
 	}
-	wantProvenance := anchors[output.RootProject]
+	manifestReference, err := captured.journal.ManifestRootReference()
+	if err != nil {
+		return err
+	}
+	wantProvenance, supplied := anchors[manifestReference]
+	if !supplied {
+		return fmt.Errorf("captured native recovery requires its manifest binding")
+	}
 	if selectedProvenance != wantProvenance {
 		return fmt.Errorf("captured native recovery manifest differs from its publication")
 	}

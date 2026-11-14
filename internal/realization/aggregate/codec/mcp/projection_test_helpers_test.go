@@ -4,8 +4,32 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+func assertMCPJSONSubset(t *testing.T, content []byte, expected string) {
+	t.Helper()
+	limits := configdocument.Limits{MaximumBytes: maximumDocumentBytes, MaximumDepth: maximumMCPJSONDepth}
+	actual, err := configdocument.Parse(t.Context(), content, configdocument.JSONC, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := configdocument.Parse(t.Context(), []byte(expected), configdocument.JSON, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaves, err := wanted.Leaves(t.Context(), maximumDocumentBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaf := range leaves {
+		value, present, err := actual.Lookup(leaf.Path)
+		if err != nil || !present || !value.Equal(leaf.Value) {
+			t.Fatalf("MCP document differs at %s: %v", leaf.Path, err)
+		}
+	}
+}
 
 func validMCPProjection(serverID string) ClaudeProjectMCPServerProjection {
 	return ClaudeProjectMCPServerProjection{

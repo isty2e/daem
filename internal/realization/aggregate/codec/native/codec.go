@@ -42,6 +42,18 @@ func New(ctx context.Context, contractID aggregate.CodecContractID, documentLimi
 func (codec documentCodec) ContractID() aggregate.CodecContractID { return codec.contractID }
 func (codec documentCodec) MaximumDocumentBytes() int64           { return codec.documentLimits.MaximumBytes }
 
+func (codec documentCodec) RewriteLayout(input aggregate.Selection) (string, []output.KeyPath, error) {
+	selection, failure := codec.selection(input)
+	if failure != nil {
+		return "", nil, failure
+	}
+	areas := make([]output.KeyPath, 0, len(selection.Contracts()))
+	for _, contract := range selection.Contracts() {
+		areas = append(areas, contract.Address().KeyPath())
+	}
+	return codec.syntax.String(), output.TopmostKeyPaths(areas), nil
+}
+
 func (codec documentCodec) selection(input aggregate.Selection) (aggregate.Selection, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
 		return aggregate.Selection{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, output.KeyPath{})

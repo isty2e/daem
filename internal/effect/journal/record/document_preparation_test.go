@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -134,14 +135,19 @@ func TestPreparedNativeDocumentsRejectMismatchedImagesAndWholeOperation(t *testi
 
 func TestPreparedNativeDocumentsDiscardEarlierGroupOnLaterFailure(t *testing.T) {
 	fixture, decoded, comparison := preparedNativeFixture(t)
-	late := decoded.record.DocumentGroups[0]
+	wire := decoded.native16Record()
+	late := wire.DocumentGroups[0]
 	late.Aliases = append([]recoveryDocumentAlias(nil), late.Aliases...)
 	late.Aliases[0].Address.Destination = "@pi-agent/settings.json"
 	late.SelectedSubjects = []persistedSubjectRef{}
 	late.BindingIntents = []recoveryDocumentBindingIntent{}
 	late.ExclusiveClaims = recoveryDocumentClaimSet{Kind: "absent"}
 	late.Original, late.Expected = recoveryDocumentImage{Kind: "absent"}, recoveryDocumentImage{Kind: "absent"}
-	decoded.record.DocumentGroups = append(decoded.record.DocumentGroups, late)
+	wire.DocumentGroups = append(slices.Clone(wire.DocumentGroups), late)
+	decoded, err := newNative16Value(wire, decoded.owner, decoded.before, decoded.after)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prepared, err := decoded.PrepareDocuments(t.Context(), []journaldocument.Comparison{comparison, {}}, fixture.limits, fixture.codecs)
 	assertNoPreparedDocumentRecord(t, prepared, err, fixture.codec)
 	ctx, cancel := context.WithCancel(t.Context())

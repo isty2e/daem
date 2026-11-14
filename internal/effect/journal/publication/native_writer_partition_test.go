@@ -15,9 +15,12 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	"github.com/isty2e/daem/internal/output"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -26,7 +29,7 @@ import (
 func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
 	fixture := mixedStageFixture(t)
-	root := fixture.whole.roots.Manifest
+	root := namespacetest.LegacyRoot(t, fixture.whole.roots, output.RootProject)
 	ordinaryPath := filepath.Join(root.SelectedPath, "AGENTS.md")
 	before := fixture.comparison.BeforeDocument().Content()
 	requireWholeGroupWrite(t, ordinaryPath, before, 0o644)
@@ -45,7 +48,7 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, namespacetest.Reservations(t), journalTestFilesystem(), fixture.whole.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +69,13 @@ func aliasedMixedWriterFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	claims, err := ownershipmutation.NewDocumentClaimTransition(native17FixtureClaims(t, fixture.whole.input.Owner(), namespace, fixture.whole.envelope.before), native17FixtureClaims(t, fixture.whole.input.Owner(), namespace, fixture.whole.envelope.after), fixture.whole.input.OperationID())
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture.whole.input.CaptureInput = reviseCaptureInput(fixture.whole.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
 		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+		spec.Claims = &claims
 	})
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.whole.input)
 	if err != nil {

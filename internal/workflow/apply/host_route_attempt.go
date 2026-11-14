@@ -297,7 +297,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				entry,
 				nextState,
 				records,
-				options.stateCodec(),
+				options.physicalStateCodec,
 			)
 			return err
 		}
@@ -438,7 +438,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			}
 			options.markAttempted()
 			commit := func(entry *rootedpath.EntryAuthority) (durable.Snapshot, error) {
-				return execute.CommitPendingCarrierInstalls(ctx, storagecommit.Adapter{}, entry, nextState, owner, []reconciliation.RelationAction{item.action}, options.stateCodec())
+				return execute.CommitPendingCarrierInstalls(ctx, storagecommit.Adapter{}, entry, nextState, owner, []reconciliation.RelationAction{item.action}, options.physicalStateCodec)
 			}
 			if budget == nil {
 				nextState, err = commit(entry)
@@ -590,7 +590,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				nextState,
 				owner,
 				item.action,
-				options.stateCodec(),
+				options.physicalStateCodec,
 			)
 			if err != nil {
 				return nextState, globalCarrierClaims, records, errors.Join(
@@ -632,7 +632,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 				entry,
 				nextState,
 				[]durableattempt.HostRouteAttempt{record},
-				options.stateCodec(),
+				options.physicalStateCodec,
 			)
 			if err != nil {
 				return nextState, globalCarrierClaims, records, errors.Join(
@@ -733,7 +733,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 					nextState,
 					item.action,
 					correlation,
-					options.stateCodec(),
+					options.physicalStateCodec,
 				)
 			}
 			if err != nil {
@@ -774,7 +774,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			nextState,
 			owner,
 			item.action,
-			options.stateCodec(),
+			options.physicalStateCodec,
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(
@@ -812,7 +812,7 @@ func runHostRoutesAndPersistAttemptRecordsWithPrefix(
 			entry,
 			nextState,
 			[]durableattempt.HostRouteAttempt{record},
-			options.stateCodec(),
+			options.physicalStateCodec,
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist host route attempt record: %w", err), bindingReleaseErr)

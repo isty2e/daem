@@ -41,60 +41,37 @@ func New(path string) (Store, error) {
 
 // Load reads current or exact empty retired claim state. A missing file is empty.
 func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims, error) {
-	if ctx == nil {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry context is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return durablecarrier.GlobalCarrierClaims{}, err
-	}
-	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(
-		ctx,
-		store.path,
-		maximumRegistryBytes,
-	)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return durablecarrier.EmptyGlobalCarrierClaims(), nil
-		}
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("read carrier claim registry: %w", err)
-	}
-	if snapshot.Mode().Perm()&0o077 != 0 {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
-			"carrier claim registry %q permissions %04o expose authority metadata",
-			store.path,
-			snapshot.Mode().Perm(),
-		)
-	}
-	registry, err := decode(snapshot.Content())
+	document, _, _, err := store.loadForCommit(ctx)
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
-	if err := validateCurrentAuthorities(ctx, registry); err != nil {
-		return durablecarrier.GlobalCarrierClaims{}, err
-	}
-	return registry, nil
+	return document.registry, nil
 }
 
 func validateCurrentAuthorities(
 	ctx context.Context,
 	registry durablecarrier.GlobalCarrierClaims,
 ) error {
-	for index, claim := range registry.Claims() {
+	return (registryDocument{registry: registry}).validateAuthorities(ctx)
+}
+
+func (document registryDocument) validateAuthorities(ctx context.Context) error {
+	for index, claim := range document.registry.Claims() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		current, err := mutation.ObservePersistedDirectoryEntryAuthority(
-			claim.Owner().StatefileKey(),
-		)
+		locator := document.locator(claim.Owner().StatefileAuthority())
+		current, err := mutation.ObservePersistedDirectoryEntryAuthority(locator)
 		if err != nil {
 			return fmt.Errorf("observe carrier claim registry claims[%d] statefile authority: %w", index, err)
 		}
 		if !current.Exact().Equal(claim.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
-				"carrier claim registry claims[%d] statefile authority %q with semantics %q is not current; observed %q with semantics %q",
+				"carrier claim registry claims[%d] statefile authority %q with semantics %q is not current via locator %q; observed %q with semantics %q",
 				index,
 				claim.Owner().StatefileKey(),
 				claim.Owner().StatefileAuthority().Witness(),
+				locator,
 				current.Exact().Key(),
 				current.Exact().Witness(),
 			)
@@ -154,17 +131,21 @@ func validateSelectedAuthority(
 func (store Store) Upsert(
 	ctx context.Context,
 	claim durablecarrier.ManagedCarrierClaim,
+	references ...pathauthority.Reference,
 ) (durablecarrier.GlobalCarrierClaims, error) {
-	return store.UpsertAll(ctx, []durablecarrier.ManagedCarrierClaim{claim})
+	return store.UpsertAll(ctx, []durablecarrier.ManagedCarrierClaim{claim}, references...)
 }
 
 // UpsertAll writes one exact claim batch through one entry-identity
 // compare-and-swap. Either the whole canonical batch commits or none does.
+// Located images require explicit lookup evidence for new owners and retain the
+// recorded locators of surviving owners.
 func (store Store) UpsertAll(
 	ctx context.Context,
 	claims []durablecarrier.ManagedCarrierClaim,
+	references ...pathauthority.Reference,
 ) (durablecarrier.GlobalCarrierClaims, error) {
-	return store.upsertAll(ctx, nil, claims)
+	return store.upsertAll(ctx, nil, claims, references)
 }
 
 // UpsertAllIfCurrent commits one exact batch only when the durable registry
@@ -173,14 +154,16 @@ func (store Store) UpsertAllIfCurrent(
 	ctx context.Context,
 	expected durablecarrier.GlobalCarrierClaims,
 	claims []durablecarrier.ManagedCarrierClaim,
+	references ...pathauthority.Reference,
 ) (durablecarrier.GlobalCarrierClaims, error) {
-	return store.upsertAll(ctx, &expected, claims)
+	return store.upsertAll(ctx, &expected, claims, references)
 }
 
 func (store Store) upsertAll(
 	ctx context.Context,
 	expected *durablecarrier.GlobalCarrierClaims,
 	claims []durablecarrier.ManagedCarrierClaim,
+	references []pathauthority.Reference,
 ) (durablecarrier.GlobalCarrierClaims, error) {
 	if ctx == nil {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry context is required")
@@ -192,19 +175,19 @@ func (store Store) upsertAll(
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
-	if expected != nil && !current.Equal(*expected) {
+	if expected != nil && !current.registry.Equal(*expected) {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
 			"carrier claim registry changed since confirmed observation",
 		)
 	}
-	next, changed, err := current.WithClaims(claims)
+	next, changed, err := current.registry.WithClaims(claims)
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	if !changed {
-		return current, nil
+		return current.registry, nil
 	}
-	if err := store.commitRegistry(ctx, next, identity, exists); err != nil {
+	if err := store.commitRegistry(ctx, current, next, references, identity, exists); err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	return next, nil
@@ -227,14 +210,14 @@ func (store Store) Remove(
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
-	next, changed, err := current.WithoutClaim(claim)
+	next, changed, err := current.registry.WithoutClaim(claim)
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	if !changed {
-		return current, nil
+		return current.registry, nil
 	}
-	if err := store.commitRegistry(ctx, next, identity, exists); err != nil {
+	if err := store.commitRegistry(ctx, current, next, nil, identity, exists); err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	return next, nil
@@ -259,19 +242,19 @@ func (store Store) RetireAllIfCurrent(
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
-	if !current.Equal(expected) {
+	if !current.registry.Equal(expected) {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
 			"carrier claim registry changed since confirmed observation",
 		)
 	}
-	next, err := current.RetireClaims(claims)
+	next, err := current.registry.RetireClaims(claims)
 	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	if len(claims) == 0 {
-		return current, nil
+		return current.registry, nil
 	}
-	if err := store.commitRegistry(ctx, next, identity, exists); err != nil {
+	if err := store.commitRegistry(ctx, current, next, nil, identity, exists); err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	return next, nil
@@ -279,11 +262,13 @@ func (store Store) RetireAllIfCurrent(
 
 func (store Store) commitRegistry(
 	ctx context.Context,
+	current registryDocument,
 	next durablecarrier.GlobalCarrierClaims,
+	references []pathauthority.Reference,
 	identity storagecommit.EntryIdentity,
 	exists bool,
 ) error {
-	content, err := encode(next)
+	content, err := current.encodeSuccessor(ctx, next, references)
 	if err != nil {
 		return err
 	}
@@ -307,20 +292,36 @@ func (store Store) commitRegistry(
 
 func (store Store) loadForCommit(
 	ctx context.Context,
-) (durablecarrier.GlobalCarrierClaims, storagecommit.EntryIdentity, bool, error) {
-	identity, err := storagecommit.CaptureEntryIdentity(ctx, store.path)
+) (registryDocument, storagecommit.EntryIdentity, bool, error) {
+	if ctx == nil {
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("carrier claim registry context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, err
+	}
+	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, store.path, maximumRegistryBytes)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return durablecarrier.EmptyGlobalCarrierClaims(), storagecommit.EntryIdentity{}, false, nil
+			return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, nil
 		}
-		return durablecarrier.GlobalCarrierClaims{}, storagecommit.EntryIdentity{}, false, fmt.Errorf(
-			"capture carrier claim registry identity: %w",
-			err,
-		)
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("read carrier claim registry: %w", err)
 	}
-	registry, err := store.Load(ctx)
+	if snapshot.Mode().Perm()&0o077 != 0 {
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("carrier claim registry %q permissions %04o expose authority metadata", store.path, snapshot.Mode().Perm())
+	}
+	identity, valid := snapshot.Identity().(storagecommit.EntryIdentity)
+	if !valid {
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("carrier claim registry snapshot has unsupported entry identity %T", snapshot.Identity())
+	}
+	document, err := decodeRegistryDocument(snapshot.Content())
 	if err != nil {
-		return durablecarrier.GlobalCarrierClaims{}, storagecommit.EntryIdentity{}, false, err
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, err
 	}
-	return registry, identity, true, nil
+	if err := document.validateAuthorities(ctx); err != nil {
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return registryDocument{}, storagecommit.EntryIdentity{}, false, err
+	}
+	return document, identity, true, nil
 }

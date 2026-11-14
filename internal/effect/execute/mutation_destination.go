@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/removaloperation"
 	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
@@ -44,9 +45,9 @@ type mutationAuthority struct {
 	recoveryBackups            *hostmutation.Backups
 	generalExecutionWorkBudget *physicalwork.Budget
 	preparedRetirement         *journal.RetirementContinuation
-	ownershipRegistry          ownershipmutation.RegistryStore
+	ownershipRegistry          *ownershipRegistryBinding
 	ownershipRegistryBinder    ownershipmutation.RootedRegistryBinder
-	hasOwnershipRegistry       bool
+	ownerReference             pathauthority.Reference
 	ownsCapturedRoot           bool
 }
 
@@ -309,7 +310,6 @@ func (authority *mutationAuthority) close() error {
 	authority.ownershipRegistry = nil
 	authority.ownershipRegistryBinder = nil
 	authority.filesystem = nil
-	authority.hasOwnershipRegistry = false
 	if authority.capturedRoot == nil {
 		return closeErr
 	}

@@ -7,6 +7,7 @@ type LockInput struct {
 	ManifestPath            string
 	LockfilePath            string
 	MetadataTransactionPath string
+	GlobalMetadataPath      string
 	LocalPaths              []string
 	StateDirPath            string
 	StateDirPresent         bool
@@ -19,6 +20,7 @@ type LockProgram struct {
 	manifestPath            string
 	lockfilePath            string
 	metadataTransactionPath string
+	globalMetadataPath      string
 	localPaths              []string
 	documentMaximumBytes    int64
 }
@@ -60,6 +62,11 @@ func CompileLock(input LockInput) LockProgram {
 			mutation.PathEffectReferent,
 		)))
 	}
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		domains = append(domains, newPathDomainStep(newLogicalPathDomainRequest(
+			input.GlobalMetadataPath, mutation.AccessShared, effect,
+		)))
+	}
 	stateDirAccess := mutation.AccessShared
 	if !input.StateDirPresent {
 		stateDirAccess = mutation.AccessExclusive
@@ -79,6 +86,7 @@ func CompileLock(input LockInput) LockProgram {
 		manifestPath:            input.ManifestPath,
 		lockfilePath:            input.LockfilePath,
 		metadataTransactionPath: input.MetadataTransactionPath,
+		globalMetadataPath:      input.GlobalMetadataPath,
 		localPaths:              append([]string(nil), input.LocalPaths...),
 		documentMaximumBytes:    input.DocumentMaximumBytes,
 	}
@@ -106,6 +114,9 @@ func (program LockProgram) RevisionRequests() ([]mutation.RevisionRequest, error
 			mutation.PathEffectDirectoryEntry,
 		),
 	)
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		requests = append(requests, mutation.NewBoundedContentRevisionRequest(program.globalMetadataPath, effect))
+	}
 	for _, path := range program.localPaths {
 		requests = append(
 			requests,

@@ -22,6 +22,7 @@ import (
 type providerPhaseExecution struct {
 	attempts                      []durableattempt.HostRouteAttempt
 	leases                        *mutation.LeaseSet
+	authorityEvidence             applyAuthorityEvidence
 	firstEffectRevisions          mutation.RevisionSet
 	currentContinuation           applyContinuationPlan
 	rebound                       bool
@@ -555,6 +556,9 @@ func runMCPProviderPrerequisitePhase(
 			nil,
 		)
 	}
+	if covered, err := reboundLeases.CoversPhysicalAuthority(underLeaseAuthority.documentWrites); err != nil || !covered {
+		return result, providerPhaseStale(planWasDisclosed, "document view changed under post-provider leases", err)
+	}
 	if _, err := projectRootFingerprint(underLease); err != nil {
 		return result, providerPhaseStale(
 			planWasDisclosed,
@@ -591,6 +595,7 @@ func runMCPProviderPrerequisitePhase(
 	*current = underLease
 	result.currentContinuation = currentSchedule.continuation
 	result.leases = reboundLeases
+	result.authorityEvidence = underLeaseAuthority
 	result.firstEffectRevisions = reboundFirstEffectRevisions
 	releaseRebound = false
 	return result, nil

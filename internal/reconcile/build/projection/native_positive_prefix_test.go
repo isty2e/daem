@@ -19,6 +19,7 @@ import (
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -259,7 +260,7 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 	}
 	for owner, values := range sources {
 		content := nativePrefixSource(t, limits, values)
-		placement, err := profile.ResolveHostConfigPlacement(profile.HostConfigPlacementInput{
+		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
 			Target: target.TargetPi, Scope: target.ScopeProject, Path: "settings.json",
 			Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON,
 		})

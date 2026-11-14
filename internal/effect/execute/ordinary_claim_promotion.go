@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
@@ -84,6 +85,9 @@ func promoteVisibleAcquire(
 			return fmt.Errorf("visible ownership authority observation is empty")
 		}
 		visible = true
+		if err := authority.destinations.RetainObservation(observed); err != nil {
+			return err
+		}
 		address, err := ownership.NewManagedAddress(exact, intent.Footprint())
 		if err != nil {
 			return err
@@ -147,7 +151,7 @@ func promoteVisibleAcquire(
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
 	if err := claimGate.ApplyEffect(func() error {
-		return convergeClaim(ctx, registryStore, transition.Address(), transition.Before(), transition.Prepared())
+		return convergeClaim(ctx, registryStore, transition.Address(), transition.Before(), transition.Prepared(), authority.registryReferences()...)
 	}); err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
@@ -160,7 +164,7 @@ func promoteVisibleAcquire(
 
 // convergeClaim remains single-address because provisional outputs become
 // exactly observable at distinct host-effect boundaries.
-func convergeClaim(ctx context.Context, registryStore ownershipmutation.RegistryStore, address ownership.ManagedAddress, from, to ownership.ClaimValue) error {
+func convergeClaim(ctx context.Context, registryStore ownershipmutation.RegistryStore, address ownership.ManagedAddress, from, to ownership.ClaimValue, references ...pathauthority.Reference) error {
 	change, err := ownership.NewClaimChange(address, from, to)
 	if err != nil {
 		return err
@@ -169,6 +173,6 @@ func convergeClaim(ctx context.Context, registryStore ownershipmutation.Registry
 	if err != nil {
 		return err
 	}
-	_, err = registryStore.Converge(ctx, convergence)
+	_, err = registryStore.Converge(ctx, convergence, references...)
 	return err
 }

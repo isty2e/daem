@@ -74,7 +74,7 @@ func postAttemptSummaries(
 
 	observations, err := readiness.ObserveAggregateProjectionSummaries(
 		ctx,
-		liveobserve.DestinationResolver(destinationResolver(paths).Resolve),
+		liveobserve.DestinationResolver(destinationResolver(paths).ForBudget(nil).Resolve),
 		locked,
 		selection,
 		current,

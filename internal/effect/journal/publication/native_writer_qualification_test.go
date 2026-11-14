@@ -17,23 +17,123 @@ import (
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 )
 
+func TestQualifiedWriterPartitionProtectsGlobalSymlinkRoutes(t *testing.T) {
+	root := nativeNamespaceRoot(t, t.TempDir())
+	requireWholeGroupWrite(t, filepath.Join(root.SelectedPath, "referent.json"), []byte("{}"), 0o600)
+	if err := os.Symlink("referent.json", filepath.Join(root.SelectedPath, "route.json")); err != nil {
+		t.Fatal(err)
+	}
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: root, output.RootPiAgent: root})
+	budget := imageBudget(t)
+	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/route.json")
+	namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := roots.Qualify(t.Context(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, supplied := qualified.Manifest()
+	if !supplied {
+		t.Fatal("fixture lost its manifest binding")
+	}
+	for _, collision := range []bool{false, true} {
+		relative := "unrelated.json"
+		if collision {
+			relative = "route.json"
+		}
+		entry, acquire, closed := ordinaryWriterCapability(t, root, relative)
+		err := journalqualification.QualifyWriterPartition(t.Context(), []journalrecord.PathEntry{entry}, []journalnamespace.DocumentNamespace{namespace}, manifest, acquire, budget, nil)
+		if (err != nil) != collision || *closed != 1 {
+			t.Fatalf("global route collision=%v: err=%v closed=%d", collision, err, *closed)
+		}
+	}
+}
+
+func TestQualifiedWriterPartitionKeepsMissingRootsAtOneAnchor(t *testing.T) {
+	base := nativeNamespaceRoot(t, t.TempDir())
+	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: base})
+	budget := imageBudget(t)
+	var aliases []aggregate.DocumentAddress
+	var selected []string
+	for _, spec := range []struct {
+		role   output.RootRole
+		target target.Target
+		alias  string
+	}{
+		{output.RootPiAgent, target.TargetPi, "@pi-agent/settings.json"},
+		{output.RootCodexHome, target.TargetCodex, "@codex-home/settings.json"},
+	} {
+		path := filepath.Join(base.SelectedPath, "missing-"+string(spec.target))
+		selection, err := journalnamespace.CaptureRoot(t.Context(), path, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = selection.Root.Close() })
+		roots = namespacetest.WithLegacyRoot(t, roots, spec.role, selection)
+		aliases = append(aliases, nativeNamespaceAddress(t, spec.target, target.ScopeGlobal, spec.alias))
+		selected = append(selected, path)
+	}
+	var namespaces []journalnamespace.DocumentNamespace
+	for _, alias := range aliases {
+		namespace, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{alias}, roots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		namespaces = append(namespaces, namespace)
+	}
+	qualified, err := roots.Qualify(t.Context(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, supplied := qualified.Manifest()
+	if !supplied {
+		t.Fatal("fixture lost its manifest binding")
+	}
+	if err := journalqualification.QualifyWriterPartition(t.Context(), nil, namespaces, manifest, nil, budget, nil); err != nil {
+		t.Fatal("disjoint missing roots collapsed to their shared anchor", err)
+	}
+	coincident, err := journalnamespace.CaptureRoot(t.Context(), selected[0], budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = coincident.Root.Close() })
+	coincidentRoots := namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, coincident)
+	other, err := journalnamespace.Observe(t.Context(), []aggregate.DocumentAddress{aliases[1]}, coincidentRoots, namespacetest.Reservations(t), journalTestFilesystem(), budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journalqualification.QualifyWriterPartition(t.Context(), nil, []journalnamespace.DocumentNamespace{namespaces[0], other}, manifest, nil, budget, nil); err == nil {
+		t.Fatal("actual overlapping missing-root writers passed physical qualification")
+	}
+	for _, path := range selected {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("writer qualification created selected-root scaffolding", err)
+		}
+	}
+}
+
 func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	t.Helper()
 	fixture := mixedStageFixture(t)
-	root := fixture.whole.roots.Manifest
+	root := namespacetest.LegacyRoot(t, fixture.whole.roots, output.RootProject)
 	actual := filepath.Join(root.SelectedPath, ".agents", "skills", "CaseOwner")
 	variant := filepath.Join(root.SelectedPath, ".agents", "skills", "caseowner")
 	physical := filepath.Join(actual, "host.md")
@@ -64,7 +164,7 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err := os.Symlink(relative, aliasPath); err != nil {
 		t.Fatal(err)
 	}
-	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, journalTestFilesystem(), fixture.whole.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), fixture.whole.namespace.Addresses(), fixture.whole.roots, namespacetest.Reservations(t), journalTestFilesystem(), fixture.whole.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,8 +185,13 @@ func caseAliasedMixedFixture(t *testing.T) mixedJournalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	claims, err := ownershipmutation.NewDocumentClaimTransition(native17FixtureClaims(t, fixture.whole.input.Owner(), namespace, fixture.whole.envelope.before), native17FixtureClaims(t, fixture.whole.input.Owner(), namespace, fixture.whole.envelope.after), fixture.whole.input.OperationID())
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixture.whole.input.CaptureInput = reviseCaptureInput(fixture.whole.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) {
 		spec.Bindings = []ownership.DocumentBindingIntent{intent}
+		spec.Claims = &claims
 	})
 	group, comparison, err := prepareWholeDocumentGroup(t.Context(), namespace, fixture.whole.input)
 	if err != nil {
@@ -189,7 +294,7 @@ func (budget *refusedWriterPathBudget) AdmitPathComponents(int) error {
 
 func TestWriterObservationUsesSharedBudgetAndClosesOnFailure(t *testing.T) {
 	_, roots := nativeNamespaceRecordFixture(t)
-	entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "custom.json")
+	entry, acquire, closed := ordinaryWriterCapability(t, namespacetest.LegacyRoot(t, roots, output.RootPiAgent), "custom.json")
 	destination, err := output.Parse(entry.Path())
 	if err != nil {
 		t.Fatal(err)
@@ -250,14 +355,14 @@ func ordinaryWriterCapability(t *testing.T, root journalnamespace.RootSelection,
 
 func TestQualifiedWriterKeepsCaseSensitiveFilesDistinct(t *testing.T) {
 	fixture, roots := nativeNamespaceRecordFixture(t)
-	variant := filepath.Join(roots.PiAgent.SelectedPath, "CUSTOM.JSON")
+	variant := filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, "CUSTOM.JSON")
 	if _, err := os.Stat(variant); err == nil {
 		t.Skip("fixture filesystem does not distinguish these case variants")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 	requireWholeGroupWrite(t, variant, []byte("distinct ordinary file"), 0o600)
-	entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "CUSTOM.JSON")
+	entry, acquire, closed := ordinaryWriterCapability(t, namespacetest.LegacyRoot(t, roots, output.RootPiAgent), "CUSTOM.JSON")
 	namespaces, manifest, protected := writerPartitionInputsForTest(t, fixture, roots)
 	err := journalqualification.QualifyWriterPartition(t.Context(), []journalrecord.PathEntry{entry}, namespaces, manifest, acquire, imageBudget(t), protected)
 	if err != nil || len(namespaces) != 1 || *closed != 1 {
@@ -268,11 +373,11 @@ func TestQualifiedWriterKeepsCaseSensitiveFilesDistinct(t *testing.T) {
 func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 	fixture := wholeGroupFixture(t, target.TargetPi, target.ScopeGlobal, "replace", []byte("before"), []byte("after"))
 	roots := fixture.roots
-	if err := os.Symlink(roots.PiAgent.SelectedPath, filepath.Join(roots.Manifest.SelectedPath, ".pi")); err != nil {
+	if err := os.Symlink(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath, ".pi")); err != nil {
 		t.Fatal(err)
 	}
 	project := nativeNamespaceAddress(t, target.TargetPi, target.ScopeProject, ".pi/prompts/Caf\u00e9.md")
-	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, fixture.reader, fixture.input.Budget())
+	namespace, err := journalnamespace.Observe(t.Context(), append(fixture.namespace.Addresses(), project), roots, namespacetest.Reservations(t), fixture.reader, fixture.input.Budget())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +386,7 @@ func TestQualifiedWriterKeepsNativeProjectSymlinkAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	journal := fixture.recordForGroups(t, []journalrecord.SealedDocumentGroup{group})
-	qualified, err := journalqualification.LoadNamespaces(journal, t.Context(), journalqualification.ReadOptions{Filesystem: fixture.reader, Budget: imageBudget(t)}, roots)
+	qualified, err := journalqualification.LoadNamespaces(journal, t.Context(), journalqualification.ReadOptions{Protection: namespacetest.Reservations(t), Rules: journalqualification.RecordedRuleExpectations(), Filesystem: fixture.reader, Budget: imageBudget(t)}, roots)
 	if err != nil || len(qualified) != 1 || len(qualified[0].Aliases()) != 2 {
 		t.Fatalf("ordinary/native partition rejected a supported project symlink alias: %v", err)
 	}
@@ -292,12 +397,12 @@ func TestQualifiedOrdinaryWriterRequiresSelectedRootAndClosesCapabilities(t *tes
 	for _, change := range []string{"valid", "duplicate", "conflicting duplicate", "missing resolver", "absent capability", "wrong root", "close failure", "resolver error", "canceled"} {
 		t.Run(change, func(t *testing.T) {
 			fixture, roots := nativeNamespaceRecordFixture(t)
-			requireWholeGroupWrite(t, filepath.Join(roots.PiAgent.SelectedPath, "ordinary.json"), []byte("ordinary"), 0o600)
-			entry, acquire, closed := ordinaryWriterCapability(t, roots.PiAgent, "ordinary.json")
+			requireWholeGroupWrite(t, filepath.Join(namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath, "ordinary.json"), []byte("ordinary"), 0o600)
+			entry, acquire, closed := ordinaryWriterCapability(t, namespacetest.LegacyRoot(t, roots, output.RootPiAgent), "ordinary.json")
 			namespaces, manifest, protected := writerPartitionInputsForTest(t, fixture, roots)
 			withOtherRoot := func(value journalrecord.PathEntry) journalrecord.PathEntry {
-				provenance := captureFixtureProvenance(t, roots.PiAgent.SelectedPath)
-				other := captureFixtureProvenance(t, roots.Manifest.SelectedPath)
+				provenance := captureFixtureProvenance(t, namespacetest.LegacyRoot(t, roots, output.RootPiAgent).SelectedPath)
+				other := captureFixtureProvenance(t, namespacetest.LegacyRoot(t, roots, output.RootProject).SelectedPath)
 				changed, err := rootedpath.NewAuthorityProvenance(provenance.PhysicalRoot(), other.ObjectFingerprint(), provenance.MountFingerprint())
 				if err != nil {
 					t.Fatal(err)

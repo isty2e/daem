@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -17,7 +18,7 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 	if err := captured.Validate(); err != nil {
 		return CapturedNativeJournal{}, err
 	}
-	observed, err := captured.AssessRecovery(ctx, options.NativeRecoveryOptions)
+	observed, err := captured.AssessForward(ctx, options.NativeRecoveryOptions)
 	if err != nil {
 		return CapturedNativeJournal{}, err
 	}
@@ -41,6 +42,7 @@ func (captured CapturedNativeJournal) PromoteOrdinary(ctx context.Context, inten
 	if err != nil || !actual.Exact().Equal(transition.Address().PathAuthority()) {
 		return CapturedNativeJournal{}, errors.Join(fmt.Errorf("ordinary promotion path authority changed"), err)
 	}
+	captured.publication.references = append(slices.Clone(captured.publication.references), actual.Reference())
 	candidate, err := captured.journal.PromoteProvisionalAcquire(intent, transition)
 	if err != nil {
 		return CapturedNativeJournal{}, err

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -33,48 +35,23 @@ func ResolveAgentRoot(input AgentRootInput) (string, error) {
 	if root == "" {
 		root = os.Getenv(AgentRootEnvironmentVariable)
 	}
-	if root == "" {
-		home, err := os.UserHomeDir()
+	var home string
+	if root == "" || root == "~" || strings.HasPrefix(root, "~/") || runtime.GOOS == "windows" && strings.HasPrefix(root, `~\`) {
+		var err error
+		home, err = os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("resolve Pi config home: %w", err)
 		}
-		root = filepath.Join(home, ".pi", "agent")
 	}
-	if root == "~" || strings.HasPrefix(root, "~"+string(os.PathSeparator)) {
-		home, err := os.UserHomeDir()
+	workDir := input.WorkDir
+	if workDir == "" && root != "" && root != "~" && !strings.HasPrefix(root, "~/") && !(runtime.GOOS == "windows" && strings.HasPrefix(root, `~\`)) && !strings.HasPrefix(root, "file://") && !filepath.IsAbs(root) {
+		var err error
+		workDir, err = os.Getwd()
 		if err != nil {
-			return "", fmt.Errorf("expand Pi config home: %w", err)
-		}
-		if root == "~" {
-			root = home
-		} else {
-			root = filepath.Join(home, strings.TrimPrefix(root, "~"+string(os.PathSeparator)))
+			return "", fmt.Errorf("resolve Pi config working directory: %w", err)
 		}
 	}
-	if !filepath.IsAbs(root) {
-		base := input.WorkDir
-		if base == "" {
-			var err error
-			base, err = os.Getwd()
-			if err != nil {
-				return "", fmt.Errorf("resolve Pi config working directory: %w", err)
-			}
-		}
-		if strings.TrimSpace(base) == "" || strings.TrimSpace(base) != base || !filepath.IsAbs(base) {
-			return "", fmt.Errorf("Pi config working directory must be a trimmed absolute path")
-		}
-		root = filepath.Join(base, root)
-	}
-	if strings.TrimSpace(root) == "" || strings.TrimSpace(root) != root {
-		return "", fmt.Errorf("Pi config root must be non-empty and trimmed")
-	}
-	if strings.ContainsRune(root, '\x00') {
-		return "", fmt.Errorf("Pi config root must not contain a NUL byte")
-	}
-	if !filepath.IsAbs(root) {
-		return "", fmt.Errorf("Pi config root must be absolute")
-	}
-	return filepath.Clean(root), nil
+	return nativehostpath.PiAgentDirectory(root, workDir, home)
 }
 
 // DestinationOverride maps Pi's logical agent root and legacy global MCP
