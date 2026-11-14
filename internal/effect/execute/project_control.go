@@ -2,17 +2,14 @@ package execute
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/execute/statefileoperation"
+	"github.com/isty2e/daem/internal/effect/execute/controlentry"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
 )
@@ -24,11 +21,14 @@ func (authority *mutationAuthority) bindProjectStatefile(
 	if authority != nil && authority.projectStatefile != nil {
 		return fmt.Errorf("project statefile authority is already bound")
 	}
-	destination, err := authority.bindProjectControlEntry(selectedRoot, statefilePath)
-	if err != nil {
-		return fmt.Errorf("bind project statefile: %w", err)
+	if authority == nil {
+		return fmt.Errorf("bind project statefile: %w", fmt.Errorf("project mutation authority is unavailable"))
 	}
-	authority.projectStatefile = statefileoperation.NewSelected(authority.filesystem, destination, authority.physicalWorkBudget)
+	selected, err := controlentry.BindStatefileEntry(authority.capturedRoot, selectedRoot, statefilePath, authority.filesystem, authority.generalTraversalPhase, authority.physicalWorkBudget)
+	if err != nil {
+		return err
+	}
+	authority.projectStatefile = selected
 	return nil
 }
 
@@ -36,23 +36,10 @@ func (authority *mutationAuthority) bindRecoveryJournal(
 	selectedRoot string,
 	operationDir string,
 ) error {
-	if authority != nil && (authority.recoveryJournal != nil || authority.recoveryJournalRecord != nil) {
-		return fmt.Errorf("recovery journal authority is already bound")
+	if authority == nil {
+		return fmt.Errorf("bind recovery journal: %w", fmt.Errorf("project mutation authority is unavailable"))
 	}
-	directory, err := authority.bindProjectControlEntry(selectedRoot, operationDir)
-	if err != nil {
-		return fmt.Errorf("bind recovery journal: %w", err)
-	}
-	record, err := authority.bindProjectControlEntry(
-		selectedRoot,
-		filepath.Join(operationDir, "journal.json"),
-	)
-	if err != nil {
-		return errors.Join(fmt.Errorf("bind recovery journal record: %w", err), directory.Close())
-	}
-	authority.recoveryJournal = directory
-	authority.recoveryJournalRecord = record
-	return nil
+	return authority.journalEntries.Bind(authority.capturedRoot, selectedRoot, operationDir, authority.generalTraversalPhase)
 }
 
 func (authority *mutationAuthority) captureJournalExecutionBasis(
@@ -65,7 +52,7 @@ func (authority *mutationAuthority) captureJournalExecutionBasis(
 	captured, err := journalinventory.CaptureActiveJournalAuthority(
 		ctx,
 		authority.filesystem,
-		authority.recoveryJournal,
+		authority.journalEntries.Directory(),
 	)
 	if err != nil {
 		return fmt.Errorf("capture active recovery journal authority: %w", err)
@@ -107,7 +94,7 @@ func (authority *mutationAuthority) validateJournalExecutionBasis(
 	if err := journalinventory.ValidateActiveJournalAuthority(
 		ctx,
 		authority.filesystem,
-		authority.recoveryJournal,
+		authority.journalEntries.Directory(),
 		authority.journalBasis.ActiveAuthority(),
 	); err != nil {
 		return fmt.Errorf("active recovery journal changed %s: %w", phase, err)
@@ -116,25 +103,6 @@ func (authority *mutationAuthority) validateJournalExecutionBasis(
 		authority.journalBasis.RecordFingerprint(),
 		plan,
 		phase,
-	)
-}
-
-func (authority *mutationAuthority) bindProjectControlEntry(
-	selectedRoot string,
-	path string,
-) (*rootedpath.EntryAuthority, error) {
-	if authority == nil {
-		return nil, fmt.Errorf("project mutation authority is unavailable")
-	}
-	if authority.generalTraversalPhase == nil {
-		return nil, fmt.Errorf("project control traversal authority is unavailable")
-	}
-	return rootedpath.BindSelectedControlEntryAuthorityBounded(
-		authority.capturedRoot,
-		selectedRoot,
-		path,
-		physicalwork.MaximumPhysicalPathDepth,
-		authority.generalTraversalPhase,
 	)
 }
 

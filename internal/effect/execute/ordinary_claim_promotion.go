@@ -60,7 +60,7 @@ func promoteVisibleAcquire(
 			return fmt.Errorf("recovery journal execution basis is unavailable")
 		}
 		journalFingerprint = authority.journalBasis.RecordFingerprint()
-		if authority.recoveryJournalRecord == nil {
+		if authority.journalEntries.Record() == nil {
 			return fmt.Errorf("recovery journal record authority is unavailable")
 		}
 		if registryStore == nil {
@@ -126,7 +126,7 @@ func promoteVisibleAcquire(
 	if err := journalGate.ApplyEffect(func() error {
 		var promoteErr error
 		promotion, promoteErr = journalpublication.PromoteProvisionalAcquire(ctx, authority.filesystem,
-			authority.recoveryJournalRecord, authority.recoveryJournal, authority.journalBasis.ActiveAuthority(),
+			authority.journalEntries.Record(), authority.journalEntries.Directory(), authority.journalBasis.ActiveAuthority(),
 			journalFingerprint, intent, transition, stateCodec)
 		if refreshed, available := promotion.ActiveJournalAuthority(); available {
 			if authority.preparedRetirement != nil {

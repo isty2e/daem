@@ -3,10 +3,10 @@ package nativeoperation
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/controlentry"
 	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
 	"github.com/isty2e/daem/internal/effect/execute/hostmutation"
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -29,8 +29,7 @@ type operation struct {
 	filesystem                 mutationfs.Store
 	capturedRoot               *rootedpath.CapturedRoot
 	projectStatefile           *statefileoperation.Selected
-	recoveryJournal            *rootedpath.EntryAuthority
-	recoveryJournalRecord      *rootedpath.EntryAuthority
+	journalEntries             controlentry.JournalEntries
 	journalBasis               journalinventory.ExecutionBasis
 	physicalAuthorityRequests  []mutation.PhysicalAuthorityRequest
 	physicalWorkBudget         *physicalwork.Budget
@@ -118,35 +117,16 @@ func (operation *operation) bindProjectStatefile(selectedRoot, path string) erro
 	if operation.projectStatefile != nil {
 		return fmt.Errorf("project statefile authority is already bound")
 	}
-	destination, err := operation.bindProjectControlEntry(selectedRoot, path)
+	selected, err := controlentry.BindStatefileEntry(operation.capturedRoot, selectedRoot, path, operation.filesystem, operation.generalTraversalPhase, operation.physicalWorkBudget)
 	if err != nil {
-		return fmt.Errorf("bind project statefile: %w", err)
+		return err
 	}
-	operation.projectStatefile = statefileoperation.NewSelected(operation.filesystem, destination, operation.physicalWorkBudget)
+	operation.projectStatefile = selected
 	return nil
 }
 
 func (operation *operation) bindRecoveryJournal(selectedRoot, directory string) error {
-	if operation.recoveryJournal != nil || operation.recoveryJournalRecord != nil {
-		return fmt.Errorf("recovery journal authority is already bound")
-	}
-	bound, err := operation.bindProjectControlEntry(selectedRoot, directory)
-	if err != nil {
-		return fmt.Errorf("bind recovery journal: %w", err)
-	}
-	record, err := operation.bindProjectControlEntry(selectedRoot, filepath.Join(directory, "journal.json"))
-	if err != nil {
-		return errors.Join(fmt.Errorf("bind recovery journal record: %w", err), bound.Close())
-	}
-	operation.recoveryJournal, operation.recoveryJournalRecord = bound, record
-	return nil
-}
-
-func (operation *operation) bindProjectControlEntry(selectedRoot, path string) (*rootedpath.EntryAuthority, error) {
-	if operation.generalTraversalPhase == nil {
-		return nil, fmt.Errorf("project control traversal authority is unavailable")
-	}
-	return rootedpath.BindSelectedControlEntryAuthorityBounded(operation.capturedRoot, selectedRoot, path, physicalwork.MaximumPhysicalPathDepth, operation.generalTraversalPhase)
+	return operation.journalEntries.Bind(operation.capturedRoot, selectedRoot, directory, operation.generalTraversalPhase)
 }
 
 func (operation *operation) setJournalExecutionBasis(fingerprint string, active journalinventory.ActiveJournalAuthority) error {
@@ -184,14 +164,7 @@ func (operation *operation) close() error {
 		result = errors.Join(result, fmt.Errorf("close project statefile authority: %w", err))
 	}
 	operation.projectStatefile = nil
-	if err := operation.recoveryJournal.Close(); err != nil {
-		result = errors.Join(result, fmt.Errorf("close recovery journal authority: %w", err))
-	}
-	operation.recoveryJournal = nil
-	if err := operation.recoveryJournalRecord.Close(); err != nil {
-		result = errors.Join(result, fmt.Errorf("close recovery journal record authority: %w", err))
-	}
-	operation.recoveryJournalRecord = nil
+	result = operation.journalEntries.CloseInto(result)
 	operation.journalBasis = journalinventory.ExecutionBasis{}
 	operation.physicalWorkBudget = nil
 	operation.recoveryBackups = nil

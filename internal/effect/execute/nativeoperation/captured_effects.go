@@ -38,7 +38,7 @@ func prepareNativeCapturedEffects(ctx context.Context, captured journalpublicati
 
 func observeNativeRuntime(ctx context.Context, captured journalpublication.CapturedNativeJournal, authority *operation, input NativeApplyInput, store ownershipmutation.RegistryReader) (journalqualification.NativeRecoveryAssessment, error) {
 	return captured.AssessForward(ctx, journalqualification.NativeRecoveryOptions{
-		Filesystem: input.Filesystem, OperationAuthority: authority.recoveryJournal,
+		Filesystem: input.Filesystem, OperationAuthority: authority.journalEntries.Directory(),
 		State: func(ctx context.Context) (durable.Snapshot, error) {
 			return authority.projectStatefile.Read(ctx, input.StatefileCodec, input.Budget)
 		},

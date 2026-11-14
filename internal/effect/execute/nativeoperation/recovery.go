@@ -134,7 +134,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		if err != nil || !state.Equal(operation.ObservedState()) {
 			return journalqualification.NativeRecoveryAssessment{}, errors.Join(fmt.Errorf("native recovery state changed during settlement"), err)
 		}
-		return operation.Assess(ctx, journalqualification.NativeRecoveryOptions{Filesystem: options.Filesystem, OperationAuthority: authority.recoveryJournal, State: stateReader, Registry: store, Codecs: operation.Codecs()})
+		return operation.Assess(ctx, journalqualification.NativeRecoveryOptions{Filesystem: options.Filesystem, OperationAuthority: authority.journalEntries.Directory(), State: stateReader, Registry: store, Codecs: operation.Codecs()})
 	}
 	beforeEffect := func() error {
 		set, err := authority.physicalAuthority()

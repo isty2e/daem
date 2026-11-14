@@ -379,7 +379,7 @@ func applyWithOptions(
 				RemovalDemands:            removalDemands,
 				Resolver:                  journalResolver,
 				ManifestRoot:              mutationAuthority.capturedRoot,
-				OperationAuthority:        mutationAuthority.recoveryJournal,
+				OperationAuthority:        mutationAuthority.journalEntries.Directory(),
 				RootedCapability:          mutationAuthority.destinations.JournalCapability,
 				Codecs:                    input.Codecs,
 				StateCodec:                input.StateCodec,
