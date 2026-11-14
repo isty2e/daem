@@ -11,6 +11,7 @@ import (
 )
 
 // MatchPendingCarrierInstall resolves one exact pending acquisition for an action.
+// Promotion callers must select claim custody before matching pending evidence.
 func MatchPendingCarrierInstall(current durable.Snapshot, action reconciliation.RelationAction) (durablecarrier.PendingCarrierInstall, bool) {
 	for _, pending := range current.PendingCarrierInstalls() {
 		if pending.Identity().ExactEqual(action.CarrierIdentity()) && pending.InstallRequest().Equal(action.RouteRequest()) {
@@ -21,6 +22,7 @@ func MatchPendingCarrierInstall(current durable.Snapshot, action reconciliation.
 }
 
 // MatchPendingCarrierInstallCompletion resolves one exact no-invocation completion fact.
+// Claim-store admission remains with promotion callers.
 func MatchPendingCarrierInstallCompletion(current durable.Snapshot, action reconciliation.RelationAction) (durablecarrier.PendingCarrierInstall, observerelation.CorrelationResult, bool) {
 	if action.Kind() != reconciliation.ActionNoOp {
 		return durablecarrier.PendingCarrierInstall{}, observerelation.CorrelationResult{}, false

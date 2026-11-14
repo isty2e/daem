@@ -22,7 +22,7 @@ func ClaimStoreForScope(scope target.Scope) (ClaimStore, bool) {
 	}
 }
 
-// ClaimStore returns no store for the zero identity.
+// ClaimStore returns this identity's logical claim custody; the zero identity has none.
 func (identity ManagedCarrierIdentity) ClaimStore() ClaimStore {
 	store, _ := ClaimStoreForScope(identity.Scope())
 	return store
