@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	"github.com/isty2e/daem/internal/target"
 )
 
 // WithPreparedCarrierRemovals upserts exact write-ahead facts without
@@ -24,8 +23,8 @@ func (snapshot Snapshot) WithPreparedCarrierRemovals(
 				err,
 			)
 		}
-		switch candidate.Identity().Scope() {
-		case target.ScopeProject:
+		switch candidate.Identity().ClaimStore() {
+		case durablecarrier.ClaimStoreProjectStatefile:
 			if exactManagedCarrierClaimIndex(
 				snapshot.ManagedCarrierClaims(),
 				candidate.Claim(),
@@ -35,7 +34,7 @@ func (snapshot Snapshot) WithPreparedCarrierRemovals(
 					index,
 				)
 			}
-		case target.ScopeGlobal:
+		case durablecarrier.ClaimStoreGlobalRegistry:
 			if exactManagedCarrierClaimIndex(
 				globalClaims.Claims(),
 				candidate.Claim(),
@@ -115,7 +114,7 @@ func (snapshot Snapshot) WithRetiredProjectCarrierRemoval(
 	if err := completed.Validate(); err != nil {
 		return Snapshot{}, false, fmt.Errorf("completed carrier removal: %w", err)
 	}
-	if completed.Identity().Scope() != target.ScopeProject {
+	if completed.Identity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 		return Snapshot{}, false, fmt.Errorf(
 			"completed carrier removal: global claims require the global carrier registry",
 		)

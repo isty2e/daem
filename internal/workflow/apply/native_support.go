@@ -127,7 +127,7 @@ func nativeAdoptionCompletedByPending(current durable.Snapshot, actions []reconc
 		if !action.CarrierIdentity().ExactEqual(adoption.CarrierIdentity()) || !action.RouteRequest().Equal(adoption.AcquisitionRequest()) {
 			continue
 		}
-		pending, _, matched := effectpreparation.MatchPendingCarrierInstallCompletion(current, action, action.Scope())
+		pending, _, matched := effectpreparation.MatchPendingCarrierInstallCompletion(current, action)
 		if matched && pending.Owner().ExactEqual(adoption.CurrentOwner()) {
 			return true
 		}

@@ -66,7 +66,6 @@ func newPresentCarrierAdoptionFixtureFromContract(
 		Locked:         contract,
 		InstallRoute:   carrieradoption.InstallRouteAdmitted,
 		RemovalRoute:   removal,
-		ClaimStore:     carrieradoption.ClaimStoreProjectStatefile,
 		StoreAvailable: true,
 	})
 	if err != nil {

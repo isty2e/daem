@@ -173,7 +173,6 @@ func TestCarrierAdoptionPlanIdentityCoversIntentLifecycleAndClaimBasis(t *testin
 		Locked:         fixture.contract,
 		InstallRoute:   carrieradoption.InstallRouteAdmitted,
 		RemovalRoute:   changedRoute,
-		ClaimStore:     carrieradoption.ClaimStoreProjectStatefile,
 		StoreAvailable: true,
 	})
 	if err != nil {
@@ -184,7 +183,6 @@ func TestCarrierAdoptionPlanIdentityCoversIntentLifecycleAndClaimBasis(t *testin
 		Locked:         fixture.contract,
 		InstallRoute:   carrieradoption.InstallRouteRefused,
 		RemovalRoute:   fixture.lifecycle.RemovalRoute(),
-		ClaimStore:     carrieradoption.ClaimStoreProjectStatefile,
 		StoreAvailable: true,
 	})
 	if err != nil {
@@ -377,15 +375,10 @@ func newAdoptionFixture(t *testing.T, scope target.Scope, source string) adoptio
 	if err != nil {
 		t.Fatalf("ResolveCurrentCarrierRemovalRoute: %v", err)
 	}
-	store := carrieradoption.ClaimStoreProjectStatefile
-	if scope == target.ScopeGlobal {
-		store = carrieradoption.ClaimStoreGlobalRegistry
-	}
 	lifecycle, err := carrieradoption.NewLifecycle(carrieradoption.LifecycleInput{
 		Locked:         contract,
 		InstallRoute:   carrieradoption.InstallRouteAdmitted,
 		RemovalRoute:   removal,
-		ClaimStore:     store,
 		StoreAvailable: true,
 	})
 	if err != nil {
@@ -421,16 +414,10 @@ func (fixture adoptionFixture) lifecycleWithStoreAvailability(
 	available bool,
 ) carrieradoption.Lifecycle {
 	t.Helper()
-	store := carrieradoption.ClaimStoreProjectStatefile
-	identity, _, _ := durablecarrier.ManagedCarrierIdentityFromLockedRecord(fixture.contract)
-	if identity.Scope() == target.ScopeGlobal {
-		store = carrieradoption.ClaimStoreGlobalRegistry
-	}
 	lifecycle, err := carrieradoption.NewLifecycle(carrieradoption.LifecycleInput{
 		Locked:         fixture.contract,
 		InstallRoute:   carrieradoption.InstallRouteAdmitted,
 		RemovalRoute:   fixture.lifecycle.RemovalRoute(),
-		ClaimStore:     store,
 		StoreAvailable: available,
 	})
 	if err != nil {

@@ -22,7 +22,6 @@ import (
 
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
-	"github.com/isty2e/daem/internal/target"
 )
 
 // CommitPendingCarrierInstalls records exact write-ahead correlation
@@ -90,10 +89,10 @@ func CommitObservedProjectCarrierClaim(
 	observation observerelation.CorrelationResult,
 	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
-	if action.Scope() != target.ScopeProject {
+	if action.CarrierIdentity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 		return current, nil
 	}
-	pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action, target.ScopeProject)
+	pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action)
 	if !matched {
 		return current, nil
 	}
@@ -335,7 +334,7 @@ func CommitClearedGlobalCarrierRemovalPending(
 	pending durablecarrier.PendingCarrierRemoval,
 	stateEncoder statefile.PhysicalCodec,
 ) (durable.Snapshot, error) {
-	if pending.Identity().Scope() != target.ScopeGlobal {
+	if pending.Identity().ClaimStore() != durablecarrier.ClaimStoreGlobalRegistry {
 		return durable.Snapshot{}, fmt.Errorf(
 			"clear global carrier removal pending requires global scope",
 		)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -279,7 +280,7 @@ func routeWorks(
 		works = append(works, operationplan.RouteWork{
 			PinChange:   action.Kind() == reconcile.ActionChangePin,
 			InvokesHost: action.InvokesHostRoute(),
-			Global:      action.Scope() == target.ScopeGlobal,
+			Global:      action.CarrierIdentity().ClaimStore() == durablecarrier.ClaimStoreGlobalRegistry,
 			Promotion:   isGlobalCarrierPromotionCandidate(current, action),
 		})
 	}

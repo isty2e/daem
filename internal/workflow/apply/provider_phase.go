@@ -209,7 +209,7 @@ func postProviderPlanningState(
 		if !action.InvokesHostRoute() {
 			continue
 		}
-		pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action, action.Scope())
+		pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action)
 		if !matched {
 			continue
 		}

@@ -5,7 +5,6 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/target"
 )
 
 func validateSnapshotCarrierFacts(
@@ -71,7 +70,7 @@ func validateSnapshotCarrierFacts(
 		if err := value.Validate(); err != nil {
 			return fmt.Errorf("managed carrier claim[%d]: %w", index, err)
 		}
-		if value.Identity().Scope() != target.ScopeProject {
+		if value.Identity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 			return fmt.Errorf(
 				"managed carrier claim[%d]: global claims require the global carrier registry",
 				index,
@@ -91,14 +90,14 @@ func validateSnapshotCarrierFacts(
 	}
 	for key, removal := range removalsByKey {
 		claim, exists := claimsByKey[key]
-		switch removal.Identity().Scope() {
-		case target.ScopeProject:
+		switch removal.Identity().ClaimStore() {
+		case durablecarrier.ClaimStoreProjectStatefile:
 			if !exists || !removal.Claim().ExactEqual(claim) {
 				return fmt.Errorf(
 					"pending project carrier removal requires its exact managed claim",
 				)
 			}
-		case target.ScopeGlobal:
+		case durablecarrier.ClaimStoreGlobalRegistry:
 			if exists {
 				return fmt.Errorf(
 					"pending global carrier removal claim must remain in the global registry",
@@ -219,7 +218,7 @@ func (snapshot Snapshot) WithPromotedCarrierClaims(
 		if err := claim.RequireStable(); err != nil {
 			return Snapshot{}, false, err
 		}
-		if claim.Identity().Scope() != target.ScopeProject {
+		if claim.Identity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 			return Snapshot{}, false, fmt.Errorf(
 				"promoted carrier claim[%d]: global claims require the global carrier registry",
 				index,
@@ -279,7 +278,7 @@ func (snapshot Snapshot) WithAdoptedCarrierClaims(
 				index,
 			)
 		}
-		if claim.Identity().Scope() != target.ScopeProject {
+		if claim.Identity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 			return Snapshot{}, false, fmt.Errorf(
 				"adopted carrier claim[%d]: global claims require the global carrier registry",
 				index,
@@ -369,7 +368,7 @@ func (snapshot Snapshot) WithoutManagedCarrierClaim(
 	if err := claim.RequireStable(); err != nil {
 		return Snapshot{}, false, err
 	}
-	if claim.Identity().Scope() != target.ScopeProject {
+	if claim.Identity().ClaimStore() != durablecarrier.ClaimStoreProjectStatefile {
 		return Snapshot{}, false, fmt.Errorf(
 			"retired managed carrier claim: global claims require the global carrier registry",
 		)

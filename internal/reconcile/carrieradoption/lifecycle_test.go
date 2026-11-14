@@ -3,6 +3,7 @@ package carrieradoption_test
 import (
 	"testing"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
@@ -20,7 +21,6 @@ func TestCarrierAdoptionLifecycleClassifiesEveryGateInNormativeOrder(t *testing.
 		name         string
 		installRoute carrieradoption.InstallRouteStatus
 		removal      carrierabsence.RouteAdmission
-		store        carrieradoption.ClaimStore
 		available    bool
 		want         carrieradoption.LifecycleBlocker
 	}{
@@ -28,42 +28,30 @@ func TestCarrierAdoptionLifecycleClassifiesEveryGateInNormativeOrder(t *testing.
 			name:         "route refusal precedes removal and store blockers",
 			installRoute: carrieradoption.InstallRouteRefused,
 			removal:      carrierabsence.UnavailableRoute(),
-			store:        carrieradoption.ClaimStoreGlobalRegistry,
 			want:         carrieradoption.BlockInstallRouteNotAdmitted,
 		},
 		{
 			name:         "removal refusal precedes store blockers",
 			installRoute: carrieradoption.InstallRouteAdmitted,
 			removal:      carrierabsence.UnavailableRoute(),
-			store:        carrieradoption.ClaimStoreGlobalRegistry,
 			want:         carrieradoption.BlockRemovalRouteUnavailable,
 		},
 		{
 			name:         "shared consumer gap precedes store blockers",
 			installRoute: carrieradoption.InstallRouteAdmitted,
 			removal:      sharedUnsafe,
-			store:        carrieradoption.ClaimStoreGlobalRegistry,
 			want:         carrieradoption.BlockSharedConsumerPolicyIncomplete,
-		},
-		{
-			name:         "scope mismatch precedes store availability",
-			installRoute: carrieradoption.InstallRouteAdmitted,
-			removal:      fixture.lifecycle.RemovalRoute(),
-			store:        carrieradoption.ClaimStoreGlobalRegistry,
-			want:         carrieradoption.BlockClaimStoreScopeMismatch,
 		},
 		{
 			name:         "unavailable selected store",
 			installRoute: carrieradoption.InstallRouteAdmitted,
 			removal:      fixture.lifecycle.RemovalRoute(),
-			store:        carrieradoption.ClaimStoreProjectStatefile,
 			want:         carrieradoption.BlockClaimStoreUnavailable,
 		},
 		{
 			name:         "complete lifecycle",
 			installRoute: carrieradoption.InstallRouteAdmitted,
 			removal:      fixture.lifecycle.RemovalRoute(),
-			store:        carrieradoption.ClaimStoreProjectStatefile,
 			available:    true,
 			want:         carrieradoption.LifecycleEligible,
 		},
@@ -75,7 +63,6 @@ func TestCarrierAdoptionLifecycleClassifiesEveryGateInNormativeOrder(t *testing.
 				Locked:         fixture.contract,
 				InstallRoute:   test.installRoute,
 				RemovalRoute:   test.removal,
-				ClaimStore:     test.store,
 				StoreAvailable: test.available,
 			})
 			if err != nil {
@@ -115,6 +102,23 @@ func TestCarrierAdoptionLifecycleClassifiesEveryGateInNormativeOrder(t *testing.
 				if _, proposed := action.ProposedClaim(); proposed {
 					t.Fatal("ineligible lifecycle proposed a claim")
 				}
+			}
+		})
+	}
+}
+
+func TestCarrierAdoptionLifecycleDerivesClaimStore(t *testing.T) {
+	for _, scenario := range []struct {
+		scope target.Scope
+		store durablecarrier.ClaimStore
+	}{
+		{scope: target.ScopeProject, store: durablecarrier.ClaimStoreProjectStatefile},
+		{scope: target.ScopeGlobal, store: durablecarrier.ClaimStoreGlobalRegistry},
+	} {
+		t.Run(string(scenario.scope), func(t *testing.T) {
+			fixture := newAdoptionFixture(t, scenario.scope, "alpha@official")
+			if store := fixture.lifecycle.ClaimStore(); store != scenario.store {
+				t.Fatalf("lifecycle store = %q, want %q", store, scenario.store)
 			}
 		})
 	}

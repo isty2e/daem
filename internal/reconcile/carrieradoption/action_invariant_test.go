@@ -119,7 +119,6 @@ func invariantTestAction(t *testing.T) Action {
 		Locked:         locked,
 		InstallRoute:   InstallRouteAdmitted,
 		RemovalRoute:   removal,
-		ClaimStore:     ClaimStoreProjectStatefile,
 		StoreAvailable: true,
 	})
 	if err != nil {

@@ -20,17 +20,18 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/target"
 )
 
 func isGlobalCarrierPromotionCandidate(
 	current durable.Snapshot,
 	action reconciliation.RelationAction,
 ) bool {
+	if action.CarrierIdentity().ClaimStore() != durablecarrier.ClaimStoreGlobalRegistry {
+		return false
+	}
 	_, _, matched := effectpreparation.MatchPendingCarrierInstallCompletion(
 		current,
 		action,
-		target.ScopeGlobal,
 	)
 	return matched
 }
@@ -325,10 +326,10 @@ func globalCarrierPromotionClaim(
 	action reconciliation.RelationAction,
 	observation observerelation.CorrelationResult,
 ) (durablecarrier.ManagedCarrierClaim, bool, error) {
-	if action.Scope() != target.ScopeGlobal {
+	if action.CarrierIdentity().ClaimStore() != durablecarrier.ClaimStoreGlobalRegistry {
 		return durablecarrier.ManagedCarrierClaim{}, false, nil
 	}
-	pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action, target.ScopeGlobal)
+	pending, matched := effectpreparation.MatchPendingCarrierInstall(current, action)
 	if !matched {
 		return durablecarrier.ManagedCarrierClaim{}, false, nil
 	}
