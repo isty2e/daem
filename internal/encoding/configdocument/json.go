@@ -155,7 +155,7 @@ func scanJSON(ctx context.Context, content []byte, syntax Syntax, maximumDepth i
 					}
 					index++
 				}
-				if index < len(content) && content[index] == '\r' {
+				if index < len(content) && content[index] == '\r' && (index+1 == len(content) || content[index+1] != '\n') {
 					trivia.normalized[index] = '\n'
 				}
 			case '*':
@@ -250,7 +250,9 @@ func editJSON(ctx context.Context, document Document, changes *changeTree) ([]by
 	if err != nil {
 		return nil, err
 	}
-	if err := changeJSONTree(&tree, changes, &renderer, 0); err != nil {
+	editor := jsonTreeEditor{renderer: &renderer, source: jsonLayoutSource{ctx, content, trivia.spans}}
+	original := jsonTreeOriginal{value: document.root, present: document.exists}
+	if err := editor.change(&tree, changes, original, defaultJSONObjectLayout(), 0); err != nil {
 		return nil, err
 	}
 	result := tree.Pack()
@@ -263,12 +265,31 @@ func editJSON(ctx context.Context, document Document, changes *changeTree) ([]by
 	return result, nil
 }
 
-func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRenderer, depth int) error {
+type jsonTreeEditor struct {
+	renderer *literalRenderer
+	source   jsonLayoutSource
+}
+
+type jsonTreeOriginal struct {
+	value   Value
+	present bool
+}
+
+func (editor jsonTreeEditor) change(tree *hujson.Value, changes *changeTree, original jsonTreeOriginal, inherited jsonObjectLayout, depth int) error {
+	renderer := editor.renderer
 	ctx := renderer.ctx
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if changes.exact != nil {
+		if original.present && original.value.Equal(changes.exact.value) {
+			return nil
+		}
+		var source *hujson.Value
+		if original.present {
+			before := *tree
+			source = &before
+		}
 		removed := (hujson.Value{Value: tree.Value}).Pack()
 		trivia, err := scanJSON(ctx, removed, JSONC, renderer.maximumDepth)
 		if err != nil {
@@ -288,6 +309,9 @@ func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRe
 		if err != nil {
 			return err
 		}
+		if err := editor.annotateObjects(&replacement, source, inherited, depth); err != nil {
+			return err
+		}
 		tree.Value = replacement.Value
 		return nil
 	}
@@ -295,6 +319,16 @@ func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRe
 	if !ok {
 		return ErrPathConflict
 	}
+	layout := inherited
+	if original.present {
+		var err error
+		layout, err = editor.source.objectLayout(tree, inherited, depth == 0)
+		if err != nil {
+			return err
+		}
+	}
+	generateClosing := !original.present || len(object.Members) == 0 && len(object.AfterExtra) == 0
+	beforeMembers, _ := original.value.data.(objectNode)
 	seen := make(map[string]struct{}, len(object.Members))
 	retained := make([]hujson.ObjectMember, 0, len(object.Members))
 	for _, member := range object.Members {
@@ -325,11 +359,20 @@ func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRe
 			}
 			continue
 		}
-		if err := changeJSONTree(&member.Value, branch, renderer, depth+1); err != nil {
+		childLayout, err := editor.source.childLayout(layout, member.Name)
+		if err != nil {
+			return err
+		}
+		childBefore := jsonTreeOriginal{}
+		if index, found := memberIndex(beforeMembers, key); original.present && found {
+			childBefore = jsonTreeOriginal{value: beforeMembers[index].value, present: true}
+		}
+		if err := editor.change(&member.Value, branch, childBefore, childLayout, depth+1); err != nil {
 			return err
 		}
 		retained = append(retained, member)
 	}
+	oldRetained := len(retained)
 	keys := make([]string, 0, len(changes.children))
 	for key := range changes.children {
 		keys = append(keys, key)
@@ -340,7 +383,7 @@ func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRe
 		if _, found := seen[key]; found || !branch.containsSet {
 			continue
 		}
-		punctuation := int64(3) // Newline, colon and value-leading space.
+		punctuation := int64(1) // Colon; layout bytes are charged separately.
 		if len(retained) != 0 {
 			punctuation++
 		}
@@ -355,19 +398,30 @@ func changeJSONTree(tree *hujson.Value, changes *changeTree, renderer *literalRe
 			return err
 		}
 		member := hujson.ObjectMember{
-			Name:  hujson.Value{BeforeExtra: hujson.Extra("\n"), Value: hujson.Literal(name.String())},
-			Value: hujson.Value{BeforeExtra: hujson.Extra(" "), Value: &hujson.Object{}},
+			Name:  hujson.Value{Value: hujson.Literal(name.String())},
+			Value: hujson.Value{Value: &hujson.Object{}},
 		}
-		if err := changeJSONTree(&member.Value, branch, renderer, depth+1); err != nil {
+		if err := layout.writeMember(&member, len(retained) == 0, renderer); err != nil {
+			return err
+		}
+		if err := editor.change(&member.Value, branch, jsonTreeOriginal{}, layout.child(), depth+1); err != nil {
 			return err
 		}
 		retained = append(retained, member)
 	}
 	object.Members = retained
-	if renderer.syntax == JSON && len(object.Members) > 0 {
-		last := &object.Members[len(object.Members)-1].Value
-		object.AfterExtra = append(last.AfterExtra, object.AfterExtra...)
-		last.AfterExtra = nil
+	if len(object.Members) > 0 {
+		if generateClosing {
+			if err := layout.writeClosing(object, renderer); err != nil {
+				return err
+			}
+		}
+		if oldRetained == 0 && layout.trailing {
+			if err := renderer.charge(1); err != nil {
+				return err
+			}
+		}
+		normalizeJSONObjectComma(object, layout.trailing)
 	}
 	return nil
 }
