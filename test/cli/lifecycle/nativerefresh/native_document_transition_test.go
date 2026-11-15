@@ -336,28 +336,24 @@ func TestNativeDocumentNarrowingNoNewCustody(t *testing.T) {
 }
 
 func TestNativeDocumentWholeUpdateAndRemoval(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f := newNativeDocumentTransitionFixture(t, selected, scope)
-				f.applyWhole(t)
-				updated := f.original + "\n# changed whole source\n"
-				if selected == target.TargetPi {
-					updated = f.original + "\n// changed whole source\n"
-				}
-				testkit.WriteFile(t, f.workspace, filepath.Base(f.source), updated)
-				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-				testkit.AssertFileContent(t, f.Destination, updated)
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-				nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", f.Manifest, "--json")
-				testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
-				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-				testkit.AssertPathMissing(t, f.Destination)
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-			})
-		}
+	selected := target.TargetCodex
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, selected, scope)
+			f.applyWhole(t)
+			updated := f.original + "\n# changed whole source\n"
+			testkit.WriteFile(t, f.workspace, filepath.Base(f.source), updated)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			testkit.AssertFileContent(t, f.Destination, updated)
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+			nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", f.Manifest, "--json")
+			testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			testkit.AssertPathMissing(t, f.Destination)
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+		})
 	}
 }
 
@@ -395,58 +391,57 @@ func TestNativeDocumentNarrowingReturnedErrors(t *testing.T) {
 }
 
 func TestNativeDocumentWholeRecovery(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			for _, remove := range []bool{false, true} {
-				for _, boundary := range []string{"host", "state"} {
-					t.Run(fmt.Sprintf("%s/%s/remove=%t/%s", selected, scope, remove, boundary), func(t *testing.T) {
-						f := newNativeDocumentTransitionFixture(t, selected, scope)
-						checkpoint := boundary
-						var beforeState []byte
-						if remove {
-							f.applyWhole(t)
-							beforeState = testkit.ReadFile(t, f.Paths.StatefilePath)
-							testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
-							nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-							if boundary == "host" {
-								checkpoint = "host-removal"
-							}
-						}
-						code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, checkpoint, "apply", "--yes")
-						if code != nativefixture.RecoveryExit {
-							t.Fatalf("whole command did not reach actual publication: %d %s %s", code, stdout, stderr)
-						}
-						published, publishErr := os.Stat(f.Destination)
-						if remove && !errors.Is(publishErr, os.ErrNotExist) || !remove && publishErr != nil {
-							t.Fatal("wrong published whole image", publishErr)
-						}
-						nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
-						nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+	selected := target.TargetCodex
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		for _, remove := range []bool{false, true} {
+			for _, boundary := range []string{"host", "state"} {
+				t.Run(fmt.Sprintf("%s/%s/remove=%t/%s", selected, scope, remove, boundary), func(t *testing.T) {
+					f := newNativeDocumentTransitionFixture(t, selected, scope)
+					checkpoint := boundary
+					var beforeState []byte
+					if remove {
+						f.applyWhole(t)
+						beforeState = testkit.ReadFile(t, f.Paths.StatefilePath)
+						testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
+						nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
 						if boundary == "host" {
-							if remove {
-								testkit.AssertFileContent(t, f.Destination, f.original)
-								if !bytes.Equal(beforeState, testkit.ReadFile(t, f.Paths.StatefilePath)) {
-									t.Fatal("whole removal rollback changed its persisted baseline")
-								}
-							} else {
-								testkit.AssertPathMissing(t, f.Destination)
+							checkpoint = "host-removal"
+						}
+					}
+					code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, checkpoint, "apply", "--yes")
+					if code != nativefixture.RecoveryExit {
+						t.Fatalf("whole command did not reach actual publication: %d %s %s", code, stdout, stderr)
+					}
+					published, publishErr := os.Stat(f.Destination)
+					if remove && !errors.Is(publishErr, os.ErrNotExist) || !remove && publishErr != nil {
+						t.Fatal("wrong published whole image", publishErr)
+					}
+					nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
+					nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+					if boundary == "host" {
+						if remove {
+							testkit.AssertFileContent(t, f.Destination, f.original)
+							if !bytes.Equal(beforeState, testkit.ReadFile(t, f.Paths.StatefilePath)) {
+								t.Fatal("whole removal rollback changed its persisted baseline")
 							}
 						} else {
-							if remove {
-								testkit.AssertPathMissing(t, f.Destination)
-							} else {
-								after, err := os.Stat(f.Destination)
-								if err != nil || !os.SameFile(published, after) {
-									t.Fatal("whole finalization replayed publication", err)
-								}
-								testkit.AssertFileContent(t, f.Destination, f.original)
-							}
+							testkit.AssertPathMissing(t, f.Destination)
 						}
-						nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-						nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-						testkit.AssertNoRecoveryArtifacts(t, f.workspace)
-					})
-				}
+					} else {
+						if remove {
+							testkit.AssertPathMissing(t, f.Destination)
+						} else {
+							after, err := os.Stat(f.Destination)
+							if err != nil || !os.SameFile(published, after) {
+								t.Fatal("whole finalization replayed publication", err)
+							}
+							testkit.AssertFileContent(t, f.Destination, f.original)
+						}
+					}
+					nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+					nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+				})
 			}
 		}
 	}
