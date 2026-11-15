@@ -147,7 +147,7 @@ func captureCanonicalDestinationBounded(
 	return captureDestinationBoundedWithCanonicalizer(
 		selectedPath,
 		traversal,
-		canonicalPathOnlyDestinationPath,
+		CanonicalPathOnlyDestination,
 		true,
 	)
 }
@@ -272,7 +272,7 @@ func ResolveDestinationComponentsBounded(
 	if err != nil {
 		return "", nil, err
 	}
-	absolute, err := canonicalPathOnlyDestinationPath(path)
+	absolute, err := CanonicalPathOnlyDestination(path)
 	if err != nil {
 		return "", nil, err
 	}
@@ -302,7 +302,10 @@ func ResolveDestinationComponentsBounded(
 	return physicalRoot, relativeComponents, nil
 }
 
-func canonicalPathOnlyDestinationPath(value string) (string, error) {
+// CanonicalPathOnlyDestination validates native lexical spelling for an entry
+// below a directory, without granting mutation authority. Non-NUL controls are
+// accepted where the platform's native path grammar permits them.
+func CanonicalPathOnlyDestination(value string) (string, error) {
 	if err := validatePlatformDestinationPath(value); err != nil {
 		return "", err
 	}
@@ -570,7 +573,7 @@ func ResolveReferentPathBounded(
 	if err != nil {
 		return "", err
 	}
-	absolute, err := canonicalPathOnlyDestinationPath(path)
+	absolute, err := CanonicalPathOnlyDestination(path)
 	if err != nil {
 		return "", err
 	}

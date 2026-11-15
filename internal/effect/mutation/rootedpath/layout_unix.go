@@ -11,7 +11,7 @@ import (
 )
 
 func capturePathLayoutPlatform(path string, referent bool, maximumPhysicalDepth int, budget PhysicalTraversalBudget) (layout PathLayout, returnErr error) {
-	absolute, err := canonicalPathOnlyDestinationPath(path)
+	absolute, err := CanonicalPathOnlyDestination(path)
 	if err != nil {
 		return PathLayout{}, err
 	}

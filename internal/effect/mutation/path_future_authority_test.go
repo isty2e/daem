@@ -62,6 +62,14 @@ func TestFutureReferentAuthorityMatchesTwoStepObservation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) { assertMatchesTwoStep(t, test.path, test.path) })
 	}
 
+	t.Run("directory-only existing", func(t *testing.T) {
+		assertMatchesTwoStep(t, directory+string(filepath.Separator), directory)
+	})
+	t.Run("directory-only future", func(t *testing.T) {
+		future := filepath.Join(root, "future-directory")
+		assertMatchesTwoStep(t, future+string(filepath.Separator), future)
+	})
+
 	t.Run("aliases", func(t *testing.T) {
 		for _, link := range []struct{ name, target string }{
 			{"directory-alias", filepath.Join("physical", "nested")},
@@ -128,6 +136,7 @@ func TestFutureReferentAuthorityRejectsWithoutPartialEvidence(t *testing.T) {
 		{"empty selector", "", 256, &pathAuthorityTestBudget{limit: 100_000}},
 		{"relative selector", "relative", 256, &pathAuthorityTestBudget{limit: 100_000}},
 		{"NUL selector", root + "\x00", 256, &pathAuthorityTestBudget{limit: 100_000}},
+		{"filesystem root", filepath.VolumeName(root) + string(filepath.Separator), 256, &pathAuthorityTestBudget{limit: 100_000}},
 		{"non-directory ancestor", filepath.Join(file, "child"), 256, &pathAuthorityTestBudget{limit: 100_000}},
 		{"directory-only file", file + string(filepath.Separator), 256, &pathAuthorityTestBudget{limit: 100_000}},
 		{"missing budget", file, 256, nil},
@@ -159,5 +168,33 @@ func TestFutureReferentAuthorityRejectsWithoutPartialEvidence(t *testing.T) {
 				t.Fatalf("combined failure changed category: %v; two-step %v", err, oldErr)
 			}
 		})
+	}
+}
+
+func TestFutureReferentAuthorityRejectsAliasToFilesystemRoot(t *testing.T) {
+	root := t.TempDir()
+	volumeRoot := filepath.VolumeName(root) + string(filepath.Separator)
+	alias := filepath.Join(root, "root-alias")
+	if err := os.Symlink(volumeRoot, alias); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink setup is unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	oldBudget := &pathAuthorityTestBudget{limit: 100_000}
+	resolved, err := rootedpath.ResolveFutureReferentPathBounded(alias, 256, oldBudget)
+	if err != nil || resolved != volumeRoot {
+		t.Fatalf("root alias = %q, %v; want %q", resolved, err, volumeRoot)
+	}
+	_, oldErr := ObserveDirectoryEntryAuthorityBounded(resolved, 256, oldBudget)
+	var oldFailure *rootedpath.Failure
+	if !errors.As(oldErr, &oldFailure) || oldFailure.Kind() != rootedpath.FailureInvalidDestination {
+		t.Fatalf("two-step root authority was not refused: %v", oldErr)
+	}
+
+	got, authority, err := ObserveFutureReferentAuthorityBounded(alias, 256, &pathAuthorityTestBudget{limit: 100_000})
+	var failure *rootedpath.Failure
+	if got != "" || !authority.exact.IsZero() || !authority.provisional.IsZero() || authority.locator != "" || !errors.As(err, &failure) || failure.Kind() != oldFailure.Kind() {
+		t.Fatalf("root alias supplied authority or changed refusal: %q, %+v, %v", got, authority, err)
 	}
 }

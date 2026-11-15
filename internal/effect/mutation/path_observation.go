@@ -31,6 +31,9 @@ func ObserveFutureReferentAuthorityBounded(
 		return "", DirectoryEntryAuthorityObservation{}, err
 	}
 	resolved := filepath.Join(anchor, filepath.Join(components...))
+	if _, err := rootedpath.CanonicalPathOnlyDestination(resolved); err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, fmt.Errorf("canonicalize mutation path %q: %w", resolved, err)
+	}
 	if len(components) == 0 {
 		components = []string{filepath.Base(anchor)}
 		anchor = filepath.Dir(anchor)
