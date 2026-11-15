@@ -22,13 +22,6 @@ func TestNativePiRefreshUsesBoundProtectionAndPreservesManagedKeys(t *testing.T)
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			fixture := newNativePiRefreshFixture(t, scope, "")
-			prepared, err := refreshworkflow.PlanWrite(t.Context(), refreshworkflow.CommandInput{ManifestPath: fixture.Manifest, ExtensionID: "tools"}, refreshworkflow.PlanOptions{})
-			if err != nil {
-				t.Fatal("current native Refresh planning", err)
-			}
-			if err := prepared.Close(); err != nil {
-				t.Fatal(err)
-			}
 			manifestBefore := testkit.ReadFile(t, fixture.Manifest)
 			lockPath := filepath.Join(fixture.Workspace, "daem.lock.toml")
 			lockBefore := testkit.ReadFile(t, lockPath)
