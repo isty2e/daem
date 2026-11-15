@@ -120,6 +120,9 @@ comments within a removed server entry. Formatting and comment placement may
 change. Removing the last server retains a comments-only file rather than
 discarding its comments.
 
+JSON-family MCP and hook settings edits follow the shared
+[layout and preservation rules](manifest.md#json-family-editing).
+
 | Host/scope | Environment references |
 | --- | --- |
 | Codex project | None; command/args only. |

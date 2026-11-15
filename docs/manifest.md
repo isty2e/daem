@@ -1538,6 +1538,32 @@ releases whole-file ownership after the commands. Matching key-to-whole adoption
 also settles afterward and still requires `--manage-existing` and an exact
 whole-source match.
 
+### JSON-Family Editing
+
+Structured JSON, JSONC and JSON-with-line-comments edits use each object's local
+layout rather than formatting the whole document. New keys follow its inline or
+multiline spacing and indentation. New parent objects inherit the containing
+layout; an empty `{}` has no local layout evidence and also inherits, with a
+two-space multiline default at the root. Retained keys are not reordered or
+reindented. A nonempty object's trailing-comma preference survives key addition
+and removal. An emptied object keeps no record of its removed members' indentation,
+colon spacing or comma preference; whitespace before its closing brace can remain.
+Filling an empty `{}` and later removing its last child can therefore leave a
+generated line break inside it.
+
+Writing a changed whole object value, including an MCP server body, serializes
+that selected value again; its keys may be reordered and literals respelled.
+Nested objects use their original same-path layout
+when available, but arrays and objects inside arrays remain compact, even when
+an array's value did not change. Comments are retained, not semantically attached
+to particular values, and their placement can change. Recovery does not promise
+to reproduce earlier formatting. An unchanged assignment is skipped even when
+a separate assignment in the same edit changes another key.
+
+Retained CRLF line-comment endings are preserved. A lone CR terminating a line comment
+is normalized to LF by the shared parser when editing; an unchanged document
+retains its original bytes. An edited document without a final LF may gain one.
+
 ### Whole Files And Ownership Changes
 
 Use `ownership = "document"` for a dedicated file such as `prefs.toml` or

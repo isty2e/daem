@@ -20,10 +20,12 @@ func TestComposedHookRemovalKeepsSurvivorsAndAdmittedDocumentAbsence(t *testing.
 		before     string
 		addTheme   bool
 		wantExists bool
+		want       string
 	}{
-		{"native survivor", `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`, true, true},
-		{"hooks-only removal", `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`, false, false},
-		{"no private absence request", `{"theme":"old","hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`, false, true},
+		{"native survivor", `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`, true, true, ""},
+		{"hooks-only removal", `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`, false, false, ""},
+		{"no private absence request", `{"theme":"old","hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`, false, true, ""},
+		{"styled native survivor", "{\n    \"foreign\": true,\n    \"hooks\": {\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"true\"}]}]}\n}\n", true, true, "{\n    \"foreign\": true,\n    \"theme\": \"dark\"\n}\n"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			native, err := nativecodec.New(t.Context(), "native-json-v1", limits, limits)
@@ -59,6 +61,9 @@ func TestComposedHookRemovalKeepsSurvivorsAndAdmittedDocumentAbsence(t *testing.
 				actual := candidate.Document()
 				if actual.Exists() != scenario.wantExists {
 					t.Fatalf("document presence = %t, want %t", actual.Exists(), scenario.wantExists)
+				}
+				if scenario.want != "" && string(actual.Content()) != scenario.want {
+					t.Fatalf("composition changed shared JSON layout: %q", actual.Content())
 				}
 				if index != 0 && !first.Equal(actual) {
 					t.Fatal("participant order changed the composed candidate")

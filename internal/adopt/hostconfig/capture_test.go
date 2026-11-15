@@ -31,7 +31,7 @@ func key(t *testing.T, text string) output.KeyPath {
 }
 
 func TestInitialCaptureUsesCanonicalAtomicValuesAndNoHostComments(t *testing.T) {
-	host := fragment(t, `/* host-only */{"obj":{"a":1,"b":2},"array":[{"a":1}],"null":null,"empty":{},"a/b":{"x.y":"secret-literal"},"unselected":9}`)
+	host := fragment(t, "/* host-only */{\n    \"obj\": {\n        \"a\": 1,\n        \"b\": 2\n    },\n    \"array\": [{\"a\":1}],\n    \"null\": null,\n    \"empty\": {},\n    \"a/b\": {\"x.y\":\"secret-literal\"},\n    \"unselected\": 9\n}")
 	empty := fragment(t, `{}`)
 	selectors := []output.KeyPath{key(t, "/obj"), key(t, "/array"), key(t, "/null"), key(t, "/empty"), key(t, "/a~1b")}
 	result, err := hostconfig.Initial(t.Context(), host, empty, selectors, 4096)
@@ -50,6 +50,10 @@ func TestInitialCaptureUsesCanonicalAtomicValuesAndNoHostComments(t *testing.T) 
 	}
 	if !reflect.DeepEqual(actual, want) || len(result.After().Comments()) != 0 {
 		t.Fatal("capture used competing leaf semantics or copied host comments", actual)
+	}
+	expected := "{\n  \"a/b\": {\n    \"x.y\": \"secret-literal\"\n  },\n  \"array\": [{\"a\":1}],\n  \"empty\": {},\n  \"null\": null,\n  \"obj\": {\n    \"a\": 1,\n    \"b\": 2\n  }\n}\n"
+	if string(result.After().Bytes()) != expected {
+		t.Fatalf("initial capture imported host syntax: %q", result.After().Bytes())
 	}
 	if _, err := hostconfig.Initial(t.Context(), host, empty, []output.KeyPath{key(t, "/missing")}, 4096); err == nil {
 		t.Fatal("initial missing selection became absence/null")
@@ -84,6 +88,9 @@ func TestUpdateCaptureNarrowsDeclaredLeavesAndReleasesMissingValues(t *testing.T
 	slices.Sort(afterComments)
 	if !slices.Equal(beforeComments, afterComments) {
 		t.Fatal("source comments were replaced by host comments")
+	}
+	if string(result.After().Bytes()) != "/* source */{\"obj\":{\"a\":4},\"keep\":{},\"other\":3}\n" {
+		t.Fatalf("update changed source layout: %q", result.After().Bytes())
 	}
 	for _, selector := range []string{"/obj/c", "/other/child"} {
 		if _, err := hostconfig.Update(t.Context(), source, host, []output.KeyPath{key(t, selector)}, 4096); err == nil {

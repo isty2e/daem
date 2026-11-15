@@ -71,8 +71,10 @@ Removing managed configuration keys retains their containing document and empty
 ancestor objects or tables, including parents created while adding those keys.
 For example, an empty TOML `[features]` table or JSON `"retry": {}` can remain
 after its last managed child is removed. Removal is not undo and does not promise
-the original file bytes when a parent was absent. Successful state records do
-not retain parent-construction or formatting history.
+the original file bytes when a parent was absent. An existing empty JSON object
+can also keep a line break introduced by a temporary child; see
+[JSON-family editing](manifest.md#json-family-editing). Successful state records
+do not retain parent-construction or formatting history.
 
 An empty object explicitly selected as a managed value is different: removing
 that selection deletes the value itself. Unrelated values, empty objects and
