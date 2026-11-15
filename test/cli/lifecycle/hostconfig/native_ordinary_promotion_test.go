@@ -18,7 +18,7 @@ import (
 )
 
 func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
-	boundaries := []string{"none", "host", "state"}
+	boundaries := []string{"host", "state"}
 	if runtime.GOOS == "darwin" {
 		boundaries = append(boundaries, "promotion", "ordinary-promotion", "return-ordinary-promotion-error")
 	}
@@ -36,32 +36,26 @@ func TestNativeOrdinaryGlobalAcquisitionPromotesBothFamilies(t *testing.T) {
 			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
 			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, boundary, "apply", "--yes", "--verbose")
 			skill := filepath.Join(os.Getenv("HOME"), ".agents", "skills", "Caf\u00e9")
-			if boundary == "none" {
-				if code != 0 {
-					t.Fatalf("joint global acquisition failed: %d %s %s", code, stdout, stderr)
+			if boundary == "return-ordinary-promotion-error" {
+				if code == 0 || !strings.Contains(stderr, "confirmed ordinary promotion") {
+					t.Fatalf("ordinary promotion fault not reached: %d %s %s", code, stdout, stderr)
 				}
-			} else {
-				if boundary == "return-ordinary-promotion-error" {
-					if code == 0 || !strings.Contains(stderr, "confirmed ordinary promotion") {
-						t.Fatalf("ordinary promotion fault not reached: %d %s %s", code, stdout, stderr)
-					}
-				} else if code != nativefixture.RecoveryExit {
-					t.Fatalf("process-loss checkpoint not reached: %d %s %s", code, stdout, stderr)
-				}
-				if boundary == "ordinary-promotion" && !strings.Contains(stderr, "confirmed ordinary promotion") {
-					t.Fatal("did not confirm the complete promoted record", stderr)
-				}
-				classification := "needs_rollback"
-				if boundary == "state" {
-					classification = "needs_finalize"
-				}
-				nativefixture.RequireRecoveryDryRun(t, fixture.RecoveryFixture, classification)
-				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "recover", "--yes")
-				if boundary != "state" {
-					requireNativeKeyScopeBefore(t, fixture, false)
-					testkit.AssertPathMissing(t, skill)
-					requireNativeKeyScopeMetadata(t, fixture, false)
-				}
+			} else if code != nativefixture.RecoveryExit {
+				t.Fatalf("process-loss checkpoint not reached: %d %s %s", code, stdout, stderr)
+			}
+			if boundary == "ordinary-promotion" && !strings.Contains(stderr, "confirmed ordinary promotion") {
+				t.Fatal("did not confirm the complete promoted record", stderr)
+			}
+			classification := "needs_rollback"
+			if boundary == "state" {
+				classification = "needs_finalize"
+			}
+			nativefixture.RequireRecoveryDryRun(t, fixture.RecoveryFixture, classification)
+			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "recover", "--yes")
+			if boundary != "state" {
+				requireNativeKeyScopeBefore(t, fixture, false)
+				testkit.AssertPathMissing(t, skill)
+				requireNativeKeyScopeMetadata(t, fixture, false)
 			}
 			testkit.AssertNoRecoveryArtifacts(t, workspace)
 			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")

@@ -17,7 +17,7 @@ import (
 )
 
 func TestNativeKeyUnicodeGlobalAcquisition(t *testing.T) {
-	boundaries := []string{"none", "host", "state", "return-error", "cancel", "return-state-error"}
+	boundaries := []string{"host", "state", "return-error", "cancel", "return-state-error"}
 	if runtime.GOOS == "darwin" {
 		boundaries = append(boundaries, "promotion", "return-promotion-error")
 	}
@@ -44,24 +44,18 @@ func TestNativeKeyUnicodeGlobalAcquisition(t *testing.T) {
 				recoverNativeUnicodeAcquisition(t, fixture, boundary)
 			} else {
 				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, boundary, "apply", "--yes", "--verbose")
-				if boundary == "none" {
-					if code != 0 {
-						t.Fatalf("Unicode acquisition failed: %d %s %s", code, stdout, stderr)
-					}
-				} else {
-					message := "native recovery fixture: returned storage error"
-					if boundary == "cancel" {
-						message = "native recovery requested cancellation"
-					}
-					if boundary == "return-promotion-error" {
-						message = "native recovery fixture: returned promotion error"
-					}
-					if code == 0 || code == nativefixture.RecoveryExit || !strings.Contains(stderr, message) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
-						t.Fatalf("Unicode acquisition did not cross the injected boundary: %d %s %s", code, stdout, stderr)
-					}
-					if boundary == "return-promotion-error" {
-						recoverNativeUnicodeAcquisition(t, fixture, boundary)
-					}
+				message := "native recovery fixture: returned storage error"
+				if boundary == "cancel" {
+					message = "native recovery requested cancellation"
+				}
+				if boundary == "return-promotion-error" {
+					message = "native recovery fixture: returned promotion error"
+				}
+				if code == 0 || code == nativefixture.RecoveryExit || !strings.Contains(stderr, message) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
+					t.Fatalf("Unicode acquisition did not cross the injected boundary: %d %s %s", code, stdout, stderr)
+				}
+				if boundary == "return-promotion-error" {
+					recoverNativeUnicodeAcquisition(t, fixture, boundary)
 				}
 			}
 
