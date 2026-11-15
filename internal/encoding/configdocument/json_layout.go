@@ -64,8 +64,8 @@ func (source jsonLayoutSource) evidence(start, end int) (jsonLayoutEvidence, err
 	result := jsonLayoutEvidence{raw: source.content[start:end], horizontal: true}
 	comment := sort.Search(len(source.comments), func(index int) bool { return source.comments[index].end > start })
 	indentStart := end
-	for index := start; index < end; {
-		if index%4096 == 0 {
+	for index, steps := start, 0; index < end; steps++ {
+		if steps%4096 == 0 {
 			if err := source.ctx.Err(); err != nil {
 				return jsonLayoutEvidence{}, err
 			}
@@ -313,13 +313,16 @@ func (editor jsonTreeEditor) annotateObjects(tree *hujson.Value, original *hujso
 		return nil
 	}
 	layout := inherited
-	oldMembers := make(map[string]hujson.ObjectMember)
+	var oldMembers map[string]hujson.Value
 	if original != nil {
 		if old, ok := original.Value.(*hujson.Object); ok {
 			var err error
 			layout, err = editor.source.objectLayout(original, inherited, depth == 0)
 			if err != nil {
 				return err
+			}
+			if len(old.Members) != 0 {
+				oldMembers = make(map[string]hujson.Value, len(old.Members))
 			}
 			for _, member := range old.Members {
 				if err := editor.renderer.ctx.Err(); err != nil {
@@ -329,7 +332,7 @@ func (editor jsonTreeEditor) annotateObjects(tree *hujson.Value, original *hujso
 				if err := json.Unmarshal(member.Name.Value.(hujson.Literal), &key); err != nil {
 					return ErrInvalidDocument
 				}
-				oldMembers[key] = member
+				oldMembers[key] = member.Value
 			}
 		}
 	}
@@ -345,12 +348,7 @@ func (editor jsonTreeEditor) annotateObjects(tree *hujson.Value, original *hujso
 		childLayout := layout.child()
 		var oldValue *hujson.Value
 		if old, found := oldMembers[key]; found {
-			var err error
-			childLayout, err = editor.source.childLayout(layout, old.Name)
-			if err != nil {
-				return err
-			}
-			oldValue = &old.Value
+			oldValue = &old
 		}
 		if err := editor.annotateObjects(&member.Value, oldValue, childLayout, depth+1); err != nil {
 			return err

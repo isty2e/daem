@@ -178,7 +178,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 	dataDir := filepath.Join(root, ".daem")
 	paths := managedAggregateTestPaths(root, dataDir)
 	configPath := filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath)
-	beforeConfig := []byte("{\n  \"mcpServers\": {}\n}\n")
+	beforeConfig := []byte("{\n  \"foreign\": 1e+02,\n  \"mcpServers\": {}\n}\n")
 	if err := os.WriteFile(configPath, beforeConfig, aggregate.DocumentFileMode); err != nil {
 		t.Fatalf("write before config: %v", err)
 	}
@@ -274,8 +274,10 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 	}
 	assertHostMissing(t, filepath.Join(root, filepath.FromSlash(destination.RelativePath())))
 	restoredConfig, readErr := os.ReadFile(configPath)
-	if readErr != nil || string(restoredConfig) != string(beforeConfig) {
-		t.Fatalf("restored aggregate config = %q, error = %v, want %q", restoredConfig, readErr, beforeConfig)
+	// Value restoration can retain layout in an emptied structural parent.
+	wantConfig := "{\n  \"foreign\": 1e+02,\n  \"mcpServers\": {\n  }\n}\n"
+	if readErr != nil || string(restoredConfig) != wantConfig {
+		t.Fatalf("restored aggregate config = %q, error = %v, want %q", restoredConfig, readErr, wantConfig)
 	}
 	restoredState, readErr := os.ReadFile(paths.StatefilePath)
 	if readErr != nil || string(restoredState) != string(stateBefore) {

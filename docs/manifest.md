@@ -1549,7 +1549,8 @@ reindented. A nonempty object's trailing-comma preference survives key addition
 and removal; an object that becomes empty does not retain formatting history.
 
 Writing a changed whole object value, including an MCP server body, serializes
-that selected value again. Nested objects use their original same-path layout
+that selected value again; its keys may be reordered and literals respelled.
+Nested objects use their original same-path layout
 when available, but arrays and objects inside arrays remain compact, even when
 an array's value did not change. Comments are retained, not semantically attached
 to particular values, and their placement can change. Recovery does not promise

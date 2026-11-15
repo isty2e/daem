@@ -183,9 +183,11 @@ func TestMCPJSONEditedImageStillObeysPhysicalByteLimit(t *testing.T) {
 	test := mcpProjectionMutationCases()[0]
 	operations := mustMCPCodecOperations(t, test.placement)
 	canonical := mustMutationCanonical(t, test, "selected", "node")
-	content := []byte(`{"outside":true` + strings.Repeat(" ", int(maximumDocumentBytes)-len(`{"outside":true}`)) + `}`)
-	_, err := operations.FoldMutations(content, []MCPProjectionMutation{mustMCPProjectionInsert(t, "selected", canonical)})
-	assertMCPProjectionReason(t, err, MCPProjectionReasonCanonicalInvalid)
+	for _, prefix := range []string{`{"outside":true`, "{\n  \"outside\": true"} {
+		content := []byte(prefix + strings.Repeat(" ", int(maximumDocumentBytes)-len(prefix)-1) + `}`)
+		_, err := operations.FoldMutations(content, []MCPProjectionMutation{mustMCPProjectionInsert(t, "selected", canonical)})
+		assertMCPProjectionReason(t, err, MCPProjectionReasonCanonicalInvalid)
+	}
 }
 
 func TestPiMCPJSONCRefusalDoesNotMutateCallerWitness(t *testing.T) {

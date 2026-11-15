@@ -2,6 +2,7 @@ package configdocument_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ func TestJSONLayoutFollowsOriginalObject(t *testing.T) {
 		{"compact", `{"a":1}`, "/b", "{\"a\":1,\"b\":true}\n", configdocument.JSON},
 		{"padded", `{ "a" : 1 }`, "/b", "{ \"a\" : 1, \"b\" : true }\n", configdocument.JSON},
 		{"four spaces", "{\n    \"a\": 1\n}\n", "/b", "{\n    \"a\": 1,\n    \"b\": true\n}\n", configdocument.JSON},
+		{"bare CR lines", "{\r  \"a\": 1\r}\r", "/b", "{\r  \"a\": 1,\r  \"b\": true\r}\r\n", configdocument.JSON},
 		{"last mixed indent", "{\n  \"a\": 1,\n\t\"c\": 2\n}\n", "/b", "{\n  \"a\": 1,\n\t\"c\": 2,\n\t\"b\": true\n}\n", configdocument.JSON},
 		{"root empty", `{}`, "/b", "{\n  \"b\": true\n}\n", configdocument.JSON},
 		{"root empty CRLF", "{}\r\n", "/b", "{\r\n  \"b\": true\r\n}\r\n", configdocument.JSON},
@@ -29,7 +31,10 @@ func TestJSONLayoutFollowsOriginalObject(t *testing.T) {
 		{"tail comment is not mode", "{\"a\":1 // tail\n}\n", "/b", "{\"a\":1,\"b\":true // tail\n}\n", configdocument.JSONC},
 		{"comment body newline is not mode", "{/* a\nb */\"a\":1}\n", "/b", "{/* a\nb */\"a\":1,\"b\":true}\n", configdocument.JSONC},
 		{"obscured indent", "{\n  /* before */ \"a\":1}\n", "/b", "{\n  /* before */ \"a\":1,\n  \"b\":true}\n", configdocument.JSONC},
+		{"unknown containing base", "{\n  /* parent */ \"a\": {\n      \"x\":1}}\n", "/a/b/c", "{\n  /* parent */ \"a\": {\n      \"x\":1,\n      \"b\":{\n        \"c\":true\n      }}}\n", configdocument.JSONC},
+		{"colon comments", `{"a"/* before */:/* after */1}`, "/b", "{\"a\"/* before */:/* after */1,\"b\":true}\n", configdocument.JSONC},
 		{"source trailing comma", "{\"a\":1,}\n", "/b", "{\"a\":1,\"b\":true,}\n", configdocument.JSONC},
+		{"line-comment grammar comma", "{\"a\":1,}\n", "/b", "{\"a\":1,\"b\":true,}\n", configdocument.JSONLineComments},
 		{"inherited comma", "{\"keep\":1,}\n", "/a/b", "{\"keep\":1,\"a\":{\"b\":true,},}\n", configdocument.JSONC},
 		{"CRLF comments", "{\r\n  // before\r\n  \"a\": 1\r\n}\r\n", "/b", "{\r\n  // before\r\n  \"a\": 1,\r\n  \"b\": true\r\n}\r\n", configdocument.JSONLineComments},
 	} {
@@ -75,10 +80,31 @@ func TestJSONLayoutExactAndChildCreationAgree(t *testing.T) {
 			body := lookup(t, parse(t, configdocument.JSON, `{"v":{"b":1,"c":{"d":2}}}`), "/v")
 			one := lookup(t, parse(t, configdocument.JSON, `{"v":1}`), "/v")
 			two := lookup(t, parse(t, configdocument.JSON, `{"v":2}`), "/v")
-			exact := edit(t, original, set(t, "/a", body))
-			children := edit(t, original, set(t, "/a/c/d", two), set(t, "/a/b", one))
+			forms := [][]configdocument.Change{
+				{set(t, "/a", body)},
+				{set(t, "/a/c/d", two), set(t, "/a/b", one)},
+			}
+			exact := edit(t, original, forms[0]...)
+			children := edit(t, original, forms[1]...)
 			if !bytes.Equal(exact.Bytes(), children.Bytes()) {
 				t.Fatalf("equivalent new-object forms disagree:\nexact %q\nchild %q", exact.Bytes(), children.Bytes())
+			}
+			for _, maximum := range []int{len(exact.Bytes()), len(exact.Bytes()) - 1} {
+				bounded, err := configdocument.Parse(t.Context(), []byte(source), configdocument.JSONC,
+					configdocument.Limits{MaximumBytes: int64(maximum), MaximumDepth: 16})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, changes := range forms {
+					actual, err := configdocument.Edit(t.Context(), bounded, changes)
+					if maximum == len(exact.Bytes()) {
+						if err != nil || !bytes.Equal(actual.Bytes(), exact.Bytes()) {
+							t.Fatal("exact-object allowance rejected a valid image", err)
+						}
+					} else if !errors.Is(err, configdocument.ErrLimitExceeded) || actual.Exists() || len(actual.Bytes()) != 0 {
+						t.Fatal("exact-object ceiling returned oversized or partial output", err)
+					}
+				}
 			}
 		})
 	}
@@ -106,6 +132,8 @@ func TestJSONLayoutSkipsSameValueSetInChangedBatch(t *testing.T) {
 	for _, source := range []string{
 		"{\"a\":{/* keep */\"x\":1},\"b\":0}\n",
 		"{\"a\":{// keep\r\n\"x\":1},\"b\":0}\r\n",
+		"{\"a\":1e+02,\"b\":0}\n",
+		"{\"a\":[ 1, /* keep */ { \"x\":2 } ],\"b\":0}\n",
 	} {
 		original := parse(t, configdocument.JSONC, source)
 		before := lookup(t, original, "/a")
@@ -163,9 +191,18 @@ func TestJSONLayoutBoundsInheritedIndentation(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := lookup(t, parse(t, configdocument.JSON, `{"v":true}`), "/v")
-	got, err := configdocument.Edit(t.Context(), original, []configdocument.Change{set(t, "/a/b/c", value)})
-	if !errors.Is(err, configdocument.ErrLimitExceeded) || got.Exists() || len(got.Bytes()) != 0 || string(original.Bytes()) != source {
-		t.Fatal("large inherited indentation escaped its budget or returned partial state", err)
+	object := lookup(t, parse(t, configdocument.JSON, `{"v":{"b":{"c":true}}}`), "/v")
+	for _, change := range []configdocument.Change{set(t, "/a/b/c", value), set(t, "/a", object)} {
+		got, err := configdocument.Edit(t.Context(), original, []configdocument.Change{change})
+		if !errors.Is(err, configdocument.ErrLimitExceeded) || got.Exists() || len(got.Bytes()) != 0 || string(original.Bytes()) != source {
+			t.Fatal("large inherited indentation escaped its budget or returned partial state", err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	got, err := configdocument.Edit(ctx, original, []configdocument.Change{set(t, "/a", object)})
+	if !errors.Is(err, context.Canceled) || got.Exists() || len(got.Bytes()) != 0 {
+		t.Fatal("cancelled actual JSON change returned partial output", err)
 	}
 }
 
@@ -184,5 +221,76 @@ func TestJSONLayoutSharedScannerKeepsCRLFArrayComments(t *testing.T) {
 	assertComments(t, original, got)
 	if !bytes.Contains(got.Bytes(), []byte("// keep\r\n")) || !bytes.Contains(got.Bytes(), []byte(`"outside":1e+02`)) {
 		t.Fatalf("array sibling lost raw comment or unselected numeric bytes: %q", got.Bytes())
+	}
+}
+
+func TestJSONLayoutAbsentRootAndFreshAtomicValues(t *testing.T) {
+	absent, err := configdocument.Absent(configdocument.JSON, testLimits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := parse(t, configdocument.JSON, `{"empty":{},"arr":[ { "x":1 } ]}`)
+	got := edit(t, absent, set(t, "/empty", lookup(t, values, "/empty")), set(t, "/arr", lookup(t, values, "/arr")))
+	want := "{\n  \"arr\": [{\"x\":1}],\n  \"empty\": {}\n}\n"
+	if string(got.Bytes()) != want || absent.Exists() || len(absent.Bytes()) != 0 {
+		t.Fatalf("absent-root defaults or fresh atomic values differ: %q", got.Bytes())
+	}
+}
+
+func TestJSONLayoutEmptyTransitionAndCycles(t *testing.T) {
+	original := parse(t, configdocument.JSONC, "{\"a\":1,}\n")
+	empty := edit(t, original, remove(t, "/a"))
+	if string(empty.Bytes()) != "{}\n" {
+		t.Fatalf("empty output kept comma history: %q", empty.Bytes())
+	}
+	two := lookup(t, parse(t, configdocument.JSON, `{"v":2}`), "/v")
+	added := edit(t, empty, set(t, "/b", two))
+	if string(added.Bytes()) != "{\n  \"b\": 2\n}\n" {
+		t.Fatalf("evidence-free root revived old inline/comma style: %q", added.Bytes())
+	}
+	for range 3 {
+		released := edit(t, added, remove(t, "/b"))
+		next := edit(t, released, set(t, "/b", two))
+		if !bytes.Equal(next.Bytes(), added.Bytes()) {
+			t.Fatalf("ordinary cycle accumulated formatting: %q", next.Bytes())
+		}
+		added = next
+	}
+}
+
+func TestJSONLayoutKeepsFirstWitnessAndSortsNewNames(t *testing.T) {
+	one := lookup(t, parse(t, configdocument.JSON, `{"v":1}`), "/v")
+	original := parse(t, configdocument.JSON, "{\n    \"a\":1,\"b\":2\n}\n")
+	got := edit(t, original, remove(t, "/a"), set(t, "/c", one))
+	if string(got.Bytes()) != "{\"b\":2,\n    \"c\":1\n}\n" {
+		t.Fatalf("removed first witness changed the insertion style: %q", got.Bytes())
+	}
+	original = parse(t, configdocument.JSON, `{"keep":0}`)
+	left := edit(t, original, set(t, "/z", one), set(t, "/a", one), set(t, "/m", one))
+	right := edit(t, original, set(t, "/m", one), set(t, "/a", one), set(t, "/z", one))
+	if string(left.Bytes()) != "{\"keep\":0,\"a\":1,\"m\":1,\"z\":1}\n" || !bytes.Equal(left.Bytes(), right.Bytes()) {
+		t.Fatalf("new names depended on request order: %q", left.Bytes())
+	}
+}
+
+func TestJSONLayoutKeepsOriginalOffsetsAfterSiblingGrowth(t *testing.T) {
+	source := "{\n  \"a\":0,\n  \"b\":{\"keep\":0\n  }\n}\n"
+	text := strings.Repeat("x", 128)
+	values := parse(t, configdocument.JSON, `{"a":"`+text+`","n":2}`)
+	got := edit(t, parse(t, configdocument.JSON, source), set(t, "/a", lookup(t, values, "/a")), set(t, "/b/n", lookup(t, values, "/n")))
+	want := strings.Replace(source, `"a":0`, `"a":"`+text+`"`, 1)
+	want = strings.Replace(want, `"keep":0`, `"keep":0,"n":2`, 1)
+	if string(got.Bytes()) != want {
+		t.Fatalf("earlier sibling changed later source offsets: %q", got.Bytes())
+	}
+}
+
+func TestJSONLayoutExactReplacementUsesNewContainingKeyBase(t *testing.T) {
+	source := "{\n  \"s\": {\n    \"a\": {},\n      \"z\": 1\n  }\n}\n"
+	value := lookup(t, parse(t, configdocument.JSON, `{"v":{"a":{"k":1},"z":2}}`), "/v")
+	got := edit(t, parse(t, configdocument.JSON, source), set(t, "/s", value))
+	want := "{\n  \"s\": {\n      \"a\": {\n          \"k\": 1\n      },\n      \"z\": 2\n  }\n}\n"
+	if string(got.Bytes()) != want {
+		t.Fatalf("fresh child used the old key position: %q", got.Bytes())
 	}
 }
