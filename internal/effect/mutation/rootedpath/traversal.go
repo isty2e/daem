@@ -427,6 +427,26 @@ func ResolveFutureReferentPathBounded(
 	return resolveSelectorWithTraversal(path, traversal)
 }
 
+// ResolveFutureReferentComponentsBounded resolves a locator into an existing
+// directory and its remaining entry components. The final component may already
+// exist as a non-directory. The result is path data, not mutation authority.
+func ResolveFutureReferentComponentsBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (string, []string, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", nil, err
+	}
+	traversal.allowMissingAliasTargets = true
+	absolute, directoryOnly, err := prepareRootSelector(path)
+	if err != nil {
+		return "", nil, err
+	}
+	return resolveReferentComponentsWithTraversal(absolute, traversal, true, directoryOnly)
+}
+
 func resolveSelectorWithTraversal(path string, traversal *physicalTraversal) (string, error) {
 	absolute, directoryOnly, err := prepareRootSelector(path)
 	if err != nil {
@@ -558,6 +578,14 @@ func ResolveReferentPathBounded(
 }
 
 func resolveReferentPathWithTraversal(absolute string, traversal *physicalTraversal, allowFilesystemRoot, directoryOnly bool) (string, error) {
+	physicalRoot, suffix, err := resolveReferentComponentsWithTraversal(absolute, traversal, allowFilesystemRoot, directoryOnly)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(physicalRoot, filepath.Join(suffix...)), nil
+}
+
+func resolveReferentComponentsWithTraversal(absolute string, traversal *physicalTraversal, allowFilesystemRoot, directoryOnly bool) (string, []string, error) {
 	physicalRoot, platform, _, _, suffix, err := resolveNativePathPlatform(
 		absolute,
 		true,
@@ -566,13 +594,13 @@ func resolveReferentPathWithTraversal(absolute string, traversal *physicalTraver
 		traversal,
 	)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	closePlatform := func() error { return closeCapturedRootPlatform(&platform) }
 	physicalPath := filepath.Join(physicalRoot, filepath.Join(suffix...))
 	depth, err := absolutePathDepth(physicalPath)
 	if err != nil {
-		return "", errors.Join(err, closePlatform())
+		return "", nil, errors.Join(err, closePlatform())
 	}
 	if depth == 0 && allowFilesystemRoot {
 		err = traversal.visitComponent()
@@ -580,10 +608,10 @@ func resolveReferentPathWithTraversal(absolute string, traversal *physicalTraver
 		err = traversal.validateResolvedDepth(depth)
 	}
 	if err != nil {
-		return "", errors.Join(err, closePlatform())
+		return "", nil, errors.Join(err, closePlatform())
 	}
 	if err := closePlatform(); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return physicalPath, nil
+	return physicalRoot, suffix, nil
 }

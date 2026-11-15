@@ -172,10 +172,7 @@ func observeProtectionPath(path string, budget rootedpath.PhysicalTraversalBudge
 
 func observeProtectionLocation(path string, budget rootedpath.PhysicalTraversalBudget) physicalRootObservation {
 	var value physicalRootObservation
-	value.path, value.err = rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-	if value.err == nil {
-		value.observation, value.err = mutation.ObserveDirectoryEntryAuthorityBounded(value.path, physicalwork.MaximumPhysicalPathDepth, budget)
-	}
+	value.path, value.observation, value.err = mutation.ObserveFutureReferentAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
 	return value
 }
 

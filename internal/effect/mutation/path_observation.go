@@ -18,6 +18,39 @@ type pathObservationKey struct {
 	effect PathEffect
 }
 
+// ObserveFutureReferentAuthorityBounded resolves a locator and observes the
+// resolved entry's authority with one bounded traversal. It returns physical
+// path data and exact or provisional evidence, never a mutation capability.
+func ObserveFutureReferentAuthorityBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (string, DirectoryEntryAuthorityObservation, error) {
+	anchor, components, err := rootedpath.ResolveFutureReferentComponentsBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, err
+	}
+	resolved := filepath.Join(anchor, filepath.Join(components...))
+	if len(components) == 0 {
+		components = []string{filepath.Base(anchor)}
+		anchor = filepath.Dir(anchor)
+	}
+	selection := pathSelection{
+		anchorPath:         anchor,
+		missingComponents:  components,
+		finalEntryMayExist: len(components) == 1,
+	}
+	identity, err := canonicalPathIdentityFromSelectionBounded(resolved, selection, PathEffectDirectoryEntry, maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, err
+	}
+	observation, err := directoryEntryAuthorityObservation(identity)
+	if err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, err
+	}
+	return resolved, observation, nil
+}
+
 func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget PhysicalObservationBudget) pathIdentityObserver {
 	return cachePathIdentities(func(path string, effect PathEffect) (canonicalPath, error) {
 		if err := ctx.Err(); err != nil {
