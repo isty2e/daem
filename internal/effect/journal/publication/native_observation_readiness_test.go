@@ -14,10 +14,6 @@ func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *test
 		for _, change := range []string{"none", "missing binding", "wrong binding", "missing claim", "scoped claims", "reserved claim"} {
 			t.Run(string(scope)+"/"+change, func(t *testing.T) {
 				fixture, input, reader, _ := nativeInitialFixture(t, scope, "record")
-				batch, err := ObserveNativeDocuments(t.Context(), input)
-				if err != nil {
-					t.Fatal(err)
-				}
 				initial, err := reader.store.Load(t.Context())
 				if err != nil {
 					t.Fatal(err)
@@ -62,8 +58,9 @@ func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *test
 				if err != nil {
 					t.Fatal(err)
 				}
-				input.Registry = &nativeCaptureRegistryReader{value: current}
-				batch, err = ObserveNativeDocuments(t.Context(), input)
+				selectedReader := &nativeCaptureRegistryReader{value: current}
+				input.Registry = selectedReader
+				batch, err := ObserveNativeDocuments(t.Context(), input)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -82,7 +79,7 @@ func TestNativeObservationBeforeQualificationSharesCaptureInterpretation(t *test
 						t.Fatal("missing active own claim lost its refusal classification", qualification, continuation)
 					}
 				}
-				if reader.loads != 1 || input.Budget.RequireCapturePending() != nil || input.Budget.RemainingBytes() != remaining-int64(len(fixture.original.Content())) {
+				if selectedReader.loads != 1 || input.Budget.RequireCapturePending() != nil || input.Budget.RemainingBytes() != remaining-int64(len(fixture.original.Content())) {
 					t.Fatal("before validation reread Registry, read an image or changed budget admission")
 				}
 				fixture.requireUnchangedHost(t)
