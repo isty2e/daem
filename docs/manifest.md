@@ -1546,7 +1546,10 @@ multiline spacing and indentation. New parent objects inherit the containing
 layout; an empty `{}` has no local layout evidence and also inherits, with a
 two-space multiline default at the root. Retained keys are not reordered or
 reindented. A nonempty object's trailing-comma preference survives key addition
-and removal; an object that becomes empty does not retain formatting history.
+and removal. An emptied object keeps no record of its removed members' indentation,
+colon spacing or comma preference; whitespace before its closing brace can remain.
+Filling an empty `{}` and later removing its last child can therefore leave a
+generated line break inside it.
 
 Writing a changed whole object value, including an MCP server body, serializes
 that selected value again; its keys may be reordered and literals respelled.
