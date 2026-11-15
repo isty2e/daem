@@ -94,7 +94,7 @@ func TestNativeCurrentWholeDocumentWithOrdinaryChange(t *testing.T) {
 }
 
 func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
-	f, g, source := nativeWholeRefreshFixture(t, target.TargetPi, target.ScopeProject, target.ScopeProject)
+	f, g, source := nativeWholeRefreshFixture(t, target.TargetCodex, target.ScopeProject, target.ScopeProject)
 	f.Require(t, "apply", "--yes")
 	before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 	if err != nil {
@@ -295,8 +295,8 @@ func TestNativeWholeRefreshContainsCommandViolations(t *testing.T) {
 		fault       string
 		wholeTarget target.Target
 	}{
-		{"bytes", target.TargetCodex},
-		{"mode", target.TargetPi},
+		{"bytes", target.TargetPi},
+		{"mode", target.TargetCodex},
 		{"command-mode", target.TargetPi},
 		{"inaccessible", target.TargetPi},
 	} {
