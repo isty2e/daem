@@ -291,9 +291,18 @@ func TestNativeWholeClaimRefusesPhysicalHostSettingsAliasBeforeRefresh(t *testin
 }
 
 func TestNativeWholeRefreshContainsCommandViolations(t *testing.T) {
-	for _, fault := range []string{"bytes", "mode", "command-mode", "inaccessible"} {
+	for _, testCase := range []struct {
+		fault       string
+		wholeTarget target.Target
+	}{
+		{"bytes", target.TargetCodex},
+		{"mode", target.TargetPi},
+		{"command-mode", target.TargetPi},
+		{"inaccessible", target.TargetPi},
+	} {
+		fault := testCase.fault
 		t.Run(fault, func(t *testing.T) {
-			f, g, _ := nativeWholeRefreshFixture(t, target.TargetPi, target.ScopeProject, target.ScopeGlobal)
+			f, g, _ := nativeWholeRefreshFixture(t, testCase.wholeTarget, target.ScopeProject, target.ScopeGlobal)
 			f.Require(t, "apply", "--yes")
 			original := string(testkit.ReadFile(t, g.Destination))
 			t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", fault)
