@@ -14,55 +14,28 @@ import (
 )
 
 func TestNativeKeyScopeRecoveryAfterProcessLoss(t *testing.T) {
-	for _, selected := range nativeKeyScopes() {
-		for _, existing := range []bool{true, false} {
-			for _, boundary := range []string{"host", "state"} {
-				t.Run(selected.name+"/"+nativeKeyScopeFileKind(existing)+"/"+boundary, func(t *testing.T) {
-					fixture := newNativeKeyScopeRecoveryFixture(t, selected, existing)
-					before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
-					interruptNativeKeyScopeApply(t, fixture, boundary)
-					if boundary == "host" && !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
-						t.Fatal("host process loss crossed the actual Before-state boundary")
-					}
-					if existing {
-						addNativeKeyScopeUserEdit(t, fixture)
-					}
-					unchangedHost, err := os.Stat(fixture.Destination)
-					if err != nil {
-						t.Fatal(err)
-					}
-					unchangedImage := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination)
-					classification := "needs_rollback"
-					if boundary == "state" {
-						classification = "clean_after"
-						if !existing {
-							classification = "needs_finalize"
-						}
-					}
-					nativefixture.RequireRecoveryDryRun(t, fixture.RecoveryFixture, classification)
-					nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "recover", "--yes")
-					testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
-					if boundary == "host" {
-						if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
-							t.Fatal("rollback changed persisted Before state")
-						}
-						requireNativeKeyScopeBefore(t, fixture, existing)
-						requireNativeKeyScopeMetadata(t, fixture, existing)
-						nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
-					} else {
-						after, err := os.Stat(fixture.Destination)
-						if err != nil || !os.SameFile(unchangedHost, after) || !reflect.DeepEqual(unchangedImage, nativefixture.SnapshotRecoveryPaths(t, fixture.Destination)) {
-							t.Fatal("state-After finalization replayed the host document", err)
-						}
-					}
-					requireNativeKeyScopeDesired(t, fixture, "after-model")
-					if existing {
-						requireNativeKeyScopeUserEdit(t, fixture)
-					}
-				})
-			}
+	// Project recovery and restoration shapes are covered by TestNativeKeyRecoveryAfterProcessLoss.
+	selected := nativeKeyScopeNamed(t, "codex-global")
+	t.Run(selected.name+"/existing/host", func(t *testing.T) {
+		fixture := newNativeKeyScopeRecoveryFixture(t, selected, true)
+		before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
+		interruptNativeKeyScopeApply(t, fixture, "host")
+		if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
+			t.Fatal("host process loss crossed the actual Before-state boundary")
 		}
-	}
+		addNativeKeyScopeUserEdit(t, fixture)
+		nativefixture.RequireRecoveryDryRun(t, fixture.RecoveryFixture, "needs_rollback")
+		nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "recover", "--yes")
+		testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
+		if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
+			t.Fatal("rollback changed persisted Before state")
+		}
+		requireNativeKeyScopeBefore(t, fixture, true)
+		requireNativeKeyScopeMetadata(t, fixture, true)
+		nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
+		requireNativeKeyScopeDesired(t, fixture, "after-model")
+		requireNativeKeyScopeUserEdit(t, fixture)
+	})
 }
 
 func TestNativeKeyJSONRecoveryCompensatesReturnedStorageError(t *testing.T) {
