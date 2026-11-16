@@ -117,6 +117,7 @@ func TestNativeKeyRecoveryCompensatesReturnedStorageError(t *testing.T) {
 			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
 				t.Fatal("automatic compensation changed persisted Before state")
 			}
+			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
 			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 			nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			nativefixture.RequireRecoveryDesired(t, fixture)
@@ -138,6 +139,7 @@ func TestNativeKeyRecoveryCompensatesCancellation(t *testing.T) {
 			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
 				t.Fatal("cancellation compensation changed persisted Before state")
 			}
+			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
 			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 			nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			nativefixture.RequireRecoveryDesired(t, fixture)
