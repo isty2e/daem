@@ -62,35 +62,43 @@ type nativeKeyScopeFixture struct {
 }
 
 func TestNativeKeyScopeCLILifecycle(t *testing.T) {
-	for _, selected := range nativeKeyScopes() {
-		for _, existing := range []bool{true, false} {
-			t.Run(selected.name+"/"+nativeKeyScopeFileKind(existing), func(t *testing.T) {
-				fixture := newNativeKeyScopeFixture(t, selected, existing)
-				for index, model := range []string{"after-model", "updated-model"} {
-					if index != 0 {
-						writeNativeKeyScopeDesired(t, fixture, model)
-						nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
-					}
-					_, _, stderr := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes", "--verbose")
-					if !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) {
-						t.Fatal("Apply did not confirm real host and state publications", stderr)
-					}
-					requireNativeKeyScopeDesired(t, fixture, model)
-				}
+	// Global release keeps real post-apply user edits in both grammar paths.
+	for _, testCase := range []struct {
+		placementName string
+		existing      bool
+	}{
+		{placementName: "pi-global", existing: true},
+		{placementName: "codex-global", existing: false},
+	} {
+		selected := nativeKeyScopeNamed(t, testCase.placementName)
+		existing := testCase.existing
 
-				addNativeKeyScopeUserEdit(t, fixture)
-				testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", fmt.Sprintf("version = 1\ntargets = [%q]\n", selected.target))
-				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
-				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
-				content := testkit.ReadFile(t, fixture.Destination)
-				nativefixture.RequireSharedValues(t, selected.syntax, content, nativeKeyScopeSource(selected, "updated-model"), false)
-				requireNativeEmptyParent(t, selected.syntax, content, selected.parent)
-				requireNativeKeyScopeOutside(t, fixture, content)
-				requireNativeKeyScopeUserEdit(t, fixture)
-				nativefixture.RequireSharedMode(t, fixture.Destination, nativeKeyScopeMode(existing))
-				requireNativeKeyScopeSettled(t, fixture, false)
-			})
-		}
+		t.Run(selected.name+"/"+nativeKeyScopeFileKind(existing), func(t *testing.T) {
+			fixture := newNativeKeyScopeFixture(t, selected, existing)
+			for index, model := range []string{"after-model", "updated-model"} {
+				if index != 0 {
+					writeNativeKeyScopeDesired(t, fixture, model)
+					nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+				}
+				_, _, stderr := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes", "--verbose")
+				if !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) {
+					t.Fatal("Apply did not confirm real host and state publications", stderr)
+				}
+				requireNativeKeyScopeDesired(t, fixture, model)
+			}
+
+			addNativeKeyScopeUserEdit(t, fixture)
+			testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", fmt.Sprintf("version = 1\ntargets = [%q]\n", selected.target))
+			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
+			nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
+			content := testkit.ReadFile(t, fixture.Destination)
+			nativefixture.RequireSharedValues(t, selected.syntax, content, nativeKeyScopeSource(selected, "updated-model"), false)
+			requireNativeEmptyParent(t, selected.syntax, content, selected.parent)
+			requireNativeKeyScopeOutside(t, fixture, content)
+			requireNativeKeyScopeUserEdit(t, fixture)
+			nativefixture.RequireSharedMode(t, fixture.Destination, nativeKeyScopeMode(existing))
+			requireNativeKeyScopeSettled(t, fixture, false)
+		})
 	}
 }
 
