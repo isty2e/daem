@@ -225,7 +225,14 @@ func resolveNativePathPlatform(
 			return fail(err)
 		}
 		parent := platform.directories[len(platform.directories)-1]
-		candidatePath := filepath.Join(parent.path, component.name)
+		// The parent is clean and absolute; split components have no separators.
+		// Empty and dot components were handled above.
+		separator := "/"
+		if parent.path == "/" {
+			separator = ""
+		}
+		candidatePath := parent.path + separator + component.name
+
 		var stat unix.Stat_t
 		inspectErr := unix.Fstatat(parent.fd, component.name, &stat, unix.AT_SYMLINK_NOFOLLOW)
 		if errors.Is(inspectErr, unix.ENOENT) {
