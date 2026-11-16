@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 type boundedCaptureTestBudget struct {
@@ -547,6 +549,68 @@ func TestCaptureDestinationBoundedRejectsNoncanonicalSelectedPath(t *testing.T) 
 	)
 	if err == nil || !strings.Contains(err.Error(), "canonical lexical spelling") {
 		t.Fatalf("CaptureDestinationBounded error = %v, want noncanonical-path rejection", err)
+	}
+}
+
+func TestInspectedDirectoryOpenKeepsIdentityAndNoFollow(t *testing.T) {
+	for _, replacement := range []string{"unchanged", "directory", "symlink"} {
+		t.Run(replacement, func(t *testing.T) {
+			base, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			child := filepath.Join(base, "child")
+			if err := os.Mkdir(child, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			parentFD, err := openSearchOnlyDirectory(base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := unix.Close(parentFD); err != nil {
+					t.Error(err)
+				}
+			})
+			parent, err := captureDirectory(parentFD, "", base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var before unix.Stat_t
+			if err := unix.Fstatat(parent.fd, "child", &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+				t.Fatal(err)
+			}
+
+			if replacement != "unchanged" {
+				if err := os.Rename(child, filepath.Join(base, "original")); err != nil {
+					t.Fatal(err)
+				}
+				if replacement == "directory" {
+					if err := os.Mkdir(child, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Symlink("original", child); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			directory, err := openInspectedChild(parent, "child", child, true, &before)
+			if err == nil {
+				if closeErr := unix.Close(directory.fd); closeErr != nil {
+					t.Error(closeErr)
+				}
+				if replacement != "unchanged" {
+					t.Fatal("replacement was accepted as the inspected directory")
+				}
+				return
+			}
+			if replacement == "unchanged" {
+				t.Fatalf("unchanged directory rejected: %v", err)
+			}
+			if replacement == "directory" && !hasFailureKind(err, FailureRootReplaced) {
+				t.Fatalf("directory replacement error = %v, want %s", err, FailureRootReplaced)
+			}
+		})
 	}
 }
 

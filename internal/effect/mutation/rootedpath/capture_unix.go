@@ -334,7 +334,7 @@ func resolveNativePathPlatform(
 		if err := traversal.validateResolvedDepth(resolvedDepth); err != nil {
 			return fail(err)
 		}
-		directory, openErr := openCapturedChild(parent, component.name, candidatePath, true)
+		directory, openErr := openInspectedChild(parent, component.name, candidatePath, true, &stat)
 		if openErr != nil {
 			return fail(openErr)
 		}
@@ -511,6 +511,17 @@ func openCapturedChild(
 	if err := unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return capturedDirectory{}, newFailure(FailureRootUnavailable, path, "inspect physical root component", err)
 	}
+	return openInspectedChild(parent, name, path, searchOnly, &before)
+}
+
+// Reuse only a no-follow entry observation from this traversal step, never a cached stat.
+func openInspectedChild(
+	parent capturedDirectory,
+	name string,
+	path string,
+	searchOnly bool,
+	before *unix.Stat_t,
+) (capturedDirectory, error) {
 	if before.Mode&unix.S_IFMT != unix.S_IFDIR {
 		return capturedDirectory{}, newFailure(FailureRootReplaced, path, "physical root component is not a directory", nil)
 	}
