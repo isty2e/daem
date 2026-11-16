@@ -135,19 +135,23 @@ func (budget *physicalObservationBudget) AdmitPhysicalWork(components, entries i
 // One observation shares root interpretation across reservations, namespace
 // membership and document roles. Nothing here supplies a writer grant.
 type physicalObserver struct {
-	selectors   ReservationSelectors
-	budget      *physicalObservationBudget
-	roots       map[output.RootReference]physicalRootObservation
-	directories map[string]physicalDirectoryObservation
+	selectors             ReservationSelectors
+	budget                *physicalObservationBudget
+	roots                 map[output.RootReference]physicalRootObservation
+	directories           map[string]physicalDirectoryObservation
+	entries               map[string]mutation.DirectoryEntryAuthorityObservation
+	observeFutureReferent func(string) (string, mutation.DirectoryEntryAuthorityObservation, error)
 }
 
 func newPhysicalObserver(selectors ReservationSelectors, budget rootedpath.PhysicalTraversalBudget) *physicalObserver {
 	work, _ := budget.(rootedpath.DirectoryObservationBudget)
+	allocation := &physicalObservationBudget{traversal: budget, work: work}
 	return &physicalObserver{
-		selectors:   selectors,
-		budget:      &physicalObservationBudget{traversal: budget, work: work},
-		roots:       make(map[output.RootReference]physicalRootObservation),
-		directories: make(map[string]physicalDirectoryObservation),
+		selectors:             selectors,
+		budget:                allocation,
+		roots:                 make(map[output.RootReference]physicalRootObservation),
+		directories:           make(map[string]physicalDirectoryObservation),
+		observeFutureReferent: mutation.NewFutureReferentAuthorityObserverBounded(physicalwork.MaximumPhysicalPathDepth, allocation),
 	}
 }
 
@@ -166,13 +170,30 @@ func (observer *physicalObserver) directory(ctx context.Context, path string) (r
 	return names, err
 }
 
+func (observer *physicalObserver) entry(ctx context.Context, path string) (mutation.DirectoryEntryAuthorityObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	if previous, present := observer.entries[path]; present {
+		return previous, nil
+	}
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, physicalwork.MaximumPhysicalPathDepth, observer.budget)
+	if err == nil && len(observer.entries) < physicalwork.MaximumPhysicalPathDepth {
+		if observer.entries == nil {
+			observer.entries = make(map[string]mutation.DirectoryEntryAuthorityObservation)
+		}
+		observer.entries[path] = observed
+	}
+	return observed, err
+}
+
 func (observer *physicalObserver) root(selector ReservationSelector) physicalRootObservation {
 	if value, present := observer.roots[selector.reference]; present {
 		return value
 	}
 	value := physicalRootObservation{err: selector.failure}
 	if value.err == nil {
-		value = observeProtectionLocation(selector.Path(), observer.budget)
+		value = observer.observeProtectionLocation(selector.Path())
 	}
 	observer.roots[selector.reference] = value
 	return value
@@ -247,7 +268,7 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 	var result physicalDocumentFacts
 	if envelope == configuration.NativeDirectory {
 		for _, alias := range aliases {
-			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(alias.route, physicalwork.MaximumPhysicalPathDepth, observer.budget)
+			route, err := observer.entry(ctx, alias.route)
 			if err != nil {
 				return result, failure(host, ProtectionDocumentUnavailable, "", err)
 			}
@@ -309,7 +330,7 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 			if !directory {
 				return result, failure(spec.Target(), ProtectionRegionIndeterminate, "", fmt.Errorf("native document role requires a directory-child coordinate"))
 			}
-			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(filepath.Join(root.path, filepath.FromSlash(relative)), physicalwork.MaximumPhysicalPathDepth, observer.budget)
+			route, err := observer.entry(ctx, filepath.Join(root.path, filepath.FromSlash(relative)))
 			if err != nil {
 				return result, failure(spec.Target(), ProtectionEndpointUnavailable, relative, err)
 			}
@@ -333,7 +354,7 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 		if !directory {
 			return result, failure(spec.Target(), ProtectionRegionIndeterminate, "", fmt.Errorf("native document role requires a directory-child coordinate"))
 		}
-		endpoint, err := observeProtectionPath(filepath.Join(root.path, filepath.FromSlash(relative)), observer.budget)
+		endpoint, err := observer.observeProtectionPath(filepath.Join(root.path, filepath.FromSlash(relative)))
 		if err != nil {
 			return result, failure(spec.Target(), ProtectionEndpointUnavailable, relative, err)
 		}

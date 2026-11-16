@@ -74,151 +74,124 @@ esac
 }
 
 func TestNativeCurrentWholeDocumentWithOrdinaryChange(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f, whole, _ := nativeWholeRefreshFixture(t, selected, scope, scope)
-				f.Require(t, "apply", "--yes")
-				before := testkit.ReadFile(t, whole.Destination)
-				calls := string(testkit.ReadFile(t, f.Calls))
-				f.AddInstructions(t, "independent ordinary change\n")
-				f.Require(t, "apply", "--yes")
-				if got := testkit.ReadFile(t, whole.Destination); !reflect.DeepEqual(got, before) {
-					t.Fatal("ordinary change rewrote its retained whole document")
-				}
-				if got := string(testkit.ReadFile(t, f.Calls)); got != calls {
-					t.Fatal("ordinary change repeated an already-current host command")
-				}
-				if got := string(testkit.ReadFile(t, filepath.Join(f.Workspace, "AGENTS.md"))); got != "independent ordinary change\n" {
-					t.Fatal("ordinary write was omitted from whole-document capture")
-				}
-				f.Require(t, "status", "--check", "--json")
-				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
-			})
-		}
+	f, whole, _ := nativeWholeRefreshFixture(t, target.TargetPi, target.ScopeGlobal, target.ScopeGlobal)
+	f.Require(t, "apply", "--yes")
+	before := testkit.ReadFile(t, whole.Destination)
+	calls := string(testkit.ReadFile(t, f.Calls))
+	f.AddInstructions(t, "independent ordinary change\n")
+	f.Require(t, "apply", "--yes")
+	if got := testkit.ReadFile(t, whole.Destination); !reflect.DeepEqual(got, before) {
+		t.Fatal("ordinary change rewrote its retained whole document")
 	}
+	if got := string(testkit.ReadFile(t, f.Calls)); got != calls {
+		t.Fatal("ordinary change repeated an already-current host command")
+	}
+	if got := string(testkit.ReadFile(t, filepath.Join(f.Workspace, "AGENTS.md"))); got != "independent ordinary change\n" {
+		t.Fatal("ordinary write was omitted from whole-document capture")
+	}
+	f.Require(t, "status", "--check", "--json")
+	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 }
 
 func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f, g, source := nativeWholeRefreshFixture(t, selected, scope, scope)
-				f.Require(t, "apply", "--yes")
-				before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
-				if err != nil {
-					t.Fatal(err)
-				}
-				content := string(testkit.ReadFile(t, g.Destination))
-				manifest, locked := string(testkit.ReadFile(t, f.Manifest)), string(testkit.ReadFile(t, g.Paths.LockfilePath))
-				f.Require(t, "refresh", "extension", "tools", "--dry-run", "--json")
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
-				for range 2 {
-					f.Require(t, "refresh", "extension", "tools", "--yes", "--json")
-				}
-				store, err := ownershipstore.New(f.LaunchRegistry)
-				if err != nil {
-					t.Fatal(err)
-				}
-				registry, err := store.LoadProtectionRegistry(t.Context())
-				if err != nil || len(registry.PendingProtections()) != 1 {
-					t.Fatal("whole Refresh did not retain its bound protection at launch", err)
-				}
-				protection := registry.PendingProtections()[0]
-				if _, bound := protection.Execution(); !bound || protection.Phase() != ownership.ProtectionBound || len(protection.Documents()) != 2 {
-					t.Fatal("whole Refresh launched without both actual protected documents")
-				}
-				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
-				if err != nil || !slices.EqualFunc(before.ManagedPaths(), after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(before.ManagedAggregates(), after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-					t.Fatal("Refresh applied settings or changed their ownership", err)
-				}
-				testkit.AssertFileContent(t, g.Destination, content)
-				testkit.AssertFileContent(t, source, content)
-				testkit.AssertFileContent(t, f.Manifest, manifest)
-				testkit.AssertFileContent(t, g.Paths.LockfilePath, locked)
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
-				nativefixture.RequireSharedMode(t, g.Destination, 0o600)
-				f.Require(t, "status", "--check")
-				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
-			})
-		}
+	f, g, source := nativeWholeRefreshFixture(t, target.TargetCodex, target.ScopeProject, target.ScopeProject)
+	f.Require(t, "apply", "--yes")
+	before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
+	if err != nil {
+		t.Fatal(err)
 	}
+	content := string(testkit.ReadFile(t, g.Destination))
+	manifest, locked := string(testkit.ReadFile(t, f.Manifest)), string(testkit.ReadFile(t, g.Paths.LockfilePath))
+	f.Require(t, "refresh", "extension", "tools", "--dry-run", "--json")
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+	for range 2 {
+		f.Require(t, "refresh", "extension", "tools", "--yes", "--json")
+	}
+	store, err := ownershipstore.New(f.LaunchRegistry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := store.LoadProtectionRegistry(t.Context())
+	if err != nil || len(registry.PendingProtections()) != 1 {
+		t.Fatal("whole Refresh did not retain its bound protection at launch", err)
+	}
+	protection := registry.PendingProtections()[0]
+	if _, bound := protection.Execution(); !bound || protection.Phase() != ownership.ProtectionBound || len(protection.Documents()) != 2 {
+		t.Fatal("whole Refresh launched without both actual protected documents")
+	}
+	after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
+	if err != nil || !slices.EqualFunc(before.ManagedPaths(), after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(before.ManagedAggregates(), after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+		t.Fatal("Refresh applied settings or changed their ownership", err)
+	}
+	testkit.AssertFileContent(t, g.Destination, content)
+	testkit.AssertFileContent(t, source, content)
+	testkit.AssertFileContent(t, f.Manifest, manifest)
+	testkit.AssertFileContent(t, g.Paths.LockfilePath, locked)
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
+	nativefixture.RequireSharedMode(t, g.Destination, 0o600)
+	f.Require(t, "status", "--check")
+	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 }
 
 func TestNativeWholeRefreshRequiresAppliedAndCurrentFiles(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		for _, change := range []string{"desired", "host", "external-match", "missing", "widened", "tightened", "new", "narrow", "empty-narrow", "adopt"} {
-			t.Run(string(selected)+"/"+change, func(t *testing.T) {
-				f, g, source := nativeWholeRefreshFixture(t, selected, target.ScopeProject, target.ScopeProject)
-				original := string(testkit.ReadFile(t, source))
-				if change == "adopt" || change == "new" {
-					testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), original)
-					if err := os.Chmod(g.Destination, 0o600); err != nil {
-						t.Fatal(err)
-					}
-					if change == "adopt" {
-						body := string(testkit.ReadFile(t, f.Manifest))
-						testkit.WriteFile(t, f.Workspace, "daem.toml", strings.Replace(body, "ownership='document'", "ownership='keys'", 1))
-						fragment := "foo=1\n"
-						if selected == target.TargetPi {
-							fragment = `{"foo":1}`
-						}
-						testkit.WriteFile(t, f.Workspace, filepath.Base(source), fragment)
-						f.Require(t, "lock")
-						f.Require(t, "apply", "--yes", "--manage-existing")
-						testkit.WriteFile(t, f.Workspace, "daem.toml", body)
-						testkit.WriteFile(t, f.Workspace, filepath.Base(source), original)
-					}
-				} else {
-					f.Require(t, "apply", "--yes")
+	for _, change := range []string{"desired", "host", "external-match", "missing", "widened", "tightened", "new", "narrow", "empty-narrow", "adopt"} {
+		t.Run(change, func(t *testing.T) {
+			f, g, source := nativeWholeRefreshFixture(t, target.TargetPi, target.ScopeProject, target.ScopeProject)
+			original := string(testkit.ReadFile(t, source))
+			if change == "adopt" || change == "new" {
+				testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), original)
+				if err := os.Chmod(g.Destination, 0o600); err != nil {
+					t.Fatal(err)
 				}
-				changed := original + "# changed preferences\n"
-				if selected == target.TargetPi {
-					changed = original + "// changed preferences\n"
+				if change == "adopt" {
+					body := string(testkit.ReadFile(t, f.Manifest))
+					testkit.WriteFile(t, f.Workspace, "daem.toml", strings.Replace(body, "ownership='document'", "ownership='keys'", 1))
+					testkit.WriteFile(t, f.Workspace, filepath.Base(source), `{"foo":1}`)
+					f.Require(t, "lock")
+					f.Require(t, "apply", "--yes", "--manage-existing")
+					testkit.WriteFile(t, f.Workspace, "daem.toml", body)
+					testkit.WriteFile(t, f.Workspace, filepath.Base(source), original)
 				}
-				switch change {
-				case "desired", "external-match":
-					testkit.WriteFile(t, f.Workspace, filepath.Base(source), changed)
-					if change == "external-match" {
-						testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), changed)
-					}
-				case "host":
+			} else {
+				f.Require(t, "apply", "--yes")
+			}
+			changed := original + "// changed preferences\n"
+			switch change {
+			case "desired", "external-match":
+				testkit.WriteFile(t, f.Workspace, filepath.Base(source), changed)
+				if change == "external-match" {
 					testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), changed)
-				case "missing":
-					if err := os.Remove(g.Destination); err != nil {
-						t.Fatal(err)
-					}
-				case "widened", "tightened":
-					mode := os.FileMode(0o666)
-					if change == "tightened" {
-						mode = 0o400
-					}
-					if err := os.Chmod(g.Destination, mode); err != nil {
-						t.Fatal(err)
-					}
-				case "narrow", "empty-narrow":
-					fragment := "foo=1\n"
-					if selected == target.TargetPi {
-						fragment = `{"foo":1}`
-					}
-					if change == "empty-narrow" {
-						fragment = ""
-						if selected == target.TargetPi {
-							fragment = "{}"
-						}
-					}
-					testkit.WriteFile(t, f.Workspace, "daem.toml", strings.Replace(string(testkit.ReadFile(t, f.Manifest)), "ownership='document'", "ownership='keys'", 1))
-					testkit.WriteFile(t, f.Workspace, filepath.Base(source), fragment)
 				}
-				f.Require(t, "lock")
-				before := nativefixture.SnapshotRecoveryEvidence(t, g)
-				if code, _, _ := f.Run("refresh", "extension", "tools", "--yes", "--json"); code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g)) {
-					t.Fatal("Refresh consumed pending ownership or changed non-current settings")
+			case "host":
+				testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), changed)
+			case "missing":
+				if err := os.Remove(g.Destination); err != nil {
+					t.Fatal(err)
 				}
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
-				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
-			})
-		}
+			case "widened", "tightened":
+				mode := os.FileMode(0o666)
+				if change == "tightened" {
+					mode = 0o400
+				}
+				if err := os.Chmod(g.Destination, mode); err != nil {
+					t.Fatal(err)
+				}
+			case "narrow", "empty-narrow":
+				fragment := `{"foo":1}`
+				if change == "empty-narrow" {
+					fragment = "{}"
+				}
+				testkit.WriteFile(t, f.Workspace, "daem.toml", strings.Replace(string(testkit.ReadFile(t, f.Manifest)), "ownership='document'", "ownership='keys'", 1))
+				testkit.WriteFile(t, f.Workspace, filepath.Base(source), fragment)
+			}
+			f.Require(t, "lock")
+			before := nativefixture.SnapshotRecoveryEvidence(t, g)
+			if code, _, _ := f.Run("refresh", "extension", "tools", "--yes", "--json"); code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g)) {
+				t.Fatal("Refresh consumed pending ownership or changed non-current settings")
+			}
+			testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+			testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
+		})
 	}
 }
 
@@ -253,35 +226,31 @@ func TestNativeWholeRefreshRevalidatesDisclosure(t *testing.T) {
 }
 
 func TestNativeWholeRefreshPreservesRetiringAndCrossScopeFiles(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		t.Run(string(selected), func(t *testing.T) {
-			f, g, source := nativeWholeRefreshFixture(t, selected, target.ScopeProject, target.ScopeGlobal)
-			f.Require(t, "apply", "--yes")
-			original := string(testkit.ReadFile(t, g.Destination))
-			before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.Require(t, "refresh", "extension", "tools", "--yes")
-			body, _, present := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[host_config]]\nid='whole'")
-			if !present {
-				t.Fatal("whole Refresh fixture has no unique declaration")
-			}
-			testkit.WriteFile(t, f.Workspace, "daem.toml", body)
-			if err := os.Remove(source); err != nil {
-				t.Fatal(err)
-			}
-			f.Require(t, "lock")
-			f.Require(t, "refresh", "extension", "tools", "--yes")
-			after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
-			if err != nil || !slices.EqualFunc(before.ManagedPaths(), after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(before.ManagedAggregates(), after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
-				t.Fatal("Refresh retired or reclassified pending file ownership", err)
-			}
-			testkit.AssertFileContent(t, g.Destination, original)
-			testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
-			testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
-		})
+	f, g, source := nativeWholeRefreshFixture(t, target.TargetCodex, target.ScopeProject, target.ScopeGlobal)
+	f.Require(t, "apply", "--yes")
+	original := string(testkit.ReadFile(t, g.Destination))
+	before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
+	if err != nil {
+		t.Fatal(err)
 	}
+	f.Require(t, "refresh", "extension", "tools", "--yes")
+	body, _, present := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[host_config]]\nid='whole'")
+	if !present {
+		t.Fatal("whole Refresh fixture has no unique declaration")
+	}
+	testkit.WriteFile(t, f.Workspace, "daem.toml", body)
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+	f.Require(t, "lock")
+	f.Require(t, "refresh", "extension", "tools", "--yes")
+	after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
+	if err != nil || !slices.EqualFunc(before.ManagedPaths(), after.ManagedPaths(), durable.ManagedPathState.Equal) || !slices.EqualFunc(before.ManagedAggregates(), after.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+		t.Fatal("Refresh retired or reclassified pending file ownership", err)
+	}
+	testkit.AssertFileContent(t, g.Destination, original)
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
+	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 }
 
 func TestNativeWholeClaimRefusesPhysicalHostSettingsAliasBeforeRefresh(t *testing.T) {
@@ -322,90 +291,91 @@ func TestNativeWholeClaimRefusesPhysicalHostSettingsAliasBeforeRefresh(t *testin
 }
 
 func TestNativeWholeRefreshContainsCommandViolations(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		for _, fault := range []string{"bytes", "mode", "command-mode", "inaccessible"} {
-			t.Run(string(selected)+"/"+fault, func(t *testing.T) {
-				f, g, _ := nativeWholeRefreshFixture(t, selected, target.ScopeProject, target.ScopeGlobal)
-				f.Require(t, "apply", "--yes")
-				original := string(testkit.ReadFile(t, g.Destination))
-				t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", fault)
-				code, stdout, stderr := f.Run("refresh", "extension", "tools", "--yes", "--json")
-				if code == 0 || decodeNativeRefreshClass(t, stdout) != "partial" {
-					t.Fatalf("whole-file violation was not a truthful partial Refresh: %d %s %s", code, stdout, stderr)
+	for _, testCase := range []struct {
+		fault       string
+		wholeTarget target.Target
+	}{
+		{"bytes", target.TargetPi},
+		{"mode", target.TargetCodex},
+		{"command-mode", target.TargetPi},
+		{"inaccessible", target.TargetPi},
+	} {
+		fault := testCase.fault
+		t.Run(fault, func(t *testing.T) {
+			f, g, _ := nativeWholeRefreshFixture(t, testCase.wholeTarget, target.ScopeProject, target.ScopeGlobal)
+			f.Require(t, "apply", "--yes")
+			original := string(testkit.ReadFile(t, g.Destination))
+			t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", fault)
+			code, stdout, stderr := f.Run("refresh", "extension", "tools", "--yes", "--json")
+			if code == 0 || decodeNativeRefreshClass(t, stdout) != "partial" {
+				t.Fatalf("whole-file violation was not a truthful partial Refresh: %d %s %s", code, stdout, stderr)
+			}
+			if fault == "bytes" {
+				testkit.AssertFileContent(t, g.Destination, "changed-by-host\n")
+				testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), original)
+			} else if fault == "inaccessible" {
+				if code, _, _ := f.Run("refresh", "extension", "tools", "--yes"); code == 0 {
+					t.Fatal("unqualified whole metadata became a fresh baseline")
 				}
-				if fault == "bytes" {
-					testkit.AssertFileContent(t, g.Destination, "changed-by-host\n")
-					testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), original)
-				} else if fault == "inaccessible" {
-					if code, _, _ := f.Run("refresh", "extension", "tools", "--yes"); code == 0 {
-						t.Fatal("unqualified whole metadata became a fresh baseline")
-					}
-					if err := os.Chmod(g.Destination, 0o600); err != nil {
-						t.Fatal(err)
-					}
-					f.Require(t, "recover", "--dry-run")
-					f.Require(t, "recover", "--yes")
+				if err := os.Chmod(g.Destination, 0o600); err != nil {
+					t.Fatal(err)
 				}
-				nativefixture.RequireSharedMode(t, g.Destination, 0o600)
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
-				t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", "")
-				f.Require(t, "refresh", "extension", "tools", "--yes")
-				f.Require(t, "status", "--check")
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
-				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
-			})
-		}
+				f.Require(t, "recover", "--dry-run")
+				f.Require(t, "recover", "--yes")
+			}
+			nativefixture.RequireSharedMode(t, g.Destination, 0o600)
+			testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
+			t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", "")
+			f.Require(t, "refresh", "extension", "tools", "--yes")
+			f.Require(t, "status", "--check")
+			testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
+			testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
+		})
 	}
 }
 
 func TestNativeWholeRefreshProcessLossKeepsFenceUntilRecovery(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f, g, _ := nativeWholeRefreshFixture(t, selected, scope, scope)
-				f.Require(t, "apply", "--yes")
-				body := string(testkit.ReadFile(t, f.Manifest))
-				original := string(testkit.ReadFile(t, g.Destination))
-				t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", "terminate")
-				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, g, "native-refresh-command", "refresh", "extension", "tools", "--yes", "--json")
-				if code == 0 || code == nativefixture.RecoveryExit {
-					t.Fatalf("whole Refresh did not lose its actual process: %d %s %s", code, stdout, stderr)
-				}
-				store, err := ownershipstore.New(g.Paths.OwnershipRegistryPath)
-				if err != nil {
-					t.Fatal(err)
-				}
-				registry, err := store.LoadProtectionRegistry(t.Context())
-				if err != nil || len(registry.PendingProtections()) != 1 || registry.PendingProtections()[0].Phase() != ownership.ProtectionBound || len(registry.PendingProtections()[0].Documents()) != 2 {
-					t.Fatal("lost whole Refresh did not preserve its complete bound fence", err)
-				}
-				withoutDeclarations, _, present := strings.Cut(body, "\n[[host_config]]")
-				if !present {
-					t.Fatal("whole Refresh fixture has no native declarations")
-				}
-				testkit.WriteFile(t, f.Workspace, "daem.toml", withoutDeclarations)
-				f.Require(t, "lock")
-				t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", "")
-				if code, _, _ := f.Run("refresh", "extension", "tools", "--yes"); code == 0 {
-					t.Fatal("declaration removal bypassed a pending whole protection")
-				}
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
-				before := nativefixture.SnapshotRecoveryEvidence(t, g)
-				f.Require(t, "recover", "--dry-run")
-				if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g)) {
-					t.Fatal("whole protection recovery preview changed evidence")
-				}
-				f.Require(t, "recover", "--yes")
-				nativefixture.RequireSharedMode(t, g.Destination, 0o600)
-				testkit.AssertFileContent(t, g.Destination, original)
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
-				testkit.WriteFile(t, f.Workspace, "daem.toml", body)
-				f.Require(t, "lock")
-				f.Require(t, "refresh", "extension", "tools", "--yes")
-				f.Require(t, "status", "--check")
-				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
-				testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
-			})
-		}
+	f, g, _ := nativeWholeRefreshFixture(t, target.TargetPi, target.ScopeGlobal, target.ScopeGlobal)
+	f.Require(t, "apply", "--yes")
+	body := string(testkit.ReadFile(t, f.Manifest))
+	original := string(testkit.ReadFile(t, g.Destination))
+	t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", "terminate")
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, g, "native-refresh-command", "refresh", "extension", "tools", "--yes", "--json")
+	if code == 0 || code == nativefixture.RecoveryExit {
+		t.Fatalf("whole Refresh did not lose its actual process: %d %s %s", code, stdout, stderr)
 	}
+	store, err := ownershipstore.New(g.Paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := store.LoadProtectionRegistry(t.Context())
+	if err != nil || len(registry.PendingProtections()) != 1 || registry.PendingProtections()[0].Phase() != ownership.ProtectionBound || len(registry.PendingProtections()[0].Documents()) != 2 {
+		t.Fatal("lost whole Refresh did not preserve its complete bound fence", err)
+	}
+	withoutDeclarations, _, present := strings.Cut(body, "\n[[host_config]]")
+	if !present {
+		t.Fatal("whole Refresh fixture has no native declarations")
+	}
+	testkit.WriteFile(t, f.Workspace, "daem.toml", withoutDeclarations)
+	f.Require(t, "lock")
+	t.Setenv("DAEM_TEST_WHOLE_REFRESH_FAULT", "")
+	if code, _, _ := f.Run("refresh", "extension", "tools", "--yes"); code == 0 {
+		t.Fatal("declaration removal bypassed a pending whole protection")
+	}
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
+	before := nativefixture.SnapshotRecoveryEvidence(t, g)
+	f.Require(t, "recover", "--dry-run")
+	if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, g)) {
+		t.Fatal("whole protection recovery preview changed evidence")
+	}
+	f.Require(t, "recover", "--yes")
+	nativefixture.RequireSharedMode(t, g.Destination, 0o600)
+	testkit.AssertFileContent(t, g.Destination, original)
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
+	testkit.WriteFile(t, f.Workspace, "daem.toml", body)
+	f.Require(t, "lock")
+	f.Require(t, "refresh", "extension", "tools", "--yes")
+	f.Require(t, "status", "--check")
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
+	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 }

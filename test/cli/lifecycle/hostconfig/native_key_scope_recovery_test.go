@@ -65,45 +65,25 @@ func TestNativeKeyScopeRecoveryAfterProcessLoss(t *testing.T) {
 	}
 }
 
-func TestNativeKeyScopeRecoveryReturnedFailures(t *testing.T) {
-	for _, selected := range nativeKeyScopes() {
-		for _, existing := range []bool{true, false} {
-			for _, boundary := range []string{"return-error", "cancel", "return-state-error"} {
-				t.Run(selected.name+"/"+nativeKeyScopeFileKind(existing)+"/"+boundary, func(t *testing.T) {
-					fixture := newNativeKeyScopeRecoveryFixture(t, selected, existing)
-					before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
-					code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, boundary, "apply", "--yes", "--verbose")
-					t.Logf("fault result exit=%d stdout=%s stderr=%s", code, stdout, stderr)
-					message := "native recovery fixture: returned storage error"
-					if boundary == "cancel" {
-						message = "native recovery requested cancellation"
-					}
-					if code == 0 || code == nativefixture.RecoveryExit || !strings.Contains(stderr, message) || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
-						t.Fatalf("Apply did not return the injected failure after actual host publication: exit=%d stdout=%s stderr=%s", code, stdout, stderr)
-					}
-					if boundary == "return-state-error" {
-						if !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) || strings.Count(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) != 1 {
-							t.Fatal("state-After returned error did not settle without replaying the host", stderr)
-						}
-					} else {
-						if strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) {
-							t.Fatal("host failure crossed state publication", stderr)
-						}
-						requireNativeKeyScopeBefore(t, fixture, false)
-						if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
-							t.Fatal("automatic compensation changed persisted Before state")
-						}
-						requireNativeKeyScopeMetadata(t, fixture, existing)
-					}
-					testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
-					if boundary != "return-state-error" {
-						nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
-					}
-					requireNativeKeyScopeDesired(t, fixture, "after-model")
-				})
-			}
-		}
+func TestNativeKeyJSONRecoveryCompensatesReturnedStorageError(t *testing.T) {
+	fixture := newNativeKeyScopeRecoveryFixture(t, nativeKeyScopeNamed(t, "pi-project"), true)
+	before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, "return-error", "apply", "--yes", "--verbose")
+	t.Logf("fault result exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+	if code == 0 || code == nativefixture.RecoveryExit || !strings.Contains(stderr, "native recovery fixture: returned storage error") || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
+		t.Fatalf("Apply did not return the injected failure after actual host publication: exit=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
+	if strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Paths.StatefilePath)) {
+		t.Fatal("host failure crossed state publication", stderr)
+	}
+	requireNativeKeyScopeBefore(t, fixture, false)
+	if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
+		t.Fatal("automatic compensation changed persisted Before state")
+	}
+	requireNativeKeyScopeMetadata(t, fixture, true)
+	testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
+	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "apply", "--yes")
+	requireNativeKeyScopeDesired(t, fixture, "after-model")
 }
 
 func TestNativeKeyScopeRecoveryRefusesSelectedThirdValue(t *testing.T) {

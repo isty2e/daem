@@ -18,6 +18,68 @@ type pathObservationKey struct {
 	effect PathEffect
 }
 
+// ObserveFutureReferentAuthorityBounded resolves a locator and observes the
+// resolved entry's authority with one bounded traversal. It returns physical
+// path data and exact or provisional evidence, never a mutation capability.
+func ObserveFutureReferentAuthorityBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (string, DirectoryEntryAuthorityObservation, error) {
+	canonicalize := func(selection pathSelection, effect PathEffect) (canonicalPath, error) {
+		return platformCanonicalPathBounded(selection, effect, maximumPhysicalDepth, budget)
+	}
+	return observeFutureReferentAuthorityBounded(path, maximumPhysicalDepth, budget, canonicalize)
+}
+
+// NewFutureReferentAuthorityObserverBounded reuses successful platform metadata
+// within one stable, single-writer namespace observation. It retains no handles
+// and must not be reused across effects or fresh acquisition boundaries.
+func NewFutureReferentAuthorityObserverBounded(
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) func(string) (string, DirectoryEntryAuthorityObservation, error) {
+	canonicalize := newBoundedPlatformPathObservation(maximumPhysicalDepth, budget)
+	return func(path string) (string, DirectoryEntryAuthorityObservation, error) {
+		return observeFutureReferentAuthorityBounded(path, maximumPhysicalDepth, budget, canonicalize)
+	}
+}
+
+func observeFutureReferentAuthorityBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+	canonicalize func(pathSelection, PathEffect) (canonicalPath, error),
+) (string, DirectoryEntryAuthorityObservation, error) {
+	anchor, components, err := rootedpath.ResolveFutureReferentComponentsBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, err
+	}
+	resolved := filepath.Join(anchor, filepath.Join(components...))
+	if _, err := rootedpath.CanonicalPathOnlyDestination(resolved); err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, fmt.Errorf("canonicalize mutation path %q: %w", resolved, err)
+	}
+	if len(components) == 0 {
+		components = []string{filepath.Base(anchor)}
+		anchor = filepath.Dir(anchor)
+	}
+	selection := pathSelection{
+		anchorPath:         anchor,
+		missingComponents:  components,
+		finalEntryMayExist: len(components) == 1,
+	}
+	identity, err := canonicalize(selection, PathEffectDirectoryEntry)
+	identity, err = validateCanonicalPathIdentity(resolved, identity, err)
+	if err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, err
+	}
+	observation, err := directoryEntryAuthorityObservation(identity)
+	if err != nil {
+		return "", DirectoryEntryAuthorityObservation{}, err
+	}
+	return resolved, observation, nil
+}
+
 func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget PhysicalObservationBudget) pathIdentityObserver {
 	return cachePathIdentities(func(path string, effect PathEffect) (canonicalPath, error) {
 		if err := ctx.Err(); err != nil {

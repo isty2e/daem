@@ -165,17 +165,14 @@ func protectionPathRelation(left, right mutation.DirectoryEntryAuthorityObservat
 	return protectionDisjoint
 }
 
-func observeProtectionPath(path string, budget rootedpath.PhysicalTraversalBudget) (mutation.DirectoryEntryAuthorityObservation, error) {
-	value := observeProtectionLocation(path, budget)
+func (observer *physicalObserver) observeProtectionPath(path string) (mutation.DirectoryEntryAuthorityObservation, error) {
+	value := observer.observeProtectionLocation(path)
 	return value.observation, value.err
 }
 
-func observeProtectionLocation(path string, budget rootedpath.PhysicalTraversalBudget) physicalRootObservation {
+func (observer *physicalObserver) observeProtectionLocation(path string) physicalRootObservation {
 	var value physicalRootObservation
-	value.path, value.err = rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-	if value.err == nil {
-		value.observation, value.err = mutation.ObserveDirectoryEntryAuthorityBounded(value.path, physicalwork.MaximumPhysicalPathDepth, budget)
-	}
+	value.path, value.observation, value.err = observer.observeFutureReferent(path)
 	return value
 }
 
@@ -267,7 +264,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 	var incomplete protectionFailures
 	routes := make([]mutation.DirectoryEntryAuthorityObservation, len(aliases))
 	for index, alias := range aliases {
-		route, err := mutation.ObserveDirectoryEntryAuthorityBounded(alias.route, physicalwork.MaximumPhysicalPathDepth, budget)
+		route, err := observer.entry(ctx, alias.route)
 		if err != nil {
 			incomplete.add(unverified(alias.address, ProtectionDocumentUnavailable, configuration.PathReservation{}, err))
 			continue
@@ -328,7 +325,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		endpoint := observeProtectionLocation(path, budget)
+		endpoint := observer.observeProtectionLocation(path)
 		if endpoint.err != nil {
 			incomplete.add(unverified(aliases[0].address, ProtectionEndpointUnavailable, reservation, endpoint.err))
 		} else if err := checkObservation(endpoint.observation, reservation, ""); err != nil {
@@ -347,7 +344,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				companion, err := observeProtectionPath(anchor+suffix, budget)
+				companion, err := observer.observeProtectionPath(anchor + suffix)
 				if err != nil {
 					failure := unverified(aliases[0].address, ProtectionEndpointUnavailable, reservation, err)
 					failure.endpoint = label
@@ -422,7 +419,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 		if !present {
 			return nil
 		}
-		root, err := observeProtectionPath(entries.PhysicalPath(), budget)
+		root, err := observer.observeProtectionPath(entries.PhysicalPath())
 		if err != nil {
 			linkedFailure(label, err)
 			return nil
@@ -440,7 +437,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 				return err
 			}
 			entryPath := filepath.Join(entries.PhysicalPath(), name)
-			route, err := mutation.ObserveDirectoryEntryAuthorityBounded(entryPath, physicalwork.MaximumPhysicalPathDepth, budget)
+			route, err := observer.entry(ctx, entryPath)
 			if err != nil {
 				linkedFailure(label, err)
 				continue
@@ -514,7 +511,7 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Al
 	}
 	if directory := facet.ModuleDirectory(); directory != "" {
 		reservation, _ := facet.ReservationAt(directory)
-		module, err := observeProtectionPath(filepath.Join(physical, directory), budget)
+		module, err := observer.observeProtectionPath(filepath.Join(physical, directory))
 		if err != nil {
 			incomplete.add(unverified(aliases[0].address, ProtectionEndpointUnavailable, reservation, err))
 		} else if err := checkRegion(module, directory); err != nil {

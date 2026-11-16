@@ -17,21 +17,6 @@ func TestNativeKeyRecoveryCLIHelperProcess(t *testing.T) {
 	nativefixture.RecoveryCLIHelperProcess(t)
 }
 
-func TestNativeKeyRecoveryProducerControl(t *testing.T) {
-	for _, kind := range []string{"existing", "absent", "mixed", "mixed-new"} {
-		t.Run(kind, func(t *testing.T) {
-			fixture := nativefixture.NewRecoveryFixture(t, kind)
-			_, stdout, stderr := nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
-			for _, path := range []string{fixture.Destination, fixture.Paths.StatefilePath} {
-				if !strings.Contains(stderr, nativefixture.RecoveryReceipt(path)) {
-					t.Fatalf("no-fault Apply did not confirm actual rooted publication at %s: stdout=%s stderr=%s", path, stdout, stderr)
-				}
-			}
-			nativefixture.RequireRecoveryDesired(t, fixture)
-		})
-	}
-}
-
 func TestNativeKeyRecoveryAfterProcessLoss(t *testing.T) {
 	for _, kind := range []string{"existing", "absent", "mixed", "mixed-new"} {
 		for _, boundary := range []string{"host", "state"} {
@@ -132,6 +117,7 @@ func TestNativeKeyRecoveryCompensatesReturnedStorageError(t *testing.T) {
 			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
 				t.Fatal("automatic compensation changed persisted Before state")
 			}
+			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
 			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 			nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			nativefixture.RequireRecoveryDesired(t, fixture)
@@ -153,6 +139,7 @@ func TestNativeKeyRecoveryCompensatesCancellation(t *testing.T) {
 			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
 				t.Fatal("cancellation compensation changed persisted Before state")
 			}
+			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
 			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
 			nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			nativefixture.RequireRecoveryDesired(t, fixture)

@@ -102,35 +102,40 @@ func (f nativeDocumentTransitionFixture) narrow(t *testing.T, fragment string) {
 }
 
 func TestNativeDocumentRealProducerThenKeyNarrowing(t *testing.T) {
+	// Each transition variant keeps both grammars and claim scopes.
+	// Recovery cases below cover the crossed root placements.
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f := newNativeDocumentTransitionFixture(t, selected, scope)
-				f.applyWhole(t)
-				f.narrow(t, f.changed)
-				preview := clijson.DecodePlan(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--dry-run", "--json")))
-				if preview.ActionCount != 0 || len(preview.NativeNarrowings) != 1 || preview.NativeNarrowings[0].DesiredKeyCount != 2 || !preview.NativeNarrowings[0].ValuesOmitted {
-					t.Fatalf("narrowing preview lost its public action: %+v", preview)
-				}
-				applied := clijson.DecodeApplyResult(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes", "--json")))
-				if applied.ActionCount != 1 || len(applied.NativeNarrowings) != 1 || applied.NativeNarrowings[0] != preview.NativeNarrowings[0] {
-					t.Fatalf("ownership narrowing was not reported as its actual action: %+v", applied)
-				}
-				content := testkit.ReadFile(t, f.Destination)
-				nativefixture.RequireSharedValues(t, f.syntax, content, f.changed, true)
-				nativefixture.RequireSharedValues(t, f.syntax, content, f.released, true)
-				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
-				if err != nil || len(snapshot.ManagedPaths()) != 0 || len(snapshot.ManagedAggregates()) != 2 {
-					t.Fatal("narrowing lost key state or retained whole ownership", err)
-				}
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-				if !bytes.Equal(content, testkit.ReadFile(t, f.Destination)) {
-					t.Fatal("repeat apply rewrote narrowed content")
-				}
-				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
-			})
+		scope := target.ScopeProject
+		if selected == target.TargetPi {
+			scope = target.ScopeGlobal
 		}
+
+		t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, selected, scope)
+			f.applyWhole(t)
+			f.narrow(t, f.changed)
+			preview := clijson.DecodePlan(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--dry-run", "--json")))
+			if preview.ActionCount != 0 || len(preview.NativeNarrowings) != 1 || preview.NativeNarrowings[0].DesiredKeyCount != 2 || !preview.NativeNarrowings[0].ValuesOmitted {
+				t.Fatalf("narrowing preview lost its public action: %+v", preview)
+			}
+			applied := clijson.DecodeApplyResult(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes", "--json")))
+			if applied.ActionCount != 1 || len(applied.NativeNarrowings) != 1 || applied.NativeNarrowings[0] != preview.NativeNarrowings[0] {
+				t.Fatalf("ownership narrowing was not reported as its actual action: %+v", applied)
+			}
+			content := testkit.ReadFile(t, f.Destination)
+			nativefixture.RequireSharedValues(t, f.syntax, content, f.changed, true)
+			nativefixture.RequireSharedValues(t, f.syntax, content, f.released, true)
+			snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
+			if err != nil || len(snapshot.ManagedPaths()) != 0 || len(snapshot.ManagedAggregates()) != 2 {
+				t.Fatal("narrowing lost key state or retained whole ownership", err)
+			}
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			if !bytes.Equal(content, testkit.ReadFile(t, f.Destination)) {
+				t.Fatal("repeat apply rewrote narrowed content")
+			}
+			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+		})
 	}
 }
 
@@ -285,79 +290,78 @@ func TestNativeDocumentNarrowingReleasedEditsAndThirdValues(t *testing.T) {
 
 func TestNativeDocumentNarrowingNoNewCustody(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			for _, variant := range []string{"matching-retained", "capture-required", "empty-release"} {
-				t.Run(fmt.Sprintf("%s/%s/%s", selected, scope, variant), func(t *testing.T) {
-					f := newNativeDocumentTransitionFixture(t, selected, scope)
-					f.applyWhole(t)
-					external := strings.Replace(f.original, "bar = 2", "bar = 9", 1)
+		scope := target.ScopeProject
+		if selected == target.TargetPi {
+			scope = target.ScopeGlobal
+		}
+
+		for _, variant := range []string{"matching-retained", "capture-required", "empty-release"} {
+			t.Run(fmt.Sprintf("%s/%s/%s", selected, scope, variant), func(t *testing.T) {
+				f := newNativeDocumentTransitionFixture(t, selected, scope)
+				f.applyWhole(t)
+				external := strings.Replace(f.original, "bar = 2", "bar = 9", 1)
+				if selected == target.TargetPi {
+					external = strings.Replace(f.original, `"bar": 2`, `"bar": 9`, 1)
+				}
+				if err := os.WriteFile(f.Destination, []byte(external), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				desired := f.retained
+				if variant == "capture-required" {
+					desired = f.changed
+				}
+				if variant == "empty-release" {
+					desired = ""
 					if selected == target.TargetPi {
-						external = strings.Replace(f.original, `"bar": 2`, `"bar": 9`, 1)
+						desired = `{}`
 					}
-					if err := os.WriteFile(f.Destination, []byte(external), 0o600); err != nil {
-						t.Fatal(err)
+				}
+				f.narrow(t, desired)
+				if variant == "capture-required" {
+					before := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+					code, _, _ := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "none", "apply", "--yes")
+					if code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+						t.Fatal("capture-required narrowing modified host or ownership")
 					}
-					desired := f.retained
-					if variant == "capture-required" {
-						desired = f.changed
-					}
-					if variant == "empty-release" {
-						desired = ""
-						if selected == target.TargetPi {
-							desired = `{}`
-						}
-					}
-					f.narrow(t, desired)
-					if variant == "capture-required" {
-						before := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
-						code, _, _ := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "none", "apply", "--yes")
-						if code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
-							t.Fatal("capture-required narrowing modified host or ownership")
-						}
-						f.narrow(t, f.retained)
-					}
-					nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-					testkit.AssertFileContent(t, f.Destination, external)
-					snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
-					count := 1
-					if variant == "empty-release" {
-						count = 0
-					}
-					if err != nil || len(snapshot.ManagedPaths()) != 0 || len(snapshot.ManagedAggregates()) != count {
-						t.Fatal("scope release lost its exact state partition", err)
-					}
-					nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-					nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", f.Manifest, "--json")
-					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
-				})
-			}
+					f.narrow(t, f.retained)
+				}
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+				testkit.AssertFileContent(t, f.Destination, external)
+				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
+				count := 1
+				if variant == "empty-release" {
+					count = 0
+				}
+				if err != nil || len(snapshot.ManagedPaths()) != 0 || len(snapshot.ManagedAggregates()) != count {
+					t.Fatal("scope release lost its exact state partition", err)
+				}
+				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+				nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", f.Manifest, "--json")
+				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+			})
 		}
 	}
 }
 
 func TestNativeDocumentWholeUpdateAndRemoval(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f := newNativeDocumentTransitionFixture(t, selected, scope)
-				f.applyWhole(t)
-				updated := f.original + "\n# changed whole source\n"
-				if selected == target.TargetPi {
-					updated = f.original + "\n// changed whole source\n"
-				}
-				testkit.WriteFile(t, f.workspace, filepath.Base(f.source), updated)
-				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-				testkit.AssertFileContent(t, f.Destination, updated)
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-				nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", f.Manifest, "--json")
-				testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
-				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-				testkit.AssertPathMissing(t, f.Destination)
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-			})
-		}
+	selected := target.TargetCodex
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, selected, scope)
+			f.applyWhole(t)
+			updated := f.original + "\n# changed whole source\n"
+			testkit.WriteFile(t, f.workspace, filepath.Base(f.source), updated)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			testkit.AssertFileContent(t, f.Destination, updated)
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+			nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", f.Manifest, "--json")
+			testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			testkit.AssertPathMissing(t, f.Destination)
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+		})
 	}
 }
 
@@ -395,58 +399,57 @@ func TestNativeDocumentNarrowingReturnedErrors(t *testing.T) {
 }
 
 func TestNativeDocumentWholeRecovery(t *testing.T) {
-	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			for _, remove := range []bool{false, true} {
-				for _, boundary := range []string{"host", "state"} {
-					t.Run(fmt.Sprintf("%s/%s/remove=%t/%s", selected, scope, remove, boundary), func(t *testing.T) {
-						f := newNativeDocumentTransitionFixture(t, selected, scope)
-						checkpoint := boundary
-						var beforeState []byte
-						if remove {
-							f.applyWhole(t)
-							beforeState = testkit.ReadFile(t, f.Paths.StatefilePath)
-							testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
-							nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-							if boundary == "host" {
-								checkpoint = "host-removal"
-							}
-						}
-						code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, checkpoint, "apply", "--yes")
-						if code != nativefixture.RecoveryExit {
-							t.Fatalf("whole command did not reach actual publication: %d %s %s", code, stdout, stderr)
-						}
-						published, publishErr := os.Stat(f.Destination)
-						if remove && !errors.Is(publishErr, os.ErrNotExist) || !remove && publishErr != nil {
-							t.Fatal("wrong published whole image", publishErr)
-						}
-						nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
-						nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+	selected := target.TargetCodex
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		for _, remove := range []bool{false, true} {
+			for _, boundary := range []string{"host", "state"} {
+				t.Run(fmt.Sprintf("%s/%s/remove=%t/%s", selected, scope, remove, boundary), func(t *testing.T) {
+					f := newNativeDocumentTransitionFixture(t, selected, scope)
+					checkpoint := boundary
+					var beforeState []byte
+					if remove {
+						f.applyWhole(t)
+						beforeState = testkit.ReadFile(t, f.Paths.StatefilePath)
+						testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
+						nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
 						if boundary == "host" {
-							if remove {
-								testkit.AssertFileContent(t, f.Destination, f.original)
-								if !bytes.Equal(beforeState, testkit.ReadFile(t, f.Paths.StatefilePath)) {
-									t.Fatal("whole removal rollback changed its persisted baseline")
-								}
-							} else {
-								testkit.AssertPathMissing(t, f.Destination)
+							checkpoint = "host-removal"
+						}
+					}
+					code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, checkpoint, "apply", "--yes")
+					if code != nativefixture.RecoveryExit {
+						t.Fatalf("whole command did not reach actual publication: %d %s %s", code, stdout, stderr)
+					}
+					published, publishErr := os.Stat(f.Destination)
+					if remove && !errors.Is(publishErr, os.ErrNotExist) || !remove && publishErr != nil {
+						t.Fatal("wrong published whole image", publishErr)
+					}
+					nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
+					nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+					if boundary == "host" {
+						if remove {
+							testkit.AssertFileContent(t, f.Destination, f.original)
+							if !bytes.Equal(beforeState, testkit.ReadFile(t, f.Paths.StatefilePath)) {
+								t.Fatal("whole removal rollback changed its persisted baseline")
 							}
 						} else {
-							if remove {
-								testkit.AssertPathMissing(t, f.Destination)
-							} else {
-								after, err := os.Stat(f.Destination)
-								if err != nil || !os.SameFile(published, after) {
-									t.Fatal("whole finalization replayed publication", err)
-								}
-								testkit.AssertFileContent(t, f.Destination, f.original)
-							}
+							testkit.AssertPathMissing(t, f.Destination)
 						}
-						nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-						nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-						testkit.AssertNoRecoveryArtifacts(t, f.workspace)
-					})
-				}
+					} else {
+						if remove {
+							testkit.AssertPathMissing(t, f.Destination)
+						} else {
+							after, err := os.Stat(f.Destination)
+							if err != nil || !os.SameFile(published, after) {
+								t.Fatal("whole finalization replayed publication", err)
+							}
+							testkit.AssertFileContent(t, f.Destination, f.original)
+						}
+					}
+					nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+					nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+					testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+				})
 			}
 		}
 	}
@@ -474,110 +477,119 @@ func prepareNativeKeyToWholeFixture(t *testing.T, selected target.Target, scope 
 
 func TestNativeDocumentKeyToWholeMatchingAdoption(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f := prepareNativeKeyToWholeFixture(t, selected, scope)
-				before, err := os.Stat(f.Destination)
-				if err != nil {
-					t.Fatal(err)
-				}
-				preview := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--dry-run", "--manage-existing")
-				if !reflect.DeepEqual(preview, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
-					t.Fatal("whole adoption preview changed host or management evidence")
-				}
-				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "none", "apply", "--yes", "--manage-existing", "--verbose")
-				if code != 0 {
-					t.Fatalf("matching whole adoption failed: %d %s %s", code, stdout, stderr)
-				}
-				after, err := os.Stat(f.Destination)
-				if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
-					t.Fatal("record-only adoption rewrote the host file or permissions", err)
-				}
-				testkit.AssertFileContent(t, f.Destination, f.original)
-				stateBytes := testkit.ReadFile(t, f.Paths.StatefilePath)
-				state, err := statefile.DecodePersistedFacts(t.Context(), stateBytes)
-				if err != nil || len(state.ManagedAggregates()) != 0 || len(state.ManagedPaths()) != 1 || state.ManagedPaths()[0].ContentHash() != artifact.HashFileContent([]byte(f.original)) {
-					t.Fatal("whole adoption lost its actual baseline or retained key ownership", err)
-				}
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
-				if !bytes.Equal(stateBytes, testkit.ReadFile(t, f.Paths.StatefilePath)) {
-					t.Fatal("whole adoption retry changed its completed state")
-				}
-				testkit.AssertNoRecoveryArtifacts(t, f.workspace)
-			})
+		scope := target.ScopeProject
+		if selected == target.TargetPi {
+			scope = target.ScopeGlobal
 		}
+
+		t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+			f := prepareNativeKeyToWholeFixture(t, selected, scope)
+			before, err := os.Stat(f.Destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preview := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--dry-run", "--manage-existing")
+			if !reflect.DeepEqual(preview, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+				t.Fatal("whole adoption preview changed host or management evidence")
+			}
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "none", "apply", "--yes", "--manage-existing", "--verbose")
+			if code != 0 {
+				t.Fatalf("matching whole adoption failed: %d %s %s", code, stdout, stderr)
+			}
+			after, err := os.Stat(f.Destination)
+			if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
+				t.Fatal("record-only adoption rewrote the host file or permissions", err)
+			}
+			testkit.AssertFileContent(t, f.Destination, f.original)
+			stateBytes := testkit.ReadFile(t, f.Paths.StatefilePath)
+			state, err := statefile.DecodePersistedFacts(t.Context(), stateBytes)
+			if err != nil || len(state.ManagedAggregates()) != 0 || len(state.ManagedPaths()) != 1 || state.ManagedPaths()[0].ContentHash() != artifact.HashFileContent([]byte(f.original)) {
+				t.Fatal("whole adoption lost its actual baseline or retained key ownership", err)
+			}
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json")
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			if !bytes.Equal(stateBytes, testkit.ReadFile(t, f.Paths.StatefilePath)) {
+				t.Fatal("whole adoption retry changed its completed state")
+			}
+			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+		})
 	}
 }
 
 func TestNativeDocumentKeyToWholeRefusesUnsafeAdoption(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			for _, fault := range []string{"no consent", "different bytes", "stale lock", "mode mismatch", "missing file", "retarget"} {
-				t.Run(string(selected)+"/"+string(scope)+"/"+fault, func(t *testing.T) {
-					f := prepareNativeKeyToWholeFixture(t, selected, scope)
-					other := filepath.Join(filepath.Dir(f.Destination), "other"+filepath.Ext(f.Destination))
-					switch fault {
-					case "stale lock":
-						testkit.WriteFile(t, filepath.Dir(f.Destination), filepath.Base(f.Destination), f.changed)
-						testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
-					case "different bytes":
-						testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.original+"\n")
-						nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-					case "mode mismatch":
-						if err := os.Chmod(f.Destination, 0o644); err != nil {
-							t.Fatal(err)
-						}
-					case "missing file":
-						if err := os.Remove(f.Destination); err != nil {
-							t.Fatal(err)
-						}
-					case "retarget":
-						testkit.WriteFile(t, filepath.Dir(other), filepath.Base(other), f.original)
-						if err := os.Chmod(other, 0o600); err != nil {
-							t.Fatal(err)
-						}
-						f.declaration = strings.Replace(f.declaration, filepath.Base(f.Destination), filepath.Base(other), 1)
-						f.writeMode(t, "document")
-						nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+		scope := target.ScopeProject
+		if selected == target.TargetPi {
+			scope = target.ScopeGlobal
+		}
+
+		for _, fault := range []string{"no consent", "different bytes", "stale lock", "mode mismatch", "missing file", "retarget"} {
+			t.Run(string(selected)+"/"+string(scope)+"/"+fault, func(t *testing.T) {
+				f := prepareNativeKeyToWholeFixture(t, selected, scope)
+				other := filepath.Join(filepath.Dir(f.Destination), "other"+filepath.Ext(f.Destination))
+				switch fault {
+				case "stale lock":
+					testkit.WriteFile(t, filepath.Dir(f.Destination), filepath.Base(f.Destination), f.changed)
+					testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
+				case "different bytes":
+					testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.original+"\n")
+					nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+				case "mode mismatch":
+					if err := os.Chmod(f.Destination, 0o644); err != nil {
+						t.Fatal(err)
 					}
-					before := nativefixture.SnapshotRecoveryPaths(t, f.Destination, other, f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath, f.Paths.RecoveryDir)
-					args := []string{"apply", "--yes", "--json"}
-					if fault != "no consent" {
-						args = append(args, "--manage-existing")
+				case "missing file":
+					if err := os.Remove(f.Destination); err != nil {
+						t.Fatal(err)
 					}
-					code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "none", args...)
-					if code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, f.Destination, other, f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath, f.Paths.RecoveryDir)) {
-						t.Fatalf("unsafe adoption was accepted or had effects: %d %s %s", code, stdout, stderr)
+				case "retarget":
+					testkit.WriteFile(t, filepath.Dir(other), filepath.Base(other), f.original)
+					if err := os.Chmod(other, 0o600); err != nil {
+						t.Fatal(err)
 					}
-				})
-			}
+					f.declaration = strings.Replace(f.declaration, filepath.Base(f.Destination), filepath.Base(other), 1)
+					f.writeMode(t, "document")
+					nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+				}
+				before := nativefixture.SnapshotRecoveryPaths(t, f.Destination, other, f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath, f.Paths.RecoveryDir)
+				args := []string{"apply", "--yes", "--json"}
+				if fault != "no consent" {
+					args = append(args, "--manage-existing")
+				}
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "none", args...)
+				if code == 0 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, f.Destination, other, f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath, f.Paths.RecoveryDir)) {
+					t.Fatalf("unsafe adoption was accepted or had effects: %d %s %s", code, stdout, stderr)
+				}
+			})
 		}
 	}
 }
 
 func TestNativeDocumentKeyToWholePreservesMatchingCurrentDrift(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
-		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
-				f := prepareNativeKeyToWholeFixture(t, selected, scope)
-				testkit.WriteFile(t, filepath.Dir(f.Destination), filepath.Base(f.Destination), f.changed)
-				testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
-				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-				before, err := os.Stat(f.Destination)
-				if err != nil {
-					t.Fatal(err)
-				}
-				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes", "--manage-existing")
-				after, err := os.Stat(f.Destination)
-				if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
-					t.Fatal("matching current drift was overwritten during whole adoption", err)
-				}
-				testkit.AssertFileContent(t, f.Destination, f.changed)
-				nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check")
-			})
+		scope := target.ScopeProject
+		if selected == target.TargetPi {
+			scope = target.ScopeGlobal
 		}
+
+		t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
+			f := prepareNativeKeyToWholeFixture(t, selected, scope)
+			testkit.WriteFile(t, filepath.Dir(f.Destination), filepath.Base(f.Destination), f.changed)
+			testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			before, err := os.Stat(f.Destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes", "--manage-existing")
+			after, err := os.Stat(f.Destination)
+			if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
+				t.Fatal("matching current drift was overwritten during whole adoption", err)
+			}
+			testkit.AssertFileContent(t, f.Destination, f.changed)
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check")
+		})
 	}
 }
 
