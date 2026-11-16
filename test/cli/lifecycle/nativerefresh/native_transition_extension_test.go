@@ -80,8 +80,10 @@ func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope 
 				fragment = "{}"
 			}
 		}
-		g.narrow(t, fragment)
+		g.writeMode(t, "keys")
+		testkit.WriteFile(t, g.workspace, filepath.Base(g.source), fragment)
 	}
+
 	testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
 	launch := filepath.Join(f.Workspace, "transition-at-command")
 	t.Setenv("DAEM_TEST_TRANSITION_DOCUMENT", g.Destination)
