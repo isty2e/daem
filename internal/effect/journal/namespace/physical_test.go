@@ -1,17 +1,84 @@
 package namespace
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestPhysicalEntryObservationRetriesErrorsAndHonorsCancellation(t *testing.T) {
+	refusal := errors.New("temporary observation refusal")
+	budget := &entryObservationBudget{Budget: imageBudget(t), refuseNext: refusal}
+	observer := newPhysicalObserver(ReservationSelectors{}, budget)
+	path := filepath.Join(t.TempDir(), "entry.json")
+	if _, err := observer.entry(t.Context(), path); !errors.Is(err, refusal) {
+		t.Fatalf("initial entry refusal = %v", err)
+	}
+	want, err := observer.entry(t.Context(), path)
+	if err != nil {
+		t.Fatal("entry error was retained", err)
+	}
+	before := budget.visits
+	got, err := observer.entry(t.Context(), path)
+	if err != nil || !got.Equal(want) || budget.visits != before {
+		t.Fatal("successful entry was re-observed or changed", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := observer.entry(ctx, path); !errors.Is(err, context.Canceled) || budget.visits != before {
+		t.Fatal("cached entry bypassed cancellation or performed I/O", err)
+	}
+}
+
+func TestPhysicalEntryObservationFallsThroughAfterCapacity(t *testing.T) {
+	budget := &entryObservationBudget{Budget: imageBudget(t)}
+	observer := newPhysicalObserver(ReservationSelectors{}, budget)
+	root := t.TempDir()
+	for index := range physicalwork.MaximumPhysicalPathDepth {
+		if _, err := observer.entry(t.Context(), filepath.Join(root, fmt.Sprintf("entry-%03d.json", index))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := budget.visits
+	if _, err := observer.entry(t.Context(), filepath.Join(root, "entry-000.json")); err != nil || budget.visits != before {
+		t.Fatal("capacity discarded a retained entry", err)
+	}
+	for range 2 {
+		before := budget.visits
+		if _, err := observer.entry(t.Context(), filepath.Join(root, "uncached.json")); err != nil || budget.visits <= before {
+			t.Fatal("capacity rejected a query or retained overflow work", err)
+		}
+	}
+}
+
+type entryObservationBudget struct {
+	*physicalwork.Budget
+	visits     int
+	refuseNext error
+}
+
+func (budget *entryObservationBudget) AdmitPathComponents(count int) error {
+	if budget.refuseNext != nil {
+		err := budget.refuseNext
+		budget.refuseNext = nil
+		return err
+	}
+	if err := budget.Budget.AdmitPathComponents(count); err != nil {
+		return err
+	}
+	budget.visits += count
+	return nil
+}
 
 func TestNativeNamedProfileRulesDoNotChangeWithOwnCreationOrRemoval(t *testing.T) {
 	base := t.TempDir()

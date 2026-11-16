@@ -26,6 +26,31 @@ func ObserveFutureReferentAuthorityBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (string, DirectoryEntryAuthorityObservation, error) {
+	canonicalize := func(selection pathSelection, effect PathEffect) (canonicalPath, error) {
+		return platformCanonicalPathBounded(selection, effect, maximumPhysicalDepth, budget)
+	}
+	return observeFutureReferentAuthorityBounded(path, maximumPhysicalDepth, budget, canonicalize)
+}
+
+// NewFutureReferentAuthorityObserverBounded reuses successful platform metadata
+// within one stable, single-writer namespace observation. It retains no handles
+// and must not be reused across effects or fresh acquisition boundaries.
+func NewFutureReferentAuthorityObserverBounded(
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) func(string) (string, DirectoryEntryAuthorityObservation, error) {
+	canonicalize := newBoundedPlatformPathObservation(maximumPhysicalDepth, budget)
+	return func(path string) (string, DirectoryEntryAuthorityObservation, error) {
+		return observeFutureReferentAuthorityBounded(path, maximumPhysicalDepth, budget, canonicalize)
+	}
+}
+
+func observeFutureReferentAuthorityBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+	canonicalize func(pathSelection, PathEffect) (canonicalPath, error),
+) (string, DirectoryEntryAuthorityObservation, error) {
 	anchor, components, err := rootedpath.ResolveFutureReferentComponentsBounded(path, maximumPhysicalDepth, budget)
 	if err != nil {
 		return "", DirectoryEntryAuthorityObservation{}, err
@@ -43,7 +68,8 @@ func ObserveFutureReferentAuthorityBounded(
 		missingComponents:  components,
 		finalEntryMayExist: len(components) == 1,
 	}
-	identity, err := canonicalPathIdentityFromSelectionBounded(resolved, selection, PathEffectDirectoryEntry, maximumPhysicalDepth, budget)
+	identity, err := canonicalize(selection, PathEffectDirectoryEntry)
+	identity, err = validateCanonicalPathIdentity(resolved, identity, err)
 	if err != nil {
 		return "", DirectoryEntryAuthorityObservation{}, err
 	}

@@ -81,6 +81,74 @@ func TestDarwinStoredNamespaceDoesNotRequirePayloadReadPermission(t *testing.T) 
 	}
 }
 
+func TestDarwinBoundedSharedObservationFallsThroughAfterCapacity(t *testing.T) {
+	descriptors, cases := 0, 0
+	observation := darwinPathObservation{
+		descriptorPath: func(path string, _ bool) (string, error) {
+			descriptors++
+			return path, nil
+		},
+		directoryCase: func(string) (pathCaseSemantics, error) {
+			cases++
+			return pathCaseSensitive, nil
+		},
+	}.sharedWithLimit(1)
+	for _, path := range []string{"/first", "/second", "/first", "/second"} {
+		if got, err := observation.descriptorPath(path, false); err != nil || got != path {
+			t.Fatalf("descriptor = %q, %v; want %q", got, err, path)
+		}
+		if got, err := observation.directoryCase(path); err != nil || got != pathCaseSensitive {
+			t.Fatalf("case semantics = %v, %v", got, err)
+		}
+	}
+	if descriptors != 3 || cases != 3 {
+		t.Fatalf("bounded metadata observations = %d, %d; want 3, 3", descriptors, cases)
+	}
+}
+
+func TestScopedFutureReferentObservationReducesPlatformWork(t *testing.T) {
+	root := t.TempDir()
+	freshBudget := &pathAuthorityTestBudget{limit: 100_000}
+	scopedBudget := &pathAuthorityTestBudget{limit: 100_000}
+	scoped := NewFutureReferentAuthorityObserverBounded(256, scopedBudget)
+	for _, name := range []string{"first.json", "second.json"} {
+		path := filepath.Join(root, name)
+		wantPath, want, err := ObserveFutureReferentAuthorityBounded(path, 256, freshBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotPath, got, err := scoped(path)
+		if err != nil || gotPath != wantPath || !got.Equal(want) {
+			t.Fatalf("scoped observation changed authority: %q, %v", gotPath, err)
+		}
+	}
+	if scopedBudget.visits >= freshBudget.visits {
+		t.Fatalf("scoped observation charged %d components; fresh charged %d", scopedBudget.visits, freshBudget.visits)
+	}
+}
+
+func TestScopedFutureReferentObservationStartsFreshAfterRemoval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Caf\u00e9.json")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := NewFutureReferentAuthorityObserverBounded(256, &pathAuthorityTestBudget{limit: 100_000})
+	_, existing, err := before(path)
+	if _, exact := existing.Exact(); err != nil || !exact {
+		t.Fatal("existing Unicode entry was not exact", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	after := NewFutureReferentAuthorityObserverBounded(256, &pathAuthorityTestBudget{limit: 100_000})
+	gotPath, got, err := after(path)
+	wantPath, want, wantErr := ObserveFutureReferentAuthorityBounded(path, 256, &pathAuthorityTestBudget{limit: 100_000})
+	_, exact := got.Exact()
+	if err != nil || wantErr != nil || gotPath != wantPath || !got.Equal(want) || exact {
+		t.Fatal("new observation reused pre-removal exact evidence", err, wantErr)
+	}
+}
+
 func TestDarwinSharedObservationKeepsFollowModeDistinct(t *testing.T) {
 	calls := 0
 	observation := darwinPathObservation{

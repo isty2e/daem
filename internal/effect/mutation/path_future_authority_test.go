@@ -47,6 +47,18 @@ func TestFutureReferentAuthorityMatchesTwoStepObservation(t *testing.T) {
 		if gotExact != oldExact || (gotExact && !gotReference.Equal(oldReference)) {
 			t.Fatal("combined observation changed exact lookup spelling")
 		}
+
+		scoped := NewFutureReferentAuthorityObserverBounded(256, &pathAuthorityTestBudget{limit: 100_000})
+		for range 2 {
+			got, authority, err := scoped(selected)
+			if err != nil || got != want || !authority.Equal(oldAuthority) {
+				t.Fatalf("scoped path/authority = %q, %v; want %q and equal authority", got, err, want)
+			}
+			gotReference, gotExact := authority.Reference()
+			if gotExact != oldExact || (gotExact && !gotReference.Equal(oldReference)) {
+				t.Fatal("scoped observation changed exact lookup spelling")
+			}
+		}
 	}
 
 	for _, test := range []struct {
@@ -166,6 +178,21 @@ func TestFutureReferentAuthorityRejectsWithoutPartialEvidence(t *testing.T) {
 			typed := errors.As(err, &failure)
 			if oldTyped != typed || (typed && failure.Kind() != oldFailure.Kind()) {
 				t.Fatalf("combined failure changed category: %v; two-step %v", err, oldErr)
+			}
+
+			var scopedBudget rootedpath.PhysicalTraversalBudget
+			if test.budget != nil {
+				scopedBudget = &pathAuthorityTestBudget{limit: test.budget.limit}
+			}
+			scoped := NewFutureReferentAuthorityObserverBounded(test.depth, scopedBudget)
+			got, authority, err = scoped(test.path)
+			if err == nil || got != "" || !authority.exact.IsZero() || !authority.provisional.IsZero() || authority.locator != "" {
+				t.Fatalf("failed scoped observation supplied evidence: %q, %+v, %v", got, authority, err)
+			}
+			failure = nil
+			typed = errors.As(err, &failure)
+			if oldTyped != typed || (typed && failure.Kind() != oldFailure.Kind()) {
+				t.Fatalf("scoped failure changed category: %v; two-step %v", err, oldErr)
 			}
 		})
 	}

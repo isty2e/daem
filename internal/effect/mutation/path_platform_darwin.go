@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,6 +47,10 @@ func newPlatformPathObservation() func(pathSelection, PathEffect) (canonicalPath
 }
 
 func (observation darwinPathObservation) shared() darwinPathObservation {
+	return observation.sharedWithLimit(math.MaxInt)
+}
+
+func (observation darwinPathObservation) sharedWithLimit(maximumEntries int) darwinPathObservation {
 	type descriptorRequest struct {
 		path     string
 		noFollow bool
@@ -59,7 +64,7 @@ func (observation darwinPathObservation) shared() darwinPathObservation {
 				return stored, nil
 			}
 			stored, err := observation.descriptorPath(path, noFollow)
-			if err == nil {
+			if err == nil && len(descriptors) < maximumEntries {
 				descriptors[request] = stored
 			}
 			return stored, err
@@ -69,7 +74,7 @@ func (observation darwinPathObservation) shared() darwinPathObservation {
 				return mode, nil
 			}
 			mode, err := observation.directoryCase(path)
-			if err == nil {
+			if err == nil && len(cases) < maximumEntries {
 				cases[path] = mode
 			}
 			return mode, err
@@ -83,7 +88,24 @@ func platformCanonicalPathBounded(
 	maximumPhysicalDepth int,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (canonicalPath, error) {
-	return canonicalDarwinPath(selection, effect, darwinPathObservation{
+	return canonicalDarwinPath(selection, effect, boundedDarwinPathObservation(maximumPhysicalDepth, budget))
+}
+
+func newBoundedPlatformPathObservation(
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) func(pathSelection, PathEffect) (canonicalPath, error) {
+	observation := boundedDarwinPathObservation(maximumPhysicalDepth, budget).sharedWithLimit(maximumPhysicalDepth)
+	return func(selection pathSelection, effect PathEffect) (canonicalPath, error) {
+		return canonicalDarwinPath(selection, effect, observation)
+	}
+}
+
+func boundedDarwinPathObservation(
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) darwinPathObservation {
+	return darwinPathObservation{
 		descriptorPath: func(path string, noFollow bool) (string, error) {
 			if err := admitPlatformPathTraversal(path, maximumPhysicalDepth, budget); err != nil {
 				return "", err
@@ -96,7 +118,7 @@ func platformCanonicalPathBounded(
 			}
 			return darwinDirectoryCaseSemantics(path)
 		},
-	})
+	}
 }
 
 func canonicalDarwinPath(
