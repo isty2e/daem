@@ -126,25 +126,25 @@ func TestNativeKeyRecoveryCompensatesReturnedStorageError(t *testing.T) {
 }
 
 func TestNativeKeyRecoveryCompensatesCancellation(t *testing.T) {
-	for _, kind := range []string{"existing", "absent", "mixed", "mixed-new"} {
-		t.Run(kind, func(t *testing.T) {
-			fixture := nativefixture.NewRecoveryFixture(t, kind)
-			before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
-			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "cancel", "apply", "--yes", "--verbose")
-			t.Logf("fault result exit=%d stdout=%s stderr=%s", code, stdout, stderr)
-			if code == 0 || code == nativefixture.RecoveryExit || !strings.Contains(stderr, "native recovery requested cancellation") || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
-				t.Fatalf("cancellation did not follow actual host publication: exit=%d stdout=%s stderr=%s", code, stdout, stderr)
-			}
-			nativefixture.RequireRecoveryBeforeHost(t, fixture, false)
-			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
-				t.Fatal("cancellation compensation changed persisted Before state")
-			}
-			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
-			testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
-			nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
-			nativefixture.RequireRecoveryDesired(t, fixture)
-		})
-	}
+	// Exercise cancellation with the key/MCP mode transition; storage-error cases cover restoration shapes.
+	kind := "mixed-new"
+	t.Run(kind, func(t *testing.T) {
+		fixture := nativefixture.NewRecoveryFixture(t, kind)
+		before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
+		code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "cancel", "apply", "--yes", "--verbose")
+		t.Logf("fault result exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+		if code == 0 || code == nativefixture.RecoveryExit || !strings.Contains(stderr, "native recovery requested cancellation") || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
+			t.Fatalf("cancellation did not follow actual host publication: exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+		}
+		nativefixture.RequireRecoveryBeforeHost(t, fixture, false)
+		if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)) {
+			t.Fatal("cancellation compensation changed persisted Before state")
+		}
+		nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, kind != "absent")
+		testkit.AssertNoRecoveryArtifacts(t, filepath.Dir(fixture.Manifest))
+		nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
+		nativefixture.RequireRecoveryDesired(t, fixture)
+	})
 }
 
 func TestNativeKeyRecoveryFinalizesReturnedStateErrorWithoutHostReplay(t *testing.T) {
