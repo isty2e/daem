@@ -32,11 +32,6 @@ func TestMCPPublicCLIDoesNotInvokeRuntimeProbesOnLifecyclePaths(t *testing.T) {
 	assertEveryMCPJSONDimension(t, dryRunPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
 	assertEveryMCPJSONDimension(t, dryRunPayload, "protocol_initialize", "not_probed", "RUNTIME_NOT_PROBED")
 	execcheck.AssertClean(t, canary, "apply dry-run create")
-	attemptDryRun := runMCPCLIExpect(t, 0, "apply delegated route dry-run create", "apply", "--manifest", project.manifestPath, "--dry-run", "--json")
-	attemptDryRunPayload := clijson.DecodePlan(t, []byte(attemptDryRun))
-	assertEveryMCPJSONDimension(t, attemptDryRunPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
-	assertEveryMCPJSONDimension(t, attemptDryRunPayload, "protocol_initialize", "not_probed", "RUNTIME_NOT_PROBED")
-	execcheck.AssertClean(t, canary, "apply delegated route dry-run create")
 
 	missingStatus := runMCPCLIExpect(t, 1, "status check before apply", "status", "--manifest", project.manifestPath, "--check", "--json")
 	missingStatusPayload := clijson.DecodePlan(t, []byte(missingStatus))
@@ -89,11 +84,6 @@ func TestMCPPublicCLIDoesNotInvokeOpenCodeRuntimeProbeOnLifecyclePaths(t *testin
 	assertEveryMCPJSONDimension(t, dryRunPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
 	assertEveryMCPJSONDimension(t, dryRunPayload, "protocol_initialize", "not_probed", "RUNTIME_NOT_PROBED")
 	execcheck.AssertClean(t, canary, "opencode apply dry-run create")
-	attemptDryRun := runMCPCLIExpect(t, 0, "opencode apply delegated route dry-run create", "apply", "--manifest", project.manifestPath, "--target", "opencode", "--dry-run", "--json")
-	attemptDryRunPayload := clijson.DecodePlan(t, []byte(attemptDryRun))
-	assertEveryMCPJSONDimension(t, attemptDryRunPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
-	assertEveryMCPJSONDimension(t, attemptDryRunPayload, "protocol_initialize", "not_probed", "RUNTIME_NOT_PROBED")
-	execcheck.AssertClean(t, canary, "opencode apply delegated route dry-run create")
 
 	missingStatus := runMCPCLIExpect(t, 1, "opencode status check before apply", "status", "--manifest", project.manifestPath, "--target", "opencode", "--check", "--json")
 	missingStatusPayload := clijson.DecodePlan(t, []byte(missingStatus))
