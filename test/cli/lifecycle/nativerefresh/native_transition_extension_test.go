@@ -107,6 +107,7 @@ func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope 
 }
 
 func TestNativeOwnershipTransitionWithPiCommand(t *testing.T) {
+	// Both grammars exercise every phase; recovery tests below cross the root scopes.
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		scope := target.ScopeProject
 		if selected == target.TargetCodex {
