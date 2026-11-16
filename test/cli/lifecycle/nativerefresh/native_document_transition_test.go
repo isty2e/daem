@@ -102,6 +102,8 @@ func (f nativeDocumentTransitionFixture) narrow(t *testing.T, fragment string) {
 }
 
 func TestNativeDocumentRealProducerThenKeyNarrowing(t *testing.T) {
+	// Each transition variant keeps both grammars and claim scopes.
+	// Recovery cases below cover the crossed root placements.
 	for _, selected := range []target.Target{target.TargetCodex, target.TargetPi} {
 		scope := target.ScopeProject
 		if selected == target.TargetPi {
