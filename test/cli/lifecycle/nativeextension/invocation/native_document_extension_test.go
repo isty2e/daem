@@ -110,7 +110,10 @@ func TestNativeWholeDocumentPublishesAfterPiInstall(t *testing.T) {
 						t.Fatal(err)
 					}
 
-					f.Require(t, "lock")
+					// Current and tampered already locked the unchanged declaration before setup Apply.
+					if mode != "current" && mode != "tampered" {
+						f.Require(t, "lock")
+					}
 					if mode == "tampered" {
 						code, _, _ := f.Run("apply", "--yes")
 						if code == 0 {
