@@ -178,6 +178,7 @@ func closeCommandPlan(planned *commandPlan) error {
 
 func cloneCommandResult(result CommandResult) CommandResult {
 	cloned := result
+	cloned.CarrierHandoffProgress = cloneCarrierHandoffProgress(result.CarrierHandoffProgress)
 	cloned.Reconciliation = result.Reconciliation.Clone()
 	cloned.DelegateAttempts = append([]DelegateAttemptResult(nil), result.DelegateAttempts...)
 	cloned.RelationOrderResults = append(

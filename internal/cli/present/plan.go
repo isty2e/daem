@@ -57,6 +57,7 @@ type planJSONOutput struct {
 	RelationOrders       []relationOrderJSON         `json:"relation_order_actions,omitempty"`
 	CarrierAdoptions     []carrierAdoptionActionJSON `json:"carrier_adoption_actions,omitempty"`
 	CarrierAbsences      []carrierAbsenceActionJSON  `json:"carrier_absence_actions,omitempty"`
+	CarrierHandoffs      *carrierHandoffsJSON        `json:"carrier_handoffs,omitempty"`
 	HostRouteAttempts    []hostRouteAttemptJSON      `json:"host_route_attempts,omitempty"`
 	Diagnostics          []planJSONDiagnostic        `json:"diagnostics"`
 	MCPStatuses          []MCPStatus                 `json:"mcp_statuses,omitempty"`
@@ -183,6 +184,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders(), reconciliation.Relations()),
 		CarrierAdoptions:  carrierAdoptionJSONActions(reconciliation.CarrierAdoptions(), carrierAdoptionPlanned),
 		CarrierAbsences:   carrierAbsenceJSONActions(reconciliation.CarrierAbsences()),
+		CarrierHandoffs:   carrierHandoffsJSONFor(reconciliation, nil),
 		HostRouteAttempts: hostRouteAttempts,
 		Diagnostics:       planJSONDiagnostics(input.Diagnostics),
 		MCPStatuses:       input.MCPStatuses,

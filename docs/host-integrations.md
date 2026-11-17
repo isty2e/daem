@@ -399,6 +399,46 @@ remaining daem-known shared consumer. Only the listed removal rows may run;
 others block before invocation. Partial or uncertain outcomes retain the claim
 and pending state for fresh retry. Ambient non-daem consumers are not discoverable.
 
+### Managed Source Handoffs
+
+Changing a managed extension's source within the same owner, carrier, target and
+scope can converge through one `apply` of the final manifest. This applies to the
+supported carrier routes across Claude Code, Codex, OpenCode, Pi and Antigravity
+CLI; it is not limited to Pi Git pins. An admitted Pi Git pin change keeps its
+[in-place install route](#managed-pi-git-pins). Other source changes remove the old
+carrier before acquiring the new one.
+
+The preview identifies the old carriers and the conditional acquisitions and
+order. Existing ownership, shared-consumer, pending-operation and route checks
+must admit the plan before removal begins. Apply settles every selected old
+claim and pending removal, reads fresh host and management state, and checks the
+remaining plan before starting acquisitions. A source swap between declarations
+retires the whole selected set first. Unrelated deletions keep their ordinary
+execution position.
+
+This is remove-then-install, not an atomic swap or rollback: the extension can be
+absent between the two steps or after a failed installation. Completed removals
+remain completed, and the same final manifest can be retried without an
+intermediate declaration. Cache and other host-data retention follow each route's
+existing contract; reinstalling does not preserve package entry options. An old Git
+checkout can also contain a desired local source; removing that checkout does
+not preserve or copy the local source. Fresh local-source checks may then fail.
+Pi and OpenCode still use the ordinary fresh-order and renewed-consent rules.
+
+Deleting one extension ID and adding another that acquires its retiring carrier
+also uses remove-then-install, rather than silently transferring the claim. To
+retain the host installation instead, explicitly
+[unmanage the old declaration](cli.md#unmanage-extension), declare the new ID and
+use `apply --manage-existing` where adoption is supported. Handoffs do not grant
+cross-owner, target, scope or carrier migration authority, clear pending Pi pin
+transitions, or relax shared-consumer checks.
+
+Antigravity's source assurance is unchanged. Replacing a managed selector with a
+non-selector source can finish at `attempted_unverified`, without a new claim or
+verified installed relation. A previous non-selector installation has no managed
+removal claim, so changing it is an ordinary acquisition, not proof that the old
+installation was removed.
+
 ### Carrier Residue Prune
 
 Prune is blocked for every target. Coupled artifact deletion in one exact
@@ -498,11 +538,15 @@ explicit-global scope. `pi-extension` is a rejected future candidate, not syntax
 | Pi managed Git pin change | Same scoped install route, with the new commit | Explicit old-to-new transition through ordinary apply; see [managed Pi Git pins](#managed-pi-git-pins). |
 | OpenCode refresh | `opencode plugin <host-source> --force`; add `--global` only globally | `attempted_unverified`: relation observation does not prove package/version/refresh convergence. Package resolution, caches, same-family replacement/deduplication, multi-target config, dependencies and activation remain host-owned. |
 | Pi refresh | `pi update --extension <host-source>` for either scope | No update scope flag: may update matching user and trusted-project rows. `attempted_unverified`; pins may stay fixed, local paths have no updater, Git may reset/clean and install dependencies. Trust refusal/no match is a host failure. No approval, self-update, model-update or bulk flags. |
-| OpenCode removal | Direct config edit; no `opencode uninstall` | Remove only the exact source row from every existing server/TUI JSON/JSONC candidate. Missing candidates are not created; all four paths remain guarded. Partial per-file success stays pending until fresh absence from every loaded candidate. |
+| OpenCode removal | Direct config edit; no `opencode uninstall` | Remove only the exact source row from every existing selected server/TUI JSON/JSONC candidate. Missing candidates are not created; all four selected candidate paths remain guarded. Partial per-file success stays pending until fresh absence from every loaded candidate. |
 | Pi removal | Selected-scope package remove route | Verify relation absence plus source-kind-specific coupled effects; do not infer broad package/cache/store cleanup. |
 
 OpenCode observes all four selected project/default-global server/TUI JSON and
-JSONC candidate paths, including absent default JSON candidates. Pi observes
+JSONC candidate paths, including absent default JSON candidates. Project plugin
+candidates are `.opencode/{opencode,tui}.json[c]` under the manifest directory.
+The manifest-root `opencode.json` used by MCP and `host_config` is a different
+file; its `plugin` rows are outside extension relation observation, removal and
+ordering. An absent selected relation is not evidence about those rows. Pi observes
 only the selected settings layer with npm/Git/local-source identity. Authored
 local aliases normalize before lock, but external settings still need exact
 adapter-derived stored spelling for adoption; equivalent package names, Git
@@ -517,8 +561,9 @@ separate from selecting a new Pi Git pin in apply. No per-contribution disable i
 supported.
 
 OpenCode installation, explicit refresh, direct removal and order updates can
-accompany managed Codex/Pi settings keys when its four config candidates are
-physically separate from those managed files. Missing alternatives remain absent;
+accompany managed `host_config` keys, including OpenCode's own root settings,
+when its four plugin candidates are physically separate from those managed files.
+Missing alternatives remain absent;
 an unverified removal stays pending. See
 [host configuration](manifest.md#host-configuration) for sequencing and recovery.
 

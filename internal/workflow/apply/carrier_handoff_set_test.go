@@ -106,8 +106,13 @@ func TestCarrierSourceSwapRetiresTheWholeSetBeforeAcquisition(t *testing.T) {
 					return err
 				}
 				defer prepared.Close()
-				_, err = ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{HostRouteExecutor: executor})
-				return err
+				result, executeErr := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{HostRouteExecutor: executor})
+				if executeErr != nil && partial {
+					if result.CarrierHandoffProgress == nil || len(result.CarrierHandoffProgress.RetiredClaims) != 1 || result.CarrierHandoffProgress.Requalified || result.CarrierHandoffProgress.Complete {
+						t.Fatal("partial swap did not report its completed retirement")
+					}
+				}
+				return executeErr
 			}
 			err = apply()
 			if partial {

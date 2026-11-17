@@ -66,6 +66,11 @@ func executeWithDependencies(
 	options ExecuteOptions,
 	dependencies executeDependencies,
 ) (result CommandResult, returnErr error) {
+	defer func() {
+		if returnErr != nil && result.CarrierHandoffProgress != nil {
+			result.CarrierHandoffProgress.Complete = false
+		}
+	}()
 	execution, err := prepared.beginExecution()
 	if err != nil {
 		return CommandResult{}, err
@@ -77,12 +82,22 @@ func executeWithDependencies(
 	}()
 
 	planned := execution.planned
+	var handoffProgress *CarrierHandoffProgress
+	var handoffPlan reconcile.Result
+	if _, present := planned.assessment.Reconciliation.CarrierHandoff(); present {
+		handoffProgress = &CarrierHandoffProgress{}
+		handoffPlan = planned.result.Reconciliation.Clone()
+	}
 	executionAttempted := false
 	uncompensatedEffectsAttempted := false
 	disclose := func(planned commandPlan) CommandResult {
 		result := cloneCommandResult(planned.result)
 		result.ExecutionAttempted = executionAttempted
 		result.UncompensatedEffectsAttempted = uncompensatedEffectsAttempted
+		if handoffProgress != nil {
+			result.Reconciliation = handoffPlan.Clone()
+			result.CarrierHandoffProgress = cloneCarrierHandoffProgress(handoffProgress)
+		}
 		return result
 	}
 	markExecutionAttempted := func() { executionAttempted = true }
@@ -524,6 +539,8 @@ func executeWithDependencies(
 			current: current, currentAuthority: currentAuthority, originalOwnership: planned.assessment.Ownership,
 			schedule: stateDirPlan.schedule, guard: executionGuard, leases: leases, validateBarrier: forwardAuthority.Validate,
 		}, providerActions, phaseOptions)
+		expectation, _ := current.assessment.Reconciliation.CarrierHandoff()
+		*handoffProgress = carrierHandoffProgressFor(phase, expectation.Handoffs().Retirements(), phaseErr == nil && phase.settled)
 		handoffPhase = phase
 		handoffFailed = phaseErr != nil
 		if phaseErr != nil {
@@ -779,6 +796,7 @@ func executeWithDependencies(
 		} else if err := runHandoffs(ctx); err != nil {
 			current.result.HostRouteAttempts = handoffPhase.retired.HostRouteAttempts
 			current.result.ActionCount += handoffPhase.retired.ActionCount
+			current.result.StatefilePath = handoffPhase.retired.StatePath
 			return disclose(current), err
 		}
 	}
@@ -821,7 +839,11 @@ func executeWithDependencies(
 	}
 	uncompensatedEffectsAttempted = uncompensatedEffectsAttempted || providerPhase.uncompensatedEffectsAttempted
 	if err != nil {
-		current.result.HostRouteAttempts = providerPhase.attempts
+		current.result.HostRouteAttempts = append(handoffPhase.retired.HostRouteAttempts, providerPhase.attempts...)
+		current.result.ActionCount += handoffPhase.retired.ActionCount
+		if handoffProgress != nil {
+			current.result.StatefilePath = current.assessment.StatePath
+		}
 		return disclose(current), err
 	}
 	if providerPhase.rebound {
@@ -842,7 +864,8 @@ func executeWithDependencies(
 		executionOptions,
 	)
 	runResult.ActionCount += handoffPhase.retired.ActionCount
-	runResult.HostRouteAttempts = append(handoffPhase.retired.HostRouteAttempts, runResult.HostRouteAttempts...)
+	prerequisiteAttempts := append(handoffPhase.retired.HostRouteAttempts, providerPhase.attempts...)
+	runResult.HostRouteAttempts = append(prerequisiteAttempts, runResult.HostRouteAttempts...)
 	if err != nil && handoffFailed && handoffPhase.retired.StatePath != "" {
 		// The native callback may fail after committing newer state/registry.
 		// Preserve that actual successor rather than the native prefix baseline.
@@ -862,7 +885,7 @@ func executeWithDependencies(
 		if runResult.ReconciliationUpdated {
 			current.result.Reconciliation = runResult.Reconciliation
 		}
-		current.result.HostRouteAttempts = append(providerPhase.attempts, runResult.HostRouteAttempts...)
+		current.result.HostRouteAttempts = runResult.HostRouteAttempts
 		committedAdoptions, _, adoptionErr := committedCarrierAdoptionClaims(
 			current.result.Reconciliation.CarrierAdoptions(),
 			runResult.State,
@@ -893,8 +916,11 @@ func executeWithDependencies(
 	if runResult.ReconciliationUpdated {
 		current.result.Reconciliation = runResult.Reconciliation
 	}
-	current.result.HostRouteAttempts = append(providerPhase.attempts, runResult.HostRouteAttempts...)
+	current.result.HostRouteAttempts = runResult.HostRouteAttempts
 	current.result.CarrierAdoptionResults = carrierAdoptionResults
+	if handoffProgress != nil {
+		handoffProgress.Complete = true
+	}
 	return disclose(current), nil
 }
 

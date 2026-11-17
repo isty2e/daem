@@ -14,10 +14,7 @@ func printApplyPreviewPlan(output io.Writer, planning applyworkflow.CommandResul
 		MCPStatuses:    mcpStatuses,
 	}, options)
 	clipresent.PrintLockOnlyResourceSummary(output, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
-	clipresent.PrintRelationActionsWithOptions(output, planning.Reconciliation.Relations(), options)
-	clipresent.PrintRelationOrderActionsWithOptions(output, planning.Reconciliation.RelationOrders(), options)
-	clipresent.PrintCarrierAdoptionActionsWithOptions(output, planning.Reconciliation.CarrierAdoptions(), options)
-	clipresent.PrintCarrierAbsenceActionsWithOptions(output, planning.Reconciliation.CarrierAbsences(), options)
+	clipresent.PrintCarrierReconciliationWithOptions(output, planning.Reconciliation, options)
 }
 
 func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResult, err error) []clipresent.Guidance {

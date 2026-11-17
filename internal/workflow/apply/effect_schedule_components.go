@@ -16,6 +16,7 @@ type applyScheduleInput struct {
 	positivePrefix          *applyDirectPrefix
 	handoffRemovals         []applyCarrierScheduleFact
 	handoffGlobalRetirement bool
+	globalRetirementPrefix  string
 	managedSuffix           *nativeoperation.NativeManagedSuffixShape
 	delegateSuffix          *nativeoperation.NativeManagedSuffixShape
 	providerRoutes          []applyRouteScheduleFact
@@ -100,8 +101,9 @@ func compileApplySchedule(
 	if len(input.handoffRemovals) != 0 {
 		var err error
 		handoffPlan, err = compileApplyContinuationPlan(&builder, &statefile, applyScheduleInput{
-			carrierRemovals:     input.handoffRemovals,
-			hasGlobalRetirement: input.handoffGlobalRetirement,
+			carrierRemovals:        input.handoffRemovals,
+			hasGlobalRetirement:    input.handoffGlobalRetirement,
+			globalRetirementPrefix: "apply/carrier-handoff/global-claim-retirements",
 		})
 		if err != nil {
 			return applyForwardEffectSchedule{}, err
@@ -322,9 +324,13 @@ func compileApplyContinuationSchedule(
 ) compiledApplyContinuationSchedule {
 	nodes := make([]operationplan.EffectNode, 0, 7)
 	if input.hasGlobalRetirement {
+		prefix := input.globalRetirementPrefix
+		if prefix == "" {
+			prefix = "apply/global-claim-retirements"
+		}
 		nodes = append(nodes, compileApplyGlobalCarrierBatchSettlementSchedule(
 			builder,
-			"apply/global-claim-retirements",
+			prefix,
 		))
 	}
 	carrierRemovals := compileApplyCarrierRemovalSchedules(

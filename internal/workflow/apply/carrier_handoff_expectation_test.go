@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -88,7 +89,7 @@ func TestProspectiveCarrierHandoffCannotExecuteBeforeAnyEffect(t *testing.T) {
 }
 
 func TestExecuteCarrierSourceHandoffSettlesOldClaimBeforeNewInstall(t *testing.T) {
-	for _, fault := range []string{"success", "removal-error", "cancellation"} {
+	for _, fault := range []string{"success", "removal-error", "cancellation", "stale-replan"} {
 		t.Run(fault, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -109,6 +110,10 @@ source = { marketplace = "context7@next" }
 			if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifest}); err != nil {
 				t.Fatal(err)
 			}
+			finalManifest, err := os.ReadFile(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
 			prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, LockfilePath: lockfile})
 			if err != nil {
 				t.Fatal(err)
@@ -122,6 +127,9 @@ source = { marketplace = "context7@next" }
 						return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 23}
 					}
 					writeApplyFile(t, inventory, `{"version":2,"plugins":{}}`)
+					if fault == "stale-replan" && calls == 1 {
+						writeApplyFile(t, manifest, string(finalManifest)+"\n# changed during removal\n")
+					}
 					if fault == "cancellation" && calls == 1 {
 						cancel()
 					}
@@ -145,6 +153,12 @@ source = { marketplace = "context7@next" }
 				state := loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
 				if fault == "removal-error" && (len(state.ManagedCarrierClaims()) != 1 || len(state.PendingCarrierRemovals()) != 1) {
 					t.Fatal("uncertain removal dropped its old claim or pending intent")
+				}
+				if fault == "stale-replan" {
+					if result.CarrierHandoffProgress == nil || len(result.CarrierHandoffProgress.RetiredClaims) != 1 || result.CarrierHandoffProgress.Requalified || result.CarrierHandoffProgress.Complete {
+						t.Fatal("stale replan hid a completed retirement or claimed completion")
+					}
+					writeApplyFile(t, manifest, string(finalManifest))
 				}
 				retry, planErr := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, LockfilePath: lockfile})
 				if planErr != nil {

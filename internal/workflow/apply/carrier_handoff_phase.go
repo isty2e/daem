@@ -60,6 +60,19 @@ func runCarrierHandoffPrerequisite(ctx context.Context, qualification applyRequa
 			if err := rejectBlockedCarrierHandoffPlan(fresh.assessment.Reconciliation); err != nil {
 				return applyForwardEffectSchedule{}, err
 			}
+			freshProviders, err := providerInstallActions(fresh.assessment.MCPProviders)
+			if err != nil {
+				return applyForwardEffectSchedule{}, err
+			}
+			if len(freshProviders) != len(providers) {
+				return applyForwardEffectSchedule{}, staleApplyError(qualification.guard.planWasDisclosed, nil)
+			}
+			for index, action := range freshProviders {
+				expected := providers[index]
+				if action.Kind() != expected.Kind() || !action.CarrierIdentity().ExactEqual(expected.CarrierIdentity()) || !action.RouteRequest().Equal(expected.RouteRequest()) {
+					return applyForwardEffectSchedule{}, staleApplyError(qualification.guard.planWasDisclosed, nil)
+				}
+			}
 			observed, err := carrierHandoffRemainderFingerprint(fresh.assessment.Reconciliation, actions)
 			if err != nil || !observed.Equal(stable) {
 				return applyForwardEffectSchedule{}, staleApplyError(qualification.guard.planWasDisclosed, err)

@@ -386,6 +386,7 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
+	CarrierHandoffProgress *CarrierHandoffProgress
 	PermissionProtection   ownershipobserve.ProtectionObservation
 	ManifestPath           string
 	LockfilePath           string

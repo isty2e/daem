@@ -1461,8 +1461,9 @@ only with nonoverlapping ownership. Whole-file ownership cannot overlap key
 ownership of the same physical file, including aliases.
 
 Use dedicated resources for reserved configuration: Codex `mcp_servers`, `hooks`,
-`plugins` and `marketplaces`, and Pi `packages`, `extensions` and `skills` cannot
-be authored through `host_config`. Host-owned authentication, runtime/cache,
+`plugins` and `marketplaces`, Claude Code `enabledPlugins`, OpenCode `plugin`,
+and Pi `packages`, `extensions` and `skills` cannot be authored through
+`host_config`. Host-owned authentication, runtime/cache,
 package code and loader-control paths are also reserved. These exclusions do not
 certify other keys as safe for credentials; do not put secrets in source files or
 locks.
@@ -1764,6 +1765,12 @@ route. Claude Code explicit-global syntax is public `scope = "global"` and
 projects to host `--scope user` only inside the supported delegated lifecycle
 route. Claude Code `local` plugin scope is product `deferred` with reason
 `not-modeled`.
+
+Changing `source` on an already-managed declaration can converge through one
+apply of the final manifest. The carrier, target and scope must stay within the
+existing management contract; see
+[managed source handoffs](host-integrations.md#managed-source-handoffs) for
+removal-first behavior, retry and limits.
 
 Refresh is an operation over this declaration and its exact current lock
 contract, not another manifest field. `daem refresh extension <id>` selects one

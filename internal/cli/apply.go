@@ -203,10 +203,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 					clipresent.HumanPlanInput{Reconciliation: readinessPlanning.Reconciliation},
 					clipresent.HumanOptions{Verbose: *verbose},
 				)
-				clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
-				clipresent.PrintRelationOrderActionsWithOptions(stderr, readinessPlanning.Reconciliation.RelationOrders(), clipresent.HumanOptions{Verbose: *verbose})
-				clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
-				clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
+				clipresent.PrintCarrierReconciliationWithOptions(stderr, readinessPlanning.Reconciliation, clipresent.HumanOptions{Verbose: *verbose})
 			}
 			printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
 			if readinessPlanning.ReconciliationReady && clipresent.PrintReconciliationGuidance(stderr, readinessPlanning.Reconciliation, readinessPlanning.ManifestPath) {
@@ -233,12 +230,9 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		if interactiveConfirmation {
 			clipresent.PrintPermissionProtection(stdout, readinessPlanning.PermissionProtection)
 			clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly))
-			clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
+			clipresent.PrintCarrierReconciliationWithOptions(stdout, readinessPlanning.Reconciliation, humanOptions)
 			relationActionsDisclosed = true
-			clipresent.PrintRelationOrderActionsWithOptions(stdout, readinessPlanning.Reconciliation.RelationOrders(), humanOptions)
 			relationOrdersDisclosed = true
-			clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
-			clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 			carrierAbsencesDisclosed = true
 			clipresent.PrintActionPlanWithOptions(stdout, "apply", clipresent.HumanPlanInput{
 				Reconciliation: readinessPlanning.Reconciliation,
@@ -260,12 +254,9 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		}
 		if !interactiveConfirmation && arguments.output != requestedJSON {
 			clipresent.PrintDiagnosticsWithOptions(stdout, readinessPlanning.Diagnostics, humanOptions)
-			clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
+			clipresent.PrintCarrierReconciliationWithOptions(stdout, readinessPlanning.Reconciliation, humanOptions)
 			relationActionsDisclosed = true
-			clipresent.PrintRelationOrderActionsWithOptions(stdout, readinessPlanning.Reconciliation.RelationOrders(), humanOptions)
 			relationOrdersDisclosed = true
-			clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
-			clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 			carrierAbsencesDisclosed = true
 			clipresent.PrintDelegateActionsWithOptions(stdout, readinessPlanning.Reconciliation.Delegates(), humanOptions)
 		}
@@ -299,6 +290,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			if arguments.output == requestedJSON {
 				failure := applyworkflow.ClassifyFailure(err, result)
 				jsonInput := clipresent.ApplyResultJSONInput{
+					CarrierHandoffProgress: result.CarrierHandoffProgress,
 					ActionCount:            result.ActionCount,
 					PermissionProtection:   result.PermissionProtection,
 					StatefilePath:          result.StatefilePath,
@@ -321,6 +313,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				return 1
 			}
 			clipresent.PrintDelegateAttemptsWithOptions(stderr, delegateAttemptInputs, humanOptions)
+			clipresent.PrintCarrierHandoffProgress(stderr, result.Reconciliation, result.CarrierHandoffProgress)
 			clipresent.PrintCarrierAdoptionResultsWithOptions(
 				stderr,
 				result.Reconciliation.CarrierAdoptions(),
@@ -348,6 +341,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 
 		if arguments.output == requestedJSON {
 			jsonInput := clipresent.ApplyResultJSONInput{
+				CarrierHandoffProgress: result.CarrierHandoffProgress,
 				ActionCount:            result.ActionCount,
 				PermissionProtection:   result.PermissionProtection,
 				StatefilePath:          result.StatefilePath,
@@ -369,6 +363,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		}
 
 		fmt.Fprintf(stdout, "applied: %s\n", clipresent.CountLabel(result.ActionCount, "action", "actions"))
+		clipresent.PrintCarrierHandoffProgress(stdout, result.Reconciliation, result.CarrierHandoffProgress)
 		if !interactiveConfirmation {
 			clipresent.PrintPermissionProtection(stdout, result.PermissionProtection)
 		}

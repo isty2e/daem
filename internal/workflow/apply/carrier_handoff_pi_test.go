@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	lock "github.com/isty2e/daem/internal/realization/lock"
+	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
@@ -19,12 +22,14 @@ import (
 
 func TestPiSourceHandoffConvergesMovingGitToNPMAndProviderSelector(t *testing.T) {
 	for _, test := range []struct {
-		name, before, after string
-		native, provider    bool
+		name, before, after                         string
+		native, provider, failProvider, failRemoval bool
 	}{
-		{"moving-git-global", "git:github.com/example/package@main", "npm:replacement-tools@1.0.0", false, false},
-		{"native-moving-git-global", "git:github.com/example/package@main", "npm:replacement-tools@1.0.0", true, false},
-		{"provider-selector", piProviderSource, "npm:pi-mcp-adapter@^2.14.0", false, true},
+		{"moving-git-global", "git:github.com/example/package@main", "npm:replacement-tools@1.0.0", false, false, false, false},
+		{"native-moving-git-global", "git:github.com/example/package@main", "npm:replacement-tools@1.0.0", true, false, false, false},
+		{"provider-selector", piProviderSource, "npm:pi-mcp-adapter@^2.14.0", false, true, false, false},
+		{"provider-install-failure", piProviderSource, "npm:pi-mcp-adapter@^2.14.0", false, true, true, false},
+		{"native-removal-failure", "git:github.com/example/package@main", "npm:replacement-tools@1.0.0", true, false, false, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if test.native && runtime.GOOS == "windows" {
@@ -100,6 +105,10 @@ func TestPiSourceHandoffConvergesMovingGitToNPMAndProviderSelector(t *testing.T)
 					if len(loadCarrierClaimsForScope(t, root, manifest, target.ScopeGlobal)) != 0 {
 						t.Fatal("old global claim survived until new install")
 					}
+					if test.failProvider {
+						writeApplyFile(t, settings, "{unavailable-after-install")
+						return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 23}
+					}
 					encoded, err := json.Marshal([]string{test.after})
 					if err != nil {
 						t.Fatal(err)
@@ -130,6 +139,9 @@ install) printf '%%s\n' '{"theme":"handoff-native","packages":[%q],"unmanaged":t
 esac
 `, settings, filepath.Join(root, "host-calls"), settings, test.after, settings)
 				writeApplyFile(t, binary, script)
+				if test.failRemoval {
+					writeApplyFile(t, binary, strings.Replace(script, "case \"$1\" in", "case \"$1\" in\nremove) exit 23 ;;", 1))
+				}
 				if err := os.Chmod(binary, 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -137,6 +149,29 @@ esac
 				executor = subprocess.NewCommandExecutor(subprocess.CommandOptions{})
 			}
 			result, err := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{HostRouteExecutor: executor})
+			if test.failRemoval {
+				if err == nil || len(result.HostRouteAttempts) != 1 || result.StatefilePath == "" || !result.UncompensatedEffectsAttempted ||
+					result.CarrierHandoffProgress == nil || len(result.CarrierHandoffProgress.RetiredClaims) != 0 || result.CarrierHandoffProgress.Requalified || result.CarrierHandoffProgress.Complete {
+					t.Fatal("native failure lost the actual pending-removal result", err)
+				}
+				state := loadApplyStatefile(t, result.StatefilePath)
+				if len(state.PendingCarrierRemovals()) != 1 || len(state.PendingCarrierInstalls()) != 0 || len(loadCarrierClaimsForScope(t, root, manifest, target.ScopeGlobal)) != 1 {
+					t.Fatal("native failure discarded old management or started acquisition")
+				}
+				return
+			}
+			if test.failProvider {
+				if err == nil || calls != 2 || len(result.HostRouteAttempts) != 2 || result.ActionCount == 0 || result.StatefilePath == "" ||
+					result.CarrierHandoffProgress == nil || len(result.CarrierHandoffProgress.RetiredClaims) != 1 || !result.CarrierHandoffProgress.Requalified || result.CarrierHandoffProgress.Complete ||
+					result.HostRouteAttempts[0].Operation() != lock.OperationRemove || result.HostRouteAttempts[1].Operation() != lock.OperationInstall {
+					t.Fatal("failed provider hid retirement progress or reordered its attempts", err)
+				}
+				state := loadApplyStatefile(t, result.StatefilePath)
+				if len(state.PendingCarrierInstalls()) != 0 || len(state.PendingCarrierRemovals()) != 0 || len(state.HostRouteAttempts()) != 2 || len(loadCarrierClaimsForScope(t, root, manifest, target.ScopeGlobal)) != 0 {
+					t.Fatal("provider failure lost the committed retirement or failed-attempt history")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,6 +186,9 @@ esac
 				calls = 2
 			}
 			claims := loadCarrierClaimsForScope(t, root, manifest, target.ScopeGlobal)
+			if len(result.HostRouteAttempts) != 2 || result.CarrierHandoffProgress == nil || len(result.CarrierHandoffProgress.RetiredClaims) != 1 || !result.CarrierHandoffProgress.Requalified || !result.CarrierHandoffProgress.Complete || result.HostRouteAttempts[0].Operation() != lock.OperationRemove || result.HostRouteAttempts[1].Operation() != lock.OperationInstall {
+				t.Fatal("completed handoff omitted progress or reordered attempts")
+			}
 			if calls != 2 || len(result.HostRouteAttempts) != 2 || len(claims) != 1 || claims[0].Identity().Carrier().Key().Source().Ref() != test.after {
 				t.Fatal("Pi source handoff did not converge")
 			}
@@ -183,5 +221,45 @@ esac
 				}
 			}
 		})
+	}
+}
+
+func TestGlobalAlreadyAbsentHandoffKeepsUnrelatedRetirementInFinal(t *testing.T) {
+	fixture := newPiPinApplyFixture(t, target.ScopeGlobal)
+	otherEnvironment := applyCarrierEnvironment(t, "unrelated", desiredextension.CarrierPiPackage, target.TargetPi, target.ScopeGlobal, desiredextension.SourceKindHostSource, "npm:unrelated@1")
+	other, err := lockbuild.BuildWithOptions(t.Context(), otherEnvironment, nil, lockbuild.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedApplyCarrierClaim(t, fixture.root, fixture.manifest, other, target.ScopeGlobal)
+	fixture.after = "npm:replacement-tools@1"
+	fixture.locked = piPinApplyLock(t, fixture.scope, fixture.after)
+	writeApplyFile(t, fixture.manifest, fmt.Sprintf("version=1\ntargets=['pi']\n[[extension]]\nid='tools-managed'\ncarrier='pi-package'\nscope='global'\nsource={host_source=%q}\n", fixture.after))
+	writeApplyLockfile(t, fixture.lockfile, fixture.locked)
+	writeApplyFile(t, fixture.settings, `{"packages":[]}`)
+	prepared, err := PlanWrite(t.Context(), fixture.input())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	expectation, present := prepared.Reconciliation.CarrierHandoff()
+	if !present || len(expectation.Handoffs().Retirements()) != 1 || len(expectation.After().CarrierAbsences()) != 1 {
+		t.Fatal("unrelated retirement was moved into the handoff prerequisite")
+	}
+	calls := 0
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+		calls++
+		if !slices.Equal(request.Args, []string{"install", fixture.after}) || len(loadCarrierClaimsForScope(t, fixture.root, fixture.manifest, fixture.scope)) != 0 {
+			t.Fatal("already-absent claims did not settle before installation")
+		}
+		writeApplyFile(t, fixture.settings, fmt.Sprintf(`{"packages":[%q]}`, fixture.after))
+		return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+	}})
+	result, err := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{HostRouteExecutor: executor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || result.CarrierHandoffProgress == nil || len(result.CarrierHandoffProgress.RetiredClaims) != 1 || !result.CarrierHandoffProgress.Complete {
+		t.Fatal("split global settlements failed to complete")
 	}
 }
