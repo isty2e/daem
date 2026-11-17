@@ -18,7 +18,7 @@ type RecoveryPathAuthorityFingerprint struct {
 // ActiveRecoveryCleanupObligation is one owner-classified removal continuation.
 type ActiveRecoveryCleanupObligation struct {
 	Scope       string
-	Destination json.RawMessage
+	Destination string
 	Action      string
 	Readiness   string
 	Reason      string
