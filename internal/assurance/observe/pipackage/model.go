@@ -111,8 +111,16 @@ func Correlate(
 		if exact || equivalent {
 			subjectKey = lockedSource
 		}
+		occurrence, err := observerelation.NewOccurrence(
+			"pi/"+string(inventory.scope)+"/"+inventory.settingsBase,
+			fmt.Sprint(index),
+		)
+		if err != nil {
+			return observerelation.CorrelationResult{}, err
+		}
 		row, err := observerelation.NewRow(observerelation.RowSpec{
 			SubjectKey:            subjectKey,
+			Occurrences:           []observerelation.Occurrence{occurrence},
 			HasManagedInstanceKey: exact,
 			ManagedInstanceKey: func() string {
 				if exact {

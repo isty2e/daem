@@ -69,6 +69,7 @@ type RowSpec struct {
 	SubjectKey            string
 	HasManagedInstanceKey bool
 	ManagedInstanceKey    string
+	Occurrences           []Occurrence
 }
 
 // Row is one passive relation observation.
@@ -76,6 +77,7 @@ type Row struct {
 	subjectKey         hostrelation.SubjectKey
 	managedInstanceKey hostrelation.ManagedInstanceKey
 	hasManagedKey      bool
+	occurrences        []Occurrence
 }
 
 // NewRow validates and constructs a passive relation inventory row.
@@ -99,11 +101,11 @@ func NewRow(spec RowSpec) (Row, error) {
 	} else if spec.ManagedInstanceKey != "" {
 		return Row{}, fmt.Errorf("managed instance key requires HasManagedInstanceKey")
 	}
-	return Row{
+	return (Row{
 		subjectKey:         subjectKey,
 		managedInstanceKey: managedKey,
 		hasManagedKey:      spec.HasManagedInstanceKey,
-	}, nil
+	}).WithOccurrences(spec.Occurrences)
 }
 
 // SubjectKey returns the host-visible relation key.

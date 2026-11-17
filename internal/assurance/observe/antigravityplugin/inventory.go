@@ -198,8 +198,13 @@ func (inventory Inventory) correlate(
 
 	rows := []relationobserve.Row(nil)
 	if importCount == 1 || bundlePresent {
+		occurrence, err := relationobserve.NewOccurrence("antigravity/global", plugin)
+		if err != nil {
+			return relationobserve.CorrelationResult{}, err
+		}
 		row, err := relationobserve.NewRow(relationobserve.RowSpec{
 			SubjectKey:            plugin,
+			Occurrences:           []relationobserve.Occurrence{occurrence},
 			HasManagedInstanceKey: false,
 		})
 		if err != nil {

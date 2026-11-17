@@ -168,7 +168,7 @@ func rowsForRelationScope(expected relationExpectation, rows []Row) []Row {
 	}
 	expectedRelation := expected.ExpectedRelation()
 	filtered := make([]Row, 0, len(rows))
-	for _, row := range rows {
+	for index, row := range rows {
 		if row.HostScope() != expectedScope {
 			continue
 		}
@@ -184,6 +184,14 @@ func rowsForRelationScope(expected relationExpectation, rows []Row) []Row {
 				panic(fmt.Sprintf("invalid Claude source-exact relation row: %v", err))
 			}
 			projected.relation = relationRow
+		}
+		occurrence, err := relation.NewOccurrence("claude/"+string(expectedScope), fmt.Sprint(index))
+		if err != nil {
+			panic(fmt.Sprintf("invalid Claude occurrence: %v", err))
+		}
+		projected.relation, err = projected.relation.WithOccurrences([]relation.Occurrence{occurrence})
+		if err != nil {
+			panic(fmt.Sprintf("invalid Claude occurrence row: %v", err))
 		}
 		filtered = append(filtered, projected)
 	}

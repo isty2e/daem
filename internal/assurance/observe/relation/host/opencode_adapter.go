@@ -109,6 +109,7 @@ func correlateOpenCodeRelation(
 	}
 
 	present := false
+	var occurrences []relationobserve.Occurrence
 	for _, document := range documents {
 		if !document.Exists() {
 			continue
@@ -117,6 +118,11 @@ func correlateOpenCodeRelation(
 		case 0:
 		case 1:
 			present = true
+			occurrence, err := relationobserve.NewOccurrence("opencode/"+string(record.scope)+"/"+document.Path(), source.Ref())
+			if err != nil {
+				return relationobserve.CorrelationResult{}, err
+			}
+			occurrences = append(occurrences, occurrence)
 		default:
 			return relationobserve.CorrelationResult{}, fmt.Errorf(
 				"OpenCode config %q contains %d exact plugin rows for source %q",
@@ -131,6 +137,7 @@ func correlateOpenCodeRelation(
 	if present {
 		row, err := relationobserve.NewRow(relationobserve.RowSpec{
 			SubjectKey:            source.Ref(),
+			Occurrences:           occurrences,
 			HasManagedInstanceKey: true,
 			ManagedInstanceKey:    string(expected.ManagedInstanceKey()),
 		})
