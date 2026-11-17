@@ -58,14 +58,14 @@ func TestBuildCarrierAbsenceActionsSeparatesCandidateAuthorityFromOccupancy(t *t
 func TestBuildCarrierAbsenceActionsClassifiesDesiredStateBeforeObservationOrRoute(t *testing.T) {
 	previous, _ := statusClaudePluginExtensionLockfile(t, "context7", "context7@market")
 	fixture := retainedCarrierFixtureFor(t, previous)
-	replacement, _ := statusClaudePluginExtensionLockfile(t, "context7", "replacement@market")
+	scopeMoved, _ := statusClaudePluginExtensionLockfileWithScope(t, "context7", "context7@market", target.ScopeGlobal)
 	tests := []struct {
 		name   string
 		locked lock.File
 		want   carrierabsence.Decision
 	}{
 		{name: "retained", locked: previous, want: carrierabsence.DecisionRetain},
-		{name: "transition", locked: replacement, want: carrierabsence.DecisionBlockTransition},
+		{name: "scope transition", locked: scopeMoved, want: carrierabsence.DecisionBlockTransition},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -46,6 +46,20 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	}
 	retiring = append(retiring, foreign)
 	pairs = append(pairs, observerelation.OrderHandoffSpec{Before: extra, After: input.Relations[0].CorrelationKey()})
+	incomplete, err := observerelation.NewOrderHandoffs(pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := base.pi.WithHandoffRetirements(retiring, incomplete); err == nil {
+		t.Fatal("handoff removed another desired source without its acquisition association")
+	}
+	for _, old := range retiring[:2] {
+		for _, desired := range input.Relations {
+			if old.CorrelationKey().Subject() != desired.CorrelationKey().Subject() {
+				pairs = append(pairs, observerelation.OrderHandoffSpec{Before: old.CorrelationKey(), After: desired.CorrelationKey()})
+			}
+		}
+	}
 	events, err := observerelation.NewOrderHandoffs(pairs)
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +141,21 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: desired})
 	if err != nil {
 		t.Fatal(err)
+	}
+	incomplete, err := observerelation.NewOrderHandoffs(pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := base.Documents()[0].WithHandoffRetirements(retiring, incomplete); err == nil {
+		t.Fatal("handoff bypassed an unrelated desired OpenCode source")
+	}
+	ownedPairs := append([]observerelation.OrderHandoffSpec(nil), pairs...)
+	for _, old := range ownedPairs {
+		for _, after := range ownedPairs {
+			if old.Before.Subject() != after.After.Subject() {
+				pairs = append(pairs, observerelation.OrderHandoffSpec{Before: old.Before, After: after.After})
+			}
+		}
 	}
 	events, err := observerelation.NewOrderHandoffs(pairs)
 	if err != nil {

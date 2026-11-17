@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	localcontext "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -93,17 +94,19 @@ func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Invent
 	if err := handoffs.ValidateDesired(desired); err != nil {
 		return SelectedOrderView{}, err
 	}
-	desiredSources := make(map[string]bool, len(selection.relations))
-	desiredIdentities := make(map[hostrelation.HostLoadIdentity]bool, len(selection.relations))
+	desiredSources := make(map[string]observerelation.CorrelationKey, len(selection.relations))
+	desiredSubjects := make(map[topology.SubjectID]observerelation.CorrelationKey, len(selection.relations))
+	desiredIdentities := make(map[hostrelation.HostLoadIdentity]observerelation.CorrelationKey, len(selection.relations))
 	for _, relation := range selection.relations {
 		source, err := expectedSettingsSource(relation, inventory.settingsBase)
 		if err != nil {
 			return SelectedOrderView{}, err
 		}
-		desiredSources[source] = true
+		desiredSources[source] = relation.key
+		desiredSubjects[relation.key.Subject()] = relation.key
 	}
 	for _, member := range selection.constraint.Members() {
-		desiredIdentities[member.HostLoadIdentity()] = true
+		desiredIdentities[member.HostLoadIdentity()] = desiredSubjects[member.Subject()]
 	}
 	retained := slices.Clone(retiring)
 	slices.SortFunc(retained, func(left, right ScopedRelation) int {
@@ -133,7 +136,10 @@ func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Invent
 		}
 		load := hostrelation.HostLoadIdentity(identity.hostLoadIdentity(selection.scope))
 		_, repeatedSource := sources[source]
-		if ((desiredSources[source] || desiredIdentities[load]) && !handoffs.AllowsRetirement(relation.key)) || repeatedSource || identities[load] {
+		exact, exactOverlap := desiredSources[source]
+		identityKey, identityOverlap := desiredIdentities[load]
+		if (exactOverlap && !handoffs.AllowsPair(relation.key, exact)) ||
+			(identityOverlap && !handoffs.AllowsPair(relation.key, identityKey)) || repeatedSource || identities[load] {
 			return SelectedOrderView{}, fmt.Errorf("Pi retirement overlaps desired or ambiguous source identity")
 		}
 		sources[source], identities[load] = relation.key, true

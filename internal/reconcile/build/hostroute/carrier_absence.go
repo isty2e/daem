@@ -76,7 +76,7 @@ func BuildCarrierAbsenceActions(input CarrierAbsenceInput) ([]carrierabsence.Act
 		if pending, present := pendingByClaim[carrierClaimKey(claim)]; present {
 			actionInput.Pending = &pending
 		}
-		if desired == carrierabsence.DesiredAbsent {
+		if desired.RequestsRetirement() {
 			observation, err := observationForClaim(claim, input.Observations)
 			if err != nil {
 				return nil, fmt.Errorf("plan carrier absence observation[%d]: %w", index, err)
@@ -227,6 +227,10 @@ func desiredStateForClaim(
 		if item.contract.SubjectID() == claim.Identity().RelationSubject() {
 			if _, err := claim.PinTransitionTo(item.contract); err == nil {
 				return carrierabsence.DesiredRetained
+			}
+			after, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(item.contract)
+			if err == nil && admitted && claim.Identity().SourceChangeTo(after) {
+				return carrierabsence.DesiredReplaced
 			}
 			return carrierabsence.DesiredTransitionConflict
 		}

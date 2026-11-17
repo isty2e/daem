@@ -73,7 +73,7 @@ func NewCarrierHandoffs(input CarrierHandoffsInput) (CarrierHandoffs, error) {
 		if !absence.Claim().Owner().Equal(input.CurrentOwner) {
 			return CarrierHandoffs{}, fmt.Errorf("carrier handoff absence belongs to another owner")
 		}
-		if absence.Desired() != carrierabsence.DesiredAbsent || !absence.RetiresClaim() {
+		if !absence.Desired().RequestsRetirement() || !absence.RetiresClaim() {
 			continue
 		}
 		claim, present := claims[absence.Claim().FactKey()]

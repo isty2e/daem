@@ -251,6 +251,16 @@ func ObserveOpenCodeRetirementEdits(
 	scope target.Scope,
 	retiring []durablecarrier.ManagedCarrierClaim,
 ) ([]SelectedDocumentEdit, error) {
+	return ObserveOpenCodeHandoffRetirementEdits(paths, locked, scope, retiring, observerelation.OrderHandoffs{})
+}
+
+func ObserveOpenCodeHandoffRetirementEdits(
+	paths daempaths.Paths,
+	locked lock.File,
+	scope target.Scope,
+	retiring []durablecarrier.ManagedCarrierClaim,
+	handoffs observerelation.OrderHandoffs,
+) ([]SelectedDocumentEdit, error) {
 	relations, err := openCodeRetiringRelations(retiring, scope)
 	if err != nil || len(relations) == 0 {
 		return nil, err
@@ -284,7 +294,7 @@ func ObserveOpenCodeRetirementEdits(
 	}
 	var edits []SelectedDocumentEdit
 	for _, document := range inventory.Documents() {
-		view, err := opencodeplugin.ReconstructRetirement(capability, document, desired, relations)
+		view, err := opencodeplugin.ReconstructHandoffRetirement(capability, document, desired, relations, handoffs)
 		if err != nil {
 			return nil, err
 		}

@@ -89,6 +89,9 @@ func executeWithDependencies(
 	if planned.assessment.Reconciliation.IsProspective() {
 		return disclose(planned), errProspectiveCarrierHandoff
 	}
+	if requiresCarrierHandoffPhase(planned.assessment.Reconciliation) {
+		return disclose(planned), errUnsettledCarrierHandoff
+	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
 		return disclose(planned), err
 	}

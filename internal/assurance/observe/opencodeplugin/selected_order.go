@@ -33,6 +33,10 @@ func (observation DocumentOrderObservation) WithRetiringRelations(retiring []Sco
 }
 
 func ReconstructRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
+	return ReconstructHandoffRetirement(capability, document, desired, retiring, observerelation.OrderHandoffs{})
+}
+
+func ReconstructHandoffRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedDocumentOrderView, error) {
 	if err := capability.Validate(); err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
@@ -44,7 +48,7 @@ func ReconstructRetirement(capability profile.ExtensionOrderCapability, document
 		return topology.CompareSubjectID(left.key.Subject(), right.key.Subject())
 	})
 	selection := orderSelection{scope: capability.Scope(), directory: filepath.Dir(document.path), capability: capability, relations: protected}
-	return newSelectedDocumentView(selection, document, retiring)
+	return newSelectedDocumentViewWithHandoffs(selection, document, retiring, handoffs)
 }
 
 func newSelectedDocumentView(selection orderSelection, document Document, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
@@ -66,17 +70,18 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 	if err := handoffs.ValidateDesired(desired); err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
-	desiredIdentities := make(map[hostrelation.HostLoadIdentity]bool)
+	desiredIdentities := make(map[hostrelation.HostLoadIdentity]observerelation.CorrelationKey)
 	for _, member := range selection.constraint.Members() {
-		desiredIdentities[member.HostLoadIdentity()] = true
+		desiredIdentities[member.HostLoadIdentity()] = observerelation.CorrelationKey{}
 	}
-	desiredSubjects := make(map[topology.SubjectID]bool, len(selection.relations))
+	desiredSubjects := make(map[topology.SubjectID]observerelation.CorrelationKey, len(selection.relations))
 	protectedIdentities := make(map[hostrelation.HostLoadIdentity]bool, len(selection.relations))
 	for _, relation := range selection.relations {
 		if err := relation.key.Validate(); err != nil {
 			return SelectedDocumentOrderView{}, err
 		}
-		if relation.scope != selection.scope || desiredSubjects[relation.key.Subject()] {
+		_, duplicateSubject := desiredSubjects[relation.key.Subject()]
+		if relation.scope != selection.scope || duplicateSubject {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection requires unique scope-matched subjects")
 		}
 		identity, err := opencodeconfig.HostLoadIdentity(string(relation.key.ExpectedRelation().SubjectKey()), filepath.Join(selection.directory, "opencode.json"))
@@ -87,7 +92,9 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 		if protectedIdentities[load] {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection has an ambiguous load identity")
 		}
-		desiredSubjects[relation.key.Subject()], protectedIdentities[load], desiredIdentities[load] = true, true, true
+		desiredSubjects[relation.key.Subject()] = relation.key
+		protectedIdentities[load] = true
+		desiredIdentities[load] = relation.key
 	}
 	retained := slices.Clone(retiring)
 	slices.SortFunc(retained, func(left, right ScopedRelation) int {
@@ -108,9 +115,13 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 			return SelectedDocumentOrderView{}, err
 		}
 		load := hostrelation.HostLoadIdentity(identity)
-		_, desired := selection.exactSubjects[source]
+		exactSubject, desired := selection.exactSubjects[source]
 		_, repeatedSource := sources[source]
-		if ((desired || desiredSubjects[relation.key.Subject()] || desiredIdentities[load]) && !handoffs.AllowsRetirement(relation.key)) || repeatedSource || identities[load] {
+		identityKey, identityOverlap := desiredIdentities[load]
+		sameSubject, subjectOverlap := desiredSubjects[relation.key.Subject()]
+		if (desired && !handoffs.AllowsPair(relation.key, desiredSubjects[exactSubject])) ||
+			(subjectOverlap && !handoffs.AllowsPair(relation.key, sameSubject)) ||
+			(identityOverlap && !handoffs.AllowsPair(relation.key, identityKey)) || repeatedSource || identities[load] {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode retirement overlaps desired or ambiguous source identity")
 		}
 		sources[source], identities[load] = relation.key, true
@@ -143,7 +154,9 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 		return SelectedDocumentOrderView{}, err
 	}
 	var selected observerelation.SelectedSequenceEdit
-	if selection.constraint.MemberCount() == 0 {
+	if selection.constraint.MemberCount() == 0 && !handoffs.Empty() {
+		selected, err = observerelation.NewHandoffRetirementSequenceEdit(selection.capability, sequence, removed, slots, handoffs)
+	} else if selection.constraint.MemberCount() == 0 {
 		selected, err = observerelation.NewRetirementSequenceEdit(selection.capability, sequence, removed)
 	} else if !handoffs.Empty() {
 		selected, err = observerelation.NewSelectedHandoffSequenceEdit(selection.capability, sequence, selection.constraint, removed, slots, handoffs)

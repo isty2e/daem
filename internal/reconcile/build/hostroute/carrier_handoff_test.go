@@ -25,7 +25,7 @@ func TestCarrierHandoffsSelectIntrinsicDependenciesNotUnrelatedDeletion(t *testi
 	}{
 		{"swap", map[string]string{"a": "x@market", "b": "y@market", "z": "z@market"}, map[string]string{"a": "y@market", "b": "x@market"}, 2},
 		{"mixed deletion", map[string]string{"a": "x@market", "b": "y@market", "z": "z@market"}, map[string]string{"a": "y@market"}, 2},
-		{"retry after first retirement", map[string]string{"b": "y@market", "z": "z@market"}, map[string]string{"a": "y@market"}, 1},
+		{"retry after first retirement", map[string]string{"b": "y@market", "z": "z@market"}, map[string]string{"a": "y@market", "b": "x@market"}, 1},
 		{"unpaired new acquisition", map[string]string{"a": "x@market", "z": "z@market"}, map[string]string{"new": "x@market"}, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,10 +65,12 @@ func TestCarrierHandoffsSelectIntrinsicDependenciesNotUnrelatedDeletion(t *testi
 				}
 				actual, _ := input.Observations.Correlation(key)
 				prospective, _ := handoffs.ProspectiveObservations().Correlation(key)
-				if actual.State() != relationobserve.StateExactCorrelation || prospective.State() != relationobserve.StateMissing {
+				if prospective.State() != relationobserve.StateMissing {
 					t.Fatalf("actual/prospective state = %s/%s", actual.State(), prospective.State())
 				}
-				if len(acquisition.RetirementKeys()) == 0 || !action.BlocksOrdinaryApply() {
+				currentAction, _ := action.Correlation()
+				if len(acquisition.RetirementKeys()) == 0 || currentAction.State() != actual.State() ||
+					(actual.State() == relationobserve.StateExactCorrelation && !action.BlocksOrdinaryApply()) {
 					t.Fatal("handoff relabeled current unclaimed presence as executable absence")
 				}
 			}
@@ -255,7 +257,7 @@ func carrierHandoffInput(t *testing.T, before, after map[string]string, installe
 		}
 		contracts[key] = contract
 	}
-	var afterFiles []lock.File
+	var afterRecords []lock.LockedSubjectContract
 	for name, source := range after {
 		file, relation := statusClaudePluginExtensionLockfileWithScope(t, name, source, target.ScopeGlobal)
 		key, err := relationobserve.NewCorrelationKey(file.Locked.Subjects()[0].SubjectID(), relation.ExpectedRelation())
@@ -263,7 +265,7 @@ func carrierHandoffInput(t *testing.T, before, after map[string]string, installe
 			t.Fatal(err)
 		}
 		contracts[key] = file.Locked.Subjects()[0]
-		afterFiles = append(afterFiles, file)
+		afterRecords = append(afterRecords, file.Locked.Subjects()[0])
 	}
 	var scoped []observeclaudeplugin.ScopedRelation
 	for key := range contracts {
@@ -307,8 +309,9 @@ func carrierHandoffInput(t *testing.T, before, after map[string]string, installe
 		t.Fatal(err)
 	}
 	selection := statusClaudeSelection(t, "claude-code")
+	finalLock := statusLockfileFromRecords(t, afterRecords...)
 	input.Absences, err = BuildCarrierAbsenceActions(CarrierAbsenceInput{
-		Locked: lock.File{Version: lock.CurrentVersion}, SelectedTargets: selection,
+		Locked: finalLock, SelectedTargets: selection,
 		CurrentOwner: owner, AllClaims: input.Claims, Observations: input.Observations,
 		PendingRemovals: input.PendingRemovals,
 		ResolveRoute: func(durablecarrier.ManagedCarrierClaim) (carrierabsence.RouteAdmission, error) {
@@ -318,12 +321,9 @@ func carrierHandoffInput(t *testing.T, before, after map[string]string, installe
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range afterFiles {
-		actions, err := BuildRelationActions(RelationInput{Locked: file, SelectedTargets: selection, Observations: input.Observations, CurrentOwner: owner, ManagedClaims: input.Claims})
-		if err != nil {
-			t.Fatal(err)
-		}
-		input.Acquisitions = append(input.Acquisitions, actions...)
+	input.Acquisitions, err = BuildRelationActions(RelationInput{Locked: finalLock, SelectedTargets: selection, Observations: input.Observations, CurrentOwner: owner, ManagedClaims: input.Claims, PendingRemovals: input.PendingRemovals})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return input
 }

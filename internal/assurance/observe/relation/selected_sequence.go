@@ -54,6 +54,14 @@ func NewSelectedSequenceEdit(capability profile.ExtensionOrderCapability, origin
 // NewSelectedHandoffSequenceEdit consumes exact-source slot witnesses supplied
 // by native normalizers. Other removals retain the ordinary foreign-row guard.
 func NewSelectedHandoffSequenceEdit(capability profile.ExtensionOrderCapability, original ObservedRelationSequence, constraint hostrelation.RelationOrderConstraint, removed []int, slots []RetiringSequenceSlot, events OrderHandoffs) (SelectedSequenceEdit, error) {
+	selected, err := handoffSequenceOriginal(capability, original, removed, slots, events)
+	if err != nil {
+		return SelectedSequenceEdit{}, err
+	}
+	return completeSelectedSequenceEdit(selected, constraint)
+}
+
+func handoffSequenceOriginal(capability profile.ExtensionOrderCapability, original ObservedRelationSequence, removed []int, slots []RetiringSequenceSlot, events OrderHandoffs) (SelectedSequenceEdit, error) {
 	retiring := make(map[int]CorrelationKey, len(slots))
 	seen := make(map[CorrelationKey]struct{}, len(slots))
 	for _, slot := range slots {
@@ -74,7 +82,7 @@ func NewSelectedHandoffSequenceEdit(capability profile.ExtensionOrderCapability,
 		return SelectedSequenceEdit{}, err
 	}
 	selected.handoffs = events
-	return completeSelectedSequenceEdit(selected, constraint)
+	return selected, nil
 }
 
 func completeSelectedSequenceEdit(selected SelectedSequenceEdit, constraint hostrelation.RelationOrderConstraint) (SelectedSequenceEdit, error) {
@@ -123,6 +131,18 @@ func NewRetirementSequenceEdit(capability profile.ExtensionOrderCapability, orig
 	if err != nil {
 		return SelectedSequenceEdit{}, err
 	}
+	return completeRetirementSequenceEdit(selected)
+}
+
+func NewHandoffRetirementSequenceEdit(capability profile.ExtensionOrderCapability, original ObservedRelationSequence, removed []int, slots []RetiringSequenceSlot, events OrderHandoffs) (SelectedSequenceEdit, error) {
+	selected, err := handoffSequenceOriginal(capability, original, removed, slots, events)
+	if err != nil {
+		return SelectedSequenceEdit{}, err
+	}
+	return completeRetirementSequenceEdit(selected)
+}
+
+func completeRetirementSequenceEdit(selected SelectedSequenceEdit) (SelectedSequenceEdit, error) {
 	selected.kind = selectedSequenceRetirementOnly
 	surviving := selected.SurvivingRows()
 	selected.order = make([]int, len(surviving))
@@ -163,14 +183,14 @@ func selectedSequenceOriginalWithRetiring(capability profile.ExtensionOrderCapab
 		if index <= previous || index < 0 || index >= len(checked.orderedRows) {
 			return SelectedSequenceEdit{}, fmt.Errorf("selected original removal slots must be sorted, unique and in range")
 		}
-		subject, correlated := checked.orderedRows[index].CorrelatedSubject()
-		key, witnessed := retiring[index]
+		_, correlated := checked.orderedRows[index].CorrelatedSubject()
+		_, witnessed := retiring[index]
 		if !correlated && !witnessed {
 			return SelectedSequenceEdit{}, fmt.Errorf("selected sequence removal cannot retire a foreign row")
 		}
 		if witnessed {
-			if correlated && subject != key.Subject() {
-				return SelectedSequenceEdit{}, fmt.Errorf("handoff slot contradicts its exact retiring correlation")
+			if correlated {
+				return SelectedSequenceEdit{}, fmt.Errorf("handoff slot must have its separate exact retiring role")
 			}
 			witnesses++
 		}

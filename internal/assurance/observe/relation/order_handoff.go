@@ -47,6 +47,11 @@ func (events OrderHandoffs) AllowsRetirement(key CorrelationKey) bool {
 	return present
 }
 
+func (events OrderHandoffs) AllowsPair(before, after CorrelationKey) bool {
+	_, present := events.pairs[before][after]
+	return present
+}
+
 func (events OrderHandoffs) Empty() bool { return len(events.pairs) == 0 }
 
 func (events OrderHandoffs) ValidateDesired(keys []CorrelationKey) error {
@@ -57,7 +62,10 @@ func (events OrderHandoffs) ValidateDesired(keys []CorrelationKey) error {
 		}
 		desired[key] = struct{}{}
 	}
-	for _, after := range events.pairs {
+	for before, after := range events.pairs {
+		if _, retained := desired[before]; retained {
+			return fmt.Errorf("order handoff cannot retire an unchanged desired expectation")
+		}
 		for key := range after {
 			if _, present := desired[key]; !present {
 				return fmt.Errorf("order handoff acquisition is outside its exact desired selection")

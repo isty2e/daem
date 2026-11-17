@@ -61,6 +61,18 @@ func (result Result) CarrierHandoff() (CarrierHandoffExpectation, bool) {
 // assessment. Execution requires re-observation, not clearing this role.
 func (result Result) IsProspective() bool { return result.prospective }
 
+func (result Result) WithCarrierHandoff(expectation CarrierHandoffExpectation) (Result, error) {
+	if result.prospective {
+		return Result{}, fmt.Errorf("prospective decisions cannot become a current handoff assessment")
+	}
+	return NewResult(ResultInput{
+		Context: result.context, ManagedPaths: result.ManagedPaths(), Aggregates: result.Aggregates(),
+		NativeNarrowings: result.NativeNarrowings(), Relations: result.Relations(), RelationOrders: result.RelationOrders(),
+		CarrierAdoptions: result.CarrierAdoptions(), CarrierAbsences: result.CarrierAbsences(), Delegates: result.Delegates(),
+		CarrierHandoff: &expectation,
+	})
+}
+
 func validateCarrierHandoffBinding(result Result, expectation CarrierHandoffExpectation) error {
 	if expectation.handoffs.Empty() || result.context != expectation.after.context {
 		return fmt.Errorf("carrier handoff expectation has no matching operation context")

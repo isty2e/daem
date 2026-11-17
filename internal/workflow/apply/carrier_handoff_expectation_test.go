@@ -3,6 +3,8 @@ package apply
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -19,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -79,5 +82,62 @@ func TestProspectiveCarrierHandoffCannotExecuteBeforeAnyEffect(t *testing.T) {
 	result, err := ExecuteWithOptions(t.Context(), preparedWriteForTestResult(CommandResult{Reconciliation: prospective}), ExecuteOptions{})
 	if !errors.Is(err, errProspectiveCarrierHandoff) || result.ExecutionAttempted || len(result.HostRouteAttempts) != 0 || len(result.DelegateAttempts) != 0 {
 		t.Fatal("prepared execution did not reject the prospective role before effects", err)
+	}
+}
+
+func TestPlanCarrierHandoffBindsOneFinalLockWithoutPublishingProjectedState(t *testing.T) {
+	root, manifest, lockfile, _, previous, _ := writeApplyClaudePluginCarrierCommandFixture(t)
+	claim := seedApplyCarrierClaim(t, root, manifest, previous, target.ScopeProject)
+	configRoot := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", configRoot)
+	writeApplyFile(t, filepath.Join(configRoot, "plugins", "installed_plugins.json"), fmt.Sprintf(`{"version":2,"plugins":{"context7@market":[{"scope":"project","projectPath":%q}]}}`, root))
+	writeApplyFile(t, manifest, `version = 1
+targets = ["claude-code"]
+[[extension]]
+id = "context7"
+carrier = "claude-code-plugin"
+scope = "project"
+source = { marketplace = "context7@next" }
+`)
+	if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifest}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, LockfilePath: lockfile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := prepared.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	expectation, present := prepared.Reconciliation.CarrierHandoff()
+	if !present || prepared.Reconciliation.IsProspective() || !expectation.After().IsProspective() {
+		t.Fatal("planner did not distinguish actual assessment and conditional remainder")
+	}
+	absences := prepared.Reconciliation.CarrierAbsences()
+	if len(absences) != 1 || absences[0].Desired() != carrierabsence.DesiredReplaced || absences[0].Decision() != carrierabsence.DecisionRemove {
+		t.Fatal("same final lock did not classify source replacement separately from deletion")
+	}
+	actual := prepared.lifecycle.planned.assessment
+	if claims := actual.CurrentState.ManagedCarrierClaims(); len(claims) != 1 || !claims[0].ExactEqual(claim) ||
+		len(expectation.Handoffs().ProspectiveClaims()) != 0 || len(expectation.After().CarrierAbsences()) != 0 {
+		t.Fatal("prospective fact subtraction changed current state or kept an old obligation in the remainder")
+	}
+	if len(expectation.After().Relations()) != 1 || !expectation.After().Relations()[0].InvokesHostRoute() {
+		t.Fatal("conditional acquisition was not planned from the final lock")
+	}
+	for _, invalid := range []reconcile.ResultInput{
+		{Context: reconcile.ContextApply},
+		{Context: reconcile.ContextApply, CarrierAbsences: absences},
+		{Context: reconcile.ContextInspect, Relations: prepared.Reconciliation.Relations(), CarrierAbsences: absences},
+	} {
+		result, err := reconcile.NewResult(invalid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := result.WithCarrierHandoff(expectation); err == nil {
+			t.Fatal("current handoff binding accepted a missing member or a mismatched operation context")
+		}
 	}
 }
