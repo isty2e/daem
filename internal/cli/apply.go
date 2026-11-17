@@ -552,7 +552,7 @@ func newRelationOrderRiskAuthorizer(
 }
 
 func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
-	if len(planning.Reconciliation.MutatingDecisions()) != 0 {
+	if len(planning.Reconciliation.NativeNarrowings()) != 0 || len(planning.Reconciliation.MutatingDecisions()) != 0 {
 		return true
 	}
 	for _, action := range planning.Reconciliation.Relations() {

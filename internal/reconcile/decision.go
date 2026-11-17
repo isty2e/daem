@@ -146,7 +146,8 @@ func (result Result) Decisions() []Decision {
 	return decisions
 }
 
-// MutatingDecisions returns every state or host mutation in result-owned display order.
+// MutatingDecisions returns the managed-path and aggregate-subject decisions
+// that change host or state, in result-owned display order.
 func (result Result) MutatingDecisions() []Decision {
 	decisions := result.Decisions()
 	mutating := make([]Decision, 0, len(decisions))
