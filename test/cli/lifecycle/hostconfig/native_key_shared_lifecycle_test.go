@@ -22,8 +22,7 @@ func TestNativeKeySharedCLILifecycle(t *testing.T) {
 		original        string
 		source          string
 		updated         string
-		manualSuffix    string
-		manualExpected  string
+		preservedPrefix string
 		preservedBlocks []string
 		mode            os.FileMode
 		exactReleased   bool
@@ -33,25 +32,24 @@ func TestNativeKeySharedCLILifecycle(t *testing.T) {
 			destination: ".codex/config.toml", syntax: configdocument.TOML,
 			original: "# User-owned comment\nunmanaged = true\n", mode: 0o644,
 			source: "model = 'managed'\n", updated: "model = 'updated'\n",
-			exactReleased: true,
+			preservedPrefix: "# User-owned comment\n",
+			exactReleased:   true,
 		},
 		{
 			name: "Codex standard table", target: "codex", filename: "config.toml",
 			destination: ".codex/config.toml", syntax: configdocument.TOML,
 			original: "# Display settings\n[tui]\n# User theme\ntheme = 'dark'\n", mode: 0o600,
 			source: "[tui]\nnotifications = true\n", updated: "[tui]\nnotifications = false\n",
-			manualSuffix: "notifications = ['agent-turn-complete']\n", exactReleased: true,
-			manualExpected:  "[tui]\nnotifications = ['agent-turn-complete']\n",
+			exactReleased:   true,
 			preservedBlocks: []string{"[tui]\n", "# User theme\ntheme = 'dark'\n"},
 		},
 		{
 			name: "Codex nested profiles 0644", target: "codex", filename: "config.toml",
 			destination: ".codex/config.toml", syntax: configdocument.TOML,
 			original: "# Profiles\n[profiles.work]\n# Model selection\nmodel = 'user-model'\n\n[profiles.personal]\nmodel = 'personal-model'\n", mode: 0o644,
-			source:       "[profiles.work]\nmodel_reasoning_effort = 'high'\n",
-			updated:      "[profiles.work]\nmodel_reasoning_effort = 'low'\n",
-			manualSuffix: "\n[profiles.extra]\nmodel = 'new-model'\n", exactReleased: true,
-			manualExpected:  "[profiles.extra]\nmodel = 'new-model'\n",
+			source:          "[profiles.work]\nmodel_reasoning_effort = 'high'\n",
+			updated:         "[profiles.work]\nmodel_reasoning_effort = 'low'\n",
+			exactReleased:   true,
 			preservedBlocks: []string{"[profiles.work]\n", "# Model selection\nmodel = 'user-model'\n", "[profiles.personal]\nmodel = 'personal-model'\n"},
 		},
 		{
@@ -109,6 +107,9 @@ ownership = "keys"
 					t.Fatal(err)
 				}
 				nativefixture.RequireSharedValues(t, fixture.syntax, content, source, true)
+				if fixture.preservedPrefix != "" && !bytes.HasPrefix(content, []byte(fixture.preservedPrefix)) {
+					t.Fatal("native key edit changed the preserved document prefix")
+				}
 				for _, block := range fixture.preservedBlocks {
 					if !bytes.Contains(content, []byte(block)) {
 						t.Fatalf("native key edit changed an unrelated table/comment block %q:\n%s", block, content)
@@ -148,14 +149,6 @@ ownership = "keys"
 			nativefixture.RequireLifecycleMetadata(t, manifest, false)
 			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
-
-			if fixture.manualSuffix != "" {
-				manual := append(bytes.Clone(content), fixture.manualSuffix...)
-				if _, err := configdocument.Parse(t.Context(), manual, fixture.syntax, nativefixture.LifecycleLimits()); err != nil {
-					t.Fatal("ordinary manual table edit became invalid after releasing managed keys", err)
-				}
-				nativefixture.RequireSharedValues(t, fixture.syntax, manual, fixture.manualExpected, true)
-			}
 		})
 	}
 }

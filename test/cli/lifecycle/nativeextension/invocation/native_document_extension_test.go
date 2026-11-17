@@ -21,7 +21,14 @@ import (
 func TestNativeWholeDocumentPublishesAfterPiInstall(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		for _, withKeys := range []bool{false, true} {
-			for _, mode := range []string{"create", "record", "current", "update", "remove", "move", "move-current-relation", "tampered"} {
+			modes := []string{"create", "record", "current", "update", "remove", "move", "move-current-relation", "tampered"}
+			if withKeys {
+				// Pin-transition tests cover settled key/whole membership.
+				// These cases publish a new key prefix before the whole-file suffix.
+				modes = []string{"create", "record"}
+			}
+
+			for _, mode := range modes {
 				t.Run(fmt.Sprintf("%s/keys=%t/%s", scope, withKeys, mode), func(t *testing.T) {
 					invokesCommand := mode != "move-current-relation"
 					f := nativefixture.NewPiInvocationAtScope(t, "none", scope)
@@ -103,7 +110,10 @@ func TestNativeWholeDocumentPublishesAfterPiInstall(t *testing.T) {
 						t.Fatal(err)
 					}
 
-					f.Require(t, "lock")
+					// Current and tampered already locked the unchanged declaration before setup Apply.
+					if mode != "current" && mode != "tampered" {
+						f.Require(t, "lock")
+					}
 					if mode == "tampered" {
 						code, _, _ := f.Run("apply", "--yes")
 						if code == 0 {

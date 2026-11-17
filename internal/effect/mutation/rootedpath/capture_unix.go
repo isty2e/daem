@@ -225,7 +225,14 @@ func resolveNativePathPlatform(
 			return fail(err)
 		}
 		parent := platform.directories[len(platform.directories)-1]
-		candidatePath := filepath.Join(parent.path, component.name)
+		// The parent is clean and absolute; split components have no separators.
+		// Empty and dot components were handled above.
+		separator := "/"
+		if parent.path == "/" {
+			separator = ""
+		}
+		candidatePath := parent.path + separator + component.name
+
 		var stat unix.Stat_t
 		inspectErr := unix.Fstatat(parent.fd, component.name, &stat, unix.AT_SYMLINK_NOFOLLOW)
 		if errors.Is(inspectErr, unix.ENOENT) {
@@ -327,7 +334,7 @@ func resolveNativePathPlatform(
 		if err := traversal.validateResolvedDepth(resolvedDepth); err != nil {
 			return fail(err)
 		}
-		directory, openErr := openCapturedChild(parent, component.name, candidatePath, true)
+		directory, openErr := openInspectedChild(parent, component.name, candidatePath, true, &stat)
 		if openErr != nil {
 			return fail(openErr)
 		}
@@ -504,6 +511,17 @@ func openCapturedChild(
 	if err := unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return capturedDirectory{}, newFailure(FailureRootUnavailable, path, "inspect physical root component", err)
 	}
+	return openInspectedChild(parent, name, path, searchOnly, &before)
+}
+
+// Reuse only a no-follow entry observation from this traversal step, never a cached stat.
+func openInspectedChild(
+	parent capturedDirectory,
+	name string,
+	path string,
+	searchOnly bool,
+	before *unix.Stat_t,
+) (capturedDirectory, error) {
 	if before.Mode&unix.S_IFMT != unix.S_IFDIR {
 		return capturedDirectory{}, newFailure(FailureRootReplaced, path, "physical root component is not a directory", nil)
 	}
