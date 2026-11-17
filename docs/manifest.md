@@ -1770,7 +1770,7 @@ Changing `source` on an already-managed declaration can converge through one
 apply of the final manifest. The carrier, target and scope must stay within the
 existing management contract; see
 [managed source handoffs](host-integrations.md#managed-source-handoffs) for
-removal-first behavior, retry and limits.
+replacement routes, retry and limits.
 
 Refresh is an operation over this declaration and its exact current lock
 contract, not another manifest field. `daem refresh extension <id>` selects one

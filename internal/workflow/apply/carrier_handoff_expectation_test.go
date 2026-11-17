@@ -230,6 +230,9 @@ source = { marketplace = "context7@next" }
 		t.Fatal("conditional acquisition was not planned from the final lock")
 	}
 	after := expectation.After()
+	if len(after.ManagedPaths()) != 0 || len(after.Aggregates()) != 0 || len(actual.Reconciliation.ManagedPaths()) != 0 || len(actual.Reconciliation.Aggregates()) != 0 {
+		t.Fatal("binding fixture must isolate carrier decisions from managed paths and aggregates")
+	}
 	if len(after.CarrierAdoptions()) == 0 {
 		t.Fatal("fixture has no conditional adoption decision")
 	}
