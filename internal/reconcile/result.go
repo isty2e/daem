@@ -31,6 +31,7 @@ type ResultInput struct {
 	RelationOrders   []RelationOrderDecision
 	CarrierAdoptions []carrieradoption.Action
 	CarrierAbsences  []carrierabsence.Action
+	CarrierHandoff   *CarrierHandoffExpectation
 	Delegates        []DelegateAction
 }
 
@@ -45,6 +46,8 @@ type Result struct {
 	absences         []carrierabsence.Action
 	delegates        []DelegateAction
 	context          OperationContext
+	handoff          *CarrierHandoffExpectation
+	prospective      bool
 }
 
 // NewResult validates, orders, and defensively copies one complete
@@ -211,7 +214,7 @@ func NewResult(input ResultInput) (Result, error) {
 		return Result{}, err
 	}
 
-	return Result{
+	result := Result{
 		managedPaths:     canonicalManagedPaths,
 		aggregates:       canonicalAggregates,
 		nativeNarrowings: canonicalNarrowings,
@@ -221,7 +224,15 @@ func NewResult(input ResultInput) (Result, error) {
 		absences:         canonicalAbsences,
 		delegates:        canonicalDelegates,
 		context:          input.Context,
-	}, nil
+	}
+	if input.CarrierHandoff != nil {
+		if err := validateCarrierHandoffBinding(result, *input.CarrierHandoff); err != nil {
+			return Result{}, err
+		}
+		expectation := *input.CarrierHandoff
+		result.handoff = &expectation
+	}
+	return result, nil
 }
 
 // ManagedPaths returns a defensive copy of canonical managed-path decisions.
@@ -265,7 +276,7 @@ func (result Result) RelationOrders() []RelationOrderDecision {
 func (result Result) WithRelationOrders(
 	decisions []RelationOrderDecision,
 ) (Result, error) {
-	return NewResult(ResultInput{
+	updated, err := NewResult(ResultInput{
 		Context:          result.context,
 		ManagedPaths:     result.ManagedPaths(),
 		Aggregates:       result.Aggregates(),
@@ -274,8 +285,14 @@ func (result Result) WithRelationOrders(
 		RelationOrders:   decisions,
 		CarrierAdoptions: result.CarrierAdoptions(),
 		CarrierAbsences:  result.CarrierAbsences(),
+		CarrierHandoff:   result.handoff,
 		Delegates:        result.Delegates(),
 	})
+	if err != nil {
+		return Result{}, err
+	}
+	updated.prospective = result.prospective
+	return updated, nil
 }
 
 // CarrierAdoptions returns a defensive copy of canonical adoption decisions.
@@ -318,6 +335,8 @@ func (result Result) Clone() Result {
 		absences:         result.CarrierAbsences(),
 		delegates:        result.Delegates(),
 		context:          result.context,
+		handoff:          result.handoff,
+		prospective:      result.prospective,
 	}
 }
 

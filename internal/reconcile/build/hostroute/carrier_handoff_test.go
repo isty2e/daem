@@ -142,6 +142,71 @@ func TestCarrierSourceChangePreservesDeclarationFamilyAndScope(t *testing.T) {
 	}
 }
 
+func TestCarrierHandoffExpectationPreservesCurrentTruthAndProspectiveRole(t *testing.T) {
+	input := carrierHandoffInput(t, map[string]string{"a": "old@market"}, map[string]string{"a": "new@market"}, []string{"old@market"})
+	handoffs, err := reconcile.NewCarrierHandoffs(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked, _ := statusClaudePluginExtensionLockfileWithScope(t, "a", "new@market", target.ScopeGlobal)
+	actions, err := BuildRelationActions(RelationInput{
+		Locked: locked, SelectedTargets: statusClaudeSelection(t, "claude-code"), CurrentOwner: input.CurrentOwner,
+		ManagedClaims: handoffs.ProspectiveClaims(), PendingRemovals: handoffs.ProspectivePendingRemovals(),
+		Observations: handoffs.ProspectiveObservations(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := reconcile.NewResult(reconcile.ResultInput{Context: reconcile.ContextApply, Relations: actions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectation, err := reconcile.NewCarrierHandoffExpectation(handoffs, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := reconcile.NewResult(reconcile.ResultInput{
+		Context: reconcile.ContextApply, Relations: input.Acquisitions, CarrierAbsences: input.Absences,
+		CarrierHandoff: &expectation,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectation = reconcile.CarrierHandoffExpectation{}
+	retained, present := current.Clone().CarrierHandoff()
+	if !present || retained.Handoffs().Empty() || current.IsProspective() || after.IsProspective() {
+		t.Fatal("binding or caller assignment erased current/conditional separation")
+	}
+	prospective := retained.After()
+	rewritten, err := prospective.WithRelationOrders(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prospective.IsProspective() || !prospective.Clone().IsProspective() || !rewritten.IsProspective() {
+		t.Fatal("copying or replacing order decisions qualified a prospective remainder")
+	}
+	for _, nested := range []reconcile.Result{current, prospective} {
+		if _, err := reconcile.NewCarrierHandoffExpectation(handoffs, nested); err == nil {
+			t.Fatal("nested/reused expectations bypassed fresh assessment")
+		}
+	}
+	missing, err := reconcile.NewResult(reconcile.ResultInput{Context: reconcile.ContextApply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := reconcile.NewResult(reconcile.ResultInput{
+		Context: reconcile.ContextApply, Relations: actions, CarrierAbsences: input.Absences,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []reconcile.Result{missing, repeated} {
+		if _, err := reconcile.NewCarrierHandoffExpectation(handoffs, invalid); err == nil {
+			t.Fatal("expectation omitted its new contract or repeated an old retirement")
+		}
+	}
+}
+
 func carrierHandoffInput(t *testing.T, before, after map[string]string, installed []string) reconcile.CarrierHandoffsInput {
 	t.Helper()
 	beforeFiles := make(map[string]lock.File, len(before))

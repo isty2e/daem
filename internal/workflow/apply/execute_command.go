@@ -86,6 +86,9 @@ func executeWithDependencies(
 		return result
 	}
 	markExecutionAttempted := func() { executionAttempted = true }
+	if planned.assessment.Reconciliation.IsProspective() {
+		return disclose(planned), errProspectiveCarrierHandoff
+	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
 		return disclose(planned), err
 	}

@@ -82,7 +82,7 @@ func NewCarrierHandoffs(input CarrierHandoffsInput) (CarrierHandoffs, error) {
 		observed, present := absence.Observation()
 		current, currentPresent := input.Observations.Correlation(observed.Key)
 		if !present || !currentPresent || current.State() != observed.Result.State() {
-			return CarrierHandoffs{}, fmt.Errorf("carrier handoff retirement is not bound to the current batch")
+			return CarrierHandoffs{}, fmt.Errorf("carrier handoff retirement correlation is missing or has a different current state")
 		}
 		if _, duplicate := bySubject[absence.Subject()]; duplicate {
 			return CarrierHandoffs{}, fmt.Errorf("carrier handoff retirement is repeated")
@@ -125,7 +125,7 @@ func NewCarrierHandoffs(input CarrierHandoffsInput) (CarrierHandoffs, error) {
 		if current, present := input.Observations.Correlation(key); present {
 			actual, _ := action.Correlation()
 			if actual.State() != current.State() {
-				return CarrierHandoffs{}, fmt.Errorf("carrier handoff acquisition is not bound to the current batch")
+				return CarrierHandoffs{}, fmt.Errorf("carrier handoff acquisition correlation has a different current state")
 			}
 			for _, occurrence := range current.CoveredOccurrences() {
 				for _, index := range byOccurrence[occurrence] {
