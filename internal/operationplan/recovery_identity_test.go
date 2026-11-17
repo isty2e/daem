@@ -20,11 +20,11 @@ func TestActiveRecoveryOperationFingerprintMatchesOwnerProjection(t *testing.T) 
 		Classification:               "needs_rollback",
 		JournalAuthorityFingerprint:  "journal-fingerprint",
 		StateDirAuthorityFingerprint: "state-dir-fingerprint",
-		Actions:                      json.RawMessage(`[{"Kind":"restore_write","Destination":{}}]`),
+		Actions:                      json.RawMessage(`[{"Kind":"restore_write","Destination":"config/settings.json"}]`),
 		GuardedActions:               json.RawMessage(`null`),
 		RemovalCleanupObligations: []ActiveRecoveryCleanupObligation{{
 			Scope:       "project",
-			Destination: json.RawMessage(`{}`),
+			Destination: "config/obsolete.json",
 			Action:      "remove_residue",
 			Readiness:   "ready",
 			Reason:      "none",

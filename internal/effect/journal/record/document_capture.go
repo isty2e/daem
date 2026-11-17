@@ -217,7 +217,6 @@ func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed
 		envelope.Writer.Spelling = spelling
 	}
 	namespace := documentNamespaceFacts{writer: writer, writerSpelling: envelope.Writer.Spelling, aliases: make([]documentAliasFacts, 0, len(aliases))}
-	addresses := make([]aggregate.DocumentAddress, 0, len(aliases))
 	for _, alias := range aliases {
 		if err := ctx.Err(); err != nil {
 			return DocumentGroupDraft{}, err
@@ -235,14 +234,13 @@ func (draft DocumentGroupDraft) WithBoundNamespace(ctx context.Context, observed
 		}
 		envelope.Aliases = append(envelope.Aliases, native17Alias{Address: persistedDocumentAlias(alias.address), Root: persistedRootReference(binding.RootReference()), Coordinate: persistedCoordinate(binding.Coordinate()), Policy: binding.PolicyID(), SelectedObservation: selected, ObservedBefore: captured})
 		namespace.aliases = append(namespace.aliases, documentAliasFacts{address: alias.address, location: binding.Location(), binding: binding, root: alias.root, selected: selected, before: captured})
-		addresses = append(addresses, alias.address)
 	}
 	slices.SortFunc(envelope.Aliases, compareNative17Aliases)
 	routes, err := namespace.boundRoutes(ctx)
 	if err != nil {
 		return DocumentGroupDraft{}, err
 	}
-	addresses, err = journaldocument.AliasRouteAddresses(ctx, routes)
+	addresses, err := journaldocument.AliasRouteAddresses(ctx, routes)
 	if err != nil {
 		return DocumentGroupDraft{}, err
 	}

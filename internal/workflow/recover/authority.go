@@ -139,10 +139,6 @@ func activeRecoveryOperationFingerprint(
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
 	}
-	cleanupObligations, err := recoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations())
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint recovery plan: %w", err)
-	}
 	claimTransitions := make(
 		[]operationplan.ActiveRecoveryClaimTransition,
 		0,
@@ -173,7 +169,7 @@ func activeRecoveryOperationFingerprint(
 		StateDirAuthorityFingerprint: stateDirFingerprint,
 		Actions:                      json.RawMessage(actions),
 		GuardedActions:               json.RawMessage(guardedActions),
-		RemovalCleanupObligations:    cleanupObligations,
+		RemovalCleanupObligations:    recoveryCleanupObligationFingerprints(plan.RemovalCleanupObligations()),
 		StatefileBefore:              json.RawMessage(statefileBefore),
 		ClaimTransitions:             claimTransitions,
 	})
@@ -181,23 +177,19 @@ func activeRecoveryOperationFingerprint(
 
 func recoveryCleanupObligationFingerprints(
 	obligations []recovery.RemovalCleanupObligation,
-) ([]operationplan.ActiveRecoveryCleanupObligation, error) {
+) []operationplan.ActiveRecoveryCleanupObligation {
 	result := make([]operationplan.ActiveRecoveryCleanupObligation, 0, len(obligations))
 	for _, obligation := range obligations {
-		destination, err := json.Marshal(obligation.Destination())
-		if err != nil {
-			return nil, err
-		}
 		result = append(result, operationplan.ActiveRecoveryCleanupObligation{
 			Scope:       string(obligation.Scope()),
-			Destination: json.RawMessage(destination),
+			Destination: obligation.Destination().String(),
 			Action:      string(obligation.Action()),
 			Readiness:   string(obligation.Readiness()),
 			Reason:      string(obligation.Reason()),
 			Detail:      obligation.Detail(),
 		})
 	}
-	return result, nil
+	return result
 }
 
 func recoveryPathAuthorityFingerprintFor(

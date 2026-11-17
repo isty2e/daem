@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 	"github.com/isty2e/daem/internal/operationplan"
-	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
@@ -20,12 +19,13 @@ import (
 
 func TestCompiledActiveRecoveryFingerprintMatchesOwnerProjection(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		fixture func(*testing.T) recoveryFixture
+		name               string
+		fixture            func(*testing.T) recoveryFixture
+		wantRemovalCleanup bool
 	}{
 		{name: "rollback", fixture: func(t *testing.T) recoveryFixture { return prepareRecoveryFixture(t, false) }},
 		{name: "finalize", fixture: func(t *testing.T) recoveryFixture { return prepareRecoveryFixture(t, true) }},
-		{name: "removal continuation", fixture: prepareRemovalRecoveryFixture},
+		{name: "removal continuation", fixture: prepareRemovalRecoveryFixture, wantRemovalCleanup: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := test.fixture(t)
@@ -39,6 +39,10 @@ func TestCompiledActiveRecoveryFingerprintMatchesOwnerProjection(t *testing.T) {
 			if !ok {
 				t.Fatalf("authority kind = %q, want active", planned.plan.AuthorityKind())
 			}
+			if hasCleanup := len(active.RemovalCleanupObligations()) > 0; hasCleanup != test.wantRemovalCleanup {
+				t.Fatalf("has removal cleanup obligations = %t, want %t", hasCleanup, test.wantRemovalCleanup)
+			}
+
 			compiled, err := activeRecoveryOperationFingerprint(
 				planned.paths,
 				active,
@@ -80,7 +84,7 @@ type ownerRecoveryFingerprintFacts struct {
 
 type ownerRecoveryCleanupObligationFingerprint struct {
 	Scope       target.Scope
-	Destination output.Destination
+	Destination string
 	Action      recovery.RemovalCleanupActionKind
 	Readiness   recovery.RemovalCleanupReadiness
 	Reason      recovery.RemovalCleanupReason
@@ -161,7 +165,7 @@ func ownerRecoveryCleanupObligationFingerprints(
 	for _, obligation := range obligations {
 		result = append(result, ownerRecoveryCleanupObligationFingerprint{
 			Scope:       obligation.Scope(),
-			Destination: obligation.Destination(),
+			Destination: obligation.Destination().String(),
 			Action:      obligation.Action(),
 			Readiness:   obligation.Readiness(),
 			Reason:      obligation.Reason(),
