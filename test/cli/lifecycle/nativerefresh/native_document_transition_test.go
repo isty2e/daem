@@ -3,10 +3,13 @@
 package cli_test
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	clipkg "github.com/isty2e/daem/internal/cli"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -135,6 +139,87 @@ func TestNativeDocumentRealProducerThenKeyNarrowing(t *testing.T) {
 				t.Fatal("repeat apply rewrote narrowed content")
 			}
 			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+		})
+	}
+}
+
+func TestNativeDocumentNarrowingInteractiveConfirmation(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		selection         string
+		keyCount          int
+		approveAndReapply bool
+	}{
+		{name: "changed-values", selection: `{"foo":3,"new":4}`, keyCount: 2, approveAndReapply: true},
+		{name: "matching-keys", selection: `{"foo":1}`, keyCount: 1},
+		{name: "empty-selection", selection: `{}`, keyCount: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, target.TargetPi, target.ScopeProject)
+			f.applyWhole(t)
+			f.narrow(t, test.selection)
+
+			preview := clijson.DecodePlan(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--dry-run", "--json")))
+			if preview.HasErrors || len(preview.NativeNarrowings) != 1 || preview.NativeNarrowings[0].DesiredKeyCount != test.keyCount {
+				t.Fatalf("expected an admitted narrowing with %d keys: %+v", test.keyCount, preview)
+			}
+			if len(preview.Actions)+len(preview.DelegateActions)+len(preview.RelationActions)+len(preview.RelationOrders)+len(preview.CarrierAdoptions)+len(preview.CarrierAbsences) != 0 {
+				t.Fatalf("expected no companion action supplying confirmation: %+v", preview)
+			}
+
+			before := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+			atConfirmation := func(disclosure string) {
+				if !strings.Contains(disclosure, preview.NativeNarrowings[0].Destination) || !strings.Contains(disclosure, "document -> keys") {
+					t.Fatalf("ownership transition not disclosed before confirmation: %s", disclosure)
+				}
+				if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+					t.Fatal("narrowing changed the document or durable evidence before confirmation")
+				}
+			}
+			runApply := func(answer string, onRead func(string)) (exit, reads int, diagnostic string) {
+				var stdout, stderr bytes.Buffer
+				exit = clipkg.RunWithOptions([]string{"apply", "--manifest", f.Manifest}, clipkg.RunOptions{
+					Context: t.Context(), Stdin: strings.NewReader(answer + "\n"), Stdout: &stdout, Stderr: &stderr,
+					StdinIsTerminal: true, StdoutIsTerminal: true, StderrIsTerminal: true,
+					ReadConfirmationLine: func(_ context.Context, input io.Reader, _ int) (string, error) {
+						reads++
+						if onRead != nil {
+							onRead(stdout.String())
+						}
+						return bufio.NewReader(input).ReadString('\n')
+					},
+				})
+				return exit, reads, stderr.String()
+			}
+
+			if exit, reads, stderr := runApply("no", atConfirmation); exit != 1 || reads != 1 {
+				t.Fatalf("declining narrowing: exit=%d, confirmation reads=%d, stderr=%s", exit, reads, stderr)
+			}
+			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+				t.Fatal("declining narrowing changed the document or durable evidence")
+			}
+
+			if !test.approveAndReapply {
+				return
+			}
+			if exit, reads, stderr := runApply("yes", atConfirmation); exit != 0 || reads != 1 {
+				t.Fatalf("approving narrowing: exit=%d, confirmation reads=%d, stderr=%s", exit, reads, stderr)
+			}
+			content := testkit.ReadFile(t, f.Destination)
+			nativefixture.RequireSharedValues(t, f.syntax, content, test.selection, true)
+			nativefixture.RequireSharedValues(t, f.syntax, content, f.released, true)
+			snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.Paths.StatefilePath))
+			if err != nil || len(snapshot.ManagedPaths()) != 0 || len(snapshot.ManagedAggregates()) != test.keyCount {
+				t.Fatal("confirmed narrowing did not replace whole ownership with key records", err)
+			}
+
+			settled := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+			if exit, reads, stderr := runApply("no", nil); exit != 0 || reads != 0 {
+				t.Fatalf("repeating settled apply: exit=%d, confirmation reads=%d, stderr=%s", exit, reads, stderr)
+			}
+			if !reflect.DeepEqual(settled, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+				t.Fatal("repeating settled apply changed the document or durable evidence")
+			}
 		})
 	}
 }
