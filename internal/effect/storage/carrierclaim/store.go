@@ -48,13 +48,6 @@ func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims
 	return document.registry, nil
 }
 
-func validateCurrentAuthorities(
-	ctx context.Context,
-	registry durablecarrier.GlobalCarrierClaims,
-) error {
-	return (registryDocument{registry: registry}).validateAuthorities(ctx)
-}
-
 func (document registryDocument) validateAuthorities(ctx context.Context) error {
 	for index, claim := range document.registry.Claims() {
 		if err := ctx.Err(); err != nil {

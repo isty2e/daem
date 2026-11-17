@@ -876,47 +876,6 @@ func TestRecoveryJournalPresenceDecoderPreservesNestedUnknownFieldRejection(t *t
 	}
 }
 
-func mutateRecoveryEntryField(
-	t *testing.T,
-	content []byte,
-	parent string,
-	child string,
-	asNull bool,
-) []byte {
-	t.Helper()
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(content, &document); err != nil {
-		t.Fatal(err)
-	}
-	var entries []map[string]json.RawMessage
-	if err := json.Unmarshal(document["entries"], &entries); err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("entry count = %d, want 1", len(entries))
-	}
-	target := entries[0]
-	field := parent
-	if child != "" {
-		var nested map[string]json.RawMessage
-		if err := json.Unmarshal(target[parent], &nested); err != nil {
-			t.Fatal(err)
-		}
-		target = nested
-		field = child
-	}
-	if asNull {
-		target[field] = json.RawMessage(`null`)
-	} else {
-		delete(target, field)
-	}
-	if child != "" {
-		entries[0][parent] = mustMarshalRecoveryJSON(t, target)
-	}
-	document["entries"] = mustMarshalRecoveryJSON(t, entries)
-	return mustMarshalRecoveryJSON(t, document)
-}
-
 func mustMarshalRecoveryJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	content, err := json.Marshal(value)

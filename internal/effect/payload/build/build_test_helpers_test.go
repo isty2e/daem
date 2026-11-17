@@ -17,7 +17,6 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
-	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -117,23 +116,6 @@ func lockedInstructionExactSupply(
 		t.Fatal(err)
 	}
 	return contract
-}
-
-func lockedDirectExactSupply(
-	t *testing.T,
-	kind entity.Kind,
-	name string,
-	identity artifact.ExactIdentity,
-) lock.LockedSubjectContract {
-	t.Helper()
-	return snapshottest.ExactSupply(t, snapshottest.ExactSupplyInput{
-		Kind:         kind,
-		Name:         name,
-		SourceID:     identity.SourceID(),
-		ResolvedRef:  identity.ResolvedRef(),
-		ArtifactKind: identity.Kind(),
-		ContentHash:  identity.ContentHash(),
-	})
 }
 
 func resolvedHostOutputArtifact(

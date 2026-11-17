@@ -843,12 +843,6 @@ func (test applyScheduleTestCursor) failFastChoice(ref string) {
 	test.consume(ref+"/success", operationplan.EffectStepNoOp)
 }
 
-func (test applyScheduleTestCursor) failFastSuccess(ref string) {
-	test.t.Helper()
-	test.consume(ref+"/persistence", operationplan.EffectStepPersistence)
-	test.failFastChoice(ref + "/outcome")
-}
-
 func (test applyScheduleTestCursor) finish() {
 	test.t.Helper()
 	if err := test.cursor.FinishSuccess(); err != nil {

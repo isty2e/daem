@@ -141,10 +141,6 @@ func documentRootedWriterPath(root recoveryRootProvenance, relative string) (str
 	return filepath.Join(root.PhysicalRoot, filepath.FromSlash(relative)), nil
 }
 
-func (record nativeJournalRecord) ordinaryWriterPath(entry recoveryEntry) (string, error) {
-	return ordinaryWriterPath(record.ManifestRootProvenance, entry)
-}
-
 func (record nativeRuntimeRecord) ordinaryWriterPath(entry recoveryEntry) (string, error) {
 	return ordinaryWriterPath(record.ManifestRootProvenance, entry)
 }

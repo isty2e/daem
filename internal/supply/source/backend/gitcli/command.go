@@ -397,28 +397,6 @@ func (resolver Resolver) gitOutputInCacheRoot(
 	return string(output), errors.Join(runErr, finish())
 }
 
-func (resolver Resolver) runGitInCacheRoot(
-	ctx context.Context,
-	cacheRoot *rootedpath.CapturedRoot,
-	args ...string,
-) error {
-	_, err := resolver.gitOutputInCacheRoot(ctx, cacheRoot, args...)
-	return err
-}
-
-func (resolver Resolver) consumeGitOutputInCacheRoot(
-	ctx context.Context,
-	cacheRoot *rootedpath.CapturedRoot,
-	consume func(io.Reader) error,
-	args ...string,
-) error {
-	command, finish, err := resolver.prepareCacheRootCommand(ctx, cacheRoot, args)
-	if err != nil {
-		return err
-	}
-	return errors.Join(runGitReader(ctx, command, consume), finish())
-}
-
 func (resolver Resolver) prepareCacheRootCommand(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,

@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
-	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
@@ -216,13 +215,4 @@ func testHook(t *testing.T, name string, scope target.Scope, targets []target.Ta
 		Name: name, Event: "Stop", Type: desiredhook.TypeCommand, Command: command,
 		Targets: targets, Scope: scope,
 	})
-}
-
-func testSelection(t *testing.T, available []target.Target, requested ...string) targetselection.Selection {
-	t.Helper()
-	selection, err := targetselection.ForAvailableTargets(available, requested)
-	if err != nil {
-		t.Fatalf("ForAvailableTargets returned error: %v", err)
-	}
-	return selection
 }

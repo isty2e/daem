@@ -280,10 +280,6 @@ func jsonOrderConstraintFor(
 	}
 }
 
-func jsonSubjectIDFor(id topology.SubjectID) jsonSubjectID {
-	return lockIdentityProjection{}.subject(id, lockIdentityAfter, false)
-}
-
 func jsonLockedSubjectFor(
 	contract lock.LockedSubjectContract,
 	projection lockIdentityProjection,

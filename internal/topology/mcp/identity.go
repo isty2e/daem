@@ -92,20 +92,6 @@ func validateEnvironmentName(value string) error {
 	return nil
 }
 
-func isStableToken(value string) bool {
-	if value == "" || !isASCIIAlnum(value[0]) {
-		return false
-	}
-	for index := 0; index < len(value); index++ {
-		character := value[index]
-		if isASCIIAlnum(character) || character == '.' || character == '_' || character == '-' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
 func isASCIIAlnum(character byte) bool {
 	return (character >= 'A' && character <= 'Z') ||
 		(character >= 'a' && character <= 'z') ||

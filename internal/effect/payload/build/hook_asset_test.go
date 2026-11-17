@@ -18,7 +18,6 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
-	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 	resourcetopology "github.com/isty2e/daem/internal/topology/resource"
@@ -149,16 +148,6 @@ func mustPayloadPaths(t *testing.T, root string) daempaths.Paths {
 		t.Fatalf("paths.Resolve returned error: %v", err)
 	}
 	return paths
-}
-
-func mustPayloadSelection(t *testing.T, available ...target.Target) targetselection.Selection {
-	t.Helper()
-
-	selection, err := targetselection.ForAvailableTargets(available, nil)
-	if err != nil {
-		t.Fatalf("ForAvailableTargets returned error: %v", err)
-	}
-	return selection
 }
 
 func payloadAsset(t *testing.T, name string, executable bool) hookassetresource.HookAsset {

@@ -5,7 +5,6 @@ package removaloperation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,14 +14,11 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/removalnamespace"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
-	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -91,84 +87,8 @@ func TestAcquireRemovalSlotRejectsExhaustedPathBudget(t *testing.T) {
 	}
 }
 
-func testManagedPathRemovalDemandSet(
-	t *testing.T,
-	before *durable.ManagedPathState,
-	beforeMode os.FileMode,
-	expected *durable.ManagedPathState,
-	expectedMode os.FileMode,
-) recovery.RemovalDemandSet {
-	t.Helper()
-	if before == nil && expected == nil {
-		return recovery.RemovalDemandSet{}
-	}
-	var scope target.Scope
-	var destination output.Destination
-	if before != nil {
-		scope = before.Scope()
-		destination = before.Destination()
-	} else {
-		scope = expected.Scope()
-		destination = expected.Destination()
-	}
-	states := make([]recovery.RemovalState, 0, 2)
-	if before != nil {
-		state, err := testManagedPathRemovalState(*before, beforeMode, true)
-		if err != nil {
-			t.Fatalf("construct before removal state: %v", err)
-		}
-		states = append(states, state)
-	}
-	if expected != nil {
-		state, err := testManagedPathRemovalState(*expected, expectedMode, false)
-		if err != nil {
-			t.Fatalf("construct expected removal state: %v", err)
-		}
-		states = append(states, state)
-	}
-	demand, err := recovery.NewRemovalDemand(scope, destination, states)
-	if err != nil {
-		t.Fatalf("construct removal demand: %v", err)
-	}
-	set, err := recovery.NewRemovalDemandSet([]recovery.RemovalDemand{demand})
-	if err != nil {
-		t.Fatalf("construct removal demand set: %v", err)
-	}
-	return set
-}
-
 func emptyRemovalDemandsForTest() recovery.RemovalDemandSet {
 	return recovery.RemovalDemandSet{}
-}
-
-func testManagedPathRemovalState(
-	state durable.ManagedPathState,
-	mode os.FileMode,
-	before bool,
-) (recovery.RemovalState, error) {
-	kind := recovery.PathKindFile
-	pathMode := recovery.NewPermissionMode(mode)
-	if state.ContentKind() == realization.PathProjectionDirectory {
-		kind = recovery.PathKindDirectory
-		pathMode = nil
-	}
-	if state.ContentHash() == "" {
-		return recovery.RemovalState{}, fmt.Errorf("managed path removal state requires content hash")
-	}
-	if before {
-		return recovery.NewBeforeRemovalState(recovery.BeforePathState{
-			Existed:     true,
-			Kind:        kind,
-			ContentHash: string(state.ContentHash()),
-			PathMode:    pathMode,
-		})
-	}
-	return recovery.NewExpectedRemovalState(recovery.ExpectedPathState{
-		Existed:     true,
-		Kind:        kind,
-		ContentHash: string(state.ContentHash()),
-		PathMode:    pathMode,
-	})
 }
 
 func bindTestFileRemovalIntent(
@@ -422,20 +342,6 @@ func TestForwardRemovalReacquiresCapabilityAgainstExecutionBudget(t *testing.T) 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("candidate changed after pre-effect budget rejection: %v", err)
 	}
-}
-
-func bindTestFileRemovalIntentForDestination(
-	t *testing.T,
-	authority *Operation,
-	destination output.Destination,
-	content []byte,
-) {
-	t.Helper()
-	bound, err := authority.destinations.Resolve(target.ScopeProject, destination)
-	if err != nil {
-		t.Fatalf("resolve test removal destination: %v", err)
-	}
-	bindTestFileRemovalIntent(t, authority, bound, content)
 }
 
 func boundRemovalDestinationForTest(

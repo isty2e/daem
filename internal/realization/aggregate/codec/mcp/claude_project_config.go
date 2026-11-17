@@ -320,10 +320,6 @@ func decodeMCPConfigContext(ctx context.Context, content []byte, spec mcpConfigS
 	return config, nil
 }
 
-func admitStrictMCPJSONDocument(content []byte, spec mcpConfigSpec) error {
-	return admitStrictMCPJSONDocumentContext(context.Background(), content, spec)
-}
-
 func admitStrictMCPJSONDocumentContext(ctx context.Context, content []byte, spec mcpConfigSpec) error {
 	if err := jsonstrict.ValidateContext(ctx, content, spec.label+" config JSON", maximumMCPJSONDepth); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {

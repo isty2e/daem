@@ -300,25 +300,3 @@ func equalSourceIDSets(left []artifact.SourceID, right []artifact.SourceID) bool
 	}
 	return true
 }
-
-func equalRequestIDSets(left []acquisition.RequestID, right []acquisition.RequestID) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	counts := make(map[acquisition.RequestID]int, len(left))
-	for _, requestID := range left {
-		counts[requestID]++
-	}
-	for _, requestID := range right {
-		counts[requestID]--
-		if counts[requestID] < 0 {
-			return false
-		}
-	}
-	for _, count := range counts {
-		if count != 0 {
-			return false
-		}
-	}
-	return true
-}

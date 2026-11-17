@@ -43,15 +43,6 @@ type nativeRecordFixture struct {
 	capturedGroups []journalrecord.SealedDocumentGroup
 }
 
-func requireLoadedNativeDocument(t testing.TB, records journalrecord.LoadedDocuments, index int) journalrecord.LoadedDocument {
-	t.Helper()
-	value, present := records.At(index)
-	if !present {
-		t.Fatalf("complete loaded document %d is missing from %d groups", index, records.Len())
-	}
-	return value
-}
-
 func nativeFixtureBudget(t *testing.T) *physicalwork.Budget {
 	t.Helper()
 	budget, err := physicalwork.NewBudget(0)
@@ -59,28 +50,6 @@ func nativeFixtureBudget(t *testing.T) *physicalwork.Budget {
 		t.Fatal(err)
 	}
 	return budget
-}
-
-func readStagedNativeRecord(t *testing.T, path string, codec durable.SnapshotCodec) journalrecord.Native {
-	t.Helper()
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	path = filepath.Join(parent, filepath.Base(path))
-	snapshot, err := journalTestFilesystem().ReadRegularFileSnapshotUpTo(t.Context(), path, journalrecord.MaximumBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := journalrecord.DecodeNativeSnapshot(t.Context(), snapshot, path, codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value, present := loaded.Native()
-	if !present {
-		t.Fatal("staged native record decoded as another family")
-	}
-	return value
 }
 
 func nativeJournalFixture(t *testing.T) nativeRecordFixture {

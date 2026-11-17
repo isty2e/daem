@@ -1354,16 +1354,6 @@ func applyDelegateAttemptKind(work operationplan.DelegateWork) operationplan.Eff
 	return operationplan.EffectStepNoOp
 }
 
-func compileApplyFailFastPersistence(
-	builder *operationplan.EffectStructureBuilder,
-	ref string,
-) operationplan.EffectNode {
-	return operationplan.EffectSequence(
-		builder.Step(ref+"/persistence", operationplan.EffectStepPersistence),
-		compileApplyFailFastChoice(builder, ref+"/outcome"),
-	)
-}
-
 func compileApplyCheckedStep(
 	builder *operationplan.EffectStructureBuilder,
 	ref string,

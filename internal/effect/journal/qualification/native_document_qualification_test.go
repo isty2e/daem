@@ -11,7 +11,6 @@ import (
 
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
@@ -21,25 +20,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 )
-
-func preparedNativeFixture(t *testing.T) (nativeRecordFixture, journalrecord.Native, journaldocument.Comparison) {
-	t.Helper()
-	fixture := nativeJournalFixture(t)
-	return fixture, fixture.journal, fixture.comparison
-}
-
-func assertNoPreparedDocumentRecord(t *testing.T, value journalrecord.PreparedDocuments, err error, codec durable.SnapshotCodec) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("invalid preparation returned no error")
-	}
-	if comparisons, err := value.Comparisons(); err == nil || comparisons != nil {
-		t.Fatal("invalid preparation supplied complete or partial staging comparisons")
-	}
-	if encoded, err := value.Encode(t.Context(), codec); err == nil || encoded != nil {
-		t.Fatal("invalid preparation produced an encodable record")
-	}
-}
 
 func assertNoPreparedNativeDocuments(t *testing.T, value journalrecord.LoadedDocuments, err error) {
 	t.Helper()

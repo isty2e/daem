@@ -351,20 +351,6 @@ func delegatedOperationRoute(
 	}
 }
 
-func newDelegatedRouteProfile(
-	carrier desiredextension.Carrier,
-	selectedTarget target.Target,
-	correlationID string,
-	routeSpecs ...delegatedOperationRouteSpec,
-) DelegatedRouteProfile {
-	return mustDelegatedRouteProfile(newDelegatedRouteProfileValue(
-		carrier,
-		selectedTarget,
-		correlationID,
-		routeSpecs...,
-	))
-}
-
 func newDelegatedRouteProfileWithRemoval(
 	carrier desiredextension.Carrier,
 	selectedTarget target.Target,

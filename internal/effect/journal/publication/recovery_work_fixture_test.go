@@ -13,15 +13,6 @@ func hasRootedPathFailureKind(err error, kind rootedpath.FailureKind) bool {
 	return errors.As(err, &failure) && failure.Kind() == kind
 }
 
-func newRecoveryPathBudget(t *testing.T) *physicalwork.Budget {
-	t.Helper()
-	budget, err := physicalwork.NewBudget(0)
-	if err != nil {
-		t.Fatalf("new recovery path budget: %v", err)
-	}
-	return budget
-}
-
 func recoveryBackupBudgetForTest(t *testing.T) *physicalwork.Budget {
 	t.Helper()
 	budget, err := physicalwork.NewBudget(1)

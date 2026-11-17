@@ -22,28 +22,6 @@ type mcpProjectionApplyFixture struct {
 	contentPath    func(string) string
 }
 
-func newMCPProjectionApplyFixture(t *testing.T) mcpProjectionApplyFixture {
-	t.Helper()
-	root := t.TempDir()
-	stateDir := filepath.Join(root, ".daem")
-	return mcpProjectionApplyFixture{
-		root:           root,
-		hostConfigPath: filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath),
-		destination:    outputtest.Parse(t, aggregate.ClaudeProjectMCPConfigPath),
-		contentPath:    mcpcodec.ClaudeProjectMCPContentPath,
-		paths: Paths{
-			RecoveryDir:   filepath.Join(stateDir, "recovery"),
-			StateDir:      stateDir,
-			StatefilePath: filepath.Join(stateDir, "state.json"),
-			ManifestRoot:  root,
-		},
-	}
-}
-
-func newClaudeGlobalMCPProjectionApplyFixture(t *testing.T) mcpProjectionApplyFixture {
-	return newClaudeGlobalMCPProjectionApplyFixtureAtHome(t, "home")
-}
-
 func newClaudeGlobalMCPProjectionApplyFixtureAtHome(
 	t *testing.T,
 	homeComponent string,
@@ -65,27 +43,6 @@ func newClaudeGlobalMCPProjectionApplyFixtureAtHome(
 			ManifestRoot:  root,
 		},
 	}
-}
-
-func (fixture mcpProjectionApplyFixture) canonicalEntry(
-	t *testing.T,
-	serverID string,
-	command string,
-) []byte {
-	t.Helper()
-	content, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(
-		mcpcodec.ClaudeProjectMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            []string{"-y", "@upstream/" + serverID},
-			Env:             map[string]string{"API_KEY": "${CONTEXT7_API_KEY}"},
-			AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
-		},
-	)
-	if err != nil {
-		t.Fatalf("CanonicalClaudeProjectMCPServerEntry: %v", err)
-	}
-	return content
 }
 
 func (fixture mcpProjectionApplyFixture) claudeGlobalCanonicalEntry(

@@ -5,33 +5,10 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
-
-func piSelectionContract(t *testing.T, destination string, parts ...string) aggregate.ProjectionContract {
-	t.Helper()
-	root, err := output.Parse(destination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := output.NewKeyPath(parts...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	footprint, err := output.NewKeyFootprint(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, root, footprint, "native-json-v1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return contract
-}
 
 func selectionNativeRow(t *testing.T, contract aggregate.ProjectionContract, value string) durable.ManagedAggregateState {
 	t.Helper()

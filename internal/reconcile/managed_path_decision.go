@@ -189,11 +189,6 @@ func newManagedPathCreate(facts managedPathDecisionFacts, reason ActionReason) M
 	return ManagedPathDecision{create: &managedPathCreateDecision{facts: facts}}
 }
 
-func newManagedPathReplace(facts managedPathDecisionFacts, reason ActionReason, detail string) ManagedPathDecision {
-	facts.reason, facts.detail = reason, detail
-	return ManagedPathDecision{replace: &managedPathReplaceDecision{facts: facts}}
-}
-
 func newManagedPathRemove(facts managedPathDecisionFacts, reason ActionReason) ManagedPathDecision {
 	facts.reason = reason
 	return ManagedPathDecision{remove: &managedPathRemoveDecision{facts: facts}}

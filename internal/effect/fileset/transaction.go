@@ -982,10 +982,6 @@ func rejectAbandonedFileSetResidueWithBudget(
 	return abandonedFileSetResidueError{paths: residue}
 }
 
-func inspectAbandonedFileSetResidue(ctx context.Context, stateDir string) ([]string, error) {
-	return inspectAbandonedFileSetResidueLimited(ctx, stateDir, maximumStateDirFenceEntries)
-}
-
 func inspectAbandonedFileSetResidueLimited(
 	ctx context.Context,
 	stateDir string,

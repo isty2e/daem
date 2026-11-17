@@ -490,7 +490,3 @@ func probeSideEffects(request runtimeprobemcp.ProbeRequest) []string {
 	}
 	return effects
 }
-
-func refuseJournalAndFileSet(ctx context.Context, paths daempaths.Paths) error {
-	return recoverygate.RequireClear(ctx, paths)
-}

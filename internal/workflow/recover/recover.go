@@ -49,10 +49,6 @@ func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 	return planRecoveryOperation(ctx, input)
 }
 
-func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, error) {
-	return planRecoveryWithFilesystem(ctx, input, storagecommit.Adapter{})
-}
-
 func recoverySelectionInterruption(selection journal.RecoverablePlan) error {
 	switch selection.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
@@ -62,21 +58,6 @@ func recoverySelectionInterruption(selection journal.RecoverablePlan) error {
 	default:
 		return nil
 	}
-}
-
-func planRecoveryWithFilesystem(
-	ctx context.Context,
-	input PlanInput,
-	filesystem mutationfs.Reader,
-) (recoveryPreparation, error) {
-	return planRecoveryWithFilesystemAndFence(
-		ctx,
-		input,
-		filesystem,
-		func(ctx context.Context, authority recoverygate.StateDirAuthority) error {
-			return authority.RequireClear(ctx)
-		},
-	)
 }
 
 func planRecoveryWithFilesystemAndFence(
