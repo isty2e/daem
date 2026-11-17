@@ -47,19 +47,13 @@ func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !result.ContainsHostConfig() {
 		return nil
 	}
-	if err := rejectBlockedRelationActions(result); err != nil {
+	if err := rejectBlockedCarrierHandoffPlan(result); err != nil {
 		return err
 	}
-	if err := rejectBlockedRelationOrders(result); err != nil {
+	if err := rejectBlockedRelationOrders(assessment.ReservationReconciliation()); err != nil {
 		return err
 	}
-	if err := rejectBlockedCarrierAdoptions(result); err != nil {
-		return err
-	}
-	if err := rejectBlockedCarrierAbsences(result.CarrierAbsences()); err != nil {
-		return err
-	}
-	for _, relation := range result.Relations() {
+	for _, relation := range assessment.ReservationReconciliation().Relations() {
 		if relation.Execution() != reconcile.ExecutionNoMutation {
 			if !relation.InvokesHostRoute() || !nativeInvocationCarrierSupported(relation.CarrierIdentity().Carrier().Key(), lock.OperationInstall) {
 				return nativeSupportError{nativeSupportRoutes}

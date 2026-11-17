@@ -75,6 +75,13 @@ daem-known shared consumer. `unmanage extension` instead leaves the host
 installation in place. Removal is not general cleanup: see each host's
 [retained effects](host-integrations.md#managed-carrier-absence).
 
+A managed source change within the same owner, carrier, target and scope can use
+one apply of the final manifest. Admitted Pi Git pin changes keep their in-place
+route. Other replacements remove the old carrier, check fresh state and then
+acquire the new one; a failed install does not roll back removal. Source
+swaps and same-manifest retries use the same
+[handoff rules](host-integrations.md#managed-source-handoffs).
+
 Import preserves supported exact source spelling and relative order without
 ownership or host changes. Antigravity inventory lacks recoverable source
 provenance, so those rows are skipped. Eligible imported relations still need

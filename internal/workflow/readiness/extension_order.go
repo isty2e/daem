@@ -31,6 +31,7 @@ func observeClasslessRetirementEdits(
 	paths daempaths.Paths,
 	locked lock.File,
 	retiring []durablecarrier.ManagedCarrierClaim,
+	handoffs reconcile.CarrierHandoffs,
 ) ([]relationhost.SelectedDocumentEdit, error) {
 	if len(retiring) == 0 {
 		return nil, nil
@@ -44,7 +45,11 @@ func observeClasslessRetirementEdits(
 		if _, lockedClass := locked.Locked.OrderConstraint(capability.ClassID()); lockedClass {
 			continue
 		}
-		selected, err := relationhost.ObserveOpenCodeRetirementEdits(paths, locked, scope, retiring)
+		events, err := handoffs.OrderHandoffs(target.TargetOpenCode, scope)
+		if err != nil {
+			return nil, err
+		}
+		selected, err := relationhost.ObserveOpenCodeHandoffRetirementEdits(paths, locked, scope, retiring, events)
 		if err != nil {
 			return nil, err
 		}

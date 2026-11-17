@@ -48,6 +48,10 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
+var errProspectiveCarrierHandoff = errors.New("prospective carrier handoff decisions require fresh post-retirement assessment")
+
+var errUnsettledCarrierHandoff = errors.New("carrier source replacement requires its reserved retirement and replan phase")
+
 type runResult struct {
 	ActionCount           int
 	StatePath             string
@@ -134,6 +138,13 @@ func runWithOptions(
 	assessment readiness.Assessment,
 	options runOptions,
 ) (result runResult, resultErr error) {
+	if assessment.Reconciliation.IsProspective() {
+		return runResult{State: assessment.CurrentState, GlobalCarrierClaims: assessment.GlobalCarrierClaims},
+			errProspectiveCarrierHandoff
+	}
+	if requiresCarrierHandoffPhase(assessment.Reconciliation) && (options.nativeInput == nil || options.afterNativeCore == nil) {
+		return runResult{State: assessment.CurrentState, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, errUnsettledCarrierHandoff
+	}
 	if options.nativeInput != nil {
 		return runNativeWithOptions(ctx, paths, environment, locked, selection, assessment, options)
 	}

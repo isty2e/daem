@@ -819,3 +819,87 @@ func (failure globalCarrierSettlementClassifiedError) Error() string {
 func (failure globalCarrierSettlementClassifiedError) Kind() mutationfs.FailureKind {
 	return failure.kind
 }
+
+func TestGlobalCommitUncertaintyIdentifiesOnlyChangedClaims(t *testing.T) {
+	changed := newWorkflowFixture(t, target.ScopeGlobal).claim
+	retained := newWorkflowFixture(t, target.ScopeGlobal).claim
+	populated, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{changed, retained})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining, _, err := populated.WithoutClaim(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, retirement := range []bool{false, true} {
+		current, successor := remaining, populated
+		if retirement {
+			current, successor = populated, remaining
+		}
+		cause := globalCarrierSettlementClassifiedError{kind: mutationfs.FailureIndeterminateCommit}
+		next, commitErr := globalCarrierClaimsAfterPersistence(current, successor, durablecarrier.EmptyGlobalCarrierClaims(), cause)
+		joined := errors.Join(errors.New("later cleanup"), fmt.Errorf("commit context: %w", commitErr))
+		if !next.Equal(successor) || !errors.Is(joined, cause) || !globalCarrierMembershipUnconfirmed(joined, changed) || globalCarrierMembershipUnconfirmed(joined, retained) {
+			t.Fatal("global uncertainty lost its exact changed membership or underlying cause")
+		}
+		kind, classified := mutationfs.FailureKindOf(joined)
+		if !classified || kind != mutationfs.FailureIndeterminateCommit {
+			t.Fatal("uncertainty wrapper changed failure classification")
+		}
+		if globalCarrierMembershipUnconfirmed(errors.New("validation after confirmed commit"), changed) {
+			t.Fatal("post-commit validation failure made a confirmed claim uncertain")
+		}
+	}
+}
+
+func TestGlobalSettlementCallbacksPreserveUnconfirmedCommitMembership(t *testing.T) {
+	claim := newWorkflowFixture(t, target.ScopeGlobal).claim
+	populated, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := durablecarrier.EmptyGlobalCarrierClaims()
+	registryPath := filepath.Join(t.TempDir(), "carrier-claims.json")
+	for _, kind := range []globalCarrierSettlementKind{globalCarrierSettlementRetirement, globalCarrierSettlementAdoption} {
+		current, successor := empty, populated
+		if kind == globalCarrierSettlementRetirement {
+			current, successor = populated, empty
+		}
+		plan, err := newGlobalCarrierBatchSettlementPlan(kind, registryPath, current, []durablecarrier.ManagedCarrierClaim{claim})
+		if err != nil {
+			t.Fatal(err)
+		}
+		observed, count, err := executeGlobalCarrierBatchSettlement(t.Context(), plan, kind, registryPath, []durablecarrier.ManagedCarrierClaim{claim}, current, globalCarrierBatchSettlementCallbacks{
+			validateBefore: func() error { return nil },
+			persist: func() (durablecarrier.GlobalCarrierClaims, int, error) {
+				next, err := globalCarrierClaimsAfterPersistence(current, successor, empty, globalCarrierSettlementClassifiedError{kind: mutationfs.FailureIndeterminateCommit})
+				return next, 0, err
+			},
+			validateAfter: func() error { t.Fatal("post-commit validation ran after uncertain publication"); return nil },
+		})
+		if count != 0 || !observed.Equal(successor) || !globalCarrierMembershipUnconfirmed(err, claim) {
+			t.Fatal("batch settlement lost uncertain membership")
+		}
+	}
+	action := reconcile.RelationAction{}
+	plan, err := newGlobalCarrierPromotionSettlementPlan(registryPath, empty, action, claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := func() error { return nil }
+	_, observed, err := executeGlobalCarrierPromotionSettlement(t.Context(), plan, registryPath, action, claim, durable.EmptySnapshot(), empty, globalCarrierPromotionSettlementCallbacks{
+		validateDeclarationsBefore: valid, validateProjectRootBefore: valid, validateStatefileBefore: valid,
+		persistRegistry: func() (durablecarrier.GlobalCarrierClaims, error) {
+			return globalCarrierClaimsAfterPersistence(empty, populated, empty, globalCarrierSettlementClassifiedError{kind: mutationfs.FailureIndeterminateCommit})
+		},
+		validateStatefileAfter: valid, acceptRegistryVisibility: valid,
+		publishStatefile: func(durablecarrier.GlobalCarrierClaims) (durable.Snapshot, error) {
+			t.Fatal("statefile promotion ran after uncertain registry publication")
+			return durable.EmptySnapshot(), nil
+		},
+		validateStatefileFinal: valid, acceptStatefileVisibility: valid, validateProjectRootAfter: valid, validateDeclarationsAfter: valid,
+	})
+	if !observed.Equal(populated) || !globalCarrierMembershipUnconfirmed(err, claim) {
+		t.Fatal("promotion settlement lost uncertain membership")
+	}
+}

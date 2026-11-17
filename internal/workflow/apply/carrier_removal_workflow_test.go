@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,37 @@ func TestRunRetiresProjectClaimOnlyAfterVerifiedAbsence(t *testing.T) {
 		)
 	}
 	assertConvergedProjectRemoval(t, fixture.persistedState(t), fixture.claim)
+}
+
+func TestGlobalRetirementProgressDistinguishesPossibleFromConfirmedSuccessor(t *testing.T) {
+	for _, uncertain := range []bool{true, false} {
+		t.Run(fmt.Sprintf("uncertain-%t", uncertain), func(t *testing.T) {
+			fixture := newWorkflowFixture(t, target.ScopeGlobal)
+			input := fixture.input(t)
+			if uncertain {
+				input.RemoveGlobalClaim = func(context.Context, durablecarrier.GlobalCarrierClaims, durablecarrier.ManagedCarrierClaim) (durablecarrier.GlobalCarrierClaims, error) {
+					return durablecarrier.EmptyGlobalCarrierClaims(), globalCarrierSettlementClassifiedError{kind: mutationfs.FailureIndeterminateCommit}
+				}
+			} else {
+				input.CloseStatefileAuthority = func(authority *statefileEffectAuthority) error {
+					return errors.Join(authority.Close(), errors.New("after confirmed retirement"))
+				}
+			}
+			result, err := runCarrierRemovals(t.Context(), input)
+			if err == nil || len(result.GlobalClaims.Claims()) != 0 {
+				t.Fatalf("retirement: claims=%d err=%v", len(result.GlobalClaims.Claims()), err)
+			}
+			phase := carrierHandoffPhaseResult{retired: runResult{StatePath: input.StatePath, State: result.State, GlobalCarrierClaims: result.GlobalClaims}}
+			progress := carrierHandoffProgressFor(phase, input.Actions, false, err)
+			want := 1
+			if uncertain {
+				want = 0
+			}
+			if len(progress.RetiredClaims) != want {
+				t.Fatalf("retired progress=%d, want %d", len(progress.RetiredClaims), want)
+			}
+		})
+	}
 }
 
 func TestRunScheduledCarrierRemovalsJoinsOwnedStatefileAuthorityCloseFailure(

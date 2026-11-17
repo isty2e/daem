@@ -67,7 +67,7 @@ func finalizedCarrierAdoptionClaims(
 	project durable.Snapshot,
 	global durablecarrier.GlobalCarrierClaims,
 ) ([]durablecarrier.ManagedCarrierClaim, error) {
-	results, expected, err := committedCarrierAdoptionClaims(actions, project, global)
+	results, expected, err := committedCarrierAdoptionClaims(actions, project, global, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +85,7 @@ func committedCarrierAdoptionClaims(
 	actions []carrieradoption.Action,
 	project durable.Snapshot,
 	global durablecarrier.GlobalCarrierClaims,
+	commitErr error,
 ) ([]durablecarrier.ManagedCarrierClaim, int, error) {
 	results := make([]durablecarrier.ManagedCarrierClaim, 0, len(actions))
 	expected := 0
@@ -116,7 +117,7 @@ func committedCarrierAdoptionClaims(
 		var matched durablecarrier.ManagedCarrierClaim
 		matchCount := 0
 		for _, claim := range claims {
-			if claim.SameAcquisition(proposed) {
+			if claim.SameAcquisition(proposed) && !globalCarrierMembershipUnconfirmed(commitErr, claim) {
 				matched = claim
 				matchCount++
 			}

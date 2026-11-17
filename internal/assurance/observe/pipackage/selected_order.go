@@ -23,6 +23,7 @@ type SelectedOrderView struct {
 	inventory Inventory
 	retiring  []ScopedRelation
 	selected  observerelation.SelectedSequenceEdit
+	handoffs  observerelation.OrderHandoffs
 }
 
 type LoadedRetirementInput struct {
@@ -75,23 +76,43 @@ func (observation OrderObservation) WithRetiringRelations(retiring []ScopedRelat
 }
 
 func newSelectedOrderView(selection orderSelection, inventory Inventory, retiring []ScopedRelation) (SelectedOrderView, error) {
-	desiredSources := make(map[string]bool, len(selection.relations))
-	desiredIdentities := make(map[hostrelation.HostLoadIdentity]bool, len(selection.relations))
+	return newSelectedOrderViewWithHandoffs(selection, inventory, retiring, observerelation.OrderHandoffs{})
+}
+
+func (observation OrderObservation) WithHandoffRetirements(retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedOrderView, error) {
+	if _, err := observation.CaptureInput(); err != nil {
+		return SelectedOrderView{}, err
+	}
+	return newSelectedOrderViewWithHandoffs(observation.selection, observation.inventory, retiring, handoffs)
+}
+
+func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Inventory, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedOrderView, error) {
+	var desired []observerelation.CorrelationKey
+	for _, relation := range selection.relations {
+		desired = append(desired, relation.key)
+	}
+	if err := handoffs.ValidateDesired(desired); err != nil {
+		return SelectedOrderView{}, err
+	}
+	desiredSources := make(map[string]observerelation.CorrelationKey, len(selection.relations))
+	desiredSubjects := make(map[topology.SubjectID]observerelation.CorrelationKey, len(selection.relations))
+	desiredIdentities := make(map[hostrelation.HostLoadIdentity]observerelation.CorrelationKey, len(selection.relations))
 	for _, relation := range selection.relations {
 		source, err := expectedSettingsSource(relation, inventory.settingsBase)
 		if err != nil {
 			return SelectedOrderView{}, err
 		}
-		desiredSources[source] = true
+		desiredSources[source] = relation.key
+		desiredSubjects[relation.key.Subject()] = relation.key
 	}
 	for _, member := range selection.constraint.Members() {
-		desiredIdentities[member.HostLoadIdentity()] = true
+		desiredIdentities[member.HostLoadIdentity()] = desiredSubjects[member.Subject()]
 	}
 	retained := slices.Clone(retiring)
 	slices.SortFunc(retained, func(left, right ScopedRelation) int {
 		return strings.Compare(left.key.Subject().String(), right.key.Subject().String())
 	})
-	sources := make(map[string]topology.SubjectID, len(retained))
+	sources := make(map[string]observerelation.CorrelationKey, len(retained))
 	identities := make(map[hostrelation.HostLoadIdentity]bool, len(retained))
 	for index, relation := range retained {
 		if err := relation.key.Validate(); err != nil {
@@ -115,10 +136,13 @@ func newSelectedOrderView(selection orderSelection, inventory Inventory, retirin
 		}
 		load := hostrelation.HostLoadIdentity(identity.hostLoadIdentity(selection.scope))
 		_, repeatedSource := sources[source]
-		if desiredSources[source] || desiredIdentities[load] || repeatedSource || identities[load] {
+		exact, exactOverlap := desiredSources[source]
+		identityKey, identityOverlap := desiredIdentities[load]
+		if (exactOverlap && !handoffs.AllowsPair(relation.key, exact)) ||
+			(identityOverlap && !handoffs.AllowsPair(relation.key, identityKey)) || repeatedSource || identities[load] {
 			return SelectedOrderView{}, fmt.Errorf("Pi retirement overlaps desired or ambiguous source identity")
 		}
-		sources[source], identities[load] = relation.key.Subject(), true
+		sources[source], identities[load] = relation.key, true
 	}
 	entries, err := inventory.Entries()
 	if err != nil {
@@ -129,12 +153,18 @@ func newSelectedOrderView(selection orderSelection, inventory Inventory, retirin
 		return SelectedOrderView{}, err
 	}
 	var removed []int
+	var slots []observerelation.RetiringSequenceSlot
 	for index, entry := range entries {
-		subject, retiring := sources[entry.Source()]
+		key, retiring := sources[entry.Source()]
 		if !retiring {
 			continue
 		}
-		rows[index], err = observerelation.NewCorrelatedObservedRelationRow(rows[index].HostLoadIdentity(), subject)
+		if handoffs.AllowsRetirement(key) {
+			rows[index], err = observerelation.NewObservedRelationRow(rows[index].HostLoadIdentity())
+			slots = append(slots, observerelation.RetiringSequenceSlot{OriginalSlot: index, Correlation: key})
+		} else {
+			rows[index], err = observerelation.NewCorrelatedObservedRelationRow(rows[index].HostLoadIdentity(), key.Subject())
+		}
 		if err != nil {
 			return SelectedOrderView{}, err
 		}
@@ -147,13 +177,15 @@ func newSelectedOrderView(selection orderSelection, inventory Inventory, retirin
 	var selected observerelation.SelectedSequenceEdit
 	if selection.constraint.MemberCount() == 0 {
 		selected, err = observerelation.NewRetirementSequenceEdit(selection.capability, sequence, removed)
+	} else if !handoffs.Empty() {
+		selected, err = observerelation.NewSelectedHandoffSequenceEdit(selection.capability, sequence, selection.constraint, removed, slots, handoffs)
 	} else {
 		selected, err = observerelation.NewSelectedSequenceEdit(selection.capability, sequence, selection.constraint, removed)
 	}
 	if err != nil {
 		return SelectedOrderView{}, err
 	}
-	return SelectedOrderView{selection: selection, inventory: inventory, retiring: retained, selected: selected}, nil
+	return SelectedOrderView{selection: selection, inventory: inventory, retiring: retained, selected: selected, handoffs: handoffs}, nil
 }
 
 func (view SelectedOrderView) SelectedSequence() observerelation.SelectedSequenceEdit {
@@ -186,7 +218,7 @@ func (view SelectedOrderView) AfterRetiring(correlations []observerelation.Corre
 			remaining = append(remaining, relation)
 		}
 	}
-	return newSelectedOrderView(view.selection, view.inventory, remaining)
+	return newSelectedOrderViewWithHandoffs(view.selection, view.inventory, remaining, view.handoffs.WithoutRetiring(correlations))
 }
 
 func (view SelectedOrderView) DefinitionRoots() []string {

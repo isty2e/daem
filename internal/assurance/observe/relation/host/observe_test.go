@@ -118,20 +118,39 @@ func TestObserveOpenCodePluginsUsesSelectedScopeAndConfigKinds(t *testing.T) {
 	}
 
 	key := mustOpenCodeCorrelationKey(t, "@acme/shared@1")
+	other := mustOpenCodeCorrelationKeyWithSubject(t, "other", "@acme/shared@1")
 	spec, err := observeOpenCodePlugins(
 		Input{Paths: daempaths.Paths{ManifestRoot: projectRoot}},
-		[]carrierRecord{{
-			key:     key,
-			carrier: desiredextension.CarrierOpenCodePlugin,
-			scope:   target.ScopeProject,
-		}},
+		[]carrierRecord{
+			{key: key, carrier: desiredextension.CarrierOpenCodePlugin, scope: target.ScopeProject},
+			{key: other, carrier: desiredextension.CarrierOpenCodePlugin, scope: target.ScopeProject},
+		},
 	)
 	if err != nil {
 		t.Fatalf("observeOpenCodePlugins: %v", err)
 	}
-	if len(spec.Correlations) != 1 ||
-		spec.Correlations[0].Result.State() != relationobserve.StateExactCorrelation {
-		t.Fatalf("OpenCode correlations = %#v, want one source-exact logical row", spec.Correlations)
+	if len(spec.Correlations) != 2 ||
+		spec.Correlations[0].Result.State() != relationobserve.StateExactCorrelation ||
+		spec.Correlations[1].Result.State() != relationobserve.StateExactCorrelation {
+		t.Fatalf("OpenCode correlations = %#v, want two source-exact requests", spec.Correlations)
+	}
+	firstOrigins := spec.Correlations[0].Result.CoveredOccurrences()
+	secondOrigins := spec.Correlations[1].Result.CoveredOccurrences()
+	if len(firstOrigins) != 2 || len(secondOrigins) != 2 || firstOrigins[0] == firstOrigins[1] ||
+		firstOrigins[0] != secondOrigins[0] || firstOrigins[1] != secondOrigins[1] {
+		t.Fatal("OpenCode document occurrences depend on the requester or lose multiplicity")
+	}
+	batch, err := relationobserve.NewBatch(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prospective, err := batch.WithoutRetiring([]relationobserve.CorrelationKey{key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := prospective.Correlation(other)
+	if after.State() != relationobserve.StateMissing {
+		t.Fatal("retirement did not cover both selected config documents")
 	}
 	if len(spec.AuthorityPaths) != 4 {
 		t.Fatalf("OpenCode authority paths = %#v, want every config candidate", spec.AuthorityPaths)

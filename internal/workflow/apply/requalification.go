@@ -21,6 +21,7 @@ const (
 	requalificationAfterHostRoutes
 	requalificationAfterProviders
 	requalificationAfterDelegates
+	requalificationAfterCarrierHandoff
 )
 
 func (phase applyRequalificationPhase) label() (string, error) {
@@ -33,6 +34,8 @@ func (phase applyRequalificationPhase) label() (string, error) {
 		return "post-native-provider replan", nil
 	case requalificationAfterDelegates:
 		return "post-native-delegate suffix", nil
+	case requalificationAfterCarrierHandoff:
+		return "post-carrier-handoff replan", nil
 	default:
 		return "", fmt.Errorf("unknown apply requalification phase")
 	}
@@ -96,7 +99,11 @@ func requalifyApplyPlan[T any](
 			returnErr = errors.Join(returnErr, closeCommandPlan(&fresh))
 		}
 	}()
+	if fresh.assessment.Reconciliation.IsProspective() {
+		return requalifiedApplyPlan{}, empty, errProspectiveCarrierHandoff
+	}
 	fresh.projectRoot = input.current.projectRoot
+	fresh.handoffReservation = input.current.handoffReservation
 	if input.schedule.managedSuffix != nil {
 		fresh.assessment.Ownership = input.originalOwnership
 	}

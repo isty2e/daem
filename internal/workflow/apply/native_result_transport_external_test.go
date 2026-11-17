@@ -212,7 +212,7 @@ func TestNativeResultTransportProjectsBoundedMetadata(t *testing.T) {
 			if err := json.Unmarshal(content, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload.SchemaVersion != []int{18, 24}[index] || len(payload.Actions) != 0 || len(payload.Native) != 1 || payload.Native[0].Name != "settings" || payload.Native[0].Target != "pi" || payload.Native[0].Scope != "global" || payload.Native[0].Destination != action.Baseline().Destination().String() || payload.Native[0].KeyCount != len(action.DesiredContributions()) || !payload.Native[0].Omitted {
+			if payload.SchemaVersion != []int{19, 25}[index] || len(payload.Actions) != 0 || len(payload.Native) != 1 || payload.Native[0].Name != "settings" || payload.Native[0].Target != "pi" || payload.Native[0].Scope != "global" || payload.Native[0].Destination != action.Baseline().Destination().String() || payload.Native[0].KeyCount != len(action.DesiredContributions()) || !payload.Native[0].Omitted {
 				t.Fatal("native output lost transition metadata or used an incompatible envelope")
 			}
 			for _, private := range []string{"private-key-marker", "actual-secret-marker", "changed-secret-marker", "fragment.json"} {

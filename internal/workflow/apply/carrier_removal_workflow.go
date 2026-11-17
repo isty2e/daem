@@ -103,7 +103,7 @@ func (input carrierRemovalInput) closeStatefileAuthority(
 	return authority.Close()
 }
 
-// Result reports the last durably committed state and bounded attempt history.
+// Result reports the last state/registry successors and bounded attempt history.
 type carrierRemovalResult struct {
 	State        durable.Snapshot
 	GlobalClaims durablecarrier.GlobalCarrierClaims

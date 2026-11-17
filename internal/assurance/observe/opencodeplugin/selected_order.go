@@ -22,6 +22,7 @@ type SelectedDocumentOrderView struct {
 	document  Document
 	retiring  []ScopedRelation
 	selected  observerelation.SelectedSequenceEdit
+	handoffs  observerelation.OrderHandoffs
 }
 
 func (observation DocumentOrderObservation) WithRetiringRelations(retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
@@ -32,6 +33,10 @@ func (observation DocumentOrderObservation) WithRetiringRelations(retiring []Sco
 }
 
 func ReconstructRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
+	return ReconstructHandoffRetirement(capability, document, desired, retiring, observerelation.OrderHandoffs{})
+}
+
+func ReconstructHandoffRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedDocumentOrderView, error) {
 	if err := capability.Validate(); err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
@@ -43,21 +48,40 @@ func ReconstructRetirement(capability profile.ExtensionOrderCapability, document
 		return topology.CompareSubjectID(left.key.Subject(), right.key.Subject())
 	})
 	selection := orderSelection{scope: capability.Scope(), directory: filepath.Dir(document.path), capability: capability, relations: protected}
-	return newSelectedDocumentView(selection, document, retiring)
+	return newSelectedDocumentViewWithHandoffs(selection, document, retiring, handoffs)
 }
 
 func newSelectedDocumentView(selection orderSelection, document Document, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
-	desiredIdentities := make(map[hostrelation.HostLoadIdentity]bool)
-	for _, member := range selection.constraint.Members() {
-		desiredIdentities[member.HostLoadIdentity()] = true
+	return newSelectedDocumentViewWithHandoffs(selection, document, retiring, observerelation.OrderHandoffs{})
+}
+
+func (observation DocumentOrderObservation) WithHandoffRetirements(retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedDocumentOrderView, error) {
+	if err := observation.Validate(); err != nil {
+		return SelectedDocumentOrderView{}, err
 	}
-	desiredSubjects := make(map[topology.SubjectID]bool, len(selection.relations))
+	return newSelectedDocumentViewWithHandoffs(observation.selection, observation.document, retiring, handoffs)
+}
+
+func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Document, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedDocumentOrderView, error) {
+	var desired []observerelation.CorrelationKey
+	for _, relation := range selection.relations {
+		desired = append(desired, relation.key)
+	}
+	if err := handoffs.ValidateDesired(desired); err != nil {
+		return SelectedDocumentOrderView{}, err
+	}
+	desiredIdentities := make(map[hostrelation.HostLoadIdentity]observerelation.CorrelationKey)
+	for _, member := range selection.constraint.Members() {
+		desiredIdentities[member.HostLoadIdentity()] = observerelation.CorrelationKey{}
+	}
+	desiredSubjects := make(map[topology.SubjectID]observerelation.CorrelationKey, len(selection.relations))
 	protectedIdentities := make(map[hostrelation.HostLoadIdentity]bool, len(selection.relations))
 	for _, relation := range selection.relations {
 		if err := relation.key.Validate(); err != nil {
 			return SelectedDocumentOrderView{}, err
 		}
-		if relation.scope != selection.scope || desiredSubjects[relation.key.Subject()] {
+		_, duplicateSubject := desiredSubjects[relation.key.Subject()]
+		if relation.scope != selection.scope || duplicateSubject {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection requires unique scope-matched subjects")
 		}
 		identity, err := opencodeconfig.HostLoadIdentity(string(relation.key.ExpectedRelation().SubjectKey()), filepath.Join(selection.directory, "opencode.json"))
@@ -68,13 +92,15 @@ func newSelectedDocumentView(selection orderSelection, document Document, retiri
 		if protectedIdentities[load] {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection has an ambiguous load identity")
 		}
-		desiredSubjects[relation.key.Subject()], protectedIdentities[load], desiredIdentities[load] = true, true, true
+		desiredSubjects[relation.key.Subject()] = relation.key
+		protectedIdentities[load] = true
+		desiredIdentities[load] = relation.key
 	}
 	retained := slices.Clone(retiring)
 	slices.SortFunc(retained, func(left, right ScopedRelation) int {
 		return strings.Compare(left.key.Subject().String(), right.key.Subject().String())
 	})
-	sources := make(map[string]topology.SubjectID, len(retained))
+	sources := make(map[string]observerelation.CorrelationKey, len(retained))
 	identities := make(map[hostrelation.HostLoadIdentity]bool, len(retained))
 	for index, relation := range retained {
 		if err := relation.key.Validate(); err != nil {
@@ -89,25 +115,35 @@ func newSelectedDocumentView(selection orderSelection, document Document, retiri
 			return SelectedDocumentOrderView{}, err
 		}
 		load := hostrelation.HostLoadIdentity(identity)
-		_, desired := selection.exactSubjects[source]
+		exactSubject, desired := selection.exactSubjects[source]
 		_, repeatedSource := sources[source]
-		if desired || desiredSubjects[relation.key.Subject()] || desiredIdentities[load] || repeatedSource || identities[load] {
+		identityKey, identityOverlap := desiredIdentities[load]
+		sameSubject, subjectOverlap := desiredSubjects[relation.key.Subject()]
+		if (desired && !handoffs.AllowsPair(relation.key, desiredSubjects[exactSubject])) ||
+			(subjectOverlap && !handoffs.AllowsPair(relation.key, sameSubject)) ||
+			(identityOverlap && !handoffs.AllowsPair(relation.key, identityKey)) || repeatedSource || identities[load] {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode retirement overlaps desired or ambiguous source identity")
 		}
-		sources[source], identities[load] = relation.key.Subject(), true
+		sources[source], identities[load] = relation.key, true
 	}
 	rows, err := normalizedDocumentRows(selection, document)
 	if err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
 	var removed []int
+	var slots []observerelation.RetiringSequenceSlot
 	for index, entry := range document.entries {
-		subject, retiring := sources[entry.source]
+		key, retiring := sources[entry.source]
 		if !retiring {
 			continue
 		}
 		var err error
-		rows[index], err = observerelation.NewCorrelatedObservedRelationRow(rows[index].HostLoadIdentity(), subject)
+		if handoffs.AllowsRetirement(key) {
+			rows[index], err = observerelation.NewObservedRelationRow(rows[index].HostLoadIdentity())
+			slots = append(slots, observerelation.RetiringSequenceSlot{OriginalSlot: index, Correlation: key})
+		} else {
+			rows[index], err = observerelation.NewCorrelatedObservedRelationRow(rows[index].HostLoadIdentity(), key.Subject())
+		}
 		if err != nil {
 			return SelectedDocumentOrderView{}, err
 		}
@@ -118,15 +154,19 @@ func newSelectedDocumentView(selection orderSelection, document Document, retiri
 		return SelectedDocumentOrderView{}, err
 	}
 	var selected observerelation.SelectedSequenceEdit
-	if selection.constraint.MemberCount() == 0 {
+	if selection.constraint.MemberCount() == 0 && !handoffs.Empty() {
+		selected, err = observerelation.NewHandoffRetirementSequenceEdit(selection.capability, sequence, removed, slots, handoffs)
+	} else if selection.constraint.MemberCount() == 0 {
 		selected, err = observerelation.NewRetirementSequenceEdit(selection.capability, sequence, removed)
+	} else if !handoffs.Empty() {
+		selected, err = observerelation.NewSelectedHandoffSequenceEdit(selection.capability, sequence, selection.constraint, removed, slots, handoffs)
 	} else {
 		selected, err = observerelation.NewSelectedSequenceEdit(selection.capability, sequence, selection.constraint, removed)
 	}
 	if err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
-	return SelectedDocumentOrderView{selection: selection, document: document, retiring: retained, selected: selected}, nil
+	return SelectedDocumentOrderView{selection: selection, document: document, retiring: retained, selected: selected, handoffs: handoffs}, nil
 }
 
 func (view SelectedDocumentOrderView) SelectedSequence() observerelation.SelectedSequenceEdit {
@@ -164,7 +204,7 @@ func (view SelectedDocumentOrderView) AfterRetiring(correlations []observerelati
 			remaining = append(remaining, relation)
 		}
 	}
-	return newSelectedDocumentView(view.selection, view.document, remaining)
+	return newSelectedDocumentViewWithHandoffs(view.selection, view.document, remaining, view.handoffs.WithoutRetiring(correlations))
 }
 
 func (view SelectedDocumentOrderView) SameSelection(other SelectedDocumentOrderView) bool {

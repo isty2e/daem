@@ -348,8 +348,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `18` |
-| confirmed `apply` | Apply result | `24` |
+| `status`, `apply --dry-run` | Reconciliation plan | `19` |
+| confirmed `apply` | Apply result | `25` |
 | `replace host-config` | Selected-key replacement | `1` |
 | `import host-config` | Selected physical-value capture or its terminal recovery | `1` |
 | `recover` | Recovery plan/result | `10` |
@@ -410,6 +410,38 @@ These transitions are separate from projection `actions` and do not increase
 the plan's projection `action_count`. A transition row describes planned intent,
 not proof that a host write occurred. Ordinary results omit the array, but all
 results use the new envelope version.
+
+Plan version `19` and apply-result version `25` add the optional
+`carrier_handoffs` object. Its `basis` is `plan_time_conditional_remainder`:
+ordinary `relation_actions` and `carrier_absence_actions` retain the actual
+before observations, while the handoff describes work admitted only after old
+management is fully retired and fresh state is checked. A before relation may
+therefore be blocked while the top-level `has_errors` is false.
+
+`retirements[].before` uses the carrier-absence shape. Its new
+`requested_outcome: "replaced"` distinguishes an old source from a deleted
+declaration. Each `acquisitions[].conditional_after` uses the relation-action
+shape; `requires_retirements` contains zero-based indexes into this object's
+retirement array, not persistent identities. `conditional_order_actions` uses
+the order-action shape. `conditional_carrier_adoption_actions` discloses the
+after-acquisition adoption decisions, including blocked or passive decisions.
+With `--manage-existing`, an ordinary blocked relation can be paired with an
+eligible state-only adoption. The observations and risks remain conditional
+plan evidence, not current host evidence or order consent. In write results,
+adoption `claim_transition` and final provenance join actual claim receipts;
+they can report a recorded claim even if a later operation fails.
+
+Write results add actual `retirements[].settled`, `requalified` and
+`apply_complete` booleans. The first records each old claim's completed
+retirement; false includes an unconfirmed registry commit. The second records
+a successful fresh replan, and the last records successful completion under the
+new source's existing assurance contract. In particular,
+an Antigravity non-selector can complete as `attempted_unverified`, without a
+verified new claim. These booleans are absent from read-only previews. A partial
+failure can leave settled retirements with `apply_complete: false`; host-route
+attempts retain their execution order. A retry after all old management has
+already been released can be an ordinary acquisition with no handoff object.
+All plan/apply results emit the new versions, even without a handoff.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1488,6 +1520,13 @@ plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
 
+For a managed extension source handoff, the preview discloses removal followed
+by a fresh replan and conditional acquisition. It does not promise an atomic
+replacement, cache retention or rollback of completed removal. Admitted Pi Git
+pin changes retain their in-place route. See
+[managed source handoffs](host-integrations.md#managed-source-handoffs) for
+supported boundaries, source swaps, retry and ownership-preserving alternatives.
+
 Before a non-no-op apply, daem may upgrade management metadata without changing
 managed content. This maintenance has its own transaction and may finish even
 if the requested apply is later refused. If conversion cannot be qualified,
@@ -1631,8 +1670,9 @@ pending install already owns the same transition, success instead uses
 `installed_observed_transition` rather than implying explicit adoption. A
 failure before any durable commit or delegated host-command boundary uses
 `not_recorded`. Once one of those effects was attempted, a later error preserves
-`recorded` or `completed_by_install_recovery` for each exact durable result
-returned by the commit boundary; only actions without such a result use
+`recorded` or `completed_by_install_recovery` for each confirmed durable result
+returned by the commit boundary. A possible successor after an indeterminate
+registry commit is not a confirmed receipt; actions without a confirmed result use
 `unknown_after_error`. Run `daem status` to resolve any remaining unknown action
 instead of inferring it from the error alone.
 

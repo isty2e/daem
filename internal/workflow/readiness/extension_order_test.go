@@ -134,13 +134,13 @@ func TestClasslessRetirementAdmissionUsesLockedClassAndMatchingClaims(t *testing
 		{"pi_retirement_does_not_read_opencode", lock.File{}, []durablecarrier.ManagedCarrierClaim{piClaim}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if edits, err := observeClasslessRetirementEdits(paths, test.locked, test.claims); err != nil || len(edits) != 0 {
+			if edits, err := observeClasslessRetirementEdits(paths, test.locked, test.claims, reconcile.CarrierHandoffs{}); err != nil || len(edits) != 0 {
 				t.Fatal("classless admission read an inapplicable inventory or bypassed the locked class", edits, err)
 			}
 		})
 	}
 	writeReadinessFile(t, config, []byte(`{"plugin":["beta@2"]}`))
-	edits, err := observeClasslessRetirementEdits(paths, lock.File{}, []durablecarrier.ManagedCarrierClaim{claim})
+	edits, err := observeClasslessRetirementEdits(paths, lock.File{}, []durablecarrier.ManagedCarrierClaim{claim}, reconcile.CarrierHandoffs{})
 	if err != nil || len(edits) != 2 || !edits[0].Changed() {
 		t.Fatal("classless retirement did not retain its existing and absent document actors", edits, err)
 	}
@@ -153,11 +153,11 @@ func TestClasslessRetirementAdmissionUsesLockedClassAndMatchingClaims(t *testing
 	if len(renamed.Locked.OrderConstraints()) != 0 {
 		t.Fatal("single desired plugin fixture unexpectedly has an order class")
 	}
-	if _, err := observeClasslessRetirementEdits(paths, renamed, []durablecarrier.ManagedCarrierClaim{claim}); err == nil {
+	if _, err := observeClasslessRetirementEdits(paths, renamed, []durablecarrier.ManagedCarrierClaim{claim}, reconcile.CarrierHandoffs{}); err == nil {
 		t.Fatal("a renamed still-desired source was admitted for classless retirement")
 	}
 	unrelated := readinessOrderLock(t, root, desiredextension.CarrierOpenCodePlugin, target.TargetOpenCode, []string{"unrelated@3"})
-	if edits, err := observeClasslessRetirementEdits(paths, unrelated, []durablecarrier.ManagedCarrierClaim{claim}); err != nil || len(edits) != 2 || !edits[0].Changed() {
+	if edits, err := observeClasslessRetirementEdits(paths, unrelated, []durablecarrier.ManagedCarrierClaim{claim}, reconcile.CarrierHandoffs{}); err != nil || len(edits) != 2 || !edits[0].Changed() {
 		t.Fatal("an unrelated desired plugin prevented exact retirement", edits, err)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
 
@@ -20,6 +21,8 @@ import (
 )
 
 type providerPhaseExecution struct {
+	state                         durable.Snapshot
+	claims                        durablecarrier.GlobalCarrierClaims
 	attempts                      []durableattempt.HostRouteAttempt
 	leases                        *mutation.LeaseSet
 	authorityEvidence             applyAuthorityEvidence
@@ -56,7 +59,7 @@ func prepareMCPProviderPrerequisiteActions(
 	current commandPlan,
 	preflight recoveryProvenancePreflight,
 ) ([]reconcile.RelationAction, error) {
-	actions, err := providerInstallActions(current.assessment.MCPProviders)
+	actions, err := providerInstallActions(current.assessment.ReservationMCPProviders())
 	if err != nil {
 		return nil, fmt.Errorf("resolve MCP provider prerequisite actions: %w", err)
 	}
@@ -190,7 +193,7 @@ func marshalProviderStableFingerprintProjection[T any](value T) (json.RawMessage
 func nonProviderRelationActions(planned commandPlan) []reconcile.RelationAction {
 	providerCarriers := providerCarrierSubjects(planned)
 	result := make([]reconcile.RelationAction, 0)
-	for _, action := range planned.assessment.Reconciliation.Relations() {
+	for _, action := range planned.assessment.ReservationReconciliation().Relations() {
 		if _, provider := providerCarriers[action.CarrierIdentity().CarrierSubject().String()]; provider {
 			continue
 		}
@@ -232,7 +235,7 @@ func finalRelationActions(
 	}
 	providerCarriers := providerCarrierSubjects(planned)
 	result := make([]reconcile.RelationAction, 0)
-	for _, action := range planned.assessment.Reconciliation.Relations() {
+	for _, action := range planned.assessment.ReservationReconciliation().Relations() {
 		if isGlobalCarrierPromotionCandidate(current, action) {
 			// Ordinary core consumes committed-claim completions. Native plans
 			// keep them as explicit final registry and statefile work.
@@ -334,8 +337,13 @@ func runMCPProviderPrerequisitePhase(
 	planWasDisclosed bool,
 ) (providerPhaseExecution, error) {
 	result := providerPhaseExecution{
+		state:                current.assessment.CurrentState,
+		claims:               current.assessment.GlobalCarrierClaims,
 		leases:               leases,
 		firstEffectRevisions: firstEffectRevisions,
+	}
+	if current.assessment.Reconciliation.IsProspective() {
+		return result, errProspectiveCarrierHandoff
 	}
 	if len(providerActions) == 0 {
 		return result, requireCurrentMCPProviders(current.assessment.MCPProviders)
@@ -371,6 +379,7 @@ func runMCPProviderPrerequisitePhase(
 		)
 		providerState = nextState
 		providerClaims = nextClaims
+		result.state, result.claims = nextState, nextClaims
 		result.attempts = append(result.attempts, attempts...)
 		if routeErr != nil {
 			return result, routeErr
@@ -415,6 +424,7 @@ func runMCPProviderPrerequisitePhase(
 		)
 	}
 	refreshed.projectRoot = current.projectRoot
+	refreshed.handoffReservation = current.handoffReservation
 	if err := validatePostProviderPlan(refreshed); err != nil {
 		return result, err
 	}

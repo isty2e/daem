@@ -35,7 +35,7 @@ func nativeInvocationCommands(current commandPlan, removalAdapter executehostrou
 		commands = append(commands, nativeInvocationCommand{key: key, rewrite: rewrite, fingerprint: strings.TrimPrefix(command.RouteRequest().CanonicalRequestHash(), "sha256:"), correlation: true})
 		return nil
 	}
-	actions, err := providerInstallActions(current.assessment.MCPProviders)
+	actions, err := providerInstallActions(current.assessment.ReservationMCPProviders())
 	if err != nil {
 		return nil, err
 	}

@@ -126,7 +126,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		}
 		return checkPaths(rewrite, whole, nativeSupportWholeRewrite)
 	}
-	for _, action := range assessment.Reconciliation.Relations() {
+	for _, action := range assessment.ReservationReconciliation().Relations() {
 		if action.InvokesHostRoute() {
 			if err := checkNamespaces(action.CarrierIdentity().Carrier().Key(), lock.OperationInstall); err != nil {
 				return err
@@ -228,15 +228,15 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			return err
 		}
 	}
-	opaque := false
-	opaque = nativeDelegatesScheduled(assessment.Reconciliation.Delegates())
+	_, handoff := assessment.Reconciliation.CarrierHandoff()
+	opaque := handoff || nativeDelegatesScheduled(assessment.Reconciliation.Delegates())
 	for _, action := range assessment.Reconciliation.Relations() {
 		opaque = opaque || action.InvokesHostRoute()
 	}
 	for _, action := range assessment.Reconciliation.CarrierAbsences() {
 		opaque = opaque || action.InvokesHostRoute()
 	}
-	for _, prerequisite := range assessment.MCPProviders {
+	for _, prerequisite := range assessment.ReservationMCPProviders() {
 		_, present, err := prerequisite.InstallAction()
 		if err != nil {
 			return err

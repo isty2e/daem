@@ -179,6 +179,7 @@ func rowsForRelationScope(expected relationExpectation, rows []Row) []Row {
 				SubjectKey:            string(expectedRelation.SubjectKey()),
 				HasManagedInstanceKey: true,
 				ManagedInstanceKey:    string(expectedRelation.ManagedInstanceKey()),
+				Occurrences:           row.relation.Occurrences(),
 			})
 			if err != nil {
 				panic(fmt.Sprintf("invalid Claude source-exact relation row: %v", err))

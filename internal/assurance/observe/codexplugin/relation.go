@@ -54,8 +54,13 @@ func CorrelateConfig(
 					entry.Reason(),
 				)
 			}
+			occurrence, err := observerelation.NewOccurrence("codex/global", string(entry.Key()))
+			if err != nil {
+				return observerelation.CorrelationResult{}, err
+			}
 			row, err := observerelation.NewRow(observerelation.RowSpec{
 				SubjectKey:            source.Ref(),
+				Occurrences:           []observerelation.Occurrence{occurrence},
 				HasManagedInstanceKey: true,
 				ManagedInstanceKey:    string(expected.ManagedInstanceKey()),
 			})

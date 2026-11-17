@@ -51,42 +51,29 @@ type assessmentPlanInput struct {
 	nativeWholeAdoptions   []reconcileprojection.NativeWholeAdoptionPlan
 }
 
-// assembleAssessment classifies observed facts into Assessment. It performs
-// no filesystem, subprocess, or persistence I/O.
-func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
+func planAssessmentDecisions(input assessmentPlanInput, carrier carrierPlanningFacts, relationOrderDecisions []reconcile.RelationOrderDecision) (assessmentDecisionPlan, error) {
 	effectiveConstraints, err := mcpPublicationConstraints(input.mcpEffective)
 	if err != nil {
-		return Assessment{}, err
+		return assessmentDecisionPlan{}, err
 	}
 	effectiveRemovalNotices, err := providerEffectiveRemovalNotices(
 		input.mcpEffective.Retiring,
 	)
 	if err != nil {
-		return Assessment{}, err
+		return assessmentDecisionPlan{}, err
 	}
-	relationActions, err := reconcilehostroute.BuildRelationActions(reconcilehostroute.RelationInput{
-		Locked:          input.locked,
-		SelectedTargets: input.selectedTargets,
-		Observations:    input.relationObservations,
-		CurrentOwner:    input.owner,
-		PendingInstalls: input.currentState.PendingCarrierInstalls(),
-		PendingRemovals: input.currentState.PendingCarrierRemovals(),
-		ManagedClaims:   input.allCarrierClaims,
-	})
-	if err != nil {
-		return Assessment{}, newRelationReconciliationError(err)
-	}
+	relationActions := carrier.relations
 	providerPrerequisites, err := planMCPProviderPrerequisites(
 		input.locked,
 		input.providerObservations,
 		relationActions,
 	)
 	if err != nil {
-		return Assessment{}, fmt.Errorf("plan MCP provider prerequisites: %w", err)
+		return assessmentDecisionPlan{}, fmt.Errorf("plan MCP provider prerequisites: %w", err)
 	}
 	providerConstraints, err := providerPrerequisiteConstraints(providerPrerequisites)
 	if err != nil {
-		return Assessment{}, err
+		return assessmentDecisionPlan{}, err
 	}
 	aggregateConstraints := append(effectiveConstraints, providerConstraints...)
 
@@ -113,43 +100,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		nativeWholeAdoptions:    input.nativeWholeAdoptions,
 	})
 	if err != nil {
-		return Assessment{}, err
-	}
-	carrierAdoptionActions, err := reconcilehostroute.BuildCarrierAdoptionActions(
-		reconcilehostroute.CarrierAdoptionInput{
-			Locked:          input.locked,
-			SelectedTargets: input.selectedTargets,
-			Observations:    input.relationObservations,
-			CurrentOwner:    input.owner,
-			AllClaims:       input.allCarrierClaims,
-			ManageExisting:  input.manageUnmanagedMatches,
-			StoreAvailable:  true,
-		},
-	)
-	if err != nil {
-		return Assessment{}, newRelationReconciliationError(err)
-	}
-	carrierAbsenceActions, err := reconcilehostroute.BuildCarrierAbsenceActions(
-		reconcilehostroute.CarrierAbsenceInput{
-			Locked:          input.locked,
-			SelectedTargets: input.selectedTargets,
-			Observations:    input.relationObservations,
-			CurrentOwner:    input.owner,
-			AllClaims:       input.allCarrierClaims,
-			PendingRemovals: input.currentState.PendingCarrierRemovals(),
-			ResolveRoute:    reconcilehostroute.ResolveCurrentCarrierRemovalRoute,
-		},
-	)
-	if err != nil {
-		return Assessment{}, fmt.Errorf("plan carrier absences: %w", err)
-	}
-	relationOrderDecisions, err := planExtensionOrderDecisions(
-		input.extensionOrderFacts,
-		relationActions,
-		carrierAbsenceActions,
-	)
-	if err != nil {
-		return Assessment{}, fmt.Errorf("plan extension order: %w", err)
+		return assessmentDecisionPlan{}, err
 	}
 	delegateActions, err := reconcilehostroute.BuildDelegateActions(reconcilehostroute.DelegateInput{
 		Locked:              input.locked,
@@ -158,7 +109,7 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		BlockedDependencies: blockedProjectionDependencies(managedPaths, aggregates),
 	})
 	if err != nil {
-		return Assessment{}, fmt.Errorf("plan delegate actions: %w", err)
+		return assessmentDecisionPlan{}, fmt.Errorf("plan delegate actions: %w", err)
 	}
 	result, err := reconcile.NewResult(reconcile.ResultInput{
 		Context:          input.operationContext,
@@ -167,12 +118,12 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		Aggregates:       aggregates,
 		Relations:        relationActions,
 		RelationOrders:   relationOrderDecisions,
-		CarrierAdoptions: carrierAdoptionActions,
-		CarrierAbsences:  carrierAbsenceActions,
+		CarrierAdoptions: carrier.adoptions,
+		CarrierAbsences:  carrier.absences,
 		Delegates:        delegateActions,
 	})
 	if err != nil {
-		return Assessment{}, fmt.Errorf("assemble complete reconciliation result: %w", err)
+		return assessmentDecisionPlan{}, fmt.Errorf("assemble complete reconciliation result: %w", err)
 	}
 	mcpProjections, err := classifyMCPProjections(
 		input.mcpContracts,
@@ -185,28 +136,9 @@ func assembleAssessment(input assessmentPlanInput) (Assessment, error) {
 		input.mcpEffective.HostPrerequisites,
 	)
 	if err != nil {
-		return Assessment{}, fmt.Errorf("inspect MCP projection status: %w", err)
+		return assessmentDecisionPlan{}, fmt.Errorf("inspect MCP projection status: %w", err)
 	}
-
-	return Assessment{
-		StatePath:              input.paths.StatefilePath,
-		CurrentState:           input.currentState,
-		GlobalCarrierClaims:    input.globalCarrierClaims,
-		ManagedPathEvidence:    input.managedEvidence,
-		AggregateEvidence:      input.aggregateInputs.evidence,
-		AggregateFailures:      input.aggregateInputs.failures,
-		AggregatePreconditions: input.aggregateInputs.preconditions,
-		MCPProjections:         mcpProjections,
-		MCPEffective:           input.mcpEffective.Current,
-		MCPProviders:           providerPrerequisites,
-		Reconciliation:         result,
-		RelationObservations:   input.relationObservations,
-		Owner:                  input.owner,
-		OwnerReference:         input.ownerReference,
-		Ownership:              input.ownershipObservations,
-		SelectedTargets:        input.selectedTargets,
-		NativeSources:          input.nativeSources,
-	}, nil
+	return assessmentDecisionPlan{result: result, providers: providerPrerequisites, projections: mcpProjections}, nil
 }
 
 type outputInventoryPlanInput struct {

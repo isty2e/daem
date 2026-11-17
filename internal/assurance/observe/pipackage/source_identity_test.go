@@ -39,6 +39,65 @@ func TestReadSettingsCorrelatesOnlyExactManagedPiSource(t *testing.T) {
 	}
 }
 
+func TestPiOccurrencesPreserveRequesterIndependenceAndDuplicateRows(t *testing.T) {
+	agentRoot, projectRoot := t.TempDir(), t.TempDir()
+	first := mustCorrelationKey(t, "npm:tools@1")
+	subject, err := topology.NewSubjectID(topology.SubjectHostRelation, "pi.package-carrier", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, err := hostrelation.NewManagedInstanceKey("host-relation:v1:second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := hostrelation.NewExpectedRelation(first.ExpectedRelation().SubjectKey(), managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := observerelation.NewCorrelationKey(subject, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		content string
+		rows    int
+	}{
+		{`{"packages":["npm:tools@1"]}`, 1},
+		{`{"packages":["npm:tools@1","npm:tools@1"]}`, 2},
+	} {
+		writeSettings(t, filepath.Join(agentRoot, "settings.json"), test.content)
+		inventory := mustReadSettings(t, observepipackage.SettingsInput{
+			ConfigRoot: agentRoot, WorkDir: projectRoot, ProjectRoot: projectRoot, Scope: target.ScopeGlobal,
+		})
+		var previous []observerelation.Occurrence
+		for _, key := range []observerelation.CorrelationKey{first, second} {
+			scoped, err := observepipackage.NewScopedRelation(key, target.ScopeGlobal, projectRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := observepipackage.Correlate(scoped, inventory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			origins := result.CoveredOccurrences()
+			if len(origins) != test.rows || (len(origins) == 2 && origins[0] == origins[1]) {
+				t.Fatal("actual package entry positions were lost")
+			}
+			if previous != nil {
+				if len(previous) != len(origins) {
+					t.Fatal("requesting declaration changed package multiplicity")
+				}
+				for index := range origins {
+					if previous[index] != origins[index] {
+						t.Fatal("requesting declaration changed package entry identities")
+					}
+				}
+			}
+			previous = origins
+		}
+	}
+}
+
 func TestReadSettingsCorrelatesExactGitPlusSourceWithoutLocalFallback(t *testing.T) {
 	for _, source := range []string{
 		"git+https://github.com/acme/tools.git#v1",

@@ -55,6 +55,7 @@ type Assessment struct {
 	NativeSources          []lockobserve.NativeSourceObservation
 	NativeApproval         []journalobservation.ApprovalEvidence
 	nativeRegistry         ownership.Registry
+	forecastProviders      []MCPProviderPrerequisite
 }
 
 // NativeObservedDocuments exposes only comparison facts from the already
@@ -318,20 +319,33 @@ func buildAssessment(
 		return Assessment{}, err
 	}
 	var retiring []durablecarrier.ManagedCarrierClaim
+	handoff, hasHandoff := assessment.Reconciliation.CarrierHandoff()
+	var handoffs reconcile.CarrierHandoffs
 	if len(native) != 0 && native[0].input != nil {
 		assessment.nativeRegistry = native[0].input.Registry
 		retiring = assessment.Reconciliation.CarrierRetirementClaims()
 	}
+	if hasHandoff {
+		handoffs = handoff.Handoffs()
+		retiring = assessment.Reconciliation.CarrierRetirementClaims()
+	}
 	for _, fact := range extensionOrderFacts {
 		if fact.observeErr == nil {
-			edits, err := fact.observation.SelectedEdits(retiring)
+			var events relationobserve.OrderHandoffs
+			if hasHandoff {
+				events, err = handoffs.OrderHandoffs(fact.selectedTarget, fact.capability.Scope())
+				if err != nil {
+					return Assessment{}, err
+				}
+			}
+			edits, err := fact.observation.SelectedHandoffEdits(retiring, events)
 			if err != nil {
 				return Assessment{}, err
 			}
 			assessment.SequenceEdits = append(assessment.SequenceEdits, edits...)
 		}
 	}
-	edits, err := observeClasslessRetirementEdits(paths, locked, retiring)
+	edits, err := observeClasslessRetirementEdits(paths, locked, retiring, handoffs)
 	if err != nil {
 		return Assessment{}, err
 	}

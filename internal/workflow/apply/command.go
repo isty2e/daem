@@ -386,6 +386,7 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
+	CarrierHandoffProgress *CarrierHandoffProgress
 	PermissionProtection   ownershipobserve.ProtectionObservation
 	ManifestPath           string
 	LockfilePath           string
@@ -429,13 +430,14 @@ type commandContext struct {
 }
 
 type commandPlan struct {
-	result          CommandResult
-	context         commandContext
-	assessment      readiness.Assessment
-	projectRoot     *rootedpath.CapturedRoot
-	barrier         recoverygate.EffectAuthority
-	nativePlan      *nativePlanInputs
-	nativeOperation *nativeconfig.AssessmentOperation
+	result             CommandResult
+	context            commandContext
+	assessment         readiness.Assessment
+	projectRoot        *rootedpath.CapturedRoot
+	barrier            recoverygate.EffectAuthority
+	nativePlan         *nativePlanInputs
+	nativeOperation    *nativeconfig.AssessmentOperation
+	handoffReservation []carrierabsence.Action
 }
 
 // DryRunPlan is a capability-free dry-run result plus the immutable inputs
@@ -543,16 +545,10 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err := rejectUnsupportedCommandPlan(planned); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
-	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
+	if err := rejectBlockedCarrierHandoffPlan(planned.assessment.Reconciliation); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
-	if err := rejectBlockedRelationOrders(planned.assessment.Reconciliation); err != nil {
-		return unavailablePreparedWrite(planned.result), err
-	}
-	if err := rejectBlockedCarrierAdoptions(planned.assessment.Reconciliation); err != nil {
-		return unavailablePreparedWrite(planned.result), err
-	}
-	if err := rejectBlockedCarrierAbsences(planned.assessment.Reconciliation.CarrierAbsences()); err != nil {
+	if err := rejectBlockedRelationOrders(planned.assessment.ReservationReconciliation()); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := preflightMCPEnvironmentSources(

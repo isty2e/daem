@@ -145,7 +145,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 		return nil
 	}
-	for _, action := range planned.assessment.Reconciliation.Relations() {
+	for _, action := range planned.assessment.ReservationReconciliation().Relations() {
 		if action.InvokesHostRoute() {
 			if err := addOpaqueNamespaces(action.CarrierIdentity().Carrier().Key(), lock.OperationInstall); err != nil {
 				return applyAuthorityEvidence{}, err

@@ -27,8 +27,12 @@ func (reason ActionReason) IsLockReadinessError() bool {
 		reason == ReasonAggregateLockBlocked
 }
 
-// HasErrors reports whether any decision in the result is blocked.
+// HasErrors reports whether the plan is blocked. A handoff retains its actual
+// before decisions but admits acquisitions only through its conditional remainder.
 func (result Result) HasErrors() bool {
+	if result.handoff != nil {
+		return result.HasBlockedCarrierAbsences() || result.handoff.after.HasErrors()
+	}
 	for _, decision := range result.managedPaths {
 		if decision.IsBlocked() {
 			return true

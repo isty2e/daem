@@ -64,6 +64,7 @@ func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
 }
 
 type ApplyResultJSONInput struct {
+	CarrierHandoffProgress *applyworkflow.CarrierHandoffProgress
 	PermissionProtection   ownershipobserve.ProtectionObservation
 	ActionCount            int
 	StatefilePath          string
@@ -94,6 +95,7 @@ type applyResultJSONOutput struct {
 	RelationOrderResults []relationOrderResultJSON   `json:"relation_order_results,omitempty"`
 	CarrierAdoptions     []carrierAdoptionActionJSON `json:"carrier_adoption_actions,omitempty"`
 	CarrierAbsences      []carrierAbsenceActionJSON  `json:"carrier_absence_actions,omitempty"`
+	CarrierHandoffs      *carrierHandoffsJSON        `json:"carrier_handoffs,omitempty"`
 	DelegateAttempts     []delegateAttemptJSON       `json:"delegate_attempts,omitempty"`
 	HostRouteAttempts    []hostRouteAttemptJSON      `json:"host_route_attempts,omitempty"`
 	MCPStatuses          []MCPStatus                 `json:"mcp_statuses,omitempty"`
@@ -112,6 +114,13 @@ type applyResultJSONError struct {
 }
 
 func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
+	blocked := input.Reconciliation.HasBlockedRelations() ||
+		input.Reconciliation.HasBlockedRelationOrders() ||
+		input.Reconciliation.HasBlockedCarrierAdoptions() ||
+		input.Reconciliation.HasBlockedCarrierAbsences()
+	if _, handoff := input.Reconciliation.CarrierHandoff(); handoff {
+		blocked = input.Reconciliation.HasErrors()
+	}
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	relations := input.Reconciliation.Relations()
 	actions, err := planJSONActionsForPlan(input.Reconciliation)
@@ -138,16 +147,13 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 			input.CarrierAdoptionResults,
 		),
 		CarrierAbsences:   carrierAbsenceJSONActions(input.Reconciliation.CarrierAbsences()),
+		CarrierHandoffs:   carrierHandoffsJSONFor(input.Reconciliation, input.CarrierHandoffProgress, applyResultCarrierAdoptionPhase(input.Failure != nil, input.ExecutionAttempted), input.CarrierAdoptionResults),
 		DelegateAttempts:  delegateJSONAttempts(input.DelegateAttempts),
 		HostRouteAttempts: hostRouteAttempts,
 		MCPStatuses:       input.MCPStatuses,
 		Diagnostics:       planJSONDiagnostics(input.Diagnostics),
-		HasErrors: hasErrorDiagnostics(input.Diagnostics) ||
-			input.Reconciliation.HasBlockedRelations() ||
-			input.Reconciliation.HasBlockedRelationOrders() ||
-			input.Reconciliation.HasBlockedCarrierAdoptions() ||
-			input.Reconciliation.HasBlockedCarrierAbsences(),
-		Errors: []applyResultJSONError{},
+		HasErrors:         hasErrorDiagnostics(input.Diagnostics) || blocked,
+		Errors:            []applyResultJSONError{},
 	}
 	if input.Failure != nil {
 		payload.HasErrors = true

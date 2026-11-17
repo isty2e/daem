@@ -93,10 +93,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			MCPStatuses:    mcpStatuses,
 		}, humanOptions)
 		clipresent.PrintStatusLockOnlyResourcesWithOptions(stdout, clipresent.LockOnlyResourcesFrom(result.LockOnly), humanOptions)
-		clipresent.PrintRelationActionsWithOptions(stdout, result.Reconciliation.Relations(), humanOptions)
-		clipresent.PrintRelationOrderActionsWithOptions(stdout, result.Reconciliation.RelationOrders(), humanOptions)
-		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, result.Reconciliation.CarrierAdoptions(), humanOptions)
-		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, result.Reconciliation.CarrierAbsences(), humanOptions)
+		clipresent.PrintCarrierReconciliationWithOptions(stdout, result.Reconciliation, humanOptions)
 		if err := clipresent.PrintHostRouteAttemptsWithOptions(stdout, result.HostRouteAttempts, humanOptions); err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("status failed: render result: "))
 		}

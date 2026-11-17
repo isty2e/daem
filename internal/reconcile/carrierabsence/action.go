@@ -19,6 +19,7 @@ type DesiredRelationState string
 const (
 	DesiredRetained           DesiredRelationState = "retained"
 	DesiredAbsent             DesiredRelationState = "absent"
+	DesiredReplaced           DesiredRelationState = "replaced"
 	DesiredTransitionConflict DesiredRelationState = "transition_conflict"
 )
 
@@ -40,6 +41,10 @@ const (
 )
 
 const nonClaimAmbientConsumersNotObservable = "ambient_consumers_not_observable"
+
+func (desired DesiredRelationState) RequestsRetirement() bool {
+	return desired == DesiredAbsent || desired == DesiredReplaced
+}
 
 // ActionInput contains canonical facts for one exact claim owned by the
 // selected state authority. Occupancy may include claims owned by other
@@ -119,7 +124,7 @@ func NewAction(input ActionInput) (Action, error) {
 			return Action{}, fmt.Errorf("carrier transition action must not consume absence observation or route facts")
 		}
 		action.decision = DecisionBlockTransition
-	case DesiredAbsent:
+	case DesiredAbsent, DesiredReplaced:
 		if err := validateObservation(input.Claim.Identity(), input.Observation); err != nil {
 			return Action{}, err
 		}
@@ -308,7 +313,7 @@ func (action Action) VerifiesPendingRemoval() bool {
 // survive into immutable disclosure and confirmation.
 func (action Action) NonClaims() []string {
 	nonClaims := append([]string{}, action.route.NonClaims()...)
-	if action.desired != DesiredAbsent || action.Scope() != target.ScopeGlobal {
+	if !action.desired.RequestsRetirement() || action.Scope() != target.ScopeGlobal {
 		return nonClaims
 	}
 	index := sort.SearchStrings(nonClaims, nonClaimAmbientConsumersNotObservable)
