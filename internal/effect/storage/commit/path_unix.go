@@ -245,13 +245,6 @@ func entryExists(parentFD int, name string) (bool, error) {
 	}
 }
 
-func removalFlags(kind entryKind) int {
-	if kind == entryKindDirectory {
-		return unix.AT_REMOVEDIR
-	}
-	return 0
-}
-
 func unsupportedOperationError(detail string, err error) error {
 	if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) {
 		return unsupported(detail, err)

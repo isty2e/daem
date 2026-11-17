@@ -251,17 +251,6 @@ func stabilizePlan(
 	return current, nil
 }
 
-func planAtPaths(
-	ctx context.Context,
-	input CommandInput,
-	timeout HostCommandTimeout,
-	options PlanOptions,
-	paths daempaths.Paths,
-	mode Mode,
-) (plan, error) {
-	return planAtPathsWithBarrier(ctx, input, timeout, options, paths, mode, nil)
-}
-
 func planAtPathsWithBarrier(
 	ctx context.Context,
 	input CommandInput,

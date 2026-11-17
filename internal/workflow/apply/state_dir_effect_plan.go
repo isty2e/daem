@@ -249,12 +249,6 @@ func hostRouteStatefileEffectPlanForWorks(
 	return statefilePlanFromDemand(envelope.Demand()), nil
 }
 
-func carrierRemovalStatefileEffectPlan(
-	actions []carrierabsence.Action,
-) (statefileEffectPlan, error) {
-	return carrierRemovalStatefileEffectPlanForWorks(carrierWorks(actions))
-}
-
 func carrierRemovalStatefileEffectPlanForWorks(
 	works []operationplan.CarrierWork,
 ) (statefileEffectPlan, error) {

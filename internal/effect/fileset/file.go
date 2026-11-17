@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
-	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
@@ -78,9 +77,4 @@ func removeFile(ctx context.Context, path string) error {
 		return err
 	}
 	return storagecommit.CommitLogicalRemoval(ctx, request)
-}
-
-func commitMayBeVisible(err error) bool {
-	kind, classified := mutationfs.FailureKindOf(err)
-	return classified && kind == mutationfs.FailureIndeterminateCommit
 }

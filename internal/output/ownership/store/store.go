@@ -218,15 +218,6 @@ func (store Store) load(
 	)
 }
 
-func decodePersistedRegistry(ctx context.Context, content []byte) (ownership.Registry, error) {
-	return decodePersistedRegistryForClaimRemovals(
-		ctx,
-		content,
-		nil,
-		newPathAuthorityObservationSession(),
-	)
-}
-
 func decodePersistedRegistryForClaimRemovals(
 	ctx context.Context,
 	content []byte,
@@ -238,24 +229,6 @@ func decodePersistedRegistryForClaimRemovals(
 		return ownership.Registry{}, err
 	}
 	return document.registry, nil
-}
-
-func validateCurrentAuthorities(ctx context.Context, registry ownership.Registry) error {
-	return validateCurrentAuthoritiesForClaimRemovals(
-		ctx,
-		registry,
-		nil,
-		newPathAuthorityObservationSession(),
-	)
-}
-
-func validateCurrentAuthoritiesForClaimRemovals(
-	ctx context.Context,
-	registry ownership.Registry,
-	expected []ownership.Claim,
-	observations *pathAuthorityObservationSession,
-) error {
-	return (registryDocument{registry: registry}).validateAuthorities(ctx, expected, observations)
 }
 
 func decodePersistedDocument(ctx context.Context, content []byte, expected []ownership.Claim, observations *pathAuthorityObservationSession) (registryDocument, error) {

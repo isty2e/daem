@@ -193,17 +193,6 @@ func (sink *retirementTreeSnapshotSink) evidence(
 	}, nil
 }
 
-func requireJournalFingerprint(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-	expected string,
-	stateCodec durable.SnapshotCodec,
-	label string,
-) error {
-	return requireJournalFingerprintWithDecoder(ctx, filesystem, authority, expected, stateCodec, label, journalrecord.DecodeOrdinarySnapshot)
-}
-
 func requireJournalFingerprintWithDecoder(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,

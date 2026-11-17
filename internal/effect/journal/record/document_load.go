@@ -104,10 +104,6 @@ func (group recoveryDocumentGroup) canonicalBindingIntents(ctx context.Context, 
 	return canonicalDocumentBindingIntents(ctx, native16GroupBody(group), aliases, owner)
 }
 
-func (group nativeDocumentRecord) canonicalBindingIntents(ctx context.Context, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
-	return canonicalDocumentBindingIntents(ctx, group.nativeDocumentBody, group.namespace.aliases, owner)
-}
-
 func canonicalDocumentBindingIntents(ctx context.Context, group nativeDocumentBody, aliases []documentAliasFacts, owner stateauthority.Authority) ([]ownership.DocumentBindingIntent, error) {
 	return canonicalDocumentBindingIntentsFromSources(ctx, group, aliases, owner, nil)
 }

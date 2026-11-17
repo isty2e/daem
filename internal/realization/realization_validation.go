@@ -8,7 +8,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -178,47 +177,6 @@ func validateRealizationText(label string, value string, allowEmpty bool) error 
 		return unicode.IsControl(character) || unicode.Is(unicode.Bidi_Control, character)
 	}) >= 0 {
 		return fmt.Errorf("%s must not contain control characters", label)
-	}
-	return nil
-}
-
-func validatePortableRealizationPath(label string, value string) error {
-	_, err := output.Parse(value)
-	if err != nil {
-		if label == "destination" {
-			return err
-		}
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	return nil
-}
-
-func validateRealizationPathScope(label string, value string, scope target.Scope) error {
-	destination, err := output.Parse(value)
-	if err != nil {
-		if label == "destination" {
-			return err
-		}
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	if err := destination.ValidateScope(scope); err != nil {
-		if label == "destination" {
-			return err
-		}
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	return nil
-}
-
-func validateSHA256Identity(label string, value string) error {
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+64 {
-		return fmt.Errorf("%s must be a lowercase sha256 digest", label)
-	}
-	for _, character := range value[len(prefix):] {
-		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-			return fmt.Errorf("%s must be a lowercase sha256 digest", label)
-		}
 	}
 	return nil
 }

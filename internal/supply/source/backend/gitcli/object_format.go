@@ -87,10 +87,6 @@ func (budget *remoteRefAdvertisementBudget) admit(recordBytes int) error {
 	return nil
 }
 
-func gitObjectFormatFromAdvertisedIDs(output string) (gitObjectFormat, bool, error) {
-	return observeAdvertisedObjectFormat(strings.NewReader(output), defaultRemoteRefAdvertisementBudget())
-}
-
 func observeAdvertisedObjectFormat(
 	output io.Reader,
 	budget remoteRefAdvertisementBudget,

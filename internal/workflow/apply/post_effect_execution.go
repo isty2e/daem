@@ -151,46 +151,6 @@ func newApplyContinuationExecution(
 	}, nil
 }
 
-func (execution *applyContinuationExecution) finalRouteFact(
-	action reconcile.RelationAction,
-) (applyRouteScheduleFact, error) {
-	if execution == nil {
-		return applyRouteScheduleFact{}, nil
-	}
-	return execution.plan.finalRoutePlan.routeFor(action)
-}
-
-func (execution *applyContinuationExecution) orderClassFact(
-	classID string,
-) (applyOrderScheduleFact, bool, error) {
-	if execution == nil {
-		return applyOrderScheduleFact{}, false, nil
-	}
-	for _, fact := range execution.plan.orderClasses {
-		if fact.classID == classID {
-			return fact, execution.plan.mayReclassifyOrder, nil
-		}
-	}
-	return applyOrderScheduleFact{}, false, fmt.Errorf(
-		"apply continuation relation-order class %q is not scheduled",
-		classID,
-	)
-}
-
-func (execution *applyContinuationExecution) delegateFact(
-	action reconcile.DelegateAction,
-) (applyDelegateScheduleFact, error) {
-	if execution == nil {
-		return applyDelegateScheduleFact{}, nil
-	}
-	for _, fact := range execution.plan.delegates {
-		if fact.action.Compare(action) == 0 {
-			return fact, nil
-		}
-	}
-	return applyDelegateScheduleFact{}, fmt.Errorf("apply continuation delegate is not scheduled")
-}
-
 func (execution *applyContinuationExecution) selectAlternative(
 	choiceID string,
 	alternative int,
@@ -256,43 +216,6 @@ func scheduledContinuationForwardCall(
 	return errors.Join(callErr, execution.settleFailFast(ref+"/outcome", callErr))
 }
 
-func scheduledContinuationOptionalCall(
-	execution *applyContinuationExecution,
-	ref string,
-	kind operationplan.EffectStepKind,
-	enabled bool,
-	call func() error,
-) (bool, error) {
-	if execution == nil {
-		if !enabled {
-			return false, nil
-		}
-		return true, call()
-	}
-	alternative := 1
-	stepID := ref + "/skipped"
-	stepKind := operationplan.EffectStepNoOp
-	if enabled {
-		alternative = 0
-		stepID = ref
-		stepKind = kind
-	}
-	if err := execution.selectAlternative(ref+"/execution", alternative); err != nil {
-		return false, err
-	}
-	if enabled && kind == operationplan.EffectStepForwardEffect {
-		if err := execution.consumeForward(stepID); err != nil {
-			return false, err
-		}
-	} else if err := execution.consume(stepID, stepKind); err != nil {
-		return false, err
-	}
-	if !enabled {
-		return false, nil
-	}
-	return true, call()
-}
-
 func scheduledContinuationCleanup(
 	execution *applyContinuationExecution,
 	ref string,
@@ -346,38 +269,6 @@ func (execution *applyContinuationExecution) settleFailFast(ref string, cause er
 	return nil
 }
 
-func (execution *applyContinuationExecution) settleContinuing(
-	ref string,
-	outcome applyContinuationOutcome,
-) error {
-	if execution == nil {
-		return fmt.Errorf("apply continuation execution is unavailable")
-	}
-	alternative := int(outcome)
-	stepID := ref + "/success"
-	kind := operationplan.EffectStepNoOp
-	switch outcome {
-	case applyContinuationSucceeded:
-	case applyContinuationOrdinaryFailure:
-		stepID = ref + "/ordinary"
-	case applyContinuationTerminalFailure:
-		stepID = ref + "/failure"
-		kind = operationplan.EffectStepTerminal
-	default:
-		return fmt.Errorf("apply continuation outcome %d is invalid", outcome)
-	}
-	if err := execution.selectAlternative(ref, alternative); err != nil {
-		return err
-	}
-	if err := execution.consume(stepID, kind); err != nil {
-		return err
-	}
-	if outcome == applyContinuationTerminalFailure {
-		execution.terminal = true
-	}
-	return nil
-}
-
 func (execution *applyContinuationExecution) finish(resultErr error) error {
 	if execution == nil || execution.cursor == nil {
 		return errors.Join(resultErr, fmt.Errorf("apply continuation execution is unavailable"))
@@ -398,11 +289,3 @@ func (execution *applyContinuationExecution) finish(resultErr error) error {
 	}
 	return errors.Join(resultErr, finishErr)
 }
-
-type applyContinuationOutcome uint8
-
-const (
-	applyContinuationSucceeded applyContinuationOutcome = iota
-	applyContinuationOrdinaryFailure
-	applyContinuationTerminalFailure
-)
