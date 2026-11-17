@@ -40,7 +40,7 @@ func (row Row) Occurrences() []Occurrence {
 	return append([]Occurrence(nil), row.occurrences...)
 }
 
-// CoveredOccurrences returns actual rows explaining an admitted correlation.
+// CoveredOccurrences returns actual same-subject origins, not admission evidence.
 func (result CorrelationResult) CoveredOccurrences() []Occurrence {
 	var occurrences []Occurrence
 	for _, row := range result.sameSubjectRows {
@@ -49,14 +49,35 @@ func (result CorrelationResult) CoveredOccurrences() []Occurrence {
 	return occurrences
 }
 
-// WithoutOccurrences produces a prospective view, never a new physical read.
-func (batch Batch) WithoutOccurrences(retired []Occurrence) (Batch, error) {
-	selected := make(map[Occurrence]struct{}, len(retired))
-	for _, occurrence := range retired {
-		if err := occurrence.Validate(); err != nil {
-			return Batch{}, fmt.Errorf("retired occurrence: %w", err)
+// WithoutRetiring projects retirements from this batch alone. Its output is
+// prospective evidence, not a physical read or permission to remove a carrier.
+func (batch Batch) WithoutRetiring(retired []CorrelationKey) (Batch, error) {
+	selected := make(map[Occurrence]struct{})
+	seen := make(map[CorrelationKey]struct{}, len(retired))
+	for _, key := range retired {
+		if err := key.Validate(); err != nil {
+			return Batch{}, err
 		}
-		selected[occurrence] = struct{}{}
+		if _, duplicate := seen[key]; duplicate {
+			return Batch{}, fmt.Errorf("retired correlation is repeated")
+		}
+		seen[key] = struct{}{}
+		current, present := batch.correlations[key]
+		if !present {
+			return Batch{}, fmt.Errorf("retired correlation was not observed in this batch")
+		}
+		switch current.State() {
+		case StateMissing:
+		case StateExactCorrelation, StateUnkeyedSameSubject:
+			if len(current.CoveredOccurrences()) == 0 {
+				return Batch{}, fmt.Errorf("retired correlation has no actual inventory origins")
+			}
+		default:
+			return Batch{}, fmt.Errorf("retired correlation is not currently resolved: %s", current.State())
+		}
+		for _, occurrence := range current.CoveredOccurrences() {
+			selected[occurrence] = struct{}{}
+		}
 	}
 	projected := batch.Clone()
 	for key, current := range batch.correlations {

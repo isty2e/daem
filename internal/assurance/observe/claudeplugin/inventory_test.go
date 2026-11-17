@@ -347,6 +347,42 @@ func TestReadInstalledInventoryCorrelatesSharedCarrierForEachExpectedRelation(t 
 	}
 	assertState(t, observeclaudeplugin.Correlate(first, inventory), observerelation.StateExactCorrelation, observerelation.ReasonNone)
 	assertState(t, observeclaudeplugin.Correlate(second, inventory), observerelation.StateExactCorrelation, observerelation.ReasonNone)
+	firstOrigins := observeclaudeplugin.Correlate(first, inventory).CoveredOccurrences()
+	secondOrigins := observeclaudeplugin.Correlate(second, inventory).CoveredOccurrences()
+	if len(firstOrigins) != 1 || len(secondOrigins) != 1 || firstOrigins[0] != secondOrigins[0] {
+		t.Fatal("the same installed row depends on the requesting declaration")
+	}
+}
+
+func TestInstalledOccurrencesKeepRawRecordPositionsAcrossSelections(t *testing.T) {
+	configRoot, projectRoot := t.TempDir(), t.TempDir()
+	selected := mustDelegatedRelationWithScope(t, desiredextension.SourceKindMarketplace, "selected@market", "selected", "selected@market", target.ScopeGlobal)
+	noise := mustDelegatedRelationWithScope(t, desiredextension.SourceKindMarketplace, "noise@market", "noise", "noise@market", target.ScopeGlobal)
+	writeInstalledPlugins(t, configRoot, `{"version":2,"plugins":{
+"noise@market":[{"scope":"user"}],
+"selected@market":[{"scope":"project","projectPath":`+quotedPath(t.TempDir())+`},{"scope":"local","projectPath":`+quotedPath(projectRoot)+`},{"scope":"managed"},{"scope":"user"},{"scope":"user"}]
+}}`)
+	var previous []observerelation.Occurrence
+	for _, relations := range [][]observeclaudeplugin.ScopedRelation{
+		{mustObservationKey(t, "selected", selected)},
+		{mustObservationKey(t, "noise", noise), mustObservationKey(t, "selected", selected)},
+	} {
+		inventory, err := observeclaudeplugin.ReadInstalledInventory(observeclaudeplugin.InstalledInventoryInput{
+			ConfigRoot: configRoot, ProjectRoot: projectRoot, Relations: relations,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := observeclaudeplugin.Correlate(selected, inventory)
+		origins := result.CoveredOccurrences()
+		if result.State() != observerelation.StateAmbiguous || len(origins) != 2 || origins[0] == origins[1] {
+			t.Fatal("distinct installed records lost their multiplicity")
+		}
+		if previous != nil && (previous[0] != origins[0] || previous[1] != origins[1]) {
+			t.Fatal("filtering other plugins or scopes changed the raw record identities")
+		}
+		previous = origins
+	}
 }
 
 func writeInstalledPlugins(t *testing.T, configRoot string, content string) {

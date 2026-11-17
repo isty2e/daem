@@ -95,6 +95,46 @@ func TestCorrelateConfigUsesOnlyExactSelectedCodexRelation(t *testing.T) {
 	}
 }
 
+func TestCodexOccurrenceDoesNotDependOnRequestingDeclaration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`[plugins."documents@official"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	observation, err := ObserveConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := mustCodexCorrelationKey(t, "documents@official")
+	subject, err := topology.NewSubjectID(topology.SubjectHostRelation, "codex.plugin-carrier", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, err := hostrelation.NewManagedInstanceKey("host-relation:v1:second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := hostrelation.NewExpectedRelation(first.ExpectedRelation().SubjectKey(), managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := observerelation.NewCorrelationKey(subject, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var previous []observerelation.Occurrence
+	for _, key := range []observerelation.CorrelationKey{first, second} {
+		result, err := CorrelateConfig(key, observation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		origins := result.CoveredOccurrences()
+		if len(origins) != 1 || (previous != nil && previous[0] != origins[0]) {
+			t.Fatal("the same config row depends on the requesting declaration")
+		}
+		previous = origins
+	}
+}
+
 func TestCorrelateConfigTreatsMissingConfigAsExactAbsence(t *testing.T) {
 	observation, err := ObserveConfigFile(filepath.Join(t.TempDir(), "missing.toml"))
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -47,6 +48,51 @@ func TestInventoryCorrelatesOnlyCompleteImportBundlePairs(t *testing.T) {
 		carrier,
 		relationobserve.StateMissing,
 	)
+}
+
+func TestAntigravityOccurrenceDoesNotDependOnRequestingDeclaration(t *testing.T) {
+	paths, first, carrier := antigravityInventoryFixture(t, "guidance@google")
+	writeAntigravityImportManifest(t, paths, `{"imports":[{"name":"guidance","source":"antigravity"}]}`)
+	writeAntigravityPluginManifest(t, paths, "guidance", `{"name":"guidance","version":"1.0.0"}`)
+	inventory := mustReadInventory(t, paths)
+	subject, err := topology.NewSubjectID(topology.SubjectHostRelation, first.Subject().Namespace(), "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := hostrelation.Derive(carrier, subject, first.ExpectedRelation().SubjectKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := relationobserve.NewCorrelationKey(subject, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var correlations []relationobserve.Correlation
+	var previous []relationobserve.Occurrence
+	for _, key := range []relationobserve.CorrelationKey{first, second} {
+		result, err := inventory.CorrelateDesired(key, carrier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		origins := result.CoveredOccurrences()
+		if len(origins) != 1 || (previous != nil && previous[0] != origins[0]) {
+			t.Fatal("the same plugin bundle depends on the requesting declaration")
+		}
+		previous = origins
+		correlations = append(correlations, relationobserve.Correlation{Key: key, Result: result})
+	}
+	batch, err := relationobserve.NewBatch(relationobserve.BatchSpec{Correlations: correlations})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prospective, err := batch.WithoutRetiring([]relationobserve.CorrelationKey{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := prospective.Correlation(second)
+	if after.State() != relationobserve.StateMissing {
+		t.Fatal("the bounded same-name retirement did not cover the new request")
+	}
 }
 
 func TestInventoryRejectsPartialDuplicateAndMismatchedRelations(t *testing.T) {

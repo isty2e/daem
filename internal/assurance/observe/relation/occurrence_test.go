@@ -41,7 +41,7 @@ func TestProspectiveInventoryRetiresActualOccurrenceNotRequesterKey(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	prospective, err := actual.WithoutOccurrences([]Occurrence{occurrence})
+	prospective, err := actual.WithoutRetiring([]CorrelationKey{first})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +61,18 @@ func TestProspectiveInventoryPreservesUncoveredAndDuplicateOccurrences(t *testin
 		t.Fatal(err)
 	}
 	second, err := NewOccurrence("document", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retiring := mustRelationObservationKey(t, mustRelationObservationSubject(t, topology.SubjectHostRelation, "retiring"))
+	oldRow, err := NewRow(RowSpec{
+		SubjectKey: string(retiring.expected.SubjectKey()), HasManagedInstanceKey: true,
+		ManagedInstanceKey: string(retiring.expected.ManagedInstanceKey()), Occurrences: []Occurrence{first},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldInventory, err := NewInventory(InventorySpec{Availability: InventorySupported, Freshness: EvidenceFresh, Rows: []Row{oldRow}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,11 +99,19 @@ func TestProspectiveInventoryPreservesUncoveredAndDuplicateOccurrences(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		batch, err := NewBatch(BatchSpec{Correlations: []Correlation{{Key: key, Result: Correlate(key.expected, inventory)}}})
+		batch, err := NewBatch(BatchSpec{Correlations: []Correlation{
+			{Key: key, Result: Correlate(key.expected, inventory)},
+			{Key: retiring, Result: Correlate(retiring.expected, oldInventory)},
+		}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		projected, err := batch.WithoutOccurrences([]Occurrence{first})
+		if !aggregate {
+			if _, err := batch.WithoutRetiring([]CorrelationKey{key}); err == nil {
+				t.Fatal("accepted an ambiguous retirement")
+			}
+		}
+		projected, err := batch.WithoutRetiring([]CorrelationKey{retiring})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,8 +119,37 @@ func TestProspectiveInventoryPreservesUncoveredAndDuplicateOccurrences(t *testin
 		if remaining.State() != StateExactCorrelation || len(remaining.CoveredOccurrences()) != 1 || remaining.CoveredOccurrences()[0] != second {
 			t.Fatalf("aggregate=%t: remaining evidence = %+v", aggregate, remaining)
 		}
-		if _, err := batch.WithoutOccurrences([]Occurrence{{}}); err == nil {
-			t.Fatal("accepted invalid occurrence")
+		for _, rejected := range [][]CorrelationKey{{{}}, {retiring, retiring}} {
+			if _, err := batch.WithoutRetiring(rejected); err == nil {
+				t.Fatal("accepted invalid or repeated retirement")
+			}
 		}
+	}
+}
+
+func TestProspectiveInventoryRefusesUnobservedOrUntraceableRetirements(t *testing.T) {
+	key := mustRelationObservationKey(t, mustRelationObservationSubject(t, topology.SubjectHostRelation, "selected"))
+	row, err := NewRow(RowSpec{
+		SubjectKey: string(key.expected.SubjectKey()), HasManagedInstanceKey: true,
+		ManagedInstanceKey: string(key.expected.ManagedInstanceKey()),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	untraced, err := NewInventory(InventorySpec{Availability: InventorySupported, Freshness: EvidenceFresh, Rows: []Row{row}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, inventory := range []Inventory{UnsupportedInventory(), untraced} {
+		batch, err := NewBatch(BatchSpec{Correlations: []Correlation{{Key: key, Result: Correlate(key.expected, inventory)}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := batch.WithoutRetiring([]CorrelationKey{key}); err == nil {
+			t.Fatal("projected a retirement without resolved actual inventory origins")
+		}
+	}
+	if _, err := (Batch{}).WithoutRetiring([]CorrelationKey{key}); err == nil {
+		t.Fatal("projected a key from another batch")
 	}
 }

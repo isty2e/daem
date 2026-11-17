@@ -134,6 +134,14 @@ func ReadInstalledInventory(input InstalledInventoryInput) (Inventory, error) {
 			if err != nil {
 				return Inventory{}, fmt.Errorf("decode Claude installed plugin inventory %q: plugin %q row %d: %w", path, pluginKey, index, err)
 			}
+			occurrence, err := relation.NewOccurrence("claude/"+path, pluginKey+"/"+fmt.Sprint(index))
+			if err != nil {
+				return Inventory{}, err
+			}
+			row.relation, err = row.relation.WithOccurrences([]relation.Occurrence{occurrence})
+			if err != nil {
+				return Inventory{}, err
+			}
 			rows = append(rows, row)
 		}
 	}
