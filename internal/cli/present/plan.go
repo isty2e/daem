@@ -184,7 +184,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders(), reconciliation.Relations()),
 		CarrierAdoptions:  carrierAdoptionJSONActions(reconciliation.CarrierAdoptions(), carrierAdoptionPlanned),
 		CarrierAbsences:   carrierAbsenceJSONActions(reconciliation.CarrierAbsences()),
-		CarrierHandoffs:   carrierHandoffsJSONFor(reconciliation, nil),
+		CarrierHandoffs:   carrierHandoffsJSONFor(reconciliation, nil, carrierAdoptionPlanned, nil),
 		HostRouteAttempts: hostRouteAttempts,
 		Diagnostics:       planJSONDiagnostics(input.Diagnostics),
 		MCPStatuses:       input.MCPStatuses,

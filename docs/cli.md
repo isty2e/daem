@@ -416,23 +416,26 @@ Plan version `19` and apply-result version `25` add the optional
 ordinary `relation_actions` and `carrier_absence_actions` retain the actual
 before observations, while the handoff describes work admitted only after old
 management is fully retired and fresh state is checked. A before relation may
-therefore be blocked while the conditional plan's `has_errors` is false.
+therefore be blocked while the top-level `has_errors` is false.
 
 `retirements[].before` uses the carrier-absence shape. Its new
 `requested_outcome: "replaced"` distinguishes an old source from a deleted
 declaration. Each `acquisitions[].conditional_after` uses the relation-action
 shape; `requires_retirements` contains zero-based indexes into this object's
 retirement array, not persistent identities. `conditional_order_actions` uses
-the order-action shape. `conditional_carrier_adoption_actions` discloses any
-state-only claim acquisition admitted by `--manage-existing`; an ordinary
-blocked relation can be paired with that eligible conditional adoption. These
-projected observations and risks are not current
-host evidence, execution results or order consent.
+the order-action shape. `conditional_carrier_adoption_actions` discloses the
+after-acquisition adoption decisions, including blocked or passive decisions.
+With `--manage-existing`, an ordinary blocked relation can be paired with an
+eligible state-only adoption. The observations and risks remain conditional
+plan evidence, not current host evidence or order consent. In write results,
+adoption `claim_transition` and final provenance join actual claim receipts;
+they can report a recorded claim even if a later operation fails.
 
 Write results add actual `retirements[].settled`, `requalified` and
 `apply_complete` booleans. The first records each old claim's completed
-retirement, the second a successful fresh replan, and the last successful
-completion under the new source's existing assurance contract. In particular,
+retirement; false includes an unconfirmed registry commit. The second records
+a successful fresh replan, and the last records successful completion under the
+new source's existing assurance contract. In particular,
 an Antigravity non-selector can complete as `attempted_unverified`, without a
 verified new claim. These booleans are absent from read-only previews. A partial
 failure can leave settled retirements with `apply_complete: false`; host-route
@@ -1666,8 +1669,9 @@ pending install already owns the same transition, success instead uses
 `installed_observed_transition` rather than implying explicit adoption. A
 failure before any durable commit or delegated host-command boundary uses
 `not_recorded`. Once one of those effects was attempted, a later error preserves
-`recorded` or `completed_by_install_recovery` for each exact durable result
-returned by the commit boundary; only actions without such a result use
+`recorded` or `completed_by_install_recovery` for each confirmed durable result
+returned by the commit boundary. A possible successor after an indeterminate
+registry commit is not a confirmed receipt; actions without a confirmed result use
 `unknown_after_error`. Run `daem status` to resolve any remaining unknown action
 instead of inferring it from the error alone.
 

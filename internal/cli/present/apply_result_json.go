@@ -147,7 +147,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 			input.CarrierAdoptionResults,
 		),
 		CarrierAbsences:   carrierAbsenceJSONActions(input.Reconciliation.CarrierAbsences()),
-		CarrierHandoffs:   carrierHandoffsJSONFor(input.Reconciliation, input.CarrierHandoffProgress),
+		CarrierHandoffs:   carrierHandoffsJSONFor(input.Reconciliation, input.CarrierHandoffProgress, applyResultCarrierAdoptionPhase(input.Failure != nil, input.ExecutionAttempted), input.CarrierAdoptionResults),
 		DelegateAttempts:  delegateJSONAttempts(input.DelegateAttempts),
 		HostRouteAttempts: hostRouteAttempts,
 		MCPStatuses:       input.MCPStatuses,

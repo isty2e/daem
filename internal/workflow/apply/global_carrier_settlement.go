@@ -288,7 +288,7 @@ func globalCarrierClaimsAfterPersistence(
 	}
 	kind, classified := mutationfs.FailureKindOf(err)
 	if classified && (kind == mutationfs.FailureIndeterminateCommit || kind == mutationfs.FailureRetainedResidue) {
-		return successor, err
+		return successor, &unconfirmedGlobalCarrierCommit{before: current, after: successor, cause: err}
 	}
 	return current, err
 }
@@ -297,6 +297,33 @@ type globalCarrierBatchSettlementCallbacks struct {
 	validateBefore func() error
 	persist        func() (durablecarrier.GlobalCarrierClaims, int, error)
 	validateAfter  func() error
+}
+
+// Keep the recovery successor without treating this publication's membership
+// changes as confirmed. Later validation failures do not carry this marker.
+// Execution stops at the first failed global publication.
+type unconfirmedGlobalCarrierCommit struct {
+	before, after durablecarrier.GlobalCarrierClaims
+	cause         error
+}
+
+func (commit *unconfirmedGlobalCarrierCommit) Error() string { return commit.cause.Error() }
+
+func (commit *unconfirmedGlobalCarrierCommit) Unwrap() error { return commit.cause }
+
+func globalCarrierMembershipUnconfirmed(err error, claim durablecarrier.ManagedCarrierClaim) bool {
+	var commit *unconfirmedGlobalCarrierCommit
+	if !errors.As(err, &commit) {
+		return false
+	}
+	before, after := false, false
+	for _, current := range commit.before.Claims() {
+		before = before || current.ExactEqual(claim)
+	}
+	for _, current := range commit.after.Claims() {
+		after = after || current.ExactEqual(claim)
+	}
+	return before != after
 }
 
 func executeGlobalCarrierBatchSettlement(

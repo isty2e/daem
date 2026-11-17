@@ -314,9 +314,9 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			}
 			clipresent.PrintDelegateAttemptsWithOptions(stderr, delegateAttemptInputs, humanOptions)
 			clipresent.PrintCarrierHandoffProgress(stderr, result.Reconciliation, result.CarrierHandoffProgress)
-			clipresent.PrintCarrierAdoptionResultsWithOptions(
+			clipresent.PrintCarrierReconciliationAdoptionResultsWithOptions(
 				stderr,
-				result.Reconciliation.CarrierAdoptions(),
+				result.Reconciliation,
 				result.CarrierAdoptionResults,
 				err,
 				result.ExecutionAttempted,
@@ -367,9 +367,9 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		if !interactiveConfirmation {
 			clipresent.PrintPermissionProtection(stdout, result.PermissionProtection)
 		}
-		clipresent.PrintCarrierAdoptionResultsWithOptions(
+		clipresent.PrintCarrierReconciliationAdoptionResultsWithOptions(
 			stdout,
-			result.Reconciliation.CarrierAdoptions(),
+			result.Reconciliation,
 			result.CarrierAdoptionResults,
 			nil,
 			result.ExecutionAttempted,

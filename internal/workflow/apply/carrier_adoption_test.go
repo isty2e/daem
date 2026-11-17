@@ -13,6 +13,7 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
@@ -297,6 +298,7 @@ func TestCommittedCarrierAdoptionClaimsReportsOnlyDurableOutcomes(t *testing.T) 
 		actions,
 		durable.EmptySnapshot(),
 		durablecarrier.GlobalCarrierClaims{},
+		nil,
 	)
 	if err != nil || len(results) != 0 || expected != 1 {
 		t.Fatalf(
@@ -317,6 +319,7 @@ func TestCommittedCarrierAdoptionClaimsReportsOnlyDurableOutcomes(t *testing.T) 
 		actions,
 		project,
 		durablecarrier.GlobalCarrierClaims{},
+		nil,
 	)
 	if err != nil || len(results) != 1 || expected != 1 ||
 		!results[0].ExactEqual(proposed) {
@@ -326,6 +329,45 @@ func TestCommittedCarrierAdoptionClaimsReportsOnlyDurableOutcomes(t *testing.T) 
 			expected,
 			err,
 		)
+	}
+}
+
+func TestCommittedCarrierAdoptionClaimsExcludeUnconfirmedGlobalSuccessor(t *testing.T) {
+	_, manifest, lockfile, _, locked, subject := writeApplyClaudePluginCarrierCommandFixtureForScope(t, target.ScopeGlobal)
+	present := exactClaudeCarrierObservations(t, locked, subject, target.ScopeGlobal)
+	planning, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, LockfilePath: lockfile, TargetValues: []string{"claude-code"}, RelationObservations: &present, ManageUnmanagedMatches: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer planning.Close()
+	actions := planning.Reconciliation.CarrierAdoptions()
+	proposed, ok := actions[0].ProposedClaim()
+	if !ok {
+		t.Fatal("no proposed global claim")
+	}
+	for _, provenance := range []durablecarrier.ClaimProvenance{durablecarrier.ClaimProvenanceExplicitlyAdoptedObserved, durablecarrier.ClaimProvenanceInstalledObserved} {
+		claim, err := durablecarrier.NewManagedCarrierClaim(proposed.Owner(), proposed.Identity(), proposed.InstallRequest(), provenance)
+		if err != nil {
+			t.Fatal(err)
+		}
+		possible, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, confirmed := range []bool{false, true} {
+			var commitErr error
+			if !confirmed {
+				_, commitErr = globalCarrierClaimsAfterPersistence(durablecarrier.EmptyGlobalCarrierClaims(), possible, durablecarrier.EmptyGlobalCarrierClaims(), globalCarrierSettlementClassifiedError{kind: mutationfs.FailureIndeterminateCommit})
+			}
+			results, expected, err := committedCarrierAdoptionClaims(actions, durable.EmptySnapshot(), possible, commitErr)
+			want := 0
+			if confirmed {
+				want = 1
+			}
+			if err != nil || expected != 1 || len(results) != want {
+				t.Fatalf("confirmed=%t receipts=%d expected=%d err=%v", confirmed, len(results), expected, err)
+			}
+		}
 	}
 }
 

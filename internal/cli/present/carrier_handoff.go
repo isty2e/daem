@@ -32,7 +32,12 @@ type carrierHandoffAcquisitionJSON struct {
 	RetirementIndexes []int              `json:"requires_retirements"`
 }
 
-func carrierHandoffsJSONFor(result reconcile.Result, progress *applyworkflow.CarrierHandoffProgress) *carrierHandoffsJSON {
+func carrierHandoffsJSONFor(
+	result reconcile.Result,
+	progress *applyworkflow.CarrierHandoffProgress,
+	adoptionPhase carrierAdoptionPhase,
+	adoptionResults []durablecarrier.ManagedCarrierClaim,
+) *carrierHandoffsJSON {
 	expectation, present := result.CarrierHandoff()
 	if !present {
 		return nil
@@ -70,7 +75,7 @@ func carrierHandoffsJSONFor(result reconcile.Result, progress *applyworkflow.Car
 	}
 	_, orders, adoptions := carrierHandoffAfterViews(expectation)
 	output.ConditionalOrders = relationOrderJSONActions(orders, after.Relations())
-	output.ConditionalAdoptions = carrierAdoptionJSONActions(adoptions, carrierAdoptionPlanned)
+	output.ConditionalAdoptions = carrierAdoptionJSONActionsWithResults(adoptions, adoptionPhase, adoptionResults)
 	if progress != nil {
 		requalified, complete := progress.Requalified, progress.Complete
 		output.Requalified, output.ApplyComplete = &requalified, &complete
@@ -180,4 +185,19 @@ func PrintCarrierHandoffProgress(output io.Writer, result reconcile.Result, prog
 		return
 	}
 	fmt.Fprintf(output, "handoff progress: %d/%d retirements settled; fresh replan=%t; apply complete=%t\n", len(progress.RetiredClaims), len(expectation.Handoffs().Retirements()), progress.Requalified, progress.Complete)
+}
+
+func PrintCarrierReconciliationAdoptionResultsWithOptions(
+	output io.Writer,
+	result reconcile.Result,
+	receipts []durablecarrier.ManagedCarrierClaim,
+	executionErr error,
+	executionAttempted bool,
+	options HumanOptions,
+) {
+	actions := result.CarrierAdoptions()
+	if expectation, present := result.CarrierHandoff(); present {
+		actions = expectation.After().CarrierAdoptions()
+	}
+	PrintCarrierAdoptionResultsWithOptions(output, actions, receipts, executionErr, executionAttempted, options)
 }

@@ -540,7 +540,7 @@ func executeWithDependencies(
 			schedule: stateDirPlan.schedule, guard: executionGuard, leases: leases, validateBarrier: forwardAuthority.Validate,
 		}, providerActions, phaseOptions)
 		expectation, _ := current.assessment.Reconciliation.CarrierHandoff()
-		*handoffProgress = carrierHandoffProgressFor(phase, expectation.Handoffs().Retirements(), phaseErr == nil && phase.settled)
+		*handoffProgress = carrierHandoffProgressFor(phase, expectation.Handoffs().Retirements(), phaseErr == nil && phase.settled, phaseErr)
 		handoffPhase = phase
 		handoffFailed = phaseErr != nil
 		if phaseErr != nil {
@@ -887,9 +887,10 @@ func executeWithDependencies(
 		}
 		current.result.HostRouteAttempts = runResult.HostRouteAttempts
 		committedAdoptions, _, adoptionErr := committedCarrierAdoptionClaims(
-			current.result.Reconciliation.CarrierAdoptions(),
+			current.assessment.Reconciliation.CarrierAdoptions(),
 			runResult.State,
 			runResult.GlobalCarrierClaims,
+			err,
 		)
 		current.result.CarrierAdoptionResults = committedAdoptions
 		if runResult.ActionCount != 0 {
@@ -902,7 +903,7 @@ func executeWithDependencies(
 	}
 
 	carrierAdoptionResults, err := finalizedCarrierAdoptionClaims(
-		current.result.Reconciliation.CarrierAdoptions(),
+		current.assessment.Reconciliation.CarrierAdoptions(),
 		runResult.State,
 		runResult.GlobalCarrierClaims,
 	)

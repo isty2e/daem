@@ -13,14 +13,14 @@ type CarrierHandoffProgress struct {
 	Complete      bool
 }
 
-func carrierHandoffProgressFor(phase carrierHandoffPhaseResult, actions []carrierabsence.Action, requalified bool) CarrierHandoffProgress {
+func carrierHandoffProgressFor(phase carrierHandoffPhaseResult, actions []carrierabsence.Action, requalified bool, commitErr error) CarrierHandoffProgress {
 	progress := CarrierHandoffProgress{Requalified: requalified}
 	if phase.retired.StatePath == "" {
 		return progress
 	}
 	for _, action := range actions {
 		claim := action.Claim()
-		remaining := false
+		remaining := globalCarrierMembershipUnconfirmed(commitErr, claim)
 		for _, current := range append(phase.retired.State.ManagedCarrierClaims(), phase.retired.GlobalCarrierClaims.Claims()...) {
 			remaining = remaining || current.ExactEqual(claim)
 		}
