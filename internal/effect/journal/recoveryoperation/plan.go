@@ -497,7 +497,7 @@ func loadActivePlanFromInventory(
 		}
 	}
 
-	currentState := durable.EmptySnapshot()
+	var currentState durable.Snapshot
 	if suppliedState != nil {
 		currentState = *suppliedState
 	} else {
