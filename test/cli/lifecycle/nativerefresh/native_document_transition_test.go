@@ -163,7 +163,9 @@ func TestNativeDocumentNarrowingInteractiveConfirmation(t *testing.T) {
 			if preview.HasErrors || len(preview.NativeNarrowings) != 1 || preview.NativeNarrowings[0].DesiredKeyCount != test.keyCount {
 				t.Fatalf("expected an admitted narrowing with %d keys: %+v", test.keyCount, preview)
 			}
-			if len(preview.Actions)+len(preview.DelegateActions)+len(preview.RelationActions)+len(preview.RelationOrders)+len(preview.CarrierAdoptions)+len(preview.CarrierAbsences) != 0 {
+			companionRows := len(preview.Actions) + len(preview.DelegateActions) + len(preview.RelationActions) +
+				len(preview.RelationOrders) + len(preview.CarrierAdoptions) + len(preview.CarrierAbsences)
+			if companionRows != 0 {
 				t.Fatalf("expected no companion action supplying confirmation: %+v", preview)
 			}
 
@@ -192,7 +194,7 @@ func TestNativeDocumentNarrowingInteractiveConfirmation(t *testing.T) {
 				return exit, reads, stderr.String()
 			}
 
-			if exit, reads, stderr := runApply("no", atConfirmation); exit != 1 || reads != 1 {
+			if exit, reads, stderr := runApply("no", atConfirmation); exit != 1 || reads != 1 || !strings.Contains(stderr, "apply canceled") {
 				t.Fatalf("declining narrowing: exit=%d, confirmation reads=%d, stderr=%s", exit, reads, stderr)
 			}
 			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
@@ -202,7 +204,7 @@ func TestNativeDocumentNarrowingInteractiveConfirmation(t *testing.T) {
 			if !test.approveAndReapply {
 				return
 			}
-			if exit, reads, stderr := runApply("yes", atConfirmation); exit != 0 || reads != 1 {
+			if exit, reads, stderr := runApply("yes", nil); exit != 0 || reads != 1 {
 				t.Fatalf("approving narrowing: exit=%d, confirmation reads=%d, stderr=%s", exit, reads, stderr)
 			}
 			content := testkit.ReadFile(t, f.Destination)
