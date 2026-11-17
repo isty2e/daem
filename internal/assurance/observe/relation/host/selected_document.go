@@ -181,6 +181,10 @@ func NewOpenCodeDocumentEdit(view opencodeplugin.SelectedDocumentOrderView) (Sel
 // SelectedEdits consumes only operation-selected retirement claims. Normalizers
 // derive exact row positions; callers supply neither slots nor loose subject joins.
 func (observation OrderObservation) SelectedEdits(retiring []durablecarrier.ManagedCarrierClaim) ([]SelectedDocumentEdit, error) {
+	return observation.SelectedHandoffEdits(retiring, observerelation.OrderHandoffs{})
+}
+
+func (observation OrderObservation) SelectedHandoffEdits(retiring []durablecarrier.ManagedCarrierClaim, handoffs observerelation.OrderHandoffs) ([]SelectedDocumentEdit, error) {
 	var result []SelectedDocumentEdit
 	if observation.pi != nil {
 		original, err := observation.pi.CaptureInput()
@@ -206,7 +210,7 @@ func (observation OrderObservation) SelectedEdits(retiring []durablecarrier.Mana
 			}
 			relations = append(relations, relation)
 		}
-		view, err := observation.pi.WithRetiringRelations(relations)
+		view, err := observation.pi.WithHandoffRetirements(relations, handoffs)
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +225,7 @@ func (observation OrderObservation) SelectedEdits(retiring []durablecarrier.Mana
 			if err != nil {
 				return nil, err
 			}
-			view, err := original.WithRetiringRelations(relations)
+			view, err := original.WithHandoffRetirements(relations, handoffs)
 			if err != nil {
 				return nil, err
 			}

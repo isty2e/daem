@@ -8,6 +8,7 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -211,4 +212,31 @@ func (handoffs CarrierHandoffs) ProspectiveClaims() []durablecarrier.ManagedCarr
 
 func (handoffs CarrierHandoffs) ProspectivePendingRemovals() []durablecarrier.PendingCarrierRemoval {
 	return append([]durablecarrier.PendingCarrierRemoval(nil), handoffs.pendingRemovals...)
+}
+
+func (handoffs CarrierHandoffs) OrderHandoffs(selectedTarget target.Target, scope target.Scope) (relationobserve.OrderHandoffs, error) {
+	before := make(map[durablecarrier.CarrierFactKey]relationobserve.CorrelationKey, len(handoffs.retirements))
+	for _, action := range handoffs.retirements {
+		if action.Target() == selectedTarget && action.Scope() == scope {
+			observed, _ := action.Observation()
+			before[action.Claim().FactKey()] = observed.Key
+		}
+	}
+	var pairs []relationobserve.OrderHandoffSpec
+	for _, acquisition := range handoffs.acquisitions {
+		action := acquisition.Action()
+		if action.Target() != selectedTarget || action.Scope() != scope {
+			continue
+		}
+		after, err := relationobserve.NewCorrelationKey(action.Subject(), action.ExpectedRelation())
+		if err != nil {
+			return relationobserve.OrderHandoffs{}, err
+		}
+		for _, key := range acquisition.RetirementKeys() {
+			if old, present := before[key]; present {
+				pairs = append(pairs, relationobserve.OrderHandoffSpec{Before: old, After: after})
+			}
+		}
+	}
+	return relationobserve.NewOrderHandoffs(pairs)
 }

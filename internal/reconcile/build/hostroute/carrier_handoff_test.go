@@ -41,6 +41,14 @@ func TestCarrierHandoffsSelectIntrinsicDependenciesNotUnrelatedDeletion(t *testi
 			if len(handoffs.Retirements()) != test.want || len(handoffs.Acquisitions()) != len(test.after) {
 				t.Fatalf("retirements/acquisitions = %d/%d", len(handoffs.Retirements()), len(handoffs.Acquisitions()))
 			}
+			events, err := handoffs.OrderHandoffs(target.TargetClaudeCode, target.ScopeGlobal)
+			if err != nil || events.Empty() {
+				t.Fatal("handoff did not retain its selected order associations", err)
+			}
+			unrelatedScope, err := handoffs.OrderHandoffs(target.TargetClaudeCode, target.ScopeProject)
+			if err != nil || !unrelatedScope.Empty() {
+				t.Fatal("order handoff crossed its selected scope", err)
+			}
 			remaining := handoffs.ProspectiveClaims()
 			if len(remaining) != 1 || remaining[0].Identity().RelationSubject().Key() != "z" {
 				t.Fatal("retirement set included an unrelated deletion")
