@@ -14,12 +14,10 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
-	"github.com/isty2e/daem/test/outputtest"
 )
 
 func managedPathEffectForTest(t testing.TB, input reconcile.ManagedPathDecisionInput) effectpreparation.ManagedPathEffect {
@@ -102,31 +100,6 @@ func captureScopedDestinationsForTest(paths Paths, selected []scopedDestinationF
 		}
 	}
 	return authority, nil
-}
-
-func testExactManagedPathEffectState(t *testing.T) durable.ManagedPathState {
-	t.Helper()
-	id, err := entity.New(entity.KindHookAsset, "guard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	placement, err := profile.HookAssetPlacementFor(target.ScopeProject, []target.Target{target.TargetCodex})
-	if err != nil {
-		t.Fatal(err)
-	}
-	subject, err := topologyprojection.Subject(id, placement.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	state, err := durable.NewManagedPathState(
-		subject, []target.Target{target.TargetCodex}, target.ScopeProject,
-		outputtest.Parse(t, ".daem/hook-assets/guard/sha256-test/asset"), testArtifactHash("current"),
-		realization.PathProjectionFile, realization.PathPermissionsExact, 0o700,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return state
 }
 
 func testManagedPathEffectState(t *testing.T, name string, destination output.Destination) durable.ManagedPathState {

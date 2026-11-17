@@ -91,13 +91,6 @@ func applyExtensionDerivedCodexPluginCarrierLockfile(
 	return file, snapshottest.DelegatedRelation(t, file.Locked.Subjects()[0])
 }
 
-func applyExtensionDerivedOpenCodePluginCarrierLockfile(
-	t *testing.T,
-) (lock.File, realization.DelegatedRelation) {
-	t.Helper()
-	return applyExtensionDerivedOpenCodePluginCarrierLockfileForScope(t, target.ScopeGlobal)
-}
-
 func applyExtensionDerivedOpenCodePluginCarrierLockfileForScope(
 	t *testing.T,
 	scope target.Scope,
@@ -120,13 +113,6 @@ func applyExtensionDerivedOpenCodePluginCarrierLockfileForScope(
 		t.Fatalf("locked subjects = %#v, want one extension-derived carrier", file.Locked.Subjects())
 	}
 	return file, snapshottest.DelegatedRelation(t, file.Locked.Subjects()[0])
-}
-
-func applyExtensionDerivedPiPackageCarrierLockfile(
-	t *testing.T,
-) (lock.File, realization.DelegatedRelation) {
-	t.Helper()
-	return applyExtensionDerivedPiPackageCarrierLockfileForScope(t, target.ScopeProject)
 }
 
 func applyExtensionDerivedPiPackageCarrierLockfileForScope(
@@ -449,11 +435,6 @@ func applyClaudePluginCarrierUnmanagedRowWithScope(
 		t.Fatalf("NewRow returned error: %v", err)
 	}
 	return row
-}
-
-func applyClaudePluginCarrierSubject(t *testing.T) realization.DelegatedRelation {
-	t.Helper()
-	return applyClaudePluginCarrierSubjectWithDeclarationID(t, target.ScopeProject, "context7")
 }
 
 func applyClaudePluginCarrierSubjectWithDeclarationID(

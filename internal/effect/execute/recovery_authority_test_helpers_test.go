@@ -12,8 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/effect/workmeasure"
 )
 
 func executeRecoveryPlanWithOptionsForTest(
@@ -131,44 +129,6 @@ func beginUnclassifiedRecoveryExecutionForTest(t *testing.T, authority *mutation
 		t.Fatal(err)
 	}
 	authority.generalExecutionWorkBudget = host
-}
-
-func installGeneralRecoveryExecutionBudgetForTest(t *testing.T, authority *mutationAuthority) {
-	t.Helper()
-	parent, err := physicalwork.NewBudget(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	empty, err := workmeasure.NewArtifactWork(0, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 16 {
-		if err := parent.ReserveGeneralFileObservation(empty); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := parent.ConcludeScratchCleanupNotApplicable(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := parent.BeginReservedCleanupLifecycle(); err != nil {
-		t.Fatal(err)
-	}
-	if err := parent.ConcludeRetirementNotApplicable(); err != nil {
-		t.Fatal(err)
-	}
-	host, _, err := parent.BeginGeneralExecution()
-	if err != nil {
-		t.Fatal(err)
-	}
-	pathBudget, err := physicalwork.NewBudget(0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority.generalExecutionWorkBudget = host
-	if err := authority.generalTraversalPhase.Advance(authority.physicalWorkBudget, pathBudget); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {

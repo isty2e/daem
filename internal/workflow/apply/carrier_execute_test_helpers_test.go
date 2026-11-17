@@ -363,15 +363,6 @@ func assertApplyPendingCarrierInstallRows(
 	}
 }
 
-func assertApplyPendingCarrierInstall(
-	t *testing.T,
-	state durable.Snapshot,
-	record lock.LockedSubjectContract,
-) {
-	t.Helper()
-	assertApplyPendingCarrierInstallRows(t, state.PendingCarrierInstalls(), record)
-}
-
 func assertApplyNoCarrierFact(t *testing.T, state durable.Snapshot, subject topology.SubjectID) {
 	t.Helper()
 	for _, pending := range state.PendingCarrierInstalls() {

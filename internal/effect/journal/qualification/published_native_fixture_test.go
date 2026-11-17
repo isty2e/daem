@@ -61,28 +61,6 @@ func nativeFixtureBudget(t *testing.T) *physicalwork.Budget {
 	return budget
 }
 
-func readStagedNativeRecord(t *testing.T, path string, codec durable.SnapshotCodec) journalrecord.Native {
-	t.Helper()
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	path = filepath.Join(parent, filepath.Base(path))
-	snapshot, err := journalTestFilesystem().ReadRegularFileSnapshotUpTo(t.Context(), path, journalrecord.MaximumBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := journalrecord.DecodeNativeSnapshot(t.Context(), snapshot, path, codec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value, present := loaded.Native()
-	if !present {
-		t.Fatal("staged native record decoded as another family")
-	}
-	return value
-}
-
 func nativeJournalFixture(t *testing.T) nativeRecordFixture {
 	t.Helper()
 	claims := documentClaimsForTest(t)

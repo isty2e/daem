@@ -50,12 +50,3 @@ func TestSelectedTargetsRejectsDuplicateAndUnknownTargets(t *testing.T) {
 		})
 	}
 }
-
-func planSelectedTargets(t *testing.T, values ...target.Target) SelectedTargets {
-	t.Helper()
-	selected, err := NewSelectedTargets(values)
-	if err != nil {
-		t.Fatalf("NewSelectedTargets returned error: %v", err)
-	}
-	return selected
-}
