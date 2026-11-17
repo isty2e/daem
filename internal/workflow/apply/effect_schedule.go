@@ -23,6 +23,7 @@ type applyForwardEffectSchedule struct {
 	prefix         operationplan.EffectStructure
 	final          operationplan.EffectStructure
 	continuation   applyContinuationPlan
+	handoff        applyContinuationPlan
 	effectPlan     applyprogram.Plan
 	managedSuffix  *nativeoperation.NativeManagedSuffixShape
 	delegateSuffix *nativeoperation.NativeManagedSuffixShape
@@ -181,14 +182,14 @@ func applyScheduleInputFor(
 	executeGates int,
 ) (applyScheduleInput, error) {
 	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(
-		current.assessment.Reconciliation.CarrierAbsences(),
+		current.assessment.ReservationReconciliation().CarrierAbsences(),
 	)
 	if err != nil {
 		return applyScheduleInput{}, err
 	}
 	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(
 		current.assessment.CurrentState,
-		current.assessment.Reconciliation.CarrierAdoptions(),
+		current.assessment.ReservationReconciliation().CarrierAdoptions(),
 	)
 	if err != nil {
 		return applyScheduleInput{}, err
@@ -227,16 +228,30 @@ func applyScheduleInputFor(
 	}
 	orders := applyOrderScheduleFacts(orderClasses)
 	delegates := applyDelegateScheduleFacts(
-		current.assessment.Reconciliation.Delegates(),
+		current.assessment.ReservationReconciliation().Delegates(),
 	)
+	prefix := handoffReservationActions(current)
+	handoffFacts, err := applyCarrierScheduleFactsForOwner(prefix, projectCarrierRetirementContinuation)
+	if err != nil {
+		return applyScheduleInput{}, err
+	}
+	for index := range handoffFacts {
+		handoffFacts[index].ref = applyOrdinalScheduleReference("apply/carrier-handoff/removal", index)
+	}
+	_, handoffGlobal, err := stateOnlyCarrierClaimRetirements(prefix)
+	if err != nil {
+		return applyScheduleInput{}, err
+	}
 	return applyScheduleInput{
-		providerRoutes:      providerRoutes,
-		coreChanged:         executeGates != 0,
-		core:                effectSegment,
-		hasGlobalRetirement: len(globalRetirements) != 0,
-		carrierRemovals:     carrierRemovals,
-		finalRoutes:         finalRoutes,
-		orderClasses:        orders,
+		handoffRemovals:         handoffFacts,
+		handoffGlobalRetirement: len(handoffGlobal) != 0,
+		providerRoutes:          providerRoutes,
+		coreChanged:             executeGates != 0,
+		core:                    effectSegment,
+		hasGlobalRetirement:     len(globalRetirements) != 0,
+		carrierRemovals:         carrierRemovals,
+		finalRoutes:             finalRoutes,
+		orderClasses:            orders,
 		mayReclassifyOrder: relationOrderMayReclassifyBeforeExecution(
 			providerActions,
 			finalRelations,

@@ -440,6 +440,44 @@ func runAfterCarrierClaimRetirements(
 	relationObservations observerelation.Batch,
 	options runOptions,
 ) (runResult, error) {
+	retired, err := runCarrierClaimRetirements(ctx, paths, stateResult, globalClaims, globalRetirements,
+		reconciliation.CarrierAbsences(), relationObservations, options)
+	if err != nil {
+		return retired, err
+	}
+	next, err := runHostRoutesOrderDelegatesAndPersistAttemptRecords(
+		ctx, paths, locked, selection, retired.StatePath, retired.State,
+		carrierOwner, retired.GlobalCarrierClaims, retired.ActionCount, reconciliation, options,
+	)
+	next.HostRouteAttempts = append(retired.HostRouteAttempts, next.HostRouteAttempts...)
+	if err != nil {
+		return next, err
+	}
+	adoptionPlan := globalCarrierSettlementPlan{}
+	if len(globalAdoptions) != 0 {
+		adoptionPlan, err = newGlobalCarrierBatchSettlementPlan(globalCarrierSettlementAdoption,
+			paths.CarrierClaimRegistryPath, next.GlobalCarrierClaims, globalAdoptions)
+		if err != nil {
+			return next, err
+		}
+	}
+	nextGlobalClaims, adoptionCount, err := commitGlobalCarrierAdoptions(ctx, paths.CarrierClaimRegistryPath,
+		next.GlobalCarrierClaims, globalAdoptions, adoptionPlan, options)
+	next.GlobalCarrierClaims = nextGlobalClaims
+	next.ActionCount += adoptionCount
+	return next, err
+}
+
+func runCarrierClaimRetirements(
+	ctx context.Context,
+	paths daempaths.Paths,
+	stateResult execute.ApplyResult,
+	globalClaims durablecarrier.GlobalCarrierClaims,
+	globalRetirements []durablecarrier.ManagedCarrierClaim,
+	actions []carrierabsence.Action,
+	relationObservations observerelation.Batch,
+	options runOptions,
+) (runResult, error) {
 	retirementPlan := globalCarrierSettlementPlan{}
 	if len(globalRetirements) != 0 {
 		var err error
@@ -475,7 +513,7 @@ func runAfterCarrierClaimRetirements(
 		Current:                stateResult.State,
 		StatefileCodec:         options.physicalStateCodec,
 		GlobalClaims:           nextGlobalClaims,
-		Actions:                reconciliation.CarrierAbsences(),
+		Actions:                actions,
 		RelationAuthorityPaths: relationObservations.AuthorityPaths(),
 		ProjectRoot:            options.projectRoot,
 		Adapter:                options.CarrierRemovalAdapter,
@@ -523,46 +561,11 @@ func runAfterCarrierClaimRetirements(
 			HostRouteAttempts:   removalResult.Attempts,
 		}, err
 	}
-	next, err := runHostRoutesOrderDelegatesAndPersistAttemptRecords(
-		ctx,
-		paths,
-		locked,
-		selection,
-		stateResult.StatePath,
-		removalResult.State,
-		carrierOwner,
-		removalResult.GlobalClaims,
-		stateResult.ActionCount+globalRetirementCount+removalResult.ActionCount,
-		reconciliation,
-		options,
-	)
-	next.HostRouteAttempts = append(removalResult.Attempts, next.HostRouteAttempts...)
-	if err != nil {
-		return next, err
-	}
-	adoptionPlan := globalCarrierSettlementPlan{}
-	if len(globalAdoptions) != 0 {
-		adoptionPlan, err = newGlobalCarrierBatchSettlementPlan(
-			globalCarrierSettlementAdoption,
-			paths.CarrierClaimRegistryPath,
-			next.GlobalCarrierClaims,
-			globalAdoptions,
-		)
-		if err != nil {
-			return next, err
-		}
-	}
-	nextGlobalClaims, adoptionCount, err := commitGlobalCarrierAdoptions(
-		ctx,
-		paths.CarrierClaimRegistryPath,
-		next.GlobalCarrierClaims,
-		globalAdoptions,
-		adoptionPlan,
-		options,
-	)
-	next.GlobalCarrierClaims = nextGlobalClaims
-	next.ActionCount += adoptionCount
-	return next, err
+	return runResult{
+		State: removalResult.State, GlobalCarrierClaims: removalResult.GlobalClaims,
+		StatePath: stateResult.StatePath, HostRouteAttempts: removalResult.Attempts,
+		ActionCount: stateResult.ActionCount + globalRetirementCount + removalResult.ActionCount,
+	}, nil
 }
 
 func commitGlobalCarrierRetirements(

@@ -81,18 +81,20 @@ type DelegateWork struct {
 // ApplyWork is the I/O-free apply envelope input. Gate counts are Effect-owned
 // visibility demand; remaining slices are workflow-normalized facts.
 type ApplyWork struct {
-	ExecuteGates             int
-	PrefixExecuteGates       int
-	PostRouteExecuteGates    int
-	PostDelegateExecuteGates int
-	ProviderActions          []RouteWork
-	FinalRoutes              []RouteWork
-	CarrierRemovals          []CarrierWork
-	GlobalCarrierRetirement  bool
-	GlobalCarrierAdoption    bool
-	OrderClasses             []OrderClassWork
-	Delegates                []DelegateWork
-	StatefilePath            string
+	PrerequisiteRemovals         []CarrierWork
+	PrerequisiteGlobalRetirement bool
+	ExecuteGates                 int
+	PrefixExecuteGates           int
+	PostRouteExecuteGates        int
+	PostDelegateExecuteGates     int
+	ProviderActions              []RouteWork
+	FinalRoutes                  []RouteWork
+	CarrierRemovals              []CarrierWork
+	GlobalCarrierRetirement      bool
+	GlobalCarrierAdoption        bool
+	OrderClasses                 []OrderClassWork
+	Delegates                    []DelegateWork
+	StatefilePath                string
 }
 
 // Demand is the multidimensional semantic reservation projection. The State
@@ -185,6 +187,9 @@ func (envelope Envelope) Demand() Demand { return envelope.demand }
 
 // CompileApply compiles the apply forward-effect envelope from normalized work.
 func CompileApply(work ApplyWork) (Envelope, error) {
+	if len(work.PrerequisiteRemovals) != 0 || work.PrerequisiteGlobalRetirement {
+		return compileApplyPrerequisite(work)
+	}
 	if work.ExecuteGates < 0 || work.PrefixExecuteGates < 0 || work.PostRouteExecuteGates < 0 || work.PostDelegateExecuteGates < 0 {
 		return Envelope{}, fmt.Errorf("operationplan: execute visibility gates must not be negative")
 	}
@@ -362,6 +367,52 @@ func CompileApply(work ApplyWork) (Envelope, error) {
 		descendantFileCommits:   statefile.commits,
 	}
 	return builder.compile(), nil
+}
+
+func compileApplyPrerequisite(work ApplyWork) (Envelope, error) {
+	prefix, err := CompileApply(ApplyWork{
+		CarrierRemovals:         work.PrerequisiteRemovals,
+		GlobalCarrierRetirement: work.PrerequisiteGlobalRetirement,
+		StatefilePath:           work.StatefilePath,
+	})
+	if err != nil {
+		return Envelope{}, err
+	}
+	work.PrerequisiteRemovals, work.PrerequisiteGlobalRetirement = nil, false
+	remainder, err := CompileApply(work)
+	if err != nil {
+		return Envelope{}, err
+	}
+	left, right := prefix.demand, remainder.demand
+	add := func(a, b int) int {
+		if err != nil {
+			return 0
+		}
+		var sum int
+		sum, err = checkedAdd(a, b)
+		return sum
+	}
+	demand := Demand{
+		ensureCalls:             add(left.ensureCalls, right.ensureCalls),
+		barrierValidationCalls:  add(add(left.barrierValidationCalls, right.barrierValidationCalls), 1),
+		stateDirValidationCalls: add(left.stateDirValidationCalls, right.stateDirValidationCalls),
+		descendantBindings:      max(left.descendantBindings, right.descendantBindings),
+		descendantValidations:   add(left.descendantValidations, right.descendantValidations),
+		descendantFileCommits:   add(left.descendantFileCommits, right.descendantFileCommits),
+	}
+	if err != nil {
+		return Envelope{}, err
+	}
+	if left.descendantPath != "" && right.descendantPath != "" && left.descendantPath != right.descendantPath {
+		return Envelope{}, fmt.Errorf("operationplan: prerequisite and remainder must share the statefile")
+	}
+	demand.descendantPath = right.descendantPath
+	if demand.descendantPath == "" {
+		demand.descendantPath = left.descendantPath
+	}
+	obligations := append(prefix.Obligations(), Obligation{kind: ObligationBarrierValidation, count: 1})
+	obligations = append(obligations, remainder.Obligations()...)
+	return Envelope{kind: EnvelopeApply, obligations: obligations, demand: demand}, nil
 }
 
 // CompileRefresh compiles the refresh attempt-persistence envelope.

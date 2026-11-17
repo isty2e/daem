@@ -57,7 +57,11 @@ func applyEffectInput(
 		input, err := nativeApplyInputFor(current)
 		return input.ApplyInput, err
 	}
-	postProviderState, err := postProviderPlanningState(current.assessment.CurrentState, providerActions)
+	baseline, registry, err := handoffPlanningBaseline(current)
+	if err != nil {
+		return execute.ApplyInput{}, err
+	}
+	postProviderState, err := postProviderPlanningState(baseline, providerActions)
 	if err != nil {
 		return execute.ApplyInput{}, err
 	}
@@ -74,14 +78,14 @@ func applyEffectInput(
 		return execute.ApplyInput{}, err
 	}
 	projectRetirements, _, err := stateOnlyCarrierClaimRetirements(
-		current.assessment.Reconciliation.CarrierAbsences(),
+		current.assessment.ReservationReconciliation().CarrierAbsences(),
 	)
 	if err != nil {
 		return execute.ApplyInput{}, err
 	}
 	projectAdoptions, _, err := stateOnlyCarrierClaimAdoptions(
 		current.assessment.CurrentState,
-		current.assessment.Reconciliation.CarrierAdoptions(),
+		current.assessment.ReservationReconciliation().CarrierAdoptions(),
 	)
 	if err != nil {
 		return execute.ApplyInput{}, err
@@ -91,10 +95,10 @@ func applyEffectInput(
 		AggregateEffects:            aggregateEffects,
 		NativeNarrowings:            current.assessment.Reconciliation.NativeNarrowings(),
 		CurrentState:                postProviderState,
-		GlobalCarrierClaims:         current.assessment.GlobalCarrierClaims,
+		GlobalCarrierClaims:         registry,
 		RetiredProjectCarrierClaims: projectRetirements,
 		AdoptedProjectCarrierClaims: projectAdoptions,
-		ConfirmedRelationActions:    current.assessment.Reconciliation.Relations(),
+		ConfirmedRelationActions:    current.assessment.ReservationReconciliation().Relations(),
 		Owner:                       current.assessment.Owner,
 		Ownership:                   current.assessment.Ownership,
 	}, nil
@@ -155,14 +159,14 @@ func applyEnvelopeWorkFor(
 		return operationplan.ApplyWork{}, err
 	}
 	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(
-		current.assessment.Reconciliation.CarrierAbsences(),
+		current.assessment.ReservationReconciliation().CarrierAbsences(),
 	)
 	if err != nil {
 		return operationplan.ApplyWork{}, err
 	}
 	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(
 		current.assessment.CurrentState,
-		current.assessment.Reconciliation.CarrierAdoptions(),
+		current.assessment.ReservationReconciliation().CarrierAdoptions(),
 	)
 	if err != nil {
 		return operationplan.ApplyWork{}, err
@@ -175,8 +179,19 @@ func applyEnvelopeWorkFor(
 	if err != nil {
 		return operationplan.ApplyWork{}, err
 	}
+	retirements := handoffReservationActions(current)
+	prefix, err := applyCarrierScheduleFactsForOwner(retirements, projectCarrierRetirementContinuation)
+	if err != nil {
+		return operationplan.ApplyWork{}, err
+	}
+	_, globals, err := stateOnlyCarrierClaimRetirements(retirements)
+	if err != nil {
+		return operationplan.ApplyWork{}, err
+	}
 	return operationplan.ApplyWork{
-		ProviderActions: routeWorks(current.assessment.CurrentState, providerActions),
+		PrerequisiteRemovals:         carrierScheduleWorks(prefix),
+		PrerequisiteGlobalRetirement: len(globals) != 0,
+		ProviderActions:              routeWorks(current.assessment.CurrentState, providerActions),
 		FinalRoutes: routeWorks(
 			baseline,
 			finalRelations,
@@ -333,7 +348,7 @@ func admittedOrderClasses(current commandPlan) ([]operationplan.OrderClassWork, 
 }
 
 func admittedOrderClassFacts(current commandPlan) ([]admittedOrderClass, error) {
-	decisions := current.assessment.Reconciliation.RelationOrders()
+	decisions := current.assessment.ReservationReconciliation().RelationOrders()
 	classes := make(map[string][]reconcile.RelationOrderDecision)
 	for _, decision := range decisions {
 		key := string(decision.ClassID())

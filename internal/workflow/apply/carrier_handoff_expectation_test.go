@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -19,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
+	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
@@ -82,6 +84,92 @@ func TestProspectiveCarrierHandoffCannotExecuteBeforeAnyEffect(t *testing.T) {
 	result, err := ExecuteWithOptions(t.Context(), preparedWriteForTestResult(CommandResult{Reconciliation: prospective}), ExecuteOptions{})
 	if !errors.Is(err, errProspectiveCarrierHandoff) || result.ExecutionAttempted || len(result.HostRouteAttempts) != 0 || len(result.DelegateAttempts) != 0 {
 		t.Fatal("prepared execution did not reject the prospective role before effects", err)
+	}
+}
+
+func TestExecuteCarrierSourceHandoffSettlesOldClaimBeforeNewInstall(t *testing.T) {
+	for _, fault := range []string{"success", "removal-error", "cancellation"} {
+		t.Run(fault, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			root, manifest, lockfile, _, previous, _ := writeApplyClaudePluginCarrierCommandFixture(t)
+			seedApplyCarrierClaim(t, root, manifest, previous, target.ScopeProject)
+			configRoot := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", configRoot)
+			inventory := filepath.Join(configRoot, "plugins", "installed_plugins.json")
+			writeApplyFile(t, inventory, fmt.Sprintf(`{"version":2,"plugins":{"context7@market":[{"scope":"project","projectPath":%q}]}}`, root))
+			writeApplyFile(t, manifest, `version = 1
+targets = ["claude-code"]
+[[extension]]
+id = "context7"
+carrier = "claude-code-plugin"
+scope = "project"
+source = { marketplace = "context7@next" }
+`)
+			if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifest}); err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, LockfilePath: lockfile})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer prepared.Close()
+			calls := 0
+			executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+				calls++
+				if slices.Contains(request.Args, "context7@market") {
+					if fault == "removal-error" && calls == 1 {
+						return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 23}
+					}
+					writeApplyFile(t, inventory, `{"version":2,"plugins":{}}`)
+					if fault == "cancellation" && calls == 1 {
+						cancel()
+					}
+				} else if slices.Contains(request.Args, "context7@next") {
+					state := loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+					if len(state.ManagedCarrierClaims()) != 0 || len(state.PendingCarrierRemovals()) != 0 || len(state.PendingCarrierInstalls()) != 1 {
+						t.Fatal("new install started before old claim/removal debt settled and new intent persisted")
+					}
+					writeApplyFile(t, inventory, fmt.Sprintf(`{"version":2,"plugins":{"context7@next":[{"scope":"project","projectPath":%q}]}}`, root))
+				} else {
+					t.Fatalf("unexpected host command: %s %v", request.Command, request.Args)
+				}
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			}})
+			result, err := ExecuteWithOptions(ctx, prepared, ExecuteOptions{HostRouteExecutor: executor})
+			attempts := len(result.HostRouteAttempts)
+			if fault != "success" {
+				if err == nil || calls != 1 || !result.UncompensatedEffectsAttempted {
+					t.Fatal("partial retirement was reported complete or continued into acquisition", err)
+				}
+				state := loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+				if fault == "removal-error" && (len(state.ManagedCarrierClaims()) != 1 || len(state.PendingCarrierRemovals()) != 1) {
+					t.Fatal("uncertain removal dropped its old claim or pending intent")
+				}
+				retry, planErr := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, LockfilePath: lockfile})
+				if planErr != nil {
+					t.Fatal(planErr)
+				}
+				defer retry.Close()
+				result, err = ExecuteWithOptions(t.Context(), retry, ExecuteOptions{HostRouteExecutor: executor})
+				attempts += len(result.HostRouteAttempts)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantCalls := 2
+			if fault == "removal-error" {
+				wantCalls = 3
+			}
+			if calls != wantCalls || fault != "cancellation" && attempts != wantCalls || attempts == 0 {
+				t.Fatalf("calls=%d attempts=%d, want remove then install across same-manifest retries", calls, attempts)
+			}
+			state := loadApplyStatefile(t, filepath.Join(root, ".daem", "state.json"))
+			if len(state.ManagedCarrierClaims()) != 1 || !state.ManagedCarrierClaims()[0].Identity().ExactEqual(prepared.Reconciliation.Relations()[0].CarrierIdentity()) ||
+				len(state.PendingCarrierRemovals()) != 0 || len(state.PendingCarrierInstalls()) != 0 {
+				t.Fatalf("source handoff did not converge: claims=%#v pending-removals=%#v pending-installs=%#v", state.ManagedCarrierClaims(), state.PendingCarrierRemovals(), state.PendingCarrierInstalls())
+			}
+		})
 	}
 }
 

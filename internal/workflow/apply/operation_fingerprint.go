@@ -289,6 +289,22 @@ func applyOperationIdentity(
 	if err != nil {
 		return operationplan.ApplyIdentityInput{}, err
 	}
+	var handoffsJSON json.RawMessage
+	if expectation, present := planned.assessment.Reconciliation.CarrierHandoff(); present {
+		after := expectation.After()
+		handoffsJSON, err = marshalApplyFingerprintProjection(struct {
+			Relations []relationFingerprintFacts
+			Orders    []relationOrderFingerprintFacts
+			Absences  []carrierAbsenceFingerprintFacts
+			Providers []mcpProviderFingerprintFacts
+		}{
+			relationFingerprintRows(after.Relations()), relationOrderFingerprintRows(after.RelationOrders()),
+			carrierAbsenceFingerprintRows(expectation.Handoffs().Retirements()), mcpProviderFingerprintRows(planned.assessment.ReservationMCPProviders()),
+		})
+		if err != nil {
+			return operationplan.ApplyIdentityInput{}, err
+		}
+	}
 	return operationplan.ApplyIdentityInput{
 		ManifestPath:        result.ManifestPath,
 		LockfilePath:        result.LockfilePath,
@@ -303,6 +319,7 @@ func applyOperationIdentity(
 		RelationOrders:      relationOrdersJSON,
 		CarrierAdoptions:    carrierAdoptionsJSON,
 		CarrierAbsences:     carrierAbsencesJSON,
+		CarrierHandoffs:     handoffsJSON,
 		DelegateActions:     delegateActions,
 		Owner:               ownerJSON,
 		Ownership:           ownership,

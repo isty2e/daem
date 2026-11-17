@@ -13,19 +13,21 @@ import (
 )
 
 type applyScheduleInput struct {
-	positivePrefix      *applyDirectPrefix
-	managedSuffix       *nativeoperation.NativeManagedSuffixShape
-	delegateSuffix      *nativeoperation.NativeManagedSuffixShape
-	providerRoutes      []applyRouteScheduleFact
-	coreChanged         bool
-	core                operationplan.EffectNode
-	hasGlobalRetirement bool
-	carrierRemovals     []applyCarrierScheduleFact
-	finalRoutes         []applyRouteScheduleFact
-	orderClasses        []applyOrderScheduleFact
-	mayReclassifyOrder  bool
-	delegates           []applyDelegateScheduleFact
-	hasGlobalAdoption   bool
+	positivePrefix          *applyDirectPrefix
+	handoffRemovals         []applyCarrierScheduleFact
+	handoffGlobalRetirement bool
+	managedSuffix           *nativeoperation.NativeManagedSuffixShape
+	delegateSuffix          *nativeoperation.NativeManagedSuffixShape
+	providerRoutes          []applyRouteScheduleFact
+	coreChanged             bool
+	core                    operationplan.EffectNode
+	hasGlobalRetirement     bool
+	carrierRemovals         []applyCarrierScheduleFact
+	finalRoutes             []applyRouteScheduleFact
+	orderClasses            []applyOrderScheduleFact
+	mayReclassifyOrder      bool
+	delegates               []applyDelegateScheduleFact
+	hasGlobalAdoption       bool
 }
 
 type applyDirectPrefix struct {
@@ -94,6 +96,17 @@ func compileApplySchedule(
 			return applyForwardEffectSchedule{}, err
 		}
 	}
+	var handoffPlan applyContinuationPlan
+	if len(input.handoffRemovals) != 0 {
+		var err error
+		handoffPlan, err = compileApplyContinuationPlan(&builder, &statefile, applyScheduleInput{
+			carrierRemovals:     input.handoffRemovals,
+			hasGlobalRetirement: input.handoffGlobalRetirement,
+		})
+		if err != nil {
+			return applyForwardEffectSchedule{}, err
+		}
+	}
 	providerNode := compileApplyProviderSchedule(&builder, &statefile, input.providerRoutes)
 	continuation, err := compileApplyContinuationPlan(&builder, &statefile, input)
 	if err != nil {
@@ -111,6 +124,13 @@ func compileApplySchedule(
 	fullNodes := make([]operationplan.EffectNode, 0, 7)
 	if input.positivePrefix != nil {
 		fullNodes = append(fullNodes, prefixPhase, builder.Step("apply/native-prefix/replan-barrier", operationplan.EffectStepValidateBarrier))
+	}
+	if len(input.handoffRemovals) != 0 {
+		fullNodes = append(
+			fullNodes,
+			builder.ForwardPhase("apply/carrier-handoff", handoffPlan.segment),
+			builder.Step("apply/carrier-handoff/replan-barrier", operationplan.EffectStepValidateBarrier),
+		)
 	}
 	if len(input.providerRoutes) != 0 {
 		fullNodes = append(
@@ -134,6 +154,7 @@ func compileApplySchedule(
 		prefix:       prefixStructure,
 		final:        finalStructure,
 		continuation: continuation,
+		handoff:      handoffPlan,
 	}, nil
 }
 
@@ -161,6 +182,11 @@ func validateApplyScheduleReferences(input applyScheduleInput) error {
 	}
 	for index, removal := range input.carrierRemovals {
 		if err := validate(fmt.Sprintf("carrier removal %d", index), removal.ref); err != nil {
+			return err
+		}
+	}
+	for index, removal := range input.handoffRemovals {
+		if err := validate(fmt.Sprintf("handoff retirement %d", index), removal.ref); err != nil {
 			return err
 		}
 	}
@@ -1589,7 +1615,7 @@ func commandCarrierScheduleFacts(current commandPlan) ([]applyCarrierScheduleFac
 	if current.nativePlan != nil {
 		owner = projectCarrierRetirementContinuation
 	}
-	return applyCarrierScheduleFactsForOwner(current.assessment.Reconciliation.CarrierAbsences(), owner)
+	return applyCarrierScheduleFactsForOwner(current.assessment.ReservationReconciliation().CarrierAbsences(), owner)
 }
 
 func applyCarrierScheduleFacts(

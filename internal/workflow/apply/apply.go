@@ -142,7 +142,7 @@ func runWithOptions(
 		return runResult{State: assessment.CurrentState, GlobalCarrierClaims: assessment.GlobalCarrierClaims},
 			errProspectiveCarrierHandoff
 	}
-	if requiresCarrierHandoffPhase(assessment.Reconciliation) {
+	if requiresCarrierHandoffPhase(assessment.Reconciliation) && (options.nativeInput == nil || options.afterNativeCore == nil) {
 		return runResult{State: assessment.CurrentState, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, errUnsettledCarrierHandoff
 	}
 	if options.nativeInput != nil {

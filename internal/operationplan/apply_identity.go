@@ -23,6 +23,7 @@ type ApplyIdentityInput struct {
 	RelationOrders      json.RawMessage
 	CarrierAdoptions    json.RawMessage
 	CarrierAbsences     json.RawMessage
+	CarrierHandoffs     json.RawMessage `json:",omitempty"`
 	DelegateActions     json.RawMessage
 	Owner               json.RawMessage
 	Ownership           json.RawMessage

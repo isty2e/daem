@@ -28,19 +28,12 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	if options.nativeInput == nil || options.applyEffectPlan == nil || !options.nativeInput.Preparation.BeforeState().Equal(assessment.CurrentState) {
 		return runResult{}, fmt.Errorf("native command execution requires its exact reserved plan and live observation")
 	}
-	if options.requireContinuation {
+	if options.requireContinuation && !requiresCarrierHandoffPhase(assessment.Reconciliation) {
 		if err := bindApplyContinuationPlans(assessment.Reconciliation, options.preparedContinuation, options.currentContinuation); err != nil {
 			return runResult{}, err
 		}
 	}
-	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(assessment.Reconciliation.CarrierAbsences())
-	if err != nil {
-		return runResult{}, err
-	}
-	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(assessment.CurrentState, assessment.Reconciliation.CarrierAdoptions())
-	if err != nil {
-		return runResult{}, err
-	}
+	var err error
 	orders := options.nativeOrderChecks
 	if orders == nil {
 		orders = options.nativeInput.Preparation.SequenceEdits()
@@ -69,6 +62,14 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 		if err := bindApplyContinuationPlans(assessment.Reconciliation, options.preparedContinuation, continuation); err != nil {
 			return runResult{ActionCount: applied.ActionCount, State: applied.State, StatePath: applied.StatePath, GlobalCarrierClaims: assessment.GlobalCarrierClaims}, err
 		}
+	}
+	_, globalRetirements, err := stateOnlyCarrierClaimRetirements(assessment.Reconciliation.CarrierAbsences())
+	if err != nil {
+		return runResult{}, err
+	}
+	_, globalAdoptions, err := stateOnlyCarrierClaimAdoptions(assessment.CurrentState, assessment.Reconciliation.CarrierAdoptions())
+	if err != nil {
+		return runResult{}, err
 	}
 	return runAfterCarrierClaimRetirements(
 		ctx, paths, locked, selection, applied.ApplyResult, assessment.Owner, assessment.GlobalCarrierClaims,
