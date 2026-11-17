@@ -111,6 +111,16 @@ func (identity ManagedCarrierIdentity) ExactEqual(other ManagedCarrierIdentity) 
 		identity.relation.Equal(other.relation)
 }
 
+// SourceChangeTo preserves declaration, carrier family and locality. It does
+// not select between an admitted pin transition and remove/reinstall.
+func (identity ManagedCarrierIdentity) SourceChangeTo(after ManagedCarrierIdentity) bool {
+	return identity.subject == after.subject &&
+		identity.carrier.Family() == after.carrier.Family() &&
+		identity.Target() == after.Target() &&
+		identity.Scope() == after.Scope() &&
+		identity.carrier.Source() != after.carrier.Source()
+}
+
 // ManagedCarrierIdentityFromLockedRecord reconstructs the complete structural
 // identity from one admitted locked carrier relation.
 func ManagedCarrierIdentityFromLockedRecord(
