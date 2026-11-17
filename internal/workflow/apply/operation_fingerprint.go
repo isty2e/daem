@@ -134,6 +134,17 @@ type carrierAdoptionFingerprintFacts struct {
 	PlanIdentity carrieradoption.PlanIdentity
 }
 
+func carrierAdoptionFingerprintRows(actions []carrieradoption.Action) []carrierAdoptionFingerprintFacts {
+	facts := make([]carrierAdoptionFingerprintFacts, 0, len(actions))
+	for _, action := range actions {
+		facts = append(facts, carrierAdoptionFingerprintFacts{
+			Subject: action.Subject(), Target: string(action.Target()), Scope: string(action.Scope()),
+			Result: action.Result(), Blocker: action.Lifecycle().Blocker(), PlanIdentity: action.PlanIdentity(),
+		})
+	}
+	return facts
+}
+
 type delegateFingerprintFacts struct {
 	Subject      topology.SubjectID
 	Target       string
@@ -198,21 +209,7 @@ func applyOperationIdentity(
 	carrierAbsences := carrierAbsenceFingerprintRows(
 		planned.assessment.Reconciliation.CarrierAbsences(),
 	)
-	carrierAdoptions := make(
-		[]carrierAdoptionFingerprintFacts,
-		0,
-		len(planned.assessment.Reconciliation.CarrierAdoptions()),
-	)
-	for _, action := range planned.assessment.Reconciliation.CarrierAdoptions() {
-		carrierAdoptions = append(carrierAdoptions, carrierAdoptionFingerprintFacts{
-			Subject:      action.Subject(),
-			Target:       string(action.Target()),
-			Scope:        string(action.Scope()),
-			Result:       action.Result(),
-			Blocker:      action.Lifecycle().Blocker(),
-			PlanIdentity: action.PlanIdentity(),
-		})
-	}
+	carrierAdoptions := carrierAdoptionFingerprintRows(planned.assessment.Reconciliation.CarrierAdoptions())
 
 	delegates := delegateFingerprintRows(result.Reconciliation.Delegates())
 
@@ -297,9 +294,11 @@ func applyOperationIdentity(
 			Orders    []relationOrderFingerprintFacts
 			Absences  []carrierAbsenceFingerprintFacts
 			Providers []mcpProviderFingerprintFacts
+			Adoptions []carrierAdoptionFingerprintFacts
 		}{
 			relationFingerprintRows(after.Relations()), relationOrderFingerprintRows(after.RelationOrders()),
 			carrierAbsenceFingerprintRows(expectation.Handoffs().Retirements()), mcpProviderFingerprintRows(planned.assessment.ReservationMCPProviders()),
+			carrierAdoptionFingerprintRows(after.CarrierAdoptions()),
 		})
 		if err != nil {
 			return operationplan.ApplyIdentityInput{}, err

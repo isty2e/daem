@@ -128,13 +128,7 @@ func carrierHandoffRemainderFingerprint(result reconcile.Result, retirements []c
 	for index := range relations {
 		relations[index].Watchpoints = nil
 	}
-	var adoptions []carrierAdoptionFingerprintFacts
-	for _, action := range result.CarrierAdoptions() {
-		adoptions = append(adoptions, carrierAdoptionFingerprintFacts{
-			Subject: action.Subject(), Target: string(action.Target()),
-			Scope: string(action.Scope()), Result: action.Result(), Blocker: action.Lifecycle().Blocker(), PlanIdentity: action.PlanIdentity(),
-		})
-	}
+	adoptions := carrierAdoptionFingerprintRows(result.CarrierAdoptions())
 	orders := relationOrderFingerprintRows(result.RelationOrders())
 	for index, order := range result.RelationOrders() {
 		affected := false

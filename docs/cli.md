@@ -1520,9 +1520,10 @@ plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
 
-For a managed extension source change, the preview discloses removal followed
+For a managed extension source handoff, the preview discloses removal followed
 by a fresh replan and conditional acquisition. It does not promise an atomic
-replacement, cache retention or rollback of completed removal. See
+replacement, cache retention or rollback of completed removal. Admitted Pi Git
+pin changes retain their in-place route. See
 [managed source handoffs](host-integrations.md#managed-source-handoffs) for
 supported boundaries, source swaps, retry and ownership-preserving alternatives.
 

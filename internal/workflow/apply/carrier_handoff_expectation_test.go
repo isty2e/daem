@@ -229,6 +229,35 @@ source = { marketplace = "context7@next" }
 	if len(expectation.After().Relations()) != 1 || !expectation.After().Relations()[0].InvokesHostRoute() {
 		t.Fatal("conditional acquisition was not planned from the final lock")
 	}
+	after := expectation.After()
+	if len(after.CarrierAdoptions()) == 0 {
+		t.Fatal("fixture has no conditional adoption decision")
+	}
+	withoutAdoptions, err := reconcile.NewResult(reconcile.ResultInput{Context: reconcile.ContextApply, Relations: after.Relations(), RelationOrders: after.RelationOrders(), CarrierAbsences: after.CarrierAbsences()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedExpectation, err := reconcile.NewCarrierHandoffExpectation(expectation.Handoffs(), withoutAdoptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedCurrent, err := reconcile.NewResult(reconcile.ResultInput{Context: reconcile.ContextApply, Relations: actual.Reconciliation.Relations(), RelationOrders: actual.Reconciliation.RelationOrders(), CarrierAdoptions: actual.Reconciliation.CarrierAdoptions(), CarrierAbsences: actual.Reconciliation.CarrierAbsences(), CarrierHandoff: &changedExpectation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := prepared.lifecycle.planned
+	originalFingerprint, err := applyOperationFingerprint(planned, reconcile.ContextApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned.assessment.Reconciliation = changedCurrent
+	changedFingerprint, err := applyOperationFingerprint(planned, reconcile.ContextApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if originalFingerprint.Equal(changedFingerprint) {
+		t.Fatal("conditional adoption decisions were not bound to the disclosed operation")
+	}
 	for _, invalid := range []reconcile.ResultInput{
 		{Context: reconcile.ContextApply},
 		{Context: reconcile.ContextApply, CarrierAbsences: absences},
