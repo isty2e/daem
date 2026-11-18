@@ -80,7 +80,7 @@ func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix effectpreparat
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
 	}
 	suppressNativePrefixPromotions(&firstWork, prefixWork)
-	firstWork.changed = len(firstWork.managed)+len(firstWork.ordinaryAggregates) != 0
+	firstWork.changed = len(firstWork.managed)+len(prerequisites.Preparation.AggregateEffects()) != 0
 	first, err := projectNativeSuffixWork(prerequisites, firstWork, nil)
 	if err != nil {
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err

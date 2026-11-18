@@ -186,6 +186,9 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 			continue
 		}
 		qualified, err := journalnamespace.ObserveAlias(ctx, alias, input.Roots, input.Budget)
+		if canceled := ctx.Err(); canceled != nil {
+			return nil, canceled
+		}
 		if err != nil {
 			return nil, journalnamespace.NewUnverifiedDocumentRoute(alias, err)
 		}

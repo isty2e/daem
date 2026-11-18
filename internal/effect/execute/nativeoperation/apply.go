@@ -28,6 +28,7 @@ import (
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
@@ -316,7 +317,15 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	expectedPlan, err := PrepareNativeApplyEffectPlan(input)
+	approval, err := input.Documents.Evidence().ApprovalEvidence()
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	admission, err := ObserveForwardDocumentAdmission(ctx, input.Paths.ManifestRoot, input.Preparation, approval, input.Resolver, input.Budget)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	expectedPlan, err := prepareNativeApplyEffectPlan(input, work)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -386,12 +395,19 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	gate := applyprogram.NewVisibilityGate(func(ctx context.Context) error {
 		return options.ValidatePhysicalRequests(ctx, authority.physicalAuthorityRequests)
 	}, options.AcceptVisibility)
+	forwardPaths := make(map[string][]output.Destination)
+	forwardGate := gate.WithForwardValidation(func(ctx context.Context, step string) error {
+		if paths := forwardPaths[step]; len(paths) != 0 {
+			return admission.recheck(ctx, input.Budget, paths...)
+		}
+		return nil
+	})
 	run := func(prefix string, action func() error) error {
 		failure := applyprogram.FailureGuardedRecovery
 		if prefix == "apply/native-journal-publication" {
 			failure = applyprogram.FailureNoCompensation
 		}
-		step := execution.VisibilityGate(gate, prefix, operationplan.EffectStepPersistence, failure)
+		step := execution.VisibilityGate(forwardGate, prefix, operationplan.EffectStepPersistence, failure)
 		if err := step.ValidateBefore(ctx); err != nil {
 			return err
 		}
@@ -407,6 +423,28 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	ordinaryPromoting := ordinary.ownership.IntentCount() != 0
+	for index, namespace := range work.documents.Evidence().Namespaces() {
+		if !work.mutating[index] {
+			continue
+		}
+		step := fmt.Sprintf("apply/native-document/%d", index)
+		for _, alias := range namespace.Addresses() {
+			forwardPaths[step] = append(forwardPaths[step], alias.AggregateRoot())
+		}
+	}
+	for _, phase := range []hostmutation.ManagedPathPhase{hostmutation.ManagedPathPublishPhase, hostmutation.ManagedPathRetirePhase} {
+		for operation := range ordinary.managedSchedule.Operations(phase) {
+			path := operation.Effect().Destination()
+			if phase == hostmutation.ManagedPathRetirePhase && operation.Relocates() {
+				previous, _ := operation.Effect().PreviousState()
+				path = previous.Destination()
+			}
+			forwardPaths[operation.ScheduleReference()] = []output.Destination{path}
+		}
+	}
+	for index, effect := range work.ordinaryAggregates {
+		forwardPaths[hostmutation.AggregateScheduleReference(index)] = []output.Destination{effect.Destination()}
+	}
 	var captured journalpublication.CapturedNativeJournal
 	if err := run("apply/native-journal-publication", func() error {
 		result.ExecutionAttempted = true
@@ -414,13 +452,16 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return err
 		}
 		var err error
-		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.JournalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{
-			Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
-			OperationAuthority: authority.journalEntries.Directory(), ManifestRoot: authority.capturedRoot,
-			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
-			ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
-			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
-		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), SequenceEdits: input.Preparation.SequenceEdits(), WholeDocuments: work.wholeMutations, Payloads: input.Payloads})
+		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.JournalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{
+			CaptureOptions: journalpublication.CaptureOptions{
+				Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
+				OperationAuthority: authority.journalEntries.Directory(), ManifestRoot: authority.capturedRoot,
+				ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
+				ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
+				Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
+			}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), SequenceEdits: input.Preparation.SequenceEdits(), WholeDocuments: work.wholeMutations, Payloads: input.Payloads,
+			ValidateBeforePublication: func(ctx context.Context) error { return admission.recheck(ctx, input.Budget) },
+		})
 		if err != nil {
 			return err
 		}
@@ -487,15 +528,15 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	promoteManaged := func(ctx context.Context, effect effectpreparation.ManagedPathEffect, phase hostmutation.ManagedPathPhase) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, hostmutation.ProvisionalAcquireKeysForManagedPath(effect, phase), &captured, authority, input, store, gate, execution)
 	}
-	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
+	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, managedProgress, 0, events, forwardGate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
-	if _, err := authority.hostMutation().ApplyAggregateEffects(ctx, work.ordinaryAggregates, input.Codecs, len(work.managed), events, gate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
+	if _, err := authority.hostMutation().ApplyAggregateEffects(ctx, work.ordinaryAggregates, input.Codecs, len(work.managed), events, forwardGate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, hostmutation.ProvisionalAcquireKeysForAggregate(effect), &captured, authority, input, store, gate, execution)
 	}); err != nil {
 		return result, settle(err)
 	}
-	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
+	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, managedProgress, 0, events, forwardGate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
 	if slices.Contains(work.promoting, true) || ordinaryPromoting {

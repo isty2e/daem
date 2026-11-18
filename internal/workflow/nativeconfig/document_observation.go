@@ -67,7 +67,7 @@ func ObserveSelectedDocuments(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, fmt.Errorf("selected native observation requires context, persistence and addresses")
 	}
 	operation := &DocumentObservation{}
-	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), nil, operation); err != nil {
+	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), nil, false, operation); err != nil {
 		return nil, errors.Join(err, operation.Close())
 	}
 	return operation, nil
@@ -134,9 +134,11 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 			add(address)
 		}
 	}
-	for _, state := range before.ManagedAggregates() {
-		if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
-			add(state.Contribution().Contract().Address().Document())
+	if input.NativeReplacement == nil {
+		for _, state := range before.ManagedAggregates() {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
+				add(state.Contribution().Contract().Address().Document())
+			}
 		}
 	}
 	if len(aliases) == 0 && !input.Lockfile.ContainsAgentConfig() && !before.ContainsAgentConfig() {
@@ -150,10 +152,10 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 	if err != nil {
 		return nil, err
 	}
-	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, candidates, operation)
+	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, candidates, input.NativeReplacement != nil, operation)
 }
 
-func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses, candidates []aggregate.DocumentAddress, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
+func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses, candidates []aggregate.DocumentAddress, replacement bool, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
 	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
 	if err != nil {
 		return nil, err
@@ -245,7 +247,11 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, err
 	}
 	resolver := physicalhostpath.NewResolver(paths)
-	ordinaryAliases, err := journalnamespace.ObserveOrdinaryDocumentAliases(ctx, candidates, resolver.Resolve, budget)
+	observeCandidates := journalnamespace.ObserveOrdinaryDocumentAliases
+	if replacement {
+		observeCandidates = journalnamespace.ObserveReplacementAliasCandidates
+	}
+	ordinaryAliases, err := observeCandidates(ctx, candidates, resolver.Resolve, budget)
 	if err != nil {
 		return nil, err
 	}

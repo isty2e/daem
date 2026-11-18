@@ -218,8 +218,8 @@ func TestNativeRoleOnlyUnknownBlocksNewClaimsButRetainsRecordedObservation(t *te
 	if err := os.WriteFile(selected, []byte(`{"fixture":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loop := filepath.Join(base, "codex", "config.toml")
-	if err := os.Symlink(loop, loop); err != nil {
+	endpoint := filepath.Join(base, "codex", "config.toml")
+	if err := os.Symlink("missing/../config.toml", endpoint); err != nil {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 	manifest := nativeNamespaceRoot(t, base)
@@ -241,7 +241,7 @@ func TestNativeRoleOnlyUnknownBlocksNewClaimsButRetainsRecordedObservation(t *te
 	if err := capability.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(loop); err != nil {
+	if err := os.Remove(endpoint); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := value.WriterBinding(t.Context(), imageBudget(t)); err == nil {

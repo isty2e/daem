@@ -132,6 +132,9 @@ type Domain struct {
 	scope                string
 	family               string
 	containment          RouteContainment
+	// A route read lock participates in path exclusion, not in writer
+	// qualification or settlement. The forward observer owns freshness.
+	routeRead bool
 }
 
 // NewLogicalPathDomain validates and canonicalizes a logical path request.
@@ -143,6 +146,10 @@ func NewLogicalPathDomain(request LogicalPathRequest) (Domain, error) {
 	if err != nil {
 		return Domain{}, err
 	}
+	return logicalPathDomain(request, identity), nil
+}
+
+func logicalPathDomain(request LogicalPathRequest, identity canonicalPath) Domain {
 	return Domain{
 		kind:                 domainLogicalPath,
 		access:               request.Access,
@@ -155,7 +162,7 @@ func NewLogicalPathDomain(request LogicalPathRequest) (Domain, error) {
 		namespaceLease:       identity.namespaceLease,
 		requestedPath:        request.Path,
 		effect:               request.Effect,
-	}, nil
+	}
 }
 
 // NewPhysicalPathDomain validates and canonicalizes a target-visible path request.

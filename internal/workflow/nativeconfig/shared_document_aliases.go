@@ -28,7 +28,8 @@ func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snaps
 	}
 	candidates := make(map[aggregate.DocumentAddress]struct{})
 	add := func(contribution aggregate.ManagedContribution) error {
-		if _, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID()); native {
+		_, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID())
+		if native && input.NativeReplacement == nil {
 			return nil
 		}
 		address := contribution.Contract().Address().Document()
@@ -45,7 +46,7 @@ func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snaps
 		_, sameLocation := locations[binding.Location()]
 		_, selectedRoot := roots[binding.RootReference()]
 		_, mcp := aggregate.MCPPlacementForCodec(aggregate.MCPPlacementID(contribution.PlacementID()), contribution.CodecContractID())
-		if sameLocation || selectedRoot && mcp {
+		if sameLocation || selectedRoot && (mcp || native) {
 			candidates[address] = struct{}{}
 		}
 		return nil

@@ -2,6 +2,7 @@ package readiness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -364,6 +365,9 @@ func observeAggregateDocuments(
 			}
 			document, mode, err = readAggregateDocument(ctx, physical, codec.MaximumDocumentBytes())
 			if err != nil {
+				if errors.Is(err, errAggregateDocumentNotRegular) {
+					return aggregateDocumentObservations{}, &observe.AggregateDocumentTypeError{Address: address.DocumentAddress()}
+				}
 				return aggregateDocumentObservations{}, fmt.Errorf("read aggregate document %q: %w", logical, err)
 			}
 		}

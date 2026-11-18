@@ -36,6 +36,7 @@ type NativeCaptureOptions struct {
 	ProjectCarrierCompletions []durablecarrier.ManagedCarrierClaim
 	WholeDocuments            []journalrecord.ManagedPathMutation
 	Payloads                  payload.PayloadSet
+	ValidateBeforePublication func(context.Context) error
 }
 
 // NativeJournalPublicationError retains the storage conclusion when a commit
@@ -183,6 +184,11 @@ func CaptureNativeJournalWithOptions(
 	defer func() { resultErr = errors.Join(resultErr, prepared.Abort(context.WithoutCancel(ctx))) }()
 	if err := batch.validateOriginals(ctx); err != nil {
 		return CapturedNativeJournal{}, err
+	}
+	if options.ValidateBeforePublication != nil {
+		if err := options.ValidateBeforePublication(ctx); err != nil {
+			return CapturedNativeJournal{}, err
+		}
 	}
 	commitAttempted = true
 	outcome, err = prepared.CommitWithOutcome(ctx)

@@ -72,4 +72,8 @@ targets = ["claude-code"]
 	if !strings.Contains(stderr.String(), `aggregate destination is not a regular file`) {
 		t.Fatalf("stderr = %q, want expected regular file diagnostic", stderr.String())
 	}
+	code, preview, stderrText := testkit.RunCapturedCLI("apply", "--manifest", manifestPath, "--dry-run", "--json")
+	if code != 1 || !strings.Contains(preview, "aggregate destination is not a regular file") || strings.Contains(preview, "native configuration rules") {
+		t.Fatalf("apply preview did not report the ordinary file-type refusal: %d %s %s", code, preview, stderrText)
+	}
 }

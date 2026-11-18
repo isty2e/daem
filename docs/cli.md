@@ -1536,12 +1536,15 @@ narrow it using RFC 6901 pointers. Selecting an object selects only its currentl
 declared atomic descendants, not future or undeclared children. Array elements
 cannot be selected independently. Whole-document ownership, ownership-mode
 changes, and moving recorded ownership to another host, scope or file are refused.
+Replacement also checks the resolved file for reserved keys, scope restrictions,
+and overlapping management, just as `apply` does.
 
 For noninteractive execution, first inspect `--dry-run --json`. Copy its opaque
 `fingerprint` into `--expect-plan` and execute with both `--yes` and
 `--expect-plan`. Bare `--yes` is refused. The declaration, source, selected values,
-ownership and file protection must still match the approved plan. A mismatch
-requires a fresh preview; `--yes` does not override it. Unselected values, comments
+ownership and file protection for the selected document must still match the
+approved plan. A mismatch requires a fresh preview; `--yes` does not override it.
+Unselected values, comments
 and formatting can change: execution rereads and preserves them rather than
 replaying saved file bytes. Replacing a file inode alone does not invalidate
 consent when the selected namespace, values and protection still match.

@@ -211,13 +211,14 @@ func (observer *physicalObserver) documents(ctx context.Context, aliases []Alias
 		}
 		if err != nil {
 			var failure *ProtectionError
-			if !errors.As(err, &failure) || failure.Kind() != ProtectionUnverified || !failure.documents {
+			if !errors.As(err, &failure) || failure.Kind() != ProtectionUnverified || !failure.documents || failure.Uncertainty() == ProtectionWorkLimit {
 				return err
 			}
 			result.unknown = append(result.unknown, failure)
 		}
 		result.global = append(result.global, facts.global...)
 		result.roles = append(result.roles, facts.roles...)
+		result.unknown = append(result.unknown, facts.unknown...)
 		return nil
 	}
 	for _, contract := range contracts {
@@ -255,7 +256,7 @@ func (observer *physicalObserver) documents(ctx context.Context, aliases []Alias
 }
 
 func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []Alias, selector ReservationSelector, host target.Target, envelope configuration.NativeEnvelope) (physicalDocumentFacts, error) {
-	failure := func(selected target.Target, reason ProtectionUncertainty, endpoint string, cause error) error {
+	failure := func(selected target.Target, reason ProtectionUncertainty, endpoint string, cause error) *ProtectionError {
 		return &ProtectionError{kind: ProtectionUnverified, uncertainty: reason, address: aliases[0].address, host: selected, reference: selector.reference, source: selector.source, endpoint: endpoint, documents: true, cause: cause}
 	}
 	if err := ctx.Err(); err != nil {
@@ -355,13 +356,25 @@ func (observer *physicalObserver) rootDocuments(ctx context.Context, aliases []A
 			return result, failure(spec.Target(), ProtectionRegionIndeterminate, "", fmt.Errorf("native document role requires a directory-child coordinate"))
 		}
 		endpoint, err := observer.observeProtectionPath(filepath.Join(root.path, filepath.FromSlash(relative)))
+		if canceled := ctx.Err(); canceled != nil {
+			return physicalDocumentFacts{}, canceled
+		}
 		if err != nil {
-			return result, failure(spec.Target(), ProtectionEndpointUnavailable, relative, err)
+			if ProvesUnreachableReferent(err) {
+				continue
+			}
+			unverified := failure(spec.Target(), ProtectionEndpointUnavailable, relative, err)
+			if unverified.Uncertainty() == ProtectionWorkLimit {
+				return physicalDocumentFacts{}, unverified
+			}
+			result.unknown = append(result.unknown, unverified)
+			continue
 		}
 		for _, alias := range aliases {
 			relation := documentRoleRelation(endpoint, alias.observation)
 			if relation == protectionIndeterminate {
-				return result, failure(spec.Target(), ProtectionRegionIndeterminate, relative, fmt.Errorf("native document role is normalization-sensitive"))
+				result.unknown = append(result.unknown, failure(spec.Target(), ProtectionRegionIndeterminate, relative, fmt.Errorf("native document role is normalization-sensitive")))
+				continue
 			}
 			if relation != protectionOverlap {
 				continue

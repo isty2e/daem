@@ -319,11 +319,12 @@ func ObserveAlias(ctx context.Context, address aggregate.DocumentAddress, roots 
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
-	qualified, err := roots.Qualify(ctx, budget)
+	allocation := &physicalObservationBudget{traversal: budget}
+	qualified, err := roots.Qualify(ctx, allocation)
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
-	alias, _, err := observeNativeAlias(ctx, inputs[0], qualified.grants, budget)
+	alias, _, err := observeNativeAlias(ctx, inputs[0], qualified.grants, allocation)
 	return alias.observation, err
 }
 

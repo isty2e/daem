@@ -10,6 +10,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
@@ -72,55 +73,62 @@ func requireNativeSourcePermissions(sources []lockobserve.NativeSourceObservatio
 	byAddress := nativeClaimNamespaces(documents)
 	history := recordedNativeFootprints(before)
 	for _, source := range sources {
-		placement, _ := source.SourceContract().AgentConfigPlacement()
-		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+		if err := requireNativeProjectionPermissions(source.SourceContract(), source.Projections(), byAddress, history); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireNativeProjectionPermissions(source lock.LockedSubjectContract, projections []lock.LockedSubjectContract, byAddress map[aggregate.DocumentAddress]journalnamespace.DocumentNamespace, history map[aggregate.DocumentAddress][]output.Footprint) error {
+	if len(projections) == 0 {
+		return nil
+	}
+	placement, _ := source.AgentConfigPlacement()
+	address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+	if err != nil {
+		return err
+	}
+	namespace, present := byAddress[address]
+	if !present {
+		return fmt.Errorf("native claim requires its observed document namespace")
+	}
+	if err := namespace.RequireCompletePhysicalRules(); err != nil {
+		return err
+	}
+	locations, roles, aliases := namespace.GlobalLocations(), namespace.PhysicalRoles(), namespace.Addresses()
+	resource := source.EntityID().String()
+	footprints := make([]output.Footprint, 0, len(projections))
+	for _, projection := range projections {
+		footprint := output.WholePathFootprint()
+		contribution, aggregateProjection, err := projection.ManagedAggregateContribution()
 		if err != nil {
 			return err
 		}
-		projections := source.Projections()
-		if len(projections) == 0 {
-			continue
+		if aggregateProjection {
+			footprint = contribution.Contribution().Footprint()
 		}
-		namespace, present := byAddress[address]
-		if !present {
-			return fmt.Errorf("native claim requires its observed document namespace")
-		}
-		if err := namespace.RequireCompletePhysicalRules(); err != nil {
-			return err
-		}
-		locations := namespace.GlobalLocations()
-		footprints := make([]output.Footprint, 0, len(projections))
-		for _, projection := range projections {
-			footprint := output.WholePathFootprint()
-			contribution, aggregateProjection, err := projection.ManagedAggregateContribution()
+		footprints = append(footprints, footprint)
+		for _, role := range roles {
+			err := role.RequireWriterGrammar(placement.Grammar())
+			if err == nil {
+				err = profile.ValidatePhysicalAgentConfigFootprint(role, footprint)
+			}
 			if err != nil {
-				return err
-			}
-			if aggregateProjection {
-				footprint = contribution.Contribution().Footprint()
-			}
-			footprints = append(footprints, footprint)
-			for _, role := range namespace.PhysicalRoles() {
-				err := role.RequireWriterGrammar(placement.Grammar())
-				if err == nil {
-					err = profile.ValidatePhysicalAgentConfigFootprint(role, footprint)
+				failure := &NativeClaimRefusal{kind: NativeClaimPhysicalRole, resource: resource, address: address, role: role, cause: err}
+				if len(locations) != 0 {
+					failure.global = locations[0]
 				}
-				if err != nil {
-					failure := &NativeClaimRefusal{kind: NativeClaimPhysicalRole, resource: source.SourceContract().EntityID().String(), address: address, role: role, cause: err}
-					if len(locations) != 0 {
-						failure.global = locations[0]
-					}
-					return failure
-				}
+				return failure
 			}
 		}
-		if address.Scope() == target.ScopeProject && len(locations) != 0 {
-			return &NativeClaimRefusal{kind: NativeClaimProjectGlobal, resource: source.SourceContract().EntityID().String(), address: address, global: locations[0]}
-		}
-		for _, footprint := range footprints {
-			if previous, occupied := priorNativeScope(namespace.Addresses(), address.Scope(), footprint, history); occupied {
-				return &NativeClaimRefusal{kind: NativeClaimScopeTransfer, resource: source.SourceContract().EntityID().String(), address: address, previous: previous}
-			}
+	}
+	if address.Scope() == target.ScopeProject && len(locations) != 0 {
+		return &NativeClaimRefusal{kind: NativeClaimProjectGlobal, resource: resource, address: address, global: locations[0]}
+	}
+	for _, footprint := range footprints {
+		if previous, occupied := priorNativeScope(aliases, address.Scope(), footprint, history); occupied {
+			return &NativeClaimRefusal{kind: NativeClaimScopeTransfer, resource: resource, address: address, previous: previous}
 		}
 	}
 	return nil

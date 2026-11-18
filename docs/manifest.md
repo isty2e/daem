@@ -1483,6 +1483,12 @@ document policy requires `0600`, and the preview includes that permission change
 Both sets of changes are applied and recovered together, including when a path
 alias resolves to the same `config.toml`.
 
+Daem refuses an edit that would overwrite or remove another managed output,
+even when that output uses a different path to the same file or belongs to a
+target outside `--target`. If removing a declaration would remove another
+managed value, use [`unmanage agent-config`](cli.md#unmanage-agent-config) to
+release the declaration without editing the file.
+
 Selected-value drift is not silently overwritten. To take over a different
 existing value or replace a changed managed value, use
 [`replace agent-config`](cli.md#replace-agent-config) with explicit plan-bound

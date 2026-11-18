@@ -8,16 +8,20 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // ApprovalEvidence projects stable namespace and protection facts.
 // It excludes content revisions and final-file object identity and grants no effects.
 type ApprovalEvidence struct {
-	Aliases    []aggregate.DocumentAddress
-	Authority  mutation.DirectoryEntryAuthorityObservation
-	Protection string
-	requests   map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
+	Aliases         []aggregate.DocumentAddress
+	Authority       mutation.DirectoryEntryAuthorityObservation
+	Protection      string
+	Roles           []configuration.DocumentSpec
+	GlobalLocations []output.RootReference
+	requests        map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
 }
 
 // AuthorityRequest retains qualified routing facts after observation resources
@@ -57,7 +61,7 @@ func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
 			}
 			requests[alias.Address()] = request
 		}
-		result = append(result, ApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection, requests: requests})
+		result = append(result, ApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection, Roles: namespace.PhysicalRoles(), GlobalLocations: namespace.GlobalLocations(), requests: requests})
 	}
 	return result, nil
 }

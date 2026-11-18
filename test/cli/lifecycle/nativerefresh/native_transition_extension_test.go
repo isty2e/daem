@@ -265,12 +265,12 @@ ownership = "document"
 [[agent_config]]
 id = "next"
 targets = ["codex"]
-path = "other.toml"
+path = "other/prefs.toml"
 source = "next.toml"
 `)
 	testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
 	f.Require(t, "lock")
-	added := filepath.Join(f.Workspace, ".codex", "other.toml")
+	added := filepath.Join(f.Workspace, ".codex", "other", "prefs.toml")
 	fixture := nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: added, Paths: paths}
 	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "native-ordinary-state", "apply", "--yes", "--verbose")
 	if code != nativefixture.RecoveryExit {

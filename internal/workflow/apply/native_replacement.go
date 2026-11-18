@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -150,7 +152,11 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 	if planned.context.nativeReplacement == nil || len(planned.assessment.NativeSources) != 1 {
 		return nil, fmt.Errorf("replacement requires one selected native declaration")
 	}
-	identity, err := applyOperationIdentity(planned, reconcile.ContextApply)
+	// The selected document and its claim/route protection enter the
+	// fingerprint below. Unrelated carrier state is not replacement intent.
+	projected := planned
+	projected.assessment.GlobalCarrierClaims = durablecarrier.EmptyGlobalCarrierClaims()
+	identity, err := applyOperationIdentity(projected, reconcile.ContextApply)
 	if err != nil {
 		return nil, err
 	}
@@ -158,13 +164,23 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 	observed := planned.assessment.NativeSources[0].SourceContract()
 	supply, _ := observed.ExactSupply()
 	placement, _ := observed.AgentConfigPlacement()
+	selected, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+	if err != nil {
+		return nil, err
+	}
 	source := sourceFacts{observed.SubjectID().String(), string(supply.SourceID()), string(supply.ResolvedRef()), string(supply.ContentHash()), placement.ID(), string(placement.Grammar())}
 	type protectionFacts struct {
 		Namespace  []ownershipObservationFingerprintFacts
 		Protection string
+		Roles      []replacementDocumentRole
+		Global     []replacementRootReference
+		Members    []replacementDocumentMember
 	}
 	var protections []protectionFacts
 	for _, evidence := range planned.assessment.NativeApproval {
+		if !slices.Contains(evidence.Aliases, selected) {
+			continue
+		}
 		var namespaces []ownershipObservationFingerprintFacts
 		for _, alias := range evidence.Aliases {
 			fact := ownershipObservationFingerprintFacts{Destination: alias.AggregateRoot().String(), FootprintKind: output.WholePathFootprint().Kind().String()}
@@ -181,7 +197,27 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 			}
 			namespaces = append(namespaces, fact)
 		}
-		protections = append(protections, protectionFacts{namespaces, evidence.Protection})
+		var roles []replacementDocumentRole
+		for _, role := range evidence.Roles {
+			child, _ := role.Coordinate().DirectoryChild()
+			root := role.RootReference()
+			roles = append(roles, replacementDocumentRole{Root: replacementRootReference{root.Identity(), root.LocatorPolicy()}, Target: string(role.Target()), Scope: string(role.Scope()), Path: role.Destination().String(), Child: child, Policy: role.PolicyID()})
+		}
+		var global []replacementRootReference
+		for _, root := range evidence.GlobalLocations {
+			global = append(global, replacementRootReference{root.Identity(), root.LocatorPolicy()})
+		}
+		var members []replacementDocumentMember
+		for _, row := range planned.assessment.CurrentState.ManagedAggregates() {
+			contribution := row.Contribution()
+			address := contribution.Address()
+			if !slices.Contains(evidence.Aliases, address.Document()) {
+				continue
+			}
+			key, _ := address.Footprint().Key()
+			members = append(members, replacementDocumentMember{Subject: row.Subject().String(), Target: string(address.Document().Target()), Scope: string(address.Document().Scope()), Path: address.Document().AggregateRoot().String(), Footprint: address.Footprint().Kind().String(), Key: key.String(), Codec: string(contribution.CodecContractID())})
+		}
+		protections = append(protections, protectionFacts{namespaces, evidence.Protection, roles, global, members})
 	}
 	return json.Marshal(struct {
 		Operation  string
@@ -191,6 +227,15 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 		Limits     configdocument.Limits
 	}{"replace-agent-config/v1", identity, source, protections, nativeconfig.DocumentLimits()})
 }
+
+type replacementRootReference struct{ Identity, Policy string }
+
+type replacementDocumentRole struct {
+	Root                               replacementRootReference
+	Target, Scope, Path, Child, Policy string
+}
+
+type replacementDocumentMember struct{ Subject, Target, Scope, Path, Footprint, Key, Codec string }
 
 func normalizeNativeReplacementInput(input NativeReplacementInput) (topologyprojection.AgentConfigKeySelection, error) {
 	id, err := entity.New(entity.KindAgentConfig, input.ID)

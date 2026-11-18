@@ -23,7 +23,8 @@ import (
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains []mutation.Domain
+	domains          []mutation.Domain
+	routeReadDomains []mutation.Domain
 
 	// This capture binds the Registry view; effect guards re-observe plan requests.
 	documentWrites        mutation.PhysicalAuthoritySet
@@ -435,6 +436,14 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 
 	requests := builder.Compile().DocumentWriteRequests()
+	var routeReadDomains []mutation.Domain
+	if planned.nativePlan != nil {
+		routeReadDomains, err = planned.nativePlan.admission.ReadDomains(ctx, planned.context.physicalBudget)
+		if err != nil {
+			return applyAuthorityEvidence{}, err
+		}
+		builder.AddDomains(routeReadDomains)
+	}
 	physical, err := mutation.NewPhysicalAuthoritySet(requests...)
 	if err != nil {
 		return applyAuthorityEvidence{}, err
@@ -485,6 +494,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	return applyAuthorityEvidence{
 		domains:               domains,
+		routeReadDomains:      routeReadDomains,
 		documentWrites:        physical,
 		documentWriteRequests: requests,
 		metadataRequests:      metadataRequests,

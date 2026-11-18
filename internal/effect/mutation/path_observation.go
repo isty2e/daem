@@ -18,6 +18,35 @@ type pathObservationKey struct {
 	effect PathEffect
 }
 
+// NewStableRouteReadDomain shares the entry lock with ordinary writers. A
+// missing ancestor or provisional entry has no stable read domain; callers
+// still need their own fresh route observation before publishing.
+func NewStableRouteReadDomain(path string, depth int, budget rootedpath.PhysicalTraversalBudget) (Domain, bool, error) {
+	if err := validatePathObservation(path, PathEffectDirectoryEntry); err != nil {
+		return Domain{}, false, err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return Domain{}, false, nil
+	}
+	physical, missing, err := rootedpath.ResolveFutureReferentComponentsBounded(parent, depth, budget)
+	if err != nil {
+		return Domain{}, false, err
+	}
+	if len(missing) != 0 {
+		return Domain{}, false, nil
+	}
+	selection := pathSelection{anchorPath: physical, missingComponents: []string{filepath.Base(path)}, finalEntryMayExist: true}
+	identity, err := platformCanonicalPathBounded(selection, PathEffectDirectoryEntry, depth, budget)
+	identity, err = validateCanonicalPathIdentity(path, identity, err)
+	if err != nil || !identity.provisional.IsZero() {
+		return Domain{}, false, err
+	}
+	domain := logicalPathDomain(LogicalPathRequest{Path: path, Access: AccessShared, Effect: PathEffectDirectoryEntry}, identity)
+	domain.routeRead = true
+	return domain, true, nil
+}
+
 // ObserveFutureReferentAuthorityBounded resolves a locator and observes the
 // resolved entry's authority with one bounded traversal. It returns physical
 // path data and exact or provisional evidence, never a mutation capability.

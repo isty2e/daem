@@ -54,6 +54,26 @@ func (preparation NativeApplyStatePreparation) ManagedRemainder(prefix NativeApp
 	return remaining, nil
 }
 
+// AdmissionPhases projects actual managed membership between phases. These
+// are planning baselines, never evidence that an earlier phase has committed.
+func (preparation NativeApplyStatePreparation) AdmissionPhases(prefix NativeApplyStatePreparation, residual []AggregateEffect, delegates bool) ([]NativeApplyStatePreparation, error) {
+	if !delegates {
+		later, err := preparation.ManagedRemainder(prefix, residual)
+		if err != nil {
+			return nil, err
+		}
+		later.before, later.orders = prefix.after, preparation.orders
+		return []NativeApplyStatePreparation{prefix, later}, nil
+	}
+	prerequisites, later, err := preparation.DelegatePhases(prefix, residual)
+	if err != nil {
+		return nil, err
+	}
+	prerequisites.before = prefix.after
+	later.before, later.orders = prerequisites.after, preparation.orders
+	return []NativeApplyStatePreparation{prefix, prerequisites, later}, nil
+}
+
 // DelegatePrerequisites retains ordinary actors without inventing a live baseline.
 func (preparation NativeApplyStatePreparation) DelegatePrerequisites(baseline durable.Snapshot) (NativeApplyStatePreparation, error) {
 	if err := preparation.Validate(); err != nil {

@@ -147,9 +147,14 @@ func (store Store) Acquire(ctx context.Context, domains ...Domain) (*LeaseSet, e
 	waitContext, cancel := context.WithTimeout(ctx, store.maximum)
 	defer cancel()
 	set := &LeaseSet{
-		domains:   append([]Domain(nil), domains...),
+		domains:   make([]Domain, 0, len(domains)),
 		held:      make([]heldLease, 0, len(normalized)),
 		namespace: namespace,
+	}
+	for _, domain := range domains {
+		if !domain.routeRead {
+			set.domains = append(set.domains, domain)
+		}
 	}
 	for _, domain := range normalized {
 		record, locked, lockErr := namespace.Acquire(
@@ -428,6 +433,9 @@ func (store Store) normalize(domains []Domain) ([]normalizedDomain, error) {
 				return nil, fmt.Errorf("mutation path domain is not initialized")
 			}
 			if pathContains(domain.canonicalPath, store.rootKey) {
+				if domain.routeRead {
+					continue // Forward route comparison does not require an ancestor lock on the store.
+				}
 				return nil, fmt.Errorf("mutation path %q contains the lease store", domain.canonicalPath)
 			}
 			leasePath, leaseWitness, err := domain.leasePathIdentity()
@@ -435,6 +443,9 @@ func (store Store) normalize(domains []Domain) ([]normalizedDomain, error) {
 				return nil, fmt.Errorf("mutation path %q lease authority: %w", domain.canonicalPath, err)
 			}
 			if pathContains(leasePath, store.rootKey) {
+				if domain.routeRead {
+					continue
+				}
 				return nil, fmt.Errorf("mutation lease path %q contains the lease store", leasePath)
 			}
 			authority, err := pathauthority.NewExact(leasePath, string(leaseWitness))

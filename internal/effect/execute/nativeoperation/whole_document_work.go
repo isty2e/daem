@@ -55,16 +55,6 @@ type wholeDocumentWork struct {
 	indexByAlias map[aggregate.DocumentAddress]int
 }
 
-// ValidateWholeDocumentWork checks placement using the observed alias groups.
-// It does not require live roots or supply publication authority.
-func ValidateWholeDocumentWork(preparation effectpreparation.NativeApplyStatePreparation, aliases [][]aggregate.DocumentAddress) error {
-	if err := preparation.Validate(); err != nil {
-		return err
-	}
-	_, err := wholeDocumentWorkFor(preparation, aliases)
-	return err
-}
-
 func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparation, aliases [][]aggregate.DocumentAddress) (wholeDocumentWork, error) {
 	work := wholeDocumentWork{indexByAlias: make(map[aggregate.DocumentAddress]int)}
 	for index, group := range aliases {

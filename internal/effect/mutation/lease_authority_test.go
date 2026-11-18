@@ -2,13 +2,72 @@ package mutation
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
+
+func TestStableRouteReadLocksExactEntryWithoutClaimingHost(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "peer.toml")
+	read, stable, err := NewStableRouteReadDomain(path, 256, &pathAuthorityTestBudget{limit: 4096})
+	if err != nil || !stable {
+		t.Fatalf("existing parent did not qualify its route: %t %v", stable, err)
+	}
+	store := mutationTestStore(t)
+	writes := mutationTestPhysicalDomains(t, filepath.Join(root, "writer.toml"), "codex", "project")
+	ancestor, stable, err := NewStableRouteReadDomain(store.DataDir(), 256, &pathAuthorityTestBudget{limit: 4096})
+	if err != nil || !stable {
+		t.Fatalf("fixture did not observe a stable ancestor of the lease store: %t %v", stable, err)
+	}
+	set, err := store.Acquire(t.Context(), append(writes, read, ancestor)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer set.Release()
+
+	peerWrites := mutationTestPhysicalDomains(t, path, "claude-code", "project")
+	store.maximum = 50 * time.Millisecond
+	if other, err := store.Acquire(t.Context(), peerWrites...); err == nil {
+		other.Release()
+		t.Fatal("a competing writer acquired the protected entry")
+	} else {
+		var contention ContentionError
+		if !errors.As(err, &contention) {
+			t.Fatal("competing write did not contend on the entry", err)
+		}
+	}
+	route, err := NewHostRouteDomain(HostRouteRequest{Target: "claude-code", Scope: "project", Family: "fixture", Containment: RouteContainmentUnknown})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelated, err := store.Acquire(t.Context(), route)
+	if err != nil {
+		t.Fatal("comparison-only route fenced an unrelated host operation", err)
+	}
+	if err := unrelated.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if covered, err := set.CoversPhysicalAuthority(PhysicalAuthoritySet{domains: peerWrites}); err != nil || covered {
+		t.Fatalf("read lock granted write authority: %t %v", covered, err)
+	}
+}
+
+func TestDanglingParentHasNoStableRouteReadLock(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "link")
+	if err := os.Symlink("missing", link); err != nil {
+		t.Skipf("symlinks not available: %v", err)
+	}
+	if _, stable, err := NewStableRouteReadDomain(filepath.Join(link, "peer.toml"), 256, &pathAuthorityTestBudget{limit: 4096}); err != nil || stable {
+		t.Fatalf("dangling parent supplied a stable lock or aborted comparison: %t %v", stable, err)
+	}
+}
 
 func TestLeaseSetDetectsCanonicalPathRetargetAfterAcquisition(t *testing.T) {
 	root := t.TempDir()
