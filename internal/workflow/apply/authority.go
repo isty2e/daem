@@ -294,7 +294,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			return applyAuthorityEvidence{}, err
 		}
 		if hasPrevious && (previous.Scope() != decision.Scope() || previous.Destination() != decision.Destination()) {
-			if err := addWholePath(previous.Scope(), previous.Destination(), previous.ConsumerTargets(), native, write); err != nil {
+			if err := addWholePath(previous.Scope(), previous.Destination(), previous.ConsumerTargets(), native, write && !decision.RetiresAbsentPrevious()); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
 		}

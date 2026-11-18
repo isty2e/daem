@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
@@ -41,12 +42,17 @@ func reconcileManagedPathDesired(
 		if !observed {
 			return newManagedPathBlocked(input, reconcile.ReasonMissingLiveObservation, "fresh evidence for the previous managed destination is required")
 		}
-		if !previousEvidence.Exists() || previousEvidence.ContentHash() != state.ContentHash() ||
-			!state.PermissionPolicy().AcceptsMode(state.FileMode(), previousEvidence.FileMode()) {
+		retirePrevious := !previousEvidence.Exists() && aggregate.IsAgentConfigDocumentSubject(input.Subject)
+		if !retirePrevious && (!previousEvidence.Exists() || previousEvidence.ContentHash() != state.ContentHash() ||
+			!state.PermissionPolicy().AcceptsMode(state.FileMode(), previousEvidence.FileMode())) {
 			return newManagedPathBlocked(input, reconcile.ReasonDriftedOutput, "previous managed destination differs from statefile baseline")
 		}
 		if current.Exists() {
 			return newManagedPathBlocked(input, reconcile.ReasonUnmanagedOutputExists, "replacement destination already exists")
+		}
+		if retirePrevious {
+			input.RetiresAbsentPrevious = true
+			return newManagedPathReplace(input, reconcile.ReasonContentChanged, "previous managed destination is absent")
 		}
 		return newManagedPathReplace(input, reconcile.ReasonContentChanged, "managed destination changed")
 	}

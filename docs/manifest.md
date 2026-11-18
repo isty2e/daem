@@ -1584,6 +1584,14 @@ removes it. A changed host file is not silently overwritten or deleted.
 Shared host files such as Codex `config.toml` and Pi `settings.json`, along with
 the reserved paths listed above, cannot use whole-document ownership.
 
+To move a dedicated file, keep its declaration ID and change its path, scope,
+or target. Run `daem lock`, then preview and apply. If the old file is already
+absent at its recorded location, apply can create the file from the locked
+source at the new location and retire the old management records without
+writing to the old path. If you use `--target` for a move between agents,
+select both agents to finish the move in one apply. Use a distinct destination;
+another spelling for the same physical file does not transfer ownership.
+
 To retain only selected keys from a managed whole file, keep the declaration's
 `id`, target, scope and path, change `ownership` to `keys`, and revise its source
 to contain the values you want to retain. Then relock, preview and apply. Released

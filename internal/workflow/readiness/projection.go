@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -55,7 +56,7 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 		States:             input.managedPathStates, Evidence: input.managedPathEvidence,
 		ManageUnmanagedMatches: input.manageUnmanagedMatches,
 		Owner:                  input.owner, Ownership: input.ownership,
-		RemovedAgentConfigDocuments: removedAgentConfigDocuments(input.environment, input.managedPathStates),
+		AbsentAgentConfigRetirements: absentAgentConfigRetirements(input.environment, input.managedPathStates, input.selectedTargets),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build managed path decisions: %w", err)
@@ -132,25 +133,32 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 	return managedPaths, aggregates, nil
 }
 
-func removedAgentConfigDocuments(environment desired.Environment, paths []durable.ManagedPathState) map[topology.SubjectID]struct{} {
-	ids := environment.AgentConfigIDs()
-	declared := make(map[entity.ID]struct{}, len(ids))
-	for _, id := range ids {
-		declared[id] = struct{}{}
+func absentAgentConfigRetirements(environment desired.Environment, paths []durable.ManagedPathState, selected reconcile.SelectedTargets) map[topology.SubjectID]reconcile.ActionReason {
+	configs := environment.AgentConfigs()
+	declared := make(map[entity.ID]agentconfig.Config, len(configs))
+	for _, config := range configs {
+		declared[config.ID()] = config
 	}
 
-	removed := make(map[topology.SubjectID]struct{})
+	retirements := make(map[topology.SubjectID]reconcile.ActionReason)
 	for _, path := range paths {
 		subject := path.Subject()
 		id, entityBacked := topologyprojection.EntityID(subject)
 		if !entityBacked || id.Kind() != entity.KindAgentConfig {
 			continue
 		}
-		if _, present := declared[id]; !present {
-			removed[subject] = struct{}{}
+		config, present := declared[id]
+		if !present {
+			retirements[subject] = reconcile.ReasonRemovedFromManifest
+			continue
+		}
+		consumers := path.ConsumerTargets()
+		if config.Ownership() == agentconfig.OwnershipDocument && selected.Contains(config.Target()) &&
+			len(consumers) == 1 && consumers[0] != config.Target() {
+			retirements[subject] = reconcile.ReasonStateStale
 		}
 	}
-	return removed
+	return retirements
 }
 
 func managedPathExpectations(

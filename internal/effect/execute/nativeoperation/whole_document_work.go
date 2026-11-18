@@ -93,25 +93,33 @@ func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparat
 			continue
 		}
 		work.whole = append(work.whole, effect)
-		if effect.Kind() != effectpreparation.ManagedPathEffectRetireAbsent {
+		movesFromAbsent := effect.RetiresAbsentPrevious()
+		if effect.Kind() != effectpreparation.ManagedPathEffectRetireAbsent && !movesFromAbsent {
 			captureEffects = append(captureEffects, effect)
 			continue
 		}
 		previous, _ := effect.PreviousState()
-		address, err := aggregate.NewDocumentAddress(previous.ConsumerTargets()[0], effect.Scope(), effect.Destination())
+		address, err := aggregate.NewDocumentAddress(previous.ConsumerTargets()[0], previous.Scope(), previous.Destination())
 		if err != nil {
 			return wholeDocumentWork{}, err
 		}
 		if err := registerWhole(address, retireAbsentWholeDocument); err != nil {
 			return wholeDocumentWork{}, err
 		}
+		if movesFromAbsent {
+			mutation, err := effect.AbsentRelocationCreation()
+			if err != nil {
+				return wholeDocumentWork{}, err
+			}
+			work.mutations = append(work.mutations, mutation)
+		}
 	}
 	mutations, err := effectpreparation.ManagedPathJournalMutations(captureEffects)
 	if err != nil {
 		return wholeDocumentWork{}, err
 	}
-	work.mutations = mutations
-	for _, mutation := range mutations {
+	work.mutations = append(work.mutations, mutations...)
+	for _, mutation := range work.mutations {
 		consumers := mutation.ConsumerTargets()
 		if len(consumers) != 1 {
 			return wholeDocumentWork{}, fmt.Errorf("native whole effect requires one consumer")

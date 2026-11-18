@@ -99,26 +99,30 @@ type managedPathDecisionFacts struct {
 // decision. Callers may assemble it incrementally; only successful construction
 // admits a canonical decision.
 type ManagedPathDecisionInput struct {
-	Kind             ManagedPathDecisionKind
-	Subject          topology.SubjectID
-	ConsumerTargets  []target.Target
-	Scope            target.Scope
-	Destination      output.Destination
-	DesiredHash      artifact.ContentHash
-	LiveHash         artifact.ContentHash
-	ContentKind      realization.PathProjectionContentKind
-	PlacementMode    realization.PathProjectionMode
-	PermissionPolicy realization.PathPermissionPolicy
-	DesiredFileMode  os.FileMode
-	LiveFileMode     os.FileMode
-	Previous         *durable.ManagedPathState
-	Reason           ActionReason
-	Detail           string
+	Kind                  ManagedPathDecisionKind
+	Subject               topology.SubjectID
+	ConsumerTargets       []target.Target
+	Scope                 target.Scope
+	Destination           output.Destination
+	DesiredHash           artifact.ContentHash
+	LiveHash              artifact.ContentHash
+	ContentKind           realization.PathProjectionContentKind
+	PlacementMode         realization.PathProjectionMode
+	PermissionPolicy      realization.PathPermissionPolicy
+	DesiredFileMode       os.FileMode
+	LiveFileMode          os.FileMode
+	Previous              *durable.ManagedPathState
+	RetiresAbsentPrevious bool
+	Reason                ActionReason
+	Detail                string
 }
 
 type (
-	managedPathCreateDecision       struct{ facts managedPathDecisionFacts }
-	managedPathReplaceDecision      struct{ facts managedPathDecisionFacts }
+	managedPathCreateDecision  struct{ facts managedPathDecisionFacts }
+	managedPathReplaceDecision struct {
+		facts                 managedPathDecisionFacts
+		retiresAbsentPrevious bool
+	}
 	managedPathRemoveDecision       struct{ facts managedPathDecisionFacts }
 	managedPathRetireAbsentDecision struct{ facts managedPathDecisionFacts }
 	managedPathRecordDecision       struct{ facts managedPathDecisionFacts }
@@ -162,11 +166,14 @@ func NewManagedPathDecision(input ManagedPathDecisionInput) (ManagedPathDecision
 	}
 
 	var decision ManagedPathDecision
+	if input.RetiresAbsentPrevious && input.Kind != ManagedPathReplace {
+		return ManagedPathDecision{}, fmt.Errorf("retiring an absent previous destination requires relocation")
+	}
 	switch input.Kind {
 	case ManagedPathCreate:
 		decision = ManagedPathDecision{create: &managedPathCreateDecision{facts: facts}}
 	case ManagedPathReplace:
-		decision = ManagedPathDecision{replace: &managedPathReplaceDecision{facts: facts}}
+		decision = ManagedPathDecision{replace: &managedPathReplaceDecision{facts: facts, retiresAbsentPrevious: input.RetiresAbsentPrevious}}
 	case ManagedPathRemove:
 		decision = ManagedPathDecision{remove: &managedPathRemoveDecision{facts: facts}}
 	case ManagedPathRetireAbsent:
@@ -293,6 +300,11 @@ func (decision ManagedPathDecision) LiveFileMode() os.FileMode {
 }
 func (decision ManagedPathDecision) Reason() ActionReason { return decision.facts().reason }
 func (decision ManagedPathDecision) Detail() string       { return decision.facts().detail }
+
+func (decision ManagedPathDecision) RetiresAbsentPrevious() bool {
+	return decision.replace != nil && decision.replace.retiresAbsentPrevious
+}
+
 func (decision ManagedPathDecision) PreviousState() (durable.ManagedPathState, bool) {
 	previous := decision.facts().previous
 	if previous == nil {
@@ -388,6 +400,17 @@ func validateManagedPathDecision(decision ManagedPathDecision) error {
 			return fmt.Errorf("cross-subject previous state consumers do not match")
 		}
 	}
+	if decision.RetiresAbsentPrevious() {
+		previous := facts.previous
+		if !aggregate.IsAgentConfigDocumentSubject(facts.subject) || previous == nil ||
+			previous.Scope() == facts.scope && previous.Destination() == facts.destination ||
+			previous.ContentKind() != realization.PathProjectionFile || facts.contentKind != previous.ContentKind() ||
+			previous.PermissionPolicy() != realization.PathPermissionsExact || facts.permissionPolicy != previous.PermissionPolicy() ||
+			len(facts.consumerTargets) != 1 || !slices.Equal(previous.ConsumerTargets(), facts.consumerTargets) ||
+			facts.liveHash != "" || facts.liveFileMode != 0 {
+			return fmt.Errorf("absent previous destination requires moving a dedicated agent configuration file to an absent destination")
+		}
+	}
 	if decision.Kind() == ManagedPathRetireAbsent {
 		previous := facts.previous
 		if !aggregate.IsAgentConfigDocumentSubject(facts.subject) || previous == nil ||
@@ -395,9 +418,9 @@ func validateManagedPathDecision(decision ManagedPathDecision) error {
 			previous.ContentKind() != realization.PathProjectionFile || facts.contentKind != previous.ContentKind() ||
 			previous.PermissionPolicy() != realization.PathPermissionsExact || facts.permissionPolicy != previous.PermissionPolicy() ||
 			len(previous.ConsumerTargets()) != 1 || len(facts.consumerTargets) != 0 ||
-			facts.reason != ReasonRemovedFromManifest || facts.placementMode != "" ||
+			(facts.reason != ReasonRemovedFromManifest && facts.reason != ReasonStateStale) || facts.placementMode != "" ||
 			facts.desiredHash != "" || facts.liveHash != "" || facts.desiredFileMode != 0 || facts.liveFileMode != 0 {
-			return fmt.Errorf("absent retirement requires a removed, previously owned agent configuration file and no live or desired image")
+			return fmt.Errorf("absent retirement requires a previously owned agent configuration file and no live or desired image")
 		}
 	}
 	return nil

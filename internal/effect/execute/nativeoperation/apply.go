@@ -99,7 +99,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		if group.action == retireAbsentWholeDocument {
 			original, _, observed := documents.Evidence().Document(group.address)
 			if !observed || original.Exists() {
-				return nativeApplyWork{}, fmt.Errorf("native whole retirement requires observed absence at the recorded destination")
+				return nativeApplyWork{}, fmt.Errorf("retiring a native file record requires observed absence at the recorded destination")
 			}
 		}
 		work.mutating[group.index] = group.action.writesFile()

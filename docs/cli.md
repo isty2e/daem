@@ -1695,10 +1695,13 @@ that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
 
 In `actions`, removing a managed agent configuration key uses `kind: "delete"`
-and `reason: "removed_from_manifest"` even if the key is already absent. Retiring
-an already absent dedicated file uses `kind: "record"` with the same reason and
-no requested file mode. Human output distinguishes record-only retirement from
-deletion.
+and `reason: "removed_from_manifest"` even if the key is already absent. When
+the declaration of an already absent dedicated file is removed, apply reports
+`kind: "record"` with the same reason and no requested file mode. Moving an
+absent dedicated file within one agent uses `kind: "update"` with the old
+placement in `previous_state`. Moving across agents reports the old record
+separately with `kind: "record"` and `reason: "state_stale"`. Human output
+distinguishes retiring management from deleting a file.
 
 For `effective_shadowing`, `state: "unobserved"` with reason
 `EFFECTIVE_OBSERVER_UNSUPPORTED` means the catalog does not provide an
