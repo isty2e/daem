@@ -245,6 +245,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			{"extension", "Host-native extension row."},
 			{"instruction", "Instruction source rendered for selected agents."},
 			{"hook", "Lifecycle hook command."},
+			{"host-config", "Native configuration from a prepared source file."},
 			{"mcp-server", "Standalone stdio MCP server."},
 			{"skill", "One local or Git-backed skill."},
 			{"skill-group", "Selected skills from one source root."},
@@ -253,6 +254,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			{"extension", "Remove an extension row."},
 			{"instruction", "Remove an instruction declaration."},
 			{"hook", "Remove a hook declaration."},
+			{"host-config", "Remove a native configuration declaration."},
 			{"mcp-server", "Remove an MCP server row."},
 			{"skill", "Remove a skill or skill-group resource."},
 		}, "Omitted selectors remove an unambiguous whole resource. Remove writes by default; use --dry-run to preview."),
@@ -388,6 +390,23 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 		[]helpRow{{"<name>", "Stable hook name."}, {"<event>", "Canonical hook lifecycle event."}, {"<command>", "One opaque shell-command string."}}, append([]helpRow{{"--matcher <matcher>", "Optional hook matcher."}, {"--timeout <duration>", "Positive duration; must be representable as whole seconds."}}, common...),
 		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Status messages and target overrides are manifest-only. Writes by default."}},
 		[]string{"daem add hook format PostToolUse 'make fmt'", "daem add hook test Stop 'go test ./...' --timeout 2m --dry-run"}, reference)
+	pages["add host-config"] = leaf("daem add host-config", "daem add host-config <id> <source> --target <target> --scope <scope> --host-path <path> [options]", "add a native configuration declaration and refresh the lockfile",
+		[]helpRow{{"<id>", "Unique host configuration declaration ID."}, {"<source>", "Prepared local file, Git file, or S3 file object."}},
+		[]helpRow{
+			workspace,
+			{"--target <target>", "Required: one host target."},
+			{"--scope <scope>", "Required: project or global."},
+			{"--host-path <path>", "Required: path relative to the selected host configuration root."},
+			{"--ownership <mode>", "Use keys (default) for selected values or document for a dedicated file."},
+			{"--syntax <syntax>", "Configuration grammar; omit to use the host/path default."},
+			{"--path <repo-path>", "Git file path; may be supplied by owner/repo/path instead."},
+			{"--ref <git-ref>", "Required for Git: branch, tag, or full object ID."},
+			{"--version-id <id>", "S3 object version ID."},
+			{"--region <region>", "S3 region override."},
+			dryRun, diff, jsonOutput, verbose,
+		},
+		[]helpRow{{"", "Only edits the manifest and lockfile. Use apply to change host configuration."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID and source."}},
+		[]string{"daem add host-config preferences ./prefs.toml --target codex --scope project --host-path config.toml --dry-run --diff"}, reference)
 	pages["add skill"] = leaf("daem add skill", "daem add skill <source> [--path <repo-path>] [--ref <git-ref>] [--name <installed-name>] [options]", "add one skill and refresh the lockfile",
 		[]helpRow{{"<source>", "Local path or Git repository locator."}}, append([]helpRow{{"--path <repo-path>", "Skill directory within a Git repository."}, {"--ref <git-ref>", "Strict branch, tag, or full object id."}, {"--name <installed-name>", "Target-visible installed directory name."}}, common...),
 		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Resource ids, install modes, repair policy, and advanced sources are manifest-only. Writes by default."}},
@@ -400,6 +419,11 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 
 func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRow, scope helpRow, dryRun helpRow, diff helpRow, jsonOutput helpRow, verbose helpRow, reference string) {
 	common := []helpRow{workspace, target, scope, dryRun, diff, jsonOutput, verbose}
+	pages["remove host-config"] = leaf("daem remove host-config", "daem remove host-config <id> [--target <target>] [--scope <scope>] [options]", "remove a native configuration declaration and refresh the lockfile",
+		[]helpRow{{"<id>", "Exact host_config.id in the manifest."}},
+		[]helpRow{workspace, {"--target <target>", "Require this declaration to have the selected target."}, {"--scope <scope>", "Require this declaration to have the selected scope."}, dryRun, diff, jsonOutput, verbose},
+		[]helpRow{{"", "Removes a whole declaration; no per-key removal. Writes by default."}, {"", "Use apply --dry-run to preview cleanup. To keep host settings and release management, use unmanage host-config instead."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID."}},
+		[]string{"daem remove host-config preferences --dry-run --diff"}, reference)
 	resources := []struct {
 		kind, operand, summary string
 	}{

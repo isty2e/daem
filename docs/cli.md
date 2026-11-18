@@ -304,6 +304,7 @@ flags.
 | --- | --- |
 | `add extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--matcher`, `--scope`, `--target`, `--timeout`, `--verbose` |
+| `add host-config` | `--diff`, `--dry-run`, `--host-path`, `--json`, `--manifest`, `--ownership`, `--path`, `--ref`, `--region`, `--scope`, `--syntax`, `--target`, `--verbose`, `--version-id` |
 | `add instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
 | `add mcp-server` | `--arg`, `--diff`, `--dry-run`, `--env-from`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--name`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
@@ -325,6 +326,7 @@ flags.
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `remove host-config` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove mcp-server` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
@@ -465,11 +467,12 @@ meaning or the diagnostic field structure still requires a version increment.
 
 ### Resource Names And Identifiers
 
-Public resource classifications use the token accepted by the authoring CLI:
+Public resource classifications usually match the authoring CLI token:
 `instruction`, `skill`, `hook`, `mcp-server` and `extension`. Authoring a group
-uses `skill-group`; inventory members remain `skill`. `hook_asset` retains its
-TOML spelling because it has no direct add/remove command. Naming a resource
-kind does not imply that every command supports it.
+uses `skill-group`; inventory members remain `skill`. Host configuration uses
+the command token `host-config` and retains `host_config` in result kinds and
+resource references. `hook_asset` keeps its TOML spelling and has no direct
+add/remove command. A resource kind need not be supported by every command.
 
 Public `resource_id` values and human resource references use `kind/name`, such
 as `instruction/project` or `mcp-server/context7`. The name remains literal,
@@ -730,7 +733,9 @@ destination's admitted grammar. The preview omits arbitrary whole-file contents.
 Initial capture creates a new id and a new local file under
 `<source-dir>/host-config/`; it never overwrites a source destination. Without
 `--source-dir`, the directory is the manifest's basename with `.d` instead of its
-extension. Initial-only placement and source-directory flags cannot accompany
+extension. To merge an initial capture into a manifest with an existing
+nonempty inline `host_config` array, convert it to `[[host_config]]` blocks
+first. Initial-only placement and source-directory flags cannot accompany
 `--update-source`.
 
 An update selects the existing source's declared keys; optional `--key` selectors
@@ -779,6 +784,8 @@ daem add extension <id> <source> [options]
 daem add instruction <name> <source> [options]
 daem add hook <name> <event> <command> [--matcher <matcher>]
   [--timeout <duration>] [options]
+daem add host-config <id> <source> --target <target> --scope <scope>
+  --host-path <path> [--ownership keys|document] [--syntax <syntax>] [options]
 daem add mcp-server <name> <command> [--arg <value> ...] [options]
 daem add skill <source> [--path <repo-path>] [--ref <git-ref>]
   [--name <installed-name>] [options]
@@ -789,13 +796,12 @@ daem add skill-group <source-root> --member <name>
 Every leaf accepts `--manifest`, repeated `--target`, applicable `--scope`,
 `--dry-run`, `--diff`, `--json`, and `--verbose`. Add writes by default. It
 builds and validates a prospective manifest and lockfile, then commits both
-together. On failure, neither file advances.
+together. A prospective validation failure leaves both files unchanged.
 
 Repeating an already-satisfied add succeeds without an extra flag. It reports
 `change: unchanged`, not a duplicate warning. The declaration identity and
 requested settings must match, and its effective targets must cover the
-request. Scope defaults keep their resource-specific rules; omitted targets
-use manifest targets. An unchanged result retains all declaration bytes,
+request. Scope and target omission rules vary by resource. An unchanged result retains all declaration bytes,
 including manifest-only settings. A different source, identity, or conflicting requested setting
 remains an error, not an overwrite request.
 Adding targets to a matching explicit target list remains a real change.
@@ -814,9 +820,44 @@ Common authoring is intentionally curated:
 | Extension | id, one opaque carrier-native source, target, scope | carrier spelling and lifecycle/contribution policy |
 | Instruction | name, local/Git source, Git file path/ref, target, scope | S3 source and target-specific placement |
 | Hook | name, event, command, matcher, timeout, target, scope | status text, target overrides, assets, non-command handlers |
+| Host configuration | ID, prepared local/Git/S3 file, target, scope, host path, ownership, syntax | the same declaration fields; target profiles define placement and reservations |
 | MCP server | name, portable command, ordered args, env refs with uppercase source names, target, scope | exact absolute command path, other env source-name spellings, explicit backend, remote transport, auth, cwd, tool policy |
 | Skill | source, Git path/ref, installed name, target, scope | resource id, install mode, repair and source policy |
 | Skill group | source root, exact members, Git path/ref, target, scope | selectors, install mode, repair and per-member policy |
+
+### `add host-config`
+
+```sh
+daem add host-config preferences ./prefs.toml --target codex --scope project \
+  --host-path config.toml --dry-run --diff
+```
+
+Use a prepared configuration file separate from the host destination and the
+manifest and lockfile. Set one target and one scope explicitly. `--host-path`
+is relative to the selected [host root](manifest.md#host-configuration).
+The default ownership is `keys`: every selected value in the source is managed.
+Choose `--ownership document` for a dedicated file. Omit `--syntax` to use the
+target and path default.
+
+- **Local file:** A relative operand is relative to the invocation directory.
+  A project source under the manifest directory is stored as a relative path;
+  a global local source is stored as an absolute path. Prefix a name such as
+  `prefs:v2.toml` with `./` to distinguish it from an SSH locator.
+- **Git file:** Supply `--ref <ref>` and `--path <repo-path>`, or use
+  `owner/repo/path` with `--ref` instead of a separate `--path`. Here `--path`
+  selects the source file, not the host path. An absolute local repository
+  path is also accepted with Git options.
+- **S3 file object:** Use `s3://bucket/key`, with optional `--version-id` and
+  `--region`. Use the normal external AWS credential configuration.
+
+Add accepts both `[[host_config]]` blocks and existing inline arrays. The same
+ID with the same source and settings preserves the declaration and still
+refreshes the lock. A different source, placement, ownership, or syntax choice
+under that ID is an error. Add never captures or changes the host file. After
+writing the declaration, preview with `daem apply --dry-run` before applying.
+If an ID begins with `-`, put all flags before `--`, then give the ID and source.
+
+### Other add resources
 
 Git instructions require an explicit `--ref` and a repository file path:
 
@@ -903,13 +944,15 @@ the exact manifest delta. An empty delta is reported as
 daem remove extension <id> [options]
 daem remove instruction <name> [options]
 daem remove hook <name> [options]
+daem remove host-config <id> [--target <target>] [--scope <scope>] [options]
 daem remove mcp-server <name> [options]
 daem remove skill <resource-key> [options]
 ```
 
 Every leaf accepts the same shared authoring options as add. Remove writes by
 default and transactionally refreshes the lockfile. Use keys from
-`daem list resources`. A missing resource or a selection matching no declaration
+`daem list resources`, or read `host_config.id` in the manifest for host
+configuration. A missing resource or a selection matching no declaration
 is an error, including repeated removal. When the manifest supplies an exact
 name under other selectors, a case variant, or a name one character edit away,
 stderr includes up to three available-selection command hints. Hints use actual declaration keys and
@@ -925,6 +968,22 @@ Remove changes desired and locked state only. Host file deletion, config
 binding removal, and supported route effects are later apply work. It never
 means unconditional carrier uninstall, package/cache cleanup, credential
 deletion, trust reset, or contribution-level mutation.
+
+`remove host-config` removes the complete declaration from a block or inline
+array. `--target` and `--scope` assert its effective placement; they do not
+select part of a declaration. If an ID begins with `-`, put the flags before
+`--`, then give the ID. The removed source need not still exist unless
+another declaration uses it. All remaining sources must resolve for the new lock.
+
+The result identifies whether the removed declaration specified keys or a
+whole file. Preview actual cleanup with `daem apply --dry-run`: cleanup follows
+retained management, which can differ from the last declaration edit. Apply
+removes managed keys and keeps unrelated settings, or removes an unchanged
+managed dedicated file.
+If [drift blocks cleanup](troubleshooting.md#host-configuration-removal-is-blocked),
+inspect the changed keys or file before deleting anything. To keep the host
+values or file and release management, use
+[`unmanage host-config`](#unmanage-host-config) instead of applying the removal.
 
 Removing a Pi MCP row retains any explicit provider extension. A later apply
 uses the stored Native or Adapter codec to remove only its config contribution,
@@ -1219,8 +1278,10 @@ daem list paths [--manifest <path>] [--target <target> ...]
 ```
 
 Bare `list` is navigation only. `list resources` reads and normalizes the
-manifest without requiring a lockfile or resolving source files. It prints every
-selected kind, stable declaration key, install name, target set, and scope.
+manifest without requiring a lockfile or resolving source files. It prints
+supported resource rows with their kind, stable declaration key, install name,
+target set, and scope. Host configuration declarations are not listed; find
+their IDs in the manifest.
 Basic rows also show known explicit group membership, such as
 `group="skill_group[0]"`; ungrouped rows omit
 that field. The index is a declaration-position marker, not a stable group ID

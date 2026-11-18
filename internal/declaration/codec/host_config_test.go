@@ -2,12 +2,43 @@ package codec_test
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	"github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/supply/source"
+	"github.com/isty2e/daem/internal/target"
 )
+
+func TestHostConfigBlockPreservesPreviouslyAdmittedCaptureEscapes(t *testing.T) {
+	const name = "prefs\b\t\n\f\r\x01\x1b\x7fwith escapes.toml"
+	provenance, err := source.NewLocalSource(name, source.LocalSourceModeVendor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := hostconfig.New(hostconfig.Spec{
+		Name: "capture", Source: provenance, Target: target.TargetCodex, Scope: target.ScopeProject, Path: "config.toml",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := declarationcodec.RenderHostConfigBlock(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Capture recovery checks the exact previously rendered declaration bytes.
+	if !strings.HasSuffix(block, "source = "+strconv.Quote(name)+"\n") {
+		t.Fatalf("capture source no longer uses its previous spelling: %q", block)
+	}
+	environment, err := manifest.Decode([]byte("version = 1\ntargets = ['codex']\n" + block))
+	if err != nil || len(environment.HostConfigs()) != 1 || environment.HostConfigs()[0] != config {
+		t.Fatalf("previous spelling no longer decodes to the exact declaration: %v", err)
+	}
+}
 
 func TestScanHostConfigBlocksKeepsNestedSourceAndFindsNextRow(t *testing.T) {
 	content := []byte(`version = 1

@@ -81,6 +81,10 @@ func (change LockfileChange) Content() []byte {
 
 // BuildLockfileChange builds the prospective lockfile for manifest authoring without writing files.
 func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (LockfileChange, error) {
+	return buildLockfileChange(ctx, input, nil)
+}
+
+func buildLockfileChange(ctx context.Context, input LockfileChangeInput, replacingManifest *declarationartifact.MutationTarget) (LockfileChange, error) {
 	paths := input.Paths
 	if paths.ManifestPath == "" {
 		resolvedPaths, err := daempaths.Resolve(input.ManifestPath)
@@ -108,6 +112,11 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 	}
 	if err := declarationmanifest.ValidatePlacement(paths, environment); err != nil {
 		return LockfileChange{}, fmt.Errorf("invalid prospective manifest: %w", err)
+	}
+	if replacingManifest != nil {
+		if err := rejectHostConfigControlSourceOverlap(ctx, environment.HostConfigs(), paths.ManifestRoot, *replacingManifest, target); err != nil {
+			return LockfileChange{}, err
+		}
 	}
 	environment, err = declarationmanifest.ResolveSelectedCarrierSources(paths, environment)
 	if err != nil {
@@ -329,7 +338,7 @@ func executeAuthoringMutation(
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	lockfile, err := BuildLockfileChange(ctx, LockfileChangeInput{
+	lockfile, err := buildLockfileChange(ctx, LockfileChangeInput{
 		ManifestPath:       current.change.ManifestPath,
 		Paths:              current.document.Paths,
 		LockfilePath:       options.LockfilePath,
@@ -338,7 +347,7 @@ func executeAuthoringMutation(
 		PreparePersistentCache: func(ctx context.Context) error {
 			return ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases)
 		},
-	})
+	}, &current.document.target)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseBuildLockfile, Err: err}
 	}

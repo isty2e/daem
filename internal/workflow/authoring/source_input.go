@@ -106,20 +106,29 @@ func instructionSource(request AddInstructionRequest, manifestRoot string, effec
 }
 
 func localInstructionSource(sourceArg string, manifestRoot string, effectiveScope string) (declarationcodec.InstructionSource, error) {
+	manifestPath, err := authoringLocalFilePath(sourceArg, manifestRoot, target.Scope(effectiveScope))
+	if err != nil {
+		return declarationcodec.InstructionSource{}, err
+	}
+	return declarationcodec.InstructionSource{
+		Path: manifestPath,
+		Mode: string(sourcepkg.LocalSourceModeVendor),
+	}, nil
+}
+
+func authoringLocalFilePath(sourceArg, manifestRoot string, scope target.Scope) (string, error) {
 	absoluteSource, err := filepath.Abs(sourceArg)
 	if err != nil {
-		return declarationcodec.InstructionSource{}, fmt.Errorf("resolve local source: %w", err)
+		return "", fmt.Errorf("resolve local source: %w", err)
 	}
+
 	manifestPath := absoluteSource
-	if effectiveScope != string(target.ScopeGlobal) {
+	if scope != target.ScopeGlobal {
 		if relative, ok := relativePathWithin(manifestRoot, absoluteSource); ok {
 			manifestPath = relative
 		}
 	}
-	return declarationcodec.InstructionSource{
-		Path: filepath.ToSlash(filepath.Clean(manifestPath)),
-		Mode: string(sourcepkg.LocalSourceModeVendor),
-	}, nil
+	return filepath.ToSlash(filepath.Clean(manifestPath)), nil
 }
 
 func skillGroupSource(request AddSkillGroupRequest, manifestRoot string) (declarationcodec.SkillSource, error) {
@@ -173,13 +182,29 @@ func gitSkillGroupSource(request AddSkillGroupRequest) (declarationcodec.SkillSo
 }
 
 func gitSourceDeclaration(sourceArg string, sourcePath string, ref string) (declaration.Source, error) {
+	gitSource, err := gitAuthoringSource(sourceArg, sourcePath, ref)
+	if err != nil {
+		return declaration.Source{}, err
+	}
+	git, ok := gitSource.Git()
+	if !ok {
+		return declaration.Source{}, fmt.Errorf("canonical git source is unavailable")
+	}
+	return declaration.Source{
+		Git:  git.Locator().String(),
+		Path: git.RepositoryPath().String(),
+		Ref:  git.Ref().String(),
+	}, nil
+}
+
+func gitAuthoringSource(sourceArg, sourcePath, ref string) (sourcepkg.Source, error) {
 	if ref == "" {
-		return declaration.Source{}, ErrMissingGitRef
+		return sourcepkg.Source{}, ErrMissingGitRef
 	}
 	gitURL := sourceArg
 	if owner, repo, embeddedPath, ok := splitGitHubSourceShorthand(sourceArg); ok {
 		if embeddedPath != "" && sourcePath != "" {
-			return declaration.Source{}, fmt.Errorf("do not combine owner/repo/path shorthand with --path; use owner/repo --path %s", sourcePath)
+			return sourcepkg.Source{}, fmt.Errorf("do not combine owner/repo/path shorthand with --path; use owner/repo --path %s", sourcePath)
 		}
 		gitURL = "https://github.com/" + owner + "/" + repo + ".git"
 		if sourcePath == "" {
@@ -189,19 +214,7 @@ func gitSourceDeclaration(sourceArg string, sourcePath string, ref string) (decl
 	if sourcePath == "" {
 		sourcePath = "."
 	}
-	canonicalSource, err := sourcepkg.NewGitSource(gitURL, sourcePath, ref)
-	if err != nil {
-		return declaration.Source{}, err
-	}
-	gitSource, ok := canonicalSource.Git()
-	if !ok {
-		return declaration.Source{}, fmt.Errorf("canonical git source is unavailable")
-	}
-	return declaration.Source{
-		Git:  gitSource.Locator().String(),
-		Path: gitSource.RepositoryPath().String(),
-		Ref:  gitSource.Ref().String(),
-	}, nil
+	return sourcepkg.NewGitSource(gitURL, sourcePath, ref)
 }
 
 func skillSourceLooksGit(source string, explicitPath string, ref string) bool {

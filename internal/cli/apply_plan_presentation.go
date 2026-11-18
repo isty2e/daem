@@ -22,5 +22,6 @@ func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResu
 	if selectedManifest == "" {
 		selectedManifest = manifestPath
 	}
-	return append(applyInputWorkflowGuidance(manifestPath, result, err), clipresent.NativeReplacementGuidance(result.Reconciliation, selectedManifest)...)
+	return append(applyInputWorkflowGuidance(manifestPath, result, err),
+		clipresent.HostConfigReconciliationGuidance(result.Reconciliation, selectedManifest, result.HostConfigDeclarations)...)
 }

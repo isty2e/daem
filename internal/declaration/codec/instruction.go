@@ -288,34 +288,38 @@ func RenderInstructionBlock(name string, instruction Instruction) string {
 }
 
 func renderInstructionSource(source InstructionSource) string {
+	return renderInstructionSourceWithQuote(source, strconv.Quote)
+}
+
+func renderInstructionSourceWithQuote(source InstructionSource, quote func(string) string) string {
 	if source.Git == "" && source.S3 == "" && source.Ref == "" && source.VersionID == "" &&
 		source.Region == "" && source.Format == "" && source.Mode == "vendor" {
-		return strconv.Quote(source.Path)
+		return quote(source.Path)
 	}
 	parts := make([]string, 0, 8)
 	if source.Git != "" {
-		parts = append(parts, "git = "+strconv.Quote(source.Git))
+		parts = append(parts, "git = "+quote(source.Git))
 	}
 	if source.Path != "" {
-		parts = append(parts, "path = "+strconv.Quote(source.Path))
+		parts = append(parts, "path = "+quote(source.Path))
 	}
 	if source.Ref != "" {
-		parts = append(parts, "ref = "+strconv.Quote(source.Ref))
+		parts = append(parts, "ref = "+quote(source.Ref))
 	}
 	if source.Mode != "" {
-		parts = append(parts, "mode = "+strconv.Quote(source.Mode))
+		parts = append(parts, "mode = "+quote(source.Mode))
 	}
 	if source.S3 != "" {
-		parts = append(parts, "s3 = "+strconv.Quote(source.S3))
+		parts = append(parts, "s3 = "+quote(source.S3))
 	}
 	if source.VersionID != "" {
-		parts = append(parts, "version_id = "+strconv.Quote(source.VersionID))
+		parts = append(parts, "version_id = "+quote(source.VersionID))
 	}
 	if source.Region != "" {
-		parts = append(parts, "region = "+strconv.Quote(source.Region))
+		parts = append(parts, "region = "+quote(source.Region))
 	}
 	if source.Format != "" {
-		parts = append(parts, "format = "+strconv.Quote(source.Format))
+		parts = append(parts, "format = "+quote(source.Format))
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
 }

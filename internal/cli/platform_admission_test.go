@@ -80,6 +80,7 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"add", "--help"},
 		{"add", "help", "skill"},
 		{"add", "skill", "--help"},
+		{"add", "host-config", "--help"},
 		{"apply", "--help"},
 		{"import", "--help"},
 		{"import", "host-config", "--help"},
@@ -97,6 +98,7 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"remove", "--help"},
 		{"remove", "help", "skill"},
 		{"remove", "skill", "--help"},
+		{"remove", "host-config", "--help"},
 		{"unmanage", "--help"},
 		{"unmanage", "extension", "--help"},
 		{"unmanage", "host-config", "--help"},
@@ -160,10 +162,10 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 		{"recover"},
 		{"refresh"},
 	}
-	for _, subject := range []string{"extension", "instruction", "hook", "mcp-server", "skill", "skill-group"} {
+	for _, subject := range []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill", "skill-group"} {
 		gated = append(gated, []string{"add", subject})
 	}
-	for _, subject := range []string{"extension", "instruction", "hook", "mcp-server", "skill"} {
+	for _, subject := range []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill"} {
 		gated = append(gated, []string{"remove", subject})
 	}
 	gated = append(gated, []string{"unmanage", "extension"})

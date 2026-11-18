@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,6 +42,13 @@ func TestAuthoringPreviewsRefuseInterruptedMetadataTransaction(t *testing.T) {
 					},
 					RemoveExtensionRequest{ID: "context7"},
 				)
+				return err
+			},
+		},
+		{
+			name: "remove host-config",
+			run: func() error {
+				_, err := RemoveHostConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, RemoveHostConfigRequest{ID: "preferences"})
 				return err
 			},
 		},
@@ -187,5 +195,31 @@ func TestAuthoringWriteRefusesIncompleteEvidenceBeforeManifestRead(t *testing.T)
 	)
 	if err == nil || !strings.Contains(err.Error(), "marker is missing") {
 		t.Fatalf("error = %v, want incomplete evidence refusal", err)
+	}
+}
+
+func TestHostConfigAuthoringWriteRefusesActiveApplyJournal(t *testing.T) {
+	root := t.TempDir()
+	configureUnmanageTestHomes(t, root)
+	paths := unmanageTestPaths(t, root)
+	original := []byte("version = 1\ntargets = ['codex']\n")
+	writeUnmanageFile(t, paths.ManifestPath, original)
+	writeUnmanageFile(t, filepath.Join(root, "preferences.toml"), []byte("enabled = true\n"))
+	captureUnmanageActiveJournal(t, paths)
+	request := AddHostConfigRequest{
+		ID: "preferences", SourceArg: filepath.Join(root, "preferences.toml"),
+		HostPath: "config.toml", Target: target.TargetCodex, Scope: target.ScopeProject,
+	}
+	if _, err := AddHostConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, request); err != nil {
+		t.Fatalf("preview should use the ordinary authoring file-set fence: %v", err)
+	}
+	if _, err := AddHostConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeWrite}, request); !errors.Is(err, journal.ErrInterruptedApply) {
+		t.Fatalf("write = %v, want interrupted apply refusal", err)
+	}
+	if actual, err := os.ReadFile(paths.ManifestPath); err != nil || !bytes.Equal(actual, original) {
+		t.Fatalf("refusal changed the manifest: %v, %q", err, actual)
+	}
+	if _, err := os.Stat(paths.LockfilePath); !os.IsNotExist(err) {
+		t.Fatalf("preview or refused write produced lockfile: %v", err)
 	}
 }

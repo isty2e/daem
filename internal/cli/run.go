@@ -76,7 +76,7 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 	"add": {
 		scope: platformAdmissionSelectedSubject,
 		subjects: []string{
-			"extension", "instruction", "hook", "mcp-server", "skill", "skill-group",
+			"extension", "instruction", "hook", "host-config", "mcp-server", "skill", "skill-group",
 		},
 	},
 	"replace":  {scope: platformAdmissionSelectedSubject, subjects: []string{"host-config"}},
@@ -94,7 +94,7 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 	"refresh":  {scope: platformAdmissionWholeCommand},
 	"remove": {
 		scope:    platformAdmissionSelectedSubject,
-		subjects: []string{"extension", "instruction", "hook", "mcp-server", "skill"},
+		subjects: []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill"},
 	},
 	"status": {},
 	"unmanage": {
