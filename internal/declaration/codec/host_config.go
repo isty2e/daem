@@ -2,8 +2,8 @@ package codec
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/declaration"
 	"github.com/isty2e/daem/internal/desired/hostconfig"
@@ -57,38 +57,39 @@ func parseHostConfigBlock(content []byte, start int, end int) (HostConfigBlock, 
 
 // RenderHostConfigBlock encodes one validated canonical host configuration.
 func RenderHostConfigBlock(config hostconfig.Config) (string, error) {
+	fields, err := hostConfigFields(config)
+	if err != nil {
+		return "", err
+	}
+	return "[[host_config]]\n" + strings.Join(fields, "\n") + "\n", nil
+}
+
+func hostConfigFields(config hostconfig.Config) ([]string, error) {
 	if err := config.Validate(); err != nil {
-		return "", fmt.Errorf("render host_config: %w", err)
+		return nil, fmt.Errorf("render host_config: %w", err)
 	}
 
-	var builder strings.Builder
-	builder.WriteString("[[host_config]]\n")
-	builder.WriteString("id = ")
-	builder.WriteString(strconv.Quote(config.ID().Name()))
-	builder.WriteByte('\n')
-	builder.WriteString("targets = ")
-	builder.WriteString(renderStringArray([]string{string(config.Target())}))
-	builder.WriteByte('\n')
-	builder.WriteString("scope = ")
-	builder.WriteString(strconv.Quote(string(config.Scope())))
-	builder.WriteByte('\n')
-	builder.WriteString("path = ")
-	builder.WriteString(strconv.Quote(config.Path()))
-	builder.WriteByte('\n')
-	builder.WriteString("source = ")
-	builder.WriteString(renderInstructionSource(InstructionSource(hostConfigDeclarationSource(config.Source()))))
-	builder.WriteByte('\n')
+	sourceFields := hostConfigDeclarationSource(config.Source())
+	for _, value := range []string{sourceFields.Path, sourceFields.Git, sourceFields.Ref, sourceFields.S3, sourceFields.VersionID, sourceFields.Region} {
+		if !utf8.ValidString(value) {
+			return nil, fmt.Errorf("host configuration source must be representable as UTF-8 TOML")
+		}
+	}
+	quote := tomlsyntax.QuoteBasicString
+	fields := []string{
+		"id = " + quote(config.ID().Name()),
+		"targets = [" + quote(string(config.Target())) + "]",
+		"scope = " + quote(string(config.Scope())),
+		"path = " + quote(config.Path()),
+		"source = " + renderInstructionSourceWithQuote(InstructionSource(sourceFields), quote),
+	}
 	if config.Ownership() != hostconfig.OwnershipKeys {
-		builder.WriteString("ownership = ")
-		builder.WriteString(strconv.Quote(string(config.Ownership())))
-		builder.WriteByte('\n')
+		fields = append(fields, "ownership = "+quote(string(config.Ownership())))
 	}
 	if config.Syntax() != hostconfig.SyntaxDefault {
-		builder.WriteString("syntax = ")
-		builder.WriteString(strconv.Quote(string(config.Syntax())))
-		builder.WriteByte('\n')
+		fields = append(fields, "syntax = "+quote(string(config.Syntax())))
 	}
-	return builder.String(), nil
+	return fields, nil
 }
 
 func hostConfigDeclarationSource(value source.Source) declaration.Source {

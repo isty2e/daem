@@ -319,13 +319,13 @@ func executeAuthoringOperation(ctx context.Context, options ExecutionOptions, bu
 		return executeAuthoringMutation(ctx, options, build, optimistic, usePersistentCache)
 	}
 
-	lockfile, err := BuildLockfileChange(ctx, LockfileChangeInput{
+	lockfile, err := buildLockfileChange(ctx, LockfileChangeInput{
 		ManifestPath:       optimistic.change.ManifestPath,
 		Paths:              optimistic.document.Paths,
 		LockfilePath:       options.LockfilePath,
 		ManifestBytes:      optimistic.change.Content,
 		UsePersistentCache: usePersistentCache,
-	})
+	}, &optimistic.document.target)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseBuildLockfile, Err: err}
 	}
