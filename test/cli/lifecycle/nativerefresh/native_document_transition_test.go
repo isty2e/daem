@@ -738,9 +738,19 @@ func TestNativeAbsentWholeMoveRefusesAnInadmissibleDestination(t *testing.T) {
 			protected := []string{f.Destination, filepath.Join(directory, filepath.FromSlash(path)), f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath, f.Paths.RecoveryDir}
 			before := nativefixture.SnapshotRecoveryPaths(t, protected...)
 			for _, flag := range []string{"--dry-run", "--yes"} {
-				code, stdout, stderr := testkit.RunCapturedCLI("apply", "--manifest", f.Manifest, flag)
+				args := []string{"apply", "--manifest", f.Manifest, flag}
+				if name == "alias of old path" && flag == "--dry-run" {
+					args = append(args, "--json")
+				}
+				code, stdout, stderr := testkit.RunCapturedCLI(args...)
 				if code != 1 || !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, protected...)) {
 					t.Fatalf("%s reached the inadmissible destination: %d\n%s%s", flag, code, stdout, stderr)
+				}
+				if name == "alias of old path" {
+					text := clijson.FailureText(t, stdout, stderr, "apply", "operation", flag == "--dry-run")
+					if !strings.Contains(text, "same configuration destination") || !strings.Contains(text, "keep the original path") {
+						t.Fatalf("%s did not explain that the move only changes the path spelling: %s", flag, text)
+					}
 				}
 			}
 		})
@@ -798,7 +808,7 @@ source='new.toml'
 			if scenario.missing && strings.Contains(advice, "deletes the existing managed file") {
 				t.Fatalf("preview warned of deleting a file that is already absent: %s", advice)
 			}
-			if !scenario.missing && (!strings.Contains(advice, "change ownership to keys") || !strings.Contains(advice, "deletes the existing managed file")) {
+			if !scenario.missing && (!strings.Contains(advice, "restore the original declaration") || !strings.Contains(strings.ToLower(advice), "remove the competing key declaration") || !strings.Contains(advice, "deletes the existing managed file")) {
 				t.Fatalf("preview did not distinguish preserving the file from deleting it: %s", advice)
 			}
 

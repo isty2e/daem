@@ -13,6 +13,7 @@ type WholeDocumentConflictKind string
 
 const (
 	DuplicateWholeDocumentWork   WholeDocumentConflictKind = "multiple whole-file operations"
+	WholeMoveToSameDocument      WholeDocumentConflictKind = "whole-file move to the same destination"
 	OverlappingWholeDocumentWork WholeDocumentConflictKind = "whole-file and selected operations"
 	AbsentWholeRetirementAndKeys WholeDocumentConflictKind = "whole-file retirement and key operations"
 	WholeDocumentRemovalAndKeys  WholeDocumentConflictKind = "whole-file removal and key operations"
@@ -110,6 +111,13 @@ func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparat
 			mutation, err := effect.AbsentRelocationCreation()
 			if err != nil {
 				return wholeDocumentWork{}, err
+			}
+			destination, err := aggregate.NewDocumentAddress(mutation.ConsumerTargets()[0], mutation.Scope(), mutation.Destination())
+			if err != nil {
+				return wholeDocumentWork{}, err
+			}
+			if nextGroup, observed := work.indexByAlias[destination]; observed && nextGroup == work.indexByAlias[address] {
+				return wholeDocumentWork{}, &WholeDocumentConflict{Kind: WholeMoveToSameDocument, address: destination}
 			}
 			work.mutations = append(work.mutations, mutation)
 		}

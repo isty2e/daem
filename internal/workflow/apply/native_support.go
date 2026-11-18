@@ -22,6 +22,7 @@ const (
 	nativeSupportWholeRewrite
 	nativeSupportWholeDocumentOverlap
 	nativeSupportDuplicateWholeDocument
+	nativeSupportWholeMoveToSameDocument
 	nativeSupportAbsentWholeAndKeys
 	nativeSupportWholeRemovalAndKeys
 )
@@ -34,6 +35,8 @@ func nativeDocumentConflictReason(kind nativeoperation.WholeDocumentConflictKind
 	switch kind {
 	case nativeoperation.DuplicateWholeDocumentWork:
 		return nativeSupportDuplicateWholeDocument
+	case nativeoperation.WholeMoveToSameDocument:
+		return nativeSupportWholeMoveToSameDocument
 	case nativeoperation.AbsentWholeRetirementAndKeys:
 		return nativeSupportAbsentWholeAndKeys
 	case nativeoperation.WholeDocumentRemovalAndKeys:
@@ -59,6 +62,8 @@ func (reason nativeSupportReason) detail() string {
 		return "whole-file management and selected settings changes overlap in the same configuration file"
 	case nativeSupportDuplicateWholeDocument:
 		return "multiple whole-file operations resolve to the same configuration file"
+	case nativeSupportWholeMoveToSameDocument:
+		return "the new path resolves to the same configuration destination as the recorded path"
 	default:
 		return "the selected settings-key execution is not supported"
 	}
@@ -134,10 +139,12 @@ func (reason nativeSupportReason) repairInstruction() string {
 		return "use separate paths, or use key ownership for the shared configuration file"
 	case nativeSupportDuplicateWholeDocument:
 		return "choose distinct destinations that do not resolve to the same file"
+	case nativeSupportWholeMoveToSameDocument:
+		return "keep the original path in the declaration, or choose a different file to move to; then run daem lock and daem apply"
 	case nativeSupportAbsentWholeAndKeys:
 		return "leave the new key declaration out and run daem lock, then daem apply to retire the old management; add the key declaration back and run both commands again"
 	case nativeSupportWholeRemovalAndKeys:
-		return "to keep the existing file, keep its declaration ID and destination and change ownership to keys; to replace the file, leave the new key declaration out and run daem lock, then daem apply (this deletes the existing managed file), then add the key declaration and run both commands again"
+		return `to keep the existing file, restore the original declaration at the recorded path, set ownership = "keys", and put only the settings you want to manage in its source. Remove the competing key declaration, then run daem lock and daem apply. To replace the file, leave the new key declaration out and run daem lock, then daem apply (this deletes the existing managed file), then add the key declaration and run both commands again`
 	default:
 		return ""
 	}
