@@ -13,6 +13,7 @@ import (
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
@@ -243,7 +244,8 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	if err != nil {
 		return nil, err
 	}
-	ordinaryAliases, err := observeOrdinaryDocumentAliases(ctx, paths, budget, candidates)
+	resolver := physicalhostpath.NewResolver(paths)
+	ordinaryAliases, err := journalnamespace.ObserveOrdinaryDocumentAliases(ctx, candidates, resolver.Resolve, budget)
 	if err != nil {
 		return nil, err
 	}

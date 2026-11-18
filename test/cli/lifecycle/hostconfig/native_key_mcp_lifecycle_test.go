@@ -6,9 +6,14 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
@@ -198,6 +203,110 @@ command='echo'
 			}
 			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 			testkit.AssertNoRecoveryArtifacts(t, workspace)
+		})
+	}
+}
+
+func TestNativeKeyReplacementWithBrokenMCPRoute(t *testing.T) {
+	for _, route := range []struct {
+		name, link string
+		cyclic     bool
+	}{
+		{name: "cycle", link: "config.toml", cyclic: true},
+		{name: "unresolved", link: "missing/../prefs.toml"},
+	} {
+		t.Run(route.name, func(t *testing.T) {
+			root := t.TempDir()
+			nativefixture.SetRecoveryEnvironment(t, root)
+			workspace := filepath.Join(root, "workspace")
+			manifest := filepath.Join(workspace, "daem.toml")
+			destination := filepath.Join(workspace, ".codex", "prefs.toml")
+			mcp := filepath.Join(workspace, ".codex", "config.toml")
+			testkit.WriteFile(t, workspace, "daem.toml", `version=1
+targets=['codex']
+[[agent_config]]
+id='preferences'
+path='prefs.toml'
+source='preferences.toml'
+[[mcp_server]]
+name='search'
+transport='stdio'
+command='echo'
+`)
+			testkit.WriteFile(t, workspace, "preferences.toml", "model='managed'\n")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			paths, err := daempaths.Resolve(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: destination, Paths: paths}
+			stateBefore, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
+			if err != nil || len(stateBefore.ManagedAggregates()) != 2 {
+				t.Fatal("fixture did not retain both managed settings", err)
+			}
+			const edited = "model='local'\nuser_setting=true\n"
+			mcpValues := testkit.ReadFile(t, mcp)
+			testkit.WriteFile(t, workspace, ".codex/prefs.toml", edited)
+			linkTo := func(target string) {
+				t.Helper()
+				if err := os.Remove(mcp); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, mcp); err != nil {
+					t.Fatal(err)
+				}
+			}
+			linkTo(route.link)
+			before := nativefixture.SnapshotRecoveryEvidence(t, fixture)
+
+			if route.cyclic {
+				fingerprint := nativeReplacementFingerprint(t, fixture, "/model")
+				if !maps.Equal(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
+					t.Fatal("selected-key preview changed host or management evidence")
+				}
+				replace := []string{"replace", "agent-config", "preferences", "--key", "/model", "--yes", "--expect-plan", fingerprint}
+				linkTo("prefs.toml")
+				testkit.WriteFile(t, workspace, ".codex/prefs.toml", edited+string(mcpValues))
+				shared := nativefixture.SnapshotRecoveryEvidence(t, fixture)
+				if current := nativeReplacementFingerprint(t, fixture, "/model"); current == fingerprint {
+					t.Fatal("a new shared document was not bound into replacement approval")
+				}
+				if code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "none", replace...); code != 1 || !maps.Equal(shared, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
+					t.Fatalf("replacement used consent from before the routes shared a file: %d\n%s%s", code, stdout, stderr)
+				}
+
+				linkTo(route.link)
+				testkit.WriteFile(t, workspace, ".codex/prefs.toml", edited)
+				nativefixture.RunRecoveryCommand(t, fixture, "none", replace...)
+				actual := testkit.ReadFile(t, destination)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, actual, "model='managed'\nuser_setting=true\n", true)
+				stateAfter, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
+				if err != nil || !slices.EqualFunc(stateBefore.ManagedAggregates(), stateAfter.ManagedAggregates(), durable.ManagedAggregateState.Equal) {
+					t.Fatal("selected-key replacement changed retained management", err)
+				}
+
+				before = nativefixture.SnapshotRecoveryEvidence(t, fixture)
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "none", "apply", "--yes", "--json")
+				if code != 1 || !strings.Contains(clijson.FailureText(t, stdout, stderr, "apply", "operation", true), "config.toml") {
+					t.Fatalf("ordinary apply did not report the broken MCP route: %d\n%s%s", code, stdout, stderr)
+				}
+			} else {
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--key", "/model", "--dry-run", "--json")
+				if code != 1 {
+					t.Fatalf("preview accepted an unresolved MCP route: %d\n%s%s", code, stdout, stderr)
+				}
+				failure := clijson.DecodeFailure(t, stdout, "replace agent-config", "operation")
+				if !strings.Contains(failure.Error.Message, "config.toml") || strings.Contains(failure.Error.Message, root) || len(failure.Guidance) != 1 || !strings.Contains(failure.Guidance[0].Message, "links") {
+					t.Fatalf("unresolved route needs an actionable diagnostic without a resolved path: %+v", failure)
+				}
+			}
+			if got, err := os.Readlink(mcp); err != nil || got != route.link {
+				t.Fatal("command changed the MCP link", got, err)
+			}
+			if !maps.Equal(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {
+				t.Fatal("refusal changed host or management evidence")
+			}
 		})
 	}
 }

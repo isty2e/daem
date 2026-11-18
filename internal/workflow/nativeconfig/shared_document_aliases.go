@@ -1,19 +1,13 @@
 package nativeconfig
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/desired/entity"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
-	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -93,28 +87,4 @@ func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snaps
 	}
 	slices.SortFunc(result, journaldocument.CompareAliases)
 	return result, nil
-}
-
-func observeOrdinaryDocumentAliases(ctx context.Context, paths daempaths.Paths, budget *physicalwork.Budget, candidates []aggregate.DocumentAddress) (map[aggregate.DocumentAddress]mutation.DirectoryEntryAuthorityObservation, error) {
-	if len(candidates) == 0 {
-		return nil, ctx.Err()
-	}
-	observations := make(map[aggregate.DocumentAddress]mutation.DirectoryEntryAuthorityObservation, len(candidates))
-	resolver := physicalhostpath.NewResolver(paths)
-	observe := mutation.NewFutureReferentAuthorityObserverBounded(physicalwork.MaximumPhysicalPathDepth, budget)
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		path, err := resolver.Resolve(candidate.AggregateRoot(), budget)
-		if err != nil {
-			return nil, fmt.Errorf("resolve ordinary document %q: %w", candidate.AggregateRoot(), err)
-		}
-		_, ordinary, err := observe(path)
-		if err != nil {
-			return nil, fmt.Errorf("observe ordinary document source %q: %w", candidate.AggregateRoot(), err)
-		}
-		observations[candidate] = ordinary
-	}
-	return observations, ctx.Err()
 }

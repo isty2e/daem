@@ -5,6 +5,7 @@ package rootedpath
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -766,8 +767,56 @@ func TestCaptureDestinationBoundedRejectsAliasCycle(t *testing.T) {
 		256,
 		budget,
 	)
-	if err == nil || !strings.Contains(err.Error(), "too many symbolic links") {
+	if !hasFailureKind(err, FailureSymlinkCycle) {
 		t.Fatalf("CaptureDestinationBounded error = %v, want symlink-cycle rejection", err)
+	}
+}
+
+func TestFutureReferentDistinguishesCyclesFromFiniteLinkTraversal(t *testing.T) {
+	base := referentTestRoot(t)
+	file := filepath.Join(base, "settings.toml")
+	if err := os.WriteFile(file, []byte("model = 'test'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{
+		"directory": ".",
+		"cycle":     "cycle/child",
+		"blocked":   "settings.toml/child",
+	} {
+		if err := os.Symlink(target, filepath.Join(base, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index := range maximumPathSymlinkExpansions + 1 {
+		target := fmt.Sprintf("link-%d", index+1)
+		if index == maximumPathSymlinkExpansions {
+			target = filepath.Base(file)
+		}
+		if err := os.Symlink(target, filepath.Join(base, fmt.Sprintf("link-%d", index))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, test := range []struct {
+		name string
+		path string
+		want FailureKind
+	}{
+		{name: "repeated alias with a finite target", path: filepath.Join("directory", "directory", filepath.Base(file))},
+		{name: "growing cycle", path: "cycle", want: FailureSymlinkCycle},
+		{name: "non-directory ancestor", path: "blocked", want: FailureAncestorNotDirectory},
+		{name: "finite chain outside the traversal limit", path: "link-0", want: FailureRootUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ResolveFutureReferentPathBounded(filepath.Join(base, test.path), 256, &referentTestBudget{limit: 10_000})
+			if test.want == "" {
+				if err != nil || got != file {
+					t.Fatalf("reusing a finished expansion did not reach %q: %q, %v", file, got, err)
+				}
+			} else if got != "" || !hasFailureKind(err, test.want) {
+				t.Fatalf("traversal supplied a path or wrong failure kind, want %s: %q, %v", test.want, got, err)
+			}
+		})
 	}
 }
 

@@ -154,6 +154,16 @@ type pendingNativePathComponent struct {
 	required bool
 }
 
+type nativeAliasKey struct {
+	path, target  string
+	device, inode uint64
+}
+
+type nativeAliasExpansion struct {
+	alias      nativeAliasKey
+	tailLength int
+}
+
 func resolveDirectoryPathPlatform(
 	selectedPath string,
 	allowMissing bool,
@@ -196,6 +206,8 @@ func resolveNativePathPlatform(
 
 	pending := nativePathComponents(names, false)
 	symlinks := 0
+	var expansions []nativeAliasExpansion
+	var activeAliases map[nativeAliasKey]struct{}
 	for len(pending) != 0 {
 		component := pending[0]
 		pending = pending[1:]
@@ -287,6 +299,24 @@ func resolveNativePathPlatform(
 					unix.ENOENT,
 				))
 			}
+
+			// The tail starts after the link's target. A second use in the tail
+			// is allowed; seeing the same link while expanding its target is a cycle.
+			for len(expansions) != 0 && len(pending) < expansions[len(expansions)-1].tailLength {
+				last := len(expansions) - 1
+				delete(activeAliases, expansions[last].alias)
+				expansions = expansions[:last]
+			}
+			alias := nativeAliasKey{path: candidatePath, target: target, device: uint64(stat.Dev), inode: uint64(stat.Ino)}
+			if _, active := activeAliases[alias]; active {
+				return fail(newFailure(FailureSymlinkCycle, candidatePath, "symbolic link target resolves through itself", nil))
+			}
+			if activeAliases == nil {
+				activeAliases = make(map[nativeAliasKey]struct{})
+			}
+			activeAliases[alias] = struct{}{}
+			expansions = append(expansions, nativeAliasExpansion{alias: alias, tailLength: len(pending)})
+
 			if traversal != nil && traversal.captureAliases {
 				anchor, err := captureLayoutAnchor(parent)
 				if err != nil {
@@ -320,7 +350,7 @@ func resolveNativePathPlatform(
 				return resolvedDirectoryPath(platform), platform, object, mount, suffix, nil
 			}
 			kind := FailureRootUnavailable
-			if traversal != nil && traversal.directoryObservation {
+			if allowFinalEntry || traversal != nil && traversal.directoryObservation {
 				kind = FailureAncestorNotDirectory
 			}
 			return fail(newFailure(

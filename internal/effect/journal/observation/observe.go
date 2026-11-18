@@ -187,10 +187,10 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 		}
 		qualified, err := journalnamespace.ObserveAlias(ctx, alias, input.Roots, input.Budget)
 		if err != nil {
-			return nil, err
+			return nil, journalnamespace.NewUnverifiedDocumentRoute(alias, err)
 		}
 		if !ordinary.Equal(qualified) || !ordinary.Equal(representatives[index]) {
-			return nil, fmt.Errorf("ordinary document route %q disagrees with the selected native namespace", alias.AggregateRoot())
+			return nil, journalnamespace.NewUnverifiedDocumentRoute(alias, errors.New("ordinary route disagrees with the selected native namespace"))
 		}
 		groups[index] = append(groups[index], alias)
 	}

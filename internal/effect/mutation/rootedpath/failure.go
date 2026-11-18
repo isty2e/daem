@@ -27,6 +27,8 @@ const (
 	FailureDanglingAncestorSymlink FailureKind = "rooted_path_destination_dangling_ancestor_symlink"
 	// FailureFinalSymlink means the final destination entry is a symlink.
 	FailureFinalSymlink FailureKind = "rooted_path_destination_final_symlink"
+	// FailureSymlinkCycle means resolution reentered an active symlink target.
+	FailureSymlinkCycle FailureKind = "rooted_path_symlink_cycle"
 	// FailureAncestorNotDirectory means an existing destination ancestor is not a directory.
 	FailureAncestorNotDirectory FailureKind = "rooted_path_destination_ancestor_not_directory"
 	// FailureAncestorChanged means destination ancestry changed after it was observed.
