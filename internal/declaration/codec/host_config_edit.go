@@ -28,19 +28,21 @@ func AppendHostConfigDeclaration(content []byte, config hostconfig.Config) ([]by
 	}
 
 	row := "{ " + strings.Join(fields, ", ") + " }"
+	insertAt, insertion := array.appendPosition(string(content), row)
 	var edits []declaration.DocumentChange
 	if len(array.rows) > 0 {
 		last := array.rows[len(array.rows)-1]
 		if last.comma < 0 {
-			edits = append(edits, insertHostConfigText(last.span.End, ","))
-		} else {
-			row += ","
+			if last.span.End == insertAt {
+				insertion = "," + insertion
+			} else {
+				edits = append(edits, insertHostConfigText(last.span.End, ","))
+			}
 		}
-		row = " " + row
 	}
-	edits = append(edits, insertHostConfigText(array.close, row))
+	edits = append(edits, insertHostConfigText(insertAt, insertion))
 	updated, err := declaration.NewDocumentChangeSet(edits...).Apply(content)
-	return updated, block, err
+	return updated, row, err
 }
 
 func insertHostConfigText(at int, value string) declaration.DocumentChange {
@@ -64,28 +66,28 @@ func RemoveHostConfigDeclaration(content []byte, id string) ([]byte, error) {
 	}
 	for _, block := range blocks {
 		if block.HostConfig.ID == id {
-			span := declaration.DocumentRange{Start: block.Start, End: hostConfigBlockEnd(content, block)}
+			end, err := hostConfigBlockEnd(content, block)
+			if err != nil {
+				return nil, err
+			}
+			span := declaration.DocumentRange{Start: block.Start, End: end}
 			return declaration.NewDocumentChangeSet(declaration.NewDocumentRemoval(span)).Apply(content)
 		}
 	}
 	return nil, fmt.Errorf("cannot locate TOML declaration for host configuration %q", id)
 }
 
-func hostConfigBlockEnd(content []byte, block HostConfigBlock) int {
-	end := block.End
-	for end > block.Start {
-		lineEnd := end
-		if content[lineEnd-1] == '\n' {
-			lineEnd--
-		}
-		lineStart := block.Start + bytes.LastIndexByte(content[block.Start:lineEnd], '\n') + 1
-		trimmed := bytes.TrimSpace(content[lineStart:lineEnd])
-		if len(trimmed) != 0 && trimmed[0] != '#' {
-			break
-		}
-		end = lineStart
+func hostConfigBlockEnd(content []byte, block HostConfigBlock) (int, error) {
+	fragment := content[block.Start:block.End]
+	index, err := tomlsyntax.IndexDocument(context.Background(), fragment)
+	if err != nil {
+		return 0, err
 	}
-	return end
+	expressions := index.Expressions()
+	if len(expressions) == 0 {
+		return 0, fmt.Errorf("cannot locate final expression for host configuration %q", block.HostConfig.ID)
+	}
+	return block.Start + tomlsyntax.SkipLine(string(fragment), expressions[len(expressions)-1].Span.End), nil
 }
 
 type inlineHostConfigRow struct {
@@ -96,6 +98,32 @@ type inlineHostConfigRow struct {
 type inlineHostConfigs struct {
 	rows  []inlineHostConfigRow
 	close int
+}
+
+func (array inlineHostConfigs) appendPosition(content, row string) (int, string) {
+	if len(array.rows) > 0 && array.rows[len(array.rows)-1].comma >= 0 {
+		row += ","
+	}
+	closeLine := strings.LastIndexByte(content[:array.close], '\n') + 1
+	if closeLine == 0 || tomlsyntax.SkipHorizontalSpace(content, closeLine, array.close) != array.close {
+		if len(array.rows) > 0 {
+			row = " " + row
+		}
+		return array.close, row
+	}
+	indent := content[closeLine:array.close] + "  "
+	if len(array.rows) > 0 {
+		last := array.rows[len(array.rows)-1].span.Start
+		line := strings.LastIndexByte(content[:last], '\n') + 1
+		if tomlsyntax.SkipHorizontalSpace(content, line, last) == last {
+			indent = content[line:last]
+		}
+	}
+	newline := "\n"
+	if closeLine >= 2 && content[closeLine-2] == '\r' {
+		newline = "\r\n"
+	}
+	return closeLine, indent + row + newline
 }
 
 func scanInlineHostConfigs(content []byte) (inlineHostConfigs, bool, error) {
@@ -142,13 +170,14 @@ func indexInlineHostConfigRows(content string, value tomlsyntax.Span) (inlineHos
 }
 
 func (array inlineHostConfigs) remove(content []byte, id string) ([]byte, error) {
+	text := string(content)
 	for index, row := range array.rows {
 		// Decode exactly the table spanned by this array member, never a text
 		// match on an id that may also appear in a source or comment.
 		var decoded struct {
 			HostConfig declaration.HostConfig `toml:"host_config"`
 		}
-		fragment := "host_config = " + string(content[row.span.Start:row.span.End])
+		fragment := "host_config = " + text[row.span.Start:row.span.End]
 		if _, err := tomlsyntax.Decode(fragment, &decoded); err != nil {
 			return nil, err
 		}
@@ -156,15 +185,34 @@ func (array inlineHostConfigs) remove(content []byte, id string) ([]byte, error)
 			continue
 		}
 
-		edits := []declaration.DocumentChange{declaration.NewDocumentRemoval(row.span)}
 		comma := row.comma
 		if comma < 0 && index > 0 {
 			comma = array.rows[index-1].comma
 		}
+		span := row.span
+		if comma >= span.End && !bytes.ContainsAny(content[span.End:comma], "\r\n") {
+			span.End = comma + 1
+			comma = -1
+		}
+		span = wholeInlineRowLine(text, span)
+		edits := []declaration.DocumentChange{declaration.NewDocumentRemoval(span)}
 		if comma >= 0 {
 			edits = append(edits, declaration.NewDocumentRemoval(declaration.DocumentRange{Start: comma, End: comma + 1}))
 		}
 		return declaration.NewDocumentChangeSet(edits...).Apply(content)
 	}
 	return nil, fmt.Errorf("cannot locate inline TOML declaration for host configuration %q", id)
+}
+
+func wholeInlineRowLine(content string, span declaration.DocumentRange) declaration.DocumentRange {
+	start := strings.LastIndexByte(content[:span.Start], '\n') + 1
+	if tomlsyntax.SkipHorizontalSpace(content, start, span.Start) != span.Start {
+		return span
+	}
+	tail := tomlsyntax.SkipHorizontalSpace(content, span.End, len(content))
+	end := tomlsyntax.SkipTrailingCommentAndNewline(content, tail)
+	if end > tail && content[end-1] == '\n' {
+		return declaration.DocumentRange{Start: start, End: end}
+	}
+	return span
 }

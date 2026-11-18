@@ -18,29 +18,34 @@ import (
 
 func TestHostConfigDeclarationEditing(t *testing.T) {
 	const header = "version = 1\ntargets = [\"codex\"]\n"
-	const inlineSelected = `{ id = "remove", path = "prefs.toml", source = { git = "https://example.org/settings.git", path = "a,b.toml", ref = "main" } }`
-	const inlineRetained = `{ id = "keep", path = "config.toml", source = "keep.toml" }`
+	const selected = `{ id = "remove", path = "prefs.toml", source = { git = "https://example.org/settings.git", path = "a,b.toml", ref = "main" } }`
+	const retained = `{ id = "keep", path = "config.toml", source = "keep.toml" }`
 	const blockSelected = "[[host_config]]\nid = \"remove\"\npath = \"prefs.toml\"\n[host_config.source]\ngit = \"https://example.org/settings.git\"\npath = \"a,b.toml\"\nref = \"main\"\n"
 	const blockRetained = "[[host_config]]\nid = \"keep\"\npath = \"config.toml\"\nsource = \"keep.toml\"\n"
-	const separator = "# keep this note, even when it follows the removed row"
+	const note = "# keep this note\n"
+	const multiLineSource = "[[host_config]]\nid = 'remove'\npath = 'prefs.toml'\nsource = '''a\n#still part of the source'''\n"
 
-	for _, example := range []struct{ name, original, retained string }{
-		{"array tables", header + blockSelected + separator + "\n" + blockRetained, blockRetained},
-		{"first inline row", header + "\"host_config\" = [\n  " + inlineSelected + ",\n  " + separator + "\n  " + inlineRetained + "\n]\n", inlineRetained},
-		{"last inline row", header + "host_config = [\n  " + inlineRetained + "\n  " + separator + "\n  , " + inlineSelected + "]\n", inlineRetained},
-		{"only inline row", header + "host_config = [" + inlineSelected + ",\n" + separator + "\n]\n", ""},
+	for _, example := range []struct{ name, original, removed string }{
+		{"array tables", blockSelected + note + blockRetained, note + blockRetained},
+		{"array table multiline value", multiLineSource + note + blockRetained, note + blockRetained},
+		{"first inline row", "\"host_config\" = [\n  " + selected + ", # selected note\n  " + note + "  " + retained + "\n]\n", "\"host_config\" = [\n  " + note + "  " + retained + "\n]\n"},
+		{"last inline row", "host_config = [\n  " + retained + "\n  " + note + "  , " + selected + "]\n", "host_config = [\n  " + retained + "\n  " + note + "   ]\n"},
+		{"compact first row", "host_config = [" + selected + ", " + retained + "]\n", "host_config = [ " + retained + "]\n"},
+		{"compact last row", "host_config = [" + retained + "," + selected + ",]\n", "host_config = [" + retained + ",]\n"},
+		{"only inline row", "host_config = [" + selected + "]\n", "host_config = []\n"},
 	} {
 		t.Run(example.name, func(t *testing.T) {
 			root := t.TempDir()
-			document := ManifestDocument{Root: root, Content: []byte(example.original)}
+			document := ManifestDocument{Root: root, Content: []byte(header + example.original)}
 			request := RemoveHostConfigRequest{ID: "remove", Target: target.TargetCodex, Scope: target.ScopeProject}
 			change, err := buildRemoveHostConfigChange(document, request)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Contains(change.Content, []byte(separator)) || !bytes.Contains(change.Content, []byte(example.retained)) {
-				t.Fatalf("edited manifest lost unselected bytes:\n%s", change.Content)
+			if string(change.Content) != header+example.removed {
+				t.Fatalf("wrong selected TOML edit:\n%s\nwant:\n%s%s", change.Content, header, example.removed)
 			}
+
 			document.Content = change.Content
 			add := AddHostConfigRequest{
 				ID: "new, quoted \"name\"", SourceArg: filepath.Join(root, "prefs\a, with settings.toml"),
@@ -57,10 +62,11 @@ func TestHostConfigDeclarationEditing(t *testing.T) {
 			id, _ := entity.New(entity.KindHostConfig, add.ID)
 			configs := environment.HostConfigs()
 			wantCount := 2
-			if example.retained == "" {
+			if example.removed == "host_config = []\n" {
 				wantCount = 1
 			}
-			if index := hostConfigIndex(configs, id); index < 0 || len(configs) != wantCount || !bytes.Contains(change.Content, []byte(separator)) {
+			if index := hostConfigIndex(configs, id); index < 0 || len(configs) != wantCount ||
+				!bytes.Contains(change.Content, []byte(change.ManifestBlock)) {
 				t.Fatalf("unexpected manifest after remove and add:\n%s", change.Content)
 			}
 			document.Content = change.Content
@@ -147,6 +153,10 @@ func TestHostConfigAuthoringRejectsControlFileSource(t *testing.T) {
 		}
 	}
 	sources := []string{manifestPath, lockPath}
+	folded := filepath.Join(root, "DAEM.TOML")
+	if _, err := os.Stat(folded); err == nil {
+		sources = append(sources, folded)
+	}
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Symlink(root, alias); err == nil {
 		sources = append(sources, filepath.Join(alias, "daem.toml"))
@@ -169,5 +179,33 @@ func TestHostConfigAuthoringRejectsControlFileSource(t *testing.T) {
 		if err != nil || !bytes.Equal(actual, want) {
 			t.Fatalf("rejected source changed control file %q: %v, %q", path, err, actual)
 		}
+	}
+}
+
+func TestHostConfigControlFileSourceCanBeRemoved(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "daem.toml")
+	const original = `version = 1
+targets = ['codex']
+host_config = [
+  { id = 'self-source', path = 'prefs.toml', source = 'daem.toml' },
+  { id = 'other', path = 'other.toml', source = 'other.toml' },
+]
+`
+	if err := os.WriteFile(manifest, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "other.toml"), []byte("enabled = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := ExecutionOptions{ManifestPath: manifest, Mode: AuthoringModeWrite}
+	if _, err := RemoveHostConfig(t.Context(), options, RemoveHostConfigRequest{ID: "other"}); err == nil || !strings.Contains(err.Error(), "use a separate source file") {
+		t.Fatalf("remove bypassed the retained self-source check: %v", err)
+	}
+	if actual, err := os.ReadFile(manifest); err != nil || string(actual) != original {
+		t.Fatalf("rejection changed the manifest: %v, %s", err, actual)
+	}
+	if _, err := RemoveHostConfig(t.Context(), options, RemoveHostConfigRequest{ID: "self-source"}); err != nil {
+		t.Fatal(err)
 	}
 }

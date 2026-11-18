@@ -51,7 +51,8 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 
 	added := clijson.DecodeManifestAuthoring(t, []byte(nativefixture.RunLifecycleCommand(t, append(slices.Clone(add), "--json")...)))
 	if added.Operation != "add" || added.Lockfile == nil || added.Lockfile.Status != "written" || len(added.Changes) != 1 ||
-		added.Changes[0].Resource.Kind != "host_config" || added.Changes[0].ResourceID != "host_config/preferences" || added.Host != nil {
+		added.Changes[0].Resource.Kind != "host_config" || added.Changes[0].ResourceID != "host_config/preferences" || added.Host != nil ||
+		!strings.HasPrefix(added.Changes[0].ManifestBlock, "{") {
 		t.Fatalf("unexpected add result: %+v", added)
 	}
 	testkit.AssertFileContent(t, destination, unmanaged)

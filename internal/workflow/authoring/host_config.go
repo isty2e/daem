@@ -65,9 +65,9 @@ func buildAddHostConfigChange(document ManifestDocument, request AddHostConfigRe
 	}
 
 	change := Change{ManifestPath: document.Path, Original: document.Content, ResourceID: requested.ID().Name()}
-	configs := environment.HostConfigs()
-	if index := hostConfigIndex(configs, requested.ID()); index >= 0 {
-		if !sameHostConfigDeclaration(document.Root, configs[index], requested) {
+	before := environment.HostConfigs()
+	if index := hostConfigIndex(before, requested.ID()); index >= 0 {
+		if !sameHostConfigDeclaration(document.Root, before[index], requested) {
 			return Change{}, fmt.Errorf("host configuration %q already exists with different settings or source", requested.ID().Name())
 		}
 		change.Content = document.Content
@@ -83,10 +83,10 @@ func buildAddHostConfigChange(document ManifestDocument, request AddHostConfigRe
 	if err != nil {
 		return Change{}, fmt.Errorf("resulting manifest is invalid: %w", err)
 	}
-	configs = result.HostConfigs()
-	index := hostConfigIndex(configs, requested.ID())
-	if index < 0 || !sameHostConfigDeclaration(document.Root, configs[index], requested) {
-		return Change{}, fmt.Errorf("manifest edit did not add the requested host configuration")
+	after := result.HostConfigs()
+	if len(after) != len(before)+1 || !slices.Equal(before, after[:len(before)]) ||
+		!sameHostConfigDeclaration(document.Root, after[len(before)], requested) {
+		return Change{}, fmt.Errorf("manifest edit did not add only the requested host configuration")
 	}
 	change.ChangeKind = "append host-config resource"
 	return change, nil
@@ -121,8 +121,8 @@ func buildRemoveHostConfigChange(document ManifestDocument, request RemoveHostCo
 	if err != nil {
 		return Change{}, fmt.Errorf("resulting manifest is invalid: %w", err)
 	}
-	if hostConfigIndex(result.HostConfigs(), id) >= 0 {
-		return Change{}, fmt.Errorf("host configuration %q remains after the manifest edit", id.Name())
+	if !slices.Equal(slices.Delete(configs, index, index+1), result.HostConfigs()) {
+		return Change{}, fmt.Errorf("manifest edit did not remove only host configuration %q", id.Name())
 	}
 	return Change{
 		ManifestPath: document.Path, Original: document.Content, Content: content,

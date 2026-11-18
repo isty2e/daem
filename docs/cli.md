@@ -733,7 +733,9 @@ destination's admitted grammar. The preview omits arbitrary whole-file contents.
 Initial capture creates a new id and a new local file under
 `<source-dir>/host-config/`; it never overwrites a source destination. Without
 `--source-dir`, the directory is the manifest's basename with `.d` instead of its
-extension. Initial-only placement and source-directory flags cannot accompany
+extension. To merge an initial capture into a manifest with an existing
+nonempty inline `host_config` array, convert it to `[[host_config]]` blocks
+first. Initial-only placement and source-directory flags cannot accompany
 `--update-source`.
 
 An update selects the existing source's declared keys; optional `--key` selectors
@@ -794,7 +796,7 @@ daem add skill-group <source-root> --member <name>
 Every leaf accepts `--manifest`, repeated `--target`, applicable `--scope`,
 `--dry-run`, `--diff`, `--json`, and `--verbose`. Add writes by default. It
 builds and validates a prospective manifest and lockfile, then commits both
-together. On failure, neither file advances.
+together. A prospective validation failure leaves both files unchanged.
 
 Repeating an already-satisfied add succeeds without an extra flag. It reports
 `change: unchanged`, not a duplicate warning. The declaration identity and

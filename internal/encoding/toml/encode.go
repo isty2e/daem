@@ -22,9 +22,9 @@ func QuoteBasicString(value string) string {
 	builder.WriteByte('"')
 	for _, character := range value {
 		switch {
-		case character == '\\' || character == '"':
-			builder.WriteByte('\\')
-			builder.WriteRune(character)
+		case strings.ContainsRune("\\\"\b\t\n\f\r", character):
+			quoted := strconv.Quote(string(character))
+			builder.WriteString(quoted[1 : len(quoted)-1])
 		case strconv.IsPrint(character):
 			builder.WriteRune(character)
 		case character <= 0xFFFF:
