@@ -25,8 +25,8 @@ type AddHostConfigRequest struct {
 	Target     target.Target
 	Scope      target.Scope
 	HostPath   string
-	Ownership  hostconfig.Ownership
-	Syntax     hostconfig.Syntax
+	Ownership  string
+	Syntax     string
 }
 
 type RemoveHostConfigRequest struct {
@@ -58,7 +58,7 @@ func buildAddHostConfigChange(document ManifestDocument, request AddHostConfigRe
 	}
 	requested, err := hostconfig.New(hostconfig.Spec{
 		Name: request.ID, Source: provenance, Target: request.Target, Scope: request.Scope,
-		Path: request.HostPath, Ownership: request.Ownership, Syntax: request.Syntax,
+		Path: request.HostPath, Ownership: hostconfig.Ownership(request.Ownership), Syntax: hostconfig.Syntax(request.Syntax),
 	})
 	if err != nil {
 		return Change{}, err

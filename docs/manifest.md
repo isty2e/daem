@@ -102,7 +102,7 @@ install_mode = "copy"
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `scope` | string | `project` | Default install scope for skills, hooks, and instructions. |
+| `scope` | string | `project` | Default scope for skills, hooks, instructions, and host configuration. |
 | `install_mode` | string | `copy` | Default placement mode for skill resources. |
 
 Supported `scope` values:
@@ -1384,7 +1384,14 @@ manifest:
 notifications = false
 ```
 
-Add this declaration to `daem.toml`:
+To add the declaration and refresh `daem.lock.toml` in one step, run:
+
+```sh
+daem add host-config codex-preferences ./codex-preferences.toml \
+  --target codex --scope project --host-path config.toml
+```
+
+Or add this declaration to `daem.toml` by hand and run `daem lock`:
 
 ```toml
 [[host_config]]
@@ -1396,10 +1403,9 @@ source = "./codex-preferences.toml"
 ownership = "keys"
 ```
 
-Then lock, preview, apply and check:
+Then preview, apply, and check:
 
 ```sh
-daem lock
 daem apply --dry-run
 daem apply --yes
 daem status --check
@@ -1408,8 +1414,10 @@ daem status --check
 This manages `tui.notifications` in `.codex/config.toml` under the manifest
 directory. It does not copy the source over the entire file or add management
 markers to the host document. Change the source and rerun `lock` and `apply` to
-update the managed value. Remove a key from the source, or remove its declaration,
-and rerun those commands to remove its managed value. Unrelated settings remain.
+update or remove individual managed values. To remove the complete declaration
+and refresh the lock, use `daem remove host-config codex-preferences`. Preview
+and apply to remove the managed values; unrelated settings remain. To leave the
+host values in place and release management, use `daem unmanage host-config`.
 
 For Pi, use `targets = ["pi"]` and a JSON fragment such as
 `{"retry":{"enabled":true}}` with `path = "settings.json"`; project placement

@@ -30,6 +30,8 @@ func prepareRemoveInvocation(ctx context.Context, subject string, args []string,
 		return prepareRemoveInstructionInvocation(ctx, args, stdout, stderr)
 	case "hook":
 		return prepareRemoveHookInvocation(ctx, args, stdout, stderr)
+	case "host-config":
+		return prepareHostConfigAuthoring(ctx, clipresent.AuthoringOperationRemove, args, stdout, stderr)
 	case "mcp-server":
 		return prepareRemoveMCPInvocation(ctx, args, stdout, stderr)
 	case "skill":

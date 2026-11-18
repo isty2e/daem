@@ -84,7 +84,7 @@ host_config = [{ id = "sample", path = "config.toml", source = "./prefs.toml" }]
 	if err != nil || change.ChangeKind != "unchanged" || !bytes.Equal(change.Content, content) {
 		t.Fatalf("an inherited declaration did not satisfy add: %v, %q", err, change.ChangeKind)
 	}
-	add.Syntax = hostconfig.SyntaxTOML
+	add.Syntax = string(hostconfig.SyntaxTOML)
 	if _, err := buildAddHostConfigChange(document, add); err == nil {
 		t.Fatal("an explicit syntax unexpectedly replaced the default syntax intent")
 	}
