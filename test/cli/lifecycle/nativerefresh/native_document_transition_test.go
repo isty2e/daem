@@ -66,7 +66,7 @@ func newNativeDocumentTransitionFixture(t *testing.T, selected target.Target, sc
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.declaration = fmt.Sprintf("version=1\ntargets=[%q]\n[[host_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", selected, selected, scope, name, f.source)
+	f.declaration = fmt.Sprintf("version=1\ntargets=[%q]\n[[agent_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", selected, selected, scope, name, f.source)
 	testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.original)
 	f.writeMode(t, "document")
 	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)

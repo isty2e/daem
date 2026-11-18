@@ -41,7 +41,7 @@ func TestNativeProtectionMembersUseExpectedFilesNotNamespacePresence(t *testing.
 				t.Fatal(err)
 			}
 			manifest := filepath.Join(root, "daem.toml")
-			if err := os.WriteFile(manifest, []byte("version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\nscope='project'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n"), 0o600); err != nil {
+			if err := os.WriteFile(manifest, []byte("version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\nscope='project'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			fragment := filepath.Join(root, "preferences.json")

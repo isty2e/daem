@@ -79,7 +79,7 @@ func lockResolvedNativeDocuments(ctx context.Context, documents []nativeDocument
 		members, err := lockResolvedNativeDocument(ctx, document, result, limits)
 		if err != nil {
 			options.Events.Emit(result.task.event(EventResourceLockFailed, err))
-			return nil, fmt.Errorf("lock host_config %q: %w", document.config.ID(), err)
+			return nil, fmt.Errorf("lock agent_config %q: %w", document.config.ID(), err)
 		}
 		contracts = append(contracts, members...)
 		options.Events.Emit(result.task.event(EventResourceLocked, nil))

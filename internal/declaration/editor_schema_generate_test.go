@@ -84,13 +84,6 @@ func (builder *editorSchemaBuilder) node(typ reflect.Type) (*editorSchemaNode, e
 	projector, custom := reflect.New(typ).Interface().(editorSchemaProjector)
 	if custom || typ.Kind() == reflect.Struct {
 		name := typ.Name()
-		// Preserve published schema references independently of the Go type names.
-		switch typ {
-		case reflect.TypeFor[AgentConfig]():
-			name = "HostConfig"
-		case reflect.TypeFor[AgentConfigSource]():
-			name = "HostConfigSource"
-		}
 		if name == "" {
 			return builder.object(typ)
 		}

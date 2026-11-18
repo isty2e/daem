@@ -18,7 +18,7 @@ const (
 	KindInstructions Kind = "instructions"
 	KindMCPServer    Kind = "mcp_server"
 	KindExtension    Kind = "extension"
-	KindAgentConfig  Kind = "host_config"
+	KindAgentConfig  Kind = "agent_config"
 )
 
 // ParseKind validates a desired family kind.

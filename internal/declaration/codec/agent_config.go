@@ -11,18 +11,18 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 )
 
-// AgentConfigBlock is one host_config array-table range and its decoded value.
+// AgentConfigBlock is one agent_config array-table range and its decoded value.
 type AgentConfigBlock struct {
 	Start       int
 	End         int
 	AgentConfig declaration.AgentConfig
 }
 
-// ScanAgentConfigBlocks finds top-level host_config rows and their byte ranges.
+// ScanAgentConfigBlocks finds top-level agent_config rows and their byte ranges.
 func ScanAgentConfigBlocks(content []byte) ([]AgentConfigBlock, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
-		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "host_config") },
+		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "agent_config") },
 		startsNewAgentConfigTable,
 	)
 	blocks := make([]AgentConfigBlock, 0, len(ranges))
@@ -37,42 +37,42 @@ func ScanAgentConfigBlocks(content []byte) ([]AgentConfigBlock, error) {
 }
 
 func startsNewAgentConfigTable(trimmedLine string) bool {
-	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "host_config")
+	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "agent_config")
 }
 
 func parseAgentConfigBlock(content []byte, start int, end int) (AgentConfigBlock, error) {
 	var decoded struct {
-		AgentConfigs []declaration.AgentConfig `toml:"host_config"`
+		AgentConfigs []declaration.AgentConfig `toml:"agent_config"`
 	}
 	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
-		return AgentConfigBlock{}, fmt.Errorf("parse existing host_config block: %w", err)
+		return AgentConfigBlock{}, fmt.Errorf("parse existing agent_config block: %w", err)
 	}
 	if len(decoded.AgentConfigs) != 1 {
-		return AgentConfigBlock{}, fmt.Errorf("parse existing host_config block: expected one host_config")
+		return AgentConfigBlock{}, fmt.Errorf("parse existing agent_config block: expected one agent_config")
 	}
 	return AgentConfigBlock{
 		Start: start, End: end, AgentConfig: decoded.AgentConfigs[0],
 	}, nil
 }
 
-// RenderAgentConfigBlock encodes one validated canonical host configuration.
+// RenderAgentConfigBlock encodes one validated agent configuration declaration.
 func RenderAgentConfigBlock(config agentconfig.Config) (string, error) {
 	fields, err := agentConfigFields(config)
 	if err != nil {
 		return "", err
 	}
-	return "[[host_config]]\n" + strings.Join(fields, "\n") + "\n", nil
+	return "[[agent_config]]\n" + strings.Join(fields, "\n") + "\n", nil
 }
 
 func agentConfigFields(config agentconfig.Config) ([]string, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("render host_config: %w", err)
+		return nil, fmt.Errorf("render agent_config: %w", err)
 	}
 
 	sourceFields := agentConfigDeclarationSource(config.Source())
 	for _, value := range []string{sourceFields.Path, sourceFields.Git, sourceFields.Ref, sourceFields.S3, sourceFields.VersionID, sourceFields.Region} {
 		if !utf8.ValidString(value) {
-			return nil, fmt.Errorf("host configuration source must be representable as UTF-8 TOML")
+			return nil, fmt.Errorf("agent configuration source must be representable as UTF-8 TOML")
 		}
 	}
 	quote := tomlsyntax.QuoteBasicString

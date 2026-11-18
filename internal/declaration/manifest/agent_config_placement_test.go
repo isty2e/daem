@@ -24,7 +24,7 @@ func TestAgentConfigPlacementFollowsSelectedManifest(t *testing.T) {
 					}
 					environment, err := Decode([]byte(fmt.Sprintf(`version = 1
 targets = [%q]
-[[host_config]]
+[[agent_config]]
 id = "settings"
 scope = %q
 path = "extension/settings.json"

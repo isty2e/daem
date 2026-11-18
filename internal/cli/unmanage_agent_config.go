@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"io"
+	"strings"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/target"
@@ -22,7 +23,7 @@ func prepareUnmanageAgentConfigInvocation(ctx context.Context, args []string, st
 	flags.Var(&targets, "target", "require the declaration to match this coding agent")
 	flags.Var(&scopes, "scope", "require the declaration to match this scope")
 	arguments := prepareAuthoringArguments(flags, args, 1)
-	response := newCommandResponse("unmanage "+legacyAgentConfigSubject, arguments.output, stdout, stderr)
+	response := newCommandResponse(strings.Join(path, " "), arguments.output, stdout, stderr)
 	return &preparedInvocation{response: response, execute: func() int {
 		if commandHelpRequested(args) {
 			printCommandUsage(path, stdout, 0)

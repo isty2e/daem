@@ -174,7 +174,7 @@ func assertNativeDocumentRoundtrip(t *testing.T, directory string, file lock.Fil
 	for _, change := range []struct{ before, after string }{
 		{`path = "`, `path = "other/`},
 		{"exact_permission_mode = 384", "exact_permission_mode = 420"},
-		{"[locked.subject.host_config_placement]", "[locked.subject.host_config_placement]\nunknown = true"},
+		{"[locked.subject.agent_config_placement]", "[locked.subject.agent_config_placement]\nunknown = true"},
 	} {
 		corrupted := strings.Replace(string(encoded), change.before, change.after, 1)
 		if corrupted == string(encoded) {

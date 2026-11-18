@@ -34,7 +34,7 @@ func prepareAgentConfigUnmanageCLI(t *testing.T) (daempaths.Paths, string, strin
 	if err := os.WriteFile(source, []byte("model='declared'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	body := fmt.Sprintf("version=1\ntargets=['codex']\n[[host_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource=%q\nownership='keys'\n", filepath.ToSlash(source))
+	body := fmt.Sprintf("version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource=%q\nownership='keys'\n", filepath.ToSlash(source))
 	if err := os.WriteFile(manifest, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func runAgentConfigUnmanageCLI(t *testing.T, args ...string) (int, []byte) {
 func TestCLIUnmanageAgentConfigKeepsItsDiagnosticPrefixWhenJSONDeliveryFails(t *testing.T) {
 	paths, _, _ := prepareAgentConfigUnmanageCLI(t)
 	var stderr bytes.Buffer
-	code := RunWithOptions([]string{"unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath, "--json"}, RunOptions{
+	code := RunWithOptions([]string{"unmanage", "agent-config", "preferences", "--manifest", paths.ManifestPath, "--json"}, RunOptions{
 		Stdout: errorWriter{err: errors.New("private transport detail")}, Stderr: &stderr,
 	})
 	if code != 1 || !strings.Contains(stderr.String(), "unmanage failed: write json: ") || strings.Contains(stderr.String(), "private transport detail") {
@@ -101,7 +101,7 @@ func TestCLIUnmanageAgentConfigKeepsDriftWithoutSourceDeclarationOrLock(t *testi
 				t.Fatal(err)
 			}
 			for _, preview := range []bool{true, false} {
-				args := []string{"unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath, "--json"}
+				args := []string{"unmanage", "agent-config", "preferences", "--manifest", paths.ManifestPath, "--json"}
 				if preview {
 					args = append(args, "--dry-run")
 				}
@@ -127,7 +127,7 @@ func TestCLIUnmanageAgentConfigKeepsDriftWithoutSourceDeclarationOrLock(t *testi
 				if preview {
 					want = "would_release"
 				}
-				if err := json.Unmarshal(content, &result); err != nil || result.Command != "unmanage" || result.Management.Status != want || result.Host.State != "retained" || len(result.Changes) != 1 || result.Changes[0].Resource.Kind != "host_config" {
+				if err := json.Unmarshal(content, &result); err != nil || result.Command != "unmanage" || result.Management.Status != want || result.Host.State != "retained" || len(result.Changes) != 1 || result.Changes[0].Resource.Kind != "agent-config" {
 					t.Fatal("unmanage lost its structured outcome", string(content), err)
 				}
 				current, err := os.ReadFile(host)
@@ -206,7 +206,7 @@ func TestCLIUnmanageAgentConfigRefusesAnUneditableDeclarationBeforeReleasingStat
 			t.Fatal("fixture could not establish management")
 		}
 	}
-	inline := fmt.Sprintf("version=1\ntargets=['codex']\nhost_config=[{id='preferences',scope='global',path='config.toml',source=%q,ownership='keys'}]\n", filepath.ToSlash(source))
+	inline := fmt.Sprintf("version=1\ntargets=['codex']\nagent_config=[{id='preferences',scope='global',path='config.toml',source=%q,ownership='keys'}]\n", filepath.ToSlash(source))
 	if err := os.WriteFile(paths.ManifestPath, []byte(inline), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestCLIUnmanageAgentConfigRefusesAnUneditableDeclarationBeforeReleasingStat
 		}
 		before[path] = content
 	}
-	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath); code != 1 {
+	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "agent-config", "preferences", "--manifest", paths.ManifestPath); code != 1 {
 		t.Fatal("unselectable source edit did not refuse")
 	}
 	for path, expected := range before {
@@ -232,7 +232,7 @@ func TestCLIUnmanageAgentConfigRefusesAnUneditableDeclarationBeforeReleasingStat
 	if err := os.Remove(source); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath); code != 0 {
+	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "agent-config", "preferences", "--manifest", paths.ManifestPath); code != 0 {
 		t.Fatal("retained management could not be released after manual declaration removal")
 	}
 	if content, err := os.ReadFile(host); err != nil || !bytes.Equal(content, before[host]) {
@@ -249,7 +249,7 @@ func TestCLIUnmanageAgentConfigWholeDocumentUsesTheSelectedNativeRoot(t *testing
 	if err := os.WriteFile(source, []byte("{\"theme\":\"declared\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest := fmt.Sprintf("version=1\ntargets=['opencode']\n[[host_config]]\nid='preferences'\nscope='global'\npath='preferences.jsonc'\nsource=%q\nownership='document'\n", filepath.ToSlash(source))
+	manifest := fmt.Sprintf("version=1\ntargets=['opencode']\n[[agent_config]]\nid='preferences'\nscope='global'\npath='preferences.jsonc'\nsource=%q\nownership='document'\n", filepath.ToSlash(source))
 	if err := os.WriteFile(paths.ManifestPath, []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestCLIUnmanageAgentConfigWholeDocumentUsesTheSelectedNativeRoot(t *testing
 	if err := os.Remove(source); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath); code != 0 {
+	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "agent-config", "preferences", "--manifest", paths.ManifestPath); code != 0 {
 		t.Fatal("whole-document release failed")
 	}
 	if content, err := os.ReadFile(host); err != nil || !bytes.Equal(content, drift) {
@@ -305,7 +305,7 @@ func TestCLIUnmanageAgentConfigKeepsLinkedControlFilesAndTheOriginalOwner(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "host-config", "preferences", "--manifest", paths.ManifestPath); code != 0 {
+	if code, _ := runAgentConfigUnmanageCLI(t, "unmanage", "agent-config", "preferences", "--manifest", paths.ManifestPath); code != 0 {
 		t.Fatal("linked metadata release failed")
 	}
 	for _, selected := range []string{paths.ManifestPath, paths.LockfilePath} {

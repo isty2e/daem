@@ -41,7 +41,7 @@ func (plan *AgentConfigCapturePlan) Fingerprint() string {
 // through a display or JSON string's UTF-8 replacement rules.
 func captureFingerprint(fields ...[]byte) string {
 	digest := sha256.New()
-	digest.Write([]byte("daem-host-config-capture-v1:"))
+	digest.Write([]byte("daem-agent-config-capture-v1:"))
 	for _, field := range fields {
 		fmt.Fprintf(digest, "%d:", len(field))
 		digest.Write(field)

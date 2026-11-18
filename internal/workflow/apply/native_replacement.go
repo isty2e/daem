@@ -189,7 +189,7 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 		Source     sourceFacts
 		Protection []protectionFacts
 		Limits     configdocument.Limits
-	}{"replace-host-config/v1", identity, source, protections, nativeconfig.DocumentLimits()})
+	}{"replace-agent-config/v1", identity, source, protections, nativeconfig.DocumentLimits()})
 }
 
 func normalizeNativeReplacementInput(input NativeReplacementInput) (topologyprojection.AgentConfigKeySelection, error) {

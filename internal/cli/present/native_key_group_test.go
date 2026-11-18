@@ -109,7 +109,7 @@ func TestNativeGroupBlockKeepsCrossDeclarationAndMCPIdentity(t *testing.T) {
 	}
 	var out bytes.Buffer
 	printNativeGroupBlock(&out, configurationBlock{causes: []topology.SubjectID{first.Subject(), second.Subject(), mcp}}, first)
-	for _, value := range []string{`key "a/b"`, `"host_config/other" key "~name"`, `"mcp-server/context7"`} {
+	for _, value := range []string{`key "a/b"`, `"agent-config/other" key "~name"`, `"mcp-server/context7"`} {
 		if !strings.Contains(out.String(), value) {
 			t.Fatalf("lost cause %s: %s", value, out.String())
 		}

@@ -22,7 +22,7 @@ func TestNativeMixedPreviewAndWriteShareSupportAdmission(t *testing.T) {
 targets = ["codex"]
 [instructions.project]
 source = "./instructions.md"
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"

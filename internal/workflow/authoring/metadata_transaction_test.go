@@ -46,7 +46,7 @@ func TestAuthoringPreviewsRefuseInterruptedMetadataTransaction(t *testing.T) {
 			},
 		},
 		{
-			name: "remove host-config",
+			name: "remove agent-config",
 			run: func() error {
 				_, err := RemoveAgentConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, RemoveAgentConfigRequest{ID: "preferences"})
 				return err

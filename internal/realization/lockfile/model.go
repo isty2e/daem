@@ -31,7 +31,7 @@ type lockedSubjectDTO struct {
 	SubjectID               string                        `toml:"subject_id"`
 	ExactSupply             *exactIdentityDTO             `toml:"exact_supply,omitempty"`
 	ExactFileUse            *exactFileUseDTO              `toml:"exact_file_use,omitempty"`
-	AgentConfigPlacement    *agentConfigPlacementDTO      `toml:"host_config_placement,omitempty"`
+	AgentConfigPlacement    *agentConfigPlacementDTO      `toml:"agent_config_placement,omitempty"`
 	Realization             *realizationDTO               `toml:"realization,omitempty"`
 	Derivation              *derivationDTO                `toml:"derivation,omitempty"`
 	RepairRecipe            *repairRecipeDTO              `toml:"repair_recipe,omitempty"`

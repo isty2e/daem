@@ -24,7 +24,7 @@ func TestImportAgentConfigAfterManagedApplyPreservesScopeOwnership(t *testing.T)
 					if err := os.WriteFile(host, []byte(`{"nested":{"leaf":1},"outside":8}`), 0o600); err != nil {
 						t.Fatal(err)
 					}
-					args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--host-path", path, "--ownership", mode}
+					args := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--config-path", path, "--ownership", mode}
 					if mode == "keys" {
 						args = append(args, "--key", "/nested")
 					}
@@ -74,7 +74,7 @@ func TestImportAgentConfigAfterManagedApplyPreservesScopeOwnership(t *testing.T)
 					if err := os.WriteFile(host, changed, 0o600); err != nil {
 						t.Fatal(err)
 					}
-					update := []string{"import", "host-config", "chosen", "--manifest", manifest, "--update-source"}
+					update := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
 					original, err := os.ReadFile(paths.OwnershipRegistryPath)
 					if err != nil {
 						t.Fatal(err)

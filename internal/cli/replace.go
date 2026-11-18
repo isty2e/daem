@@ -33,7 +33,7 @@ func prepareReplaceAgentConfigInvocation(args []string, stdout, stderr io.Writer
 	var keys replacementKeyValues
 	flags.Var(&keys, "key", "RFC 6901 selector narrowing the declaration's atomic keys; repeatable")
 	arguments := prepareAuthoringArguments(flags, args, 1)
-	response := newCommandResponse("replace "+legacyAgentConfigSubject, arguments.output, stdout, stderr)
+	response := newCommandResponse(strings.Join(path, " "), arguments.output, stdout, stderr)
 	return &preparedInvocation{response: response, execute: func() int {
 		fail := func(code commandFailureClass, err error) int {
 			return response.failure(code, humanFailureDiagnostic(err))

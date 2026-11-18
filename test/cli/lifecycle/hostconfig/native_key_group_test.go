@@ -21,7 +21,7 @@ func TestNativeKeyGroupBlockedPlan(t *testing.T) {
 		if code != 1 || !bytes.Equal(before, testkit.ReadFile(t, fixture.Destination)) {
 			t.Fatalf("blocked group changed effects: %d %s", code, text)
 		}
-		if strings.Count(text, `resource="host_config/preferences"`) != 1 || strings.Count(text, `destination=".codex/config.toml"`) != 1 {
+		if strings.Count(text, `resource="agent-config/preferences"`) != 1 || strings.Count(text, `destination=".codex/config.toml"`) != 1 {
 			t.Fatalf("native declaration context was not grouped: %s", text)
 		}
 		if !strings.Contains(text, "3 output entries (current=0 pending=0 blocked=3)") || strings.Count(text, "document: blocked") != 1 {
@@ -32,7 +32,7 @@ func TestNativeKeyGroupBlockedPlan(t *testing.T) {
 				t.Fatalf("blocked key %s lost its own reason: %s", key, text)
 			}
 		}
-		if strings.Contains(text, `blocked by "host_config/preferences";`) {
+		if strings.Contains(text, `blocked by "agent-config/preferences";`) {
 			t.Fatalf("a declaration-only cause replaced key identity: %s", text)
 		}
 	}
@@ -41,11 +41,11 @@ func TestNativeKeyGroupBlockedPlan(t *testing.T) {
 func TestNativeKeyGroupRetainsCurrentSiblings(t *testing.T) {
 	fixture := nativefixture.NewPresentation(t, "a=true\nb=true\nc=true\n", "a=false\nb=false\nc=false\n")
 	fingerprint := nativeReplacementFingerprint(t, fixture)
-	nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+	nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), "a=false\nb=true\nc=true\n")
 	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "none", "status", "--check")
 	text := stdout + stderr
-	if code != 1 || !strings.Contains(text, "current=2 pending=0 blocked=1") || strings.Count(text, `resource="host_config/preferences"`) != 1 {
+	if code != 1 || !strings.Contains(text, "current=2 pending=0 blocked=1") || strings.Count(text, `resource="agent-config/preferences"`) != 1 {
 		t.Fatalf("grouping changed status counts or context: %d %s", code, text)
 	}
 	for _, row := range []string{"key: a: blocked (drifted output)", "key: b: up to date", "key: c: up to date", "document: blocked by key a"} {
@@ -62,7 +62,7 @@ func TestNativeKeyGroupAppliedResult(t *testing.T) {
 		t.Fatalf("native Apply failed: %d %s %s", code, stdout, stderr)
 	}
 	_, result, present := strings.Cut(stdout, "output results: 3 output entries")
-	if !present || strings.Count(result, `resource="host_config/preferences"`) != 1 || strings.Count(result, `destination=".codex/config.toml"`) != 1 {
+	if !present || strings.Count(result, `resource="agent-config/preferences"`) != 1 || strings.Count(result, `destination=".codex/config.toml"`) != 1 {
 		t.Fatalf("confirmed result did not group atomic output entries: %s", stdout)
 	}
 	for _, key := range []string{"a", "b", "c"} {
@@ -71,7 +71,7 @@ func TestNativeKeyGroupAppliedResult(t *testing.T) {
 		}
 	}
 	code, stdout, stderr = testkit.RunCapturedCLI("status", "--manifest", fixture.Manifest, "--check")
-	if code != 0 || strings.Contains(stdout, `resource="host_config/preferences"`) || !strings.Contains(stdout, "current=3 pending=0 blocked=0") {
+	if code != 0 || strings.Contains(stdout, `resource="agent-config/preferences"`) || !strings.Contains(stdout, "current=3 pending=0 blocked=0") {
 		t.Fatalf("healthy current groups must retain normal omission: %d %s %s", code, stdout, stderr)
 	}
 }
@@ -79,7 +79,7 @@ func TestNativeKeyGroupAppliedResult(t *testing.T) {
 func TestNativeKeyGroupRetainsLiteralKeysAndJSONCounts(t *testing.T) {
 	fixture := nativefixture.NewPresentation(t, "\"a.b\"=true\n\"\"=true\n[ext]\n\"a/b\"=true\n", "")
 	code, text, stderr := testkit.RunCapturedCLI("apply", "--manifest", fixture.Manifest, "--dry-run")
-	if code != 0 || strings.Count(text, `resource="host_config/preferences"`) != 1 {
+	if code != 0 || strings.Count(text, `resource="agent-config/preferences"`) != 1 {
 		t.Fatalf("literal native keys were not grouped: %d %s %s", code, text, stderr)
 	}
 	for _, key := range []string{`"a.b"`, `""`, `ext."a/b"`} {
@@ -102,7 +102,7 @@ func TestNativeKeyGroupSharedDocumentRetainsOtherOwners(t *testing.T) {
 	fixture := nativefixture.NewPresentation(t, "a=true\nb=true\n", "a=false\nb=false\nc=false\n[mcp_servers.search]\ncommand='other'\n")
 	workspace := filepath.Dir(fixture.Manifest)
 	manifest := append(testkit.ReadFile(t, fixture.Manifest), []byte(`
-[[host_config]]
+[[agent_config]]
 id = "other"
 path = "config.toml"
 source = "./other.toml"
@@ -121,12 +121,12 @@ command = "node"
 	if code != 1 || !bytes.Equal(before, testkit.ReadFile(t, fixture.Destination)) {
 		t.Fatalf("shared-owner preview changed effects: %d %s", code, text)
 	}
-	for _, reference := range []string{`resource="host_config/preferences"`, `resource="host_config/other"`, `resource="mcp-server/search"`} {
+	for _, reference := range []string{`resource="agent-config/preferences"`, `resource="agent-config/other"`, `resource="mcp-server/search"`} {
 		if strings.Count(text, reference) != 1 {
 			t.Fatalf("owner context %s was lost or duplicated: %s", reference, text)
 		}
 	}
-	for _, cause := range []string{`"host_config/other" key c`, `"mcp-server/search"`, `"host_config/preferences" key a`, `"host_config/preferences" key b`} {
+	for _, cause := range []string{`"agent-config/other" key c`, `"mcp-server/search"`, `"agent-config/preferences" key a`, `"agent-config/preferences" key b`} {
 		if !strings.Contains(text, cause) {
 			t.Fatalf("cross-owner blocker %s was hidden: %s", cause, text)
 		}
@@ -142,7 +142,7 @@ func TestNativeKeyGroupRemovalResult(t *testing.T) {
 	for _, args := range [][]string{{"apply", "--dry-run"}, {"apply", "--yes"}} {
 		args = append(args, "--manifest", fixture.Manifest)
 		code, stdout, stderr := testkit.RunCapturedCLI(args...)
-		if code != 0 || strings.Count(stdout, `resource="host_config/preferences"`) != 1 || !strings.Contains(stdout, "2 output entries") {
+		if code != 0 || strings.Count(stdout, `resource="agent-config/preferences"`) != 1 || !strings.Contains(stdout, "2 output entries") {
 			t.Fatalf("removal lost declaration grouping or counts: %d %s %s", code, stdout, stderr)
 		}
 		for _, key := range []string{"a", "b"} {

@@ -2,6 +2,7 @@ package declaration_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration/manifest"
@@ -13,14 +14,14 @@ func TestManifestEditorSchemaAgentConfigBehavior(t *testing.T) {
 	valid := []string{
 		`version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "pi-defaults"
 path = "settings.json"
 source = "/workbench/settings.json"
 `,
 		`version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "codex-explicit"
 targets = ["codex"]
 scope = "global"
@@ -31,7 +32,7 @@ syntax = "toml"
 `,
 		`version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "pi-empty-inheritance"
 targets = []
 scope = ""
@@ -44,7 +45,7 @@ syntax = ""
 	for _, selected := range target.SupportedTargets() {
 		valid = append(valid, fmt.Sprintf(`version = 1
 targets = [%q]
-[[host_config]]
+[[agent_config]]
 id = "registered-host"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -66,10 +67,14 @@ source = "/workbench/settings.json"
 		content string
 	}{
 		{
+			name:    "unreleased manifest key",
+			content: strings.Replace(valid[0], "[[agent_config]]", "[[host_config]]", 1),
+		},
+		{
 			name: "unknown host",
 			content: `version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "unknown-config"
 targets = ["unknown"]
 path = "settings.json"
@@ -80,7 +85,7 @@ source = "/workbench/settings.json"
 			name: "multiple hosts",
 			content: `version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "two-hosts"
 targets = ["pi", "codex"]
 path = "settings.json"
@@ -91,7 +96,7 @@ source = "/workbench/settings.json"
 			name: "unknown ownership",
 			content: `version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "bad-ownership"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -102,7 +107,7 @@ ownership = "whole"
 			name: "unsupported syntax",
 			content: `version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "bad-syntax"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -113,7 +118,7 @@ syntax = "yaml"
 			name: "unknown field",
 			content: `version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "unknown-field"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -125,10 +130,10 @@ credential_denylist = true
 		t.Run("reject-"+test.name, func(t *testing.T) {
 			content := []byte(test.content)
 			if _, err := manifest.Decode(content); err == nil {
-				t.Fatal("manifest.Decode() accepted an invalid host_config")
+				t.Fatal("manifest.Decode() accepted an invalid agent_config")
 			}
 			if editorSchemaAccepts(t, schema, editorSchemaInstance(t, content)) {
-				t.Fatal("schema accepted an invalid host_config declaration")
+				t.Fatal("schema accepted an invalid agent_config declaration")
 			}
 		})
 	}

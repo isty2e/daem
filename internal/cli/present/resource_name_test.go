@@ -17,6 +17,7 @@ func TestPublicResourceNamesPreserveLiteralKeysAndCanonicalIDs(t *testing.T) {
 		{entity.KindHook, "hook"},
 		{entity.KindHookAsset, "hook_asset"},
 		{entity.KindMCPServer, "mcp-server"},
+		{entity.KindAgentConfig, "agent-config"},
 		{entity.KindExtension, "extension"},
 	} {
 		t.Run(string(test.kind), func(t *testing.T) {

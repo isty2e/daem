@@ -304,7 +304,7 @@ flags.
 | --- | --- |
 | `add extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--matcher`, `--scope`, `--target`, `--timeout`, `--verbose` |
-| `add agent-config` | `--config-path`, `--diff`, `--dry-run`, `--host-path`, `--json`, `--manifest`, `--ownership`, `--path`, `--ref`, `--region`, `--scope`, `--syntax`, `--target`, `--verbose`, `--version-id` |
+| `add agent-config` | `--config-path`, `--diff`, `--dry-run`, `--json`, `--manifest`, `--ownership`, `--path`, `--ref`, `--region`, `--scope`, `--syntax`, `--target`, `--verbose`, `--version-id` |
 | `add instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
 | `add mcp-server` | `--arg`, `--diff`, `--dry-run`, `--env-from`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `add skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--name`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
@@ -312,7 +312,7 @@ flags.
 | `apply` | `--diff`, `--dry-run`, `--json`, `--manage-existing`, `--manifest`, `--target`, `--verbose`, `--yes` |
 | `doctor` | `--all-targets`, `--json`, `--manifest`, `--target`, `--verbose` |
 | `import` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--merge`, `--scope`, `--source-dir`, `--target`, `--verbose` |
-| `import agent-config` | `--config-path`, `--diff`, `--dry-run`, `--expect-plan`, `--host-path`, `--json`, `--key`, `--manifest`, `--merge`, `--ownership`, `--scope`, `--source`, `--source-dir`, `--syntax`, `--target`, `--update-source`, `--verbose`, `--yes` |
+| `import agent-config` | `--config-path`, `--diff`, `--dry-run`, `--expect-plan`, `--json`, `--key`, `--manifest`, `--merge`, `--ownership`, `--scope`, `--source`, `--source-dir`, `--syntax`, `--target`, `--update-source`, `--verbose`, `--yes` |
 | `init` | `--dry-run`, `--force`, `--json`, `--manifest`, `--verbose` |
 | `list outputs` | `--json`, `--manifest`, `--target`, `--verbose` |
 | `list paths` | `--json`, `--manifest`, `--target`, `--verbose` |
@@ -362,7 +362,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
 
-Native host-configuration key addresses use a `key_path` array of literal names
+Agent configuration key addresses use a `key_path` array of literal names
 in lock comparisons, reconciliation actions/projections/previous state, and
 apply results. For example, `["ext", "a/b"]` selects a property literally named
 `a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
@@ -468,13 +468,11 @@ meaning or the diagnostic field structure still requires a version increment.
 ### Resource Names And Identifiers
 
 Public resource classifications usually match the authoring CLI token:
-`instruction`, `skill`, `hook`, `mcp-server` and `extension`. Authoring a group
-uses `skill-group`; inventory members remain `skill`. The `agent-config` commands
-use `host_config` in the manifest, result kinds, and resource references.
-`host-config` remains a command alias, and `--host-path` is an alias for
-`--config-path` on add and initial import. `hook_asset` keeps its TOML spelling
-and has no direct add/remove command. A resource kind need not be supported by
-every command.
+`instruction`, `skill`, `hook`, `mcp-server`, `extension`, and `agent-config`.
+In the manifest, use `[[agent_config]]`. Authoring a group uses `skill-group`;
+inventory members remain `skill`. `hook_asset` keeps its TOML spelling and has
+no direct add/remove command. A resource kind need not be supported by every
+command.
 
 Public `resource_id` values and human resource references use `kind/name`, such
 as `instruction/project` or `mcp-server/context7`. The name remains literal,
@@ -517,11 +515,9 @@ error text. For example, `daem status --unknown --json` returns exit `2` with:
 }
 ```
 
-`command` identifies the leaf without `daem` or resource operands, for example
-`add skill` or `probe mcp-server`. The `agent-config` leaves retain their original
-identifiers (for example, `add host-config`) with either invocation spelling.
-Command suggestions in `guidance` use the preferred CLI spelling. This does not
-change the identifiers in ordinary result families.
+`command` is the complete leaf name in the [flag inventory](#command-flag-inventory),
+without `daem` or resource operands: for example, `add agent-config` or
+`probe mcp-server`. Ordinary result families have their own command identifiers.
 
 `error.kind` is `usage` for CLI usage failures (exit `2`) and `operation` for
 operation failures (exit `1`). Classification belongs
@@ -712,8 +708,6 @@ fail before mutation. Antigravity installed state does not retain enough source
 provenance to reconstruct a declaration, so those rows are reported as
 `source_provenance_unrecoverable` skips.
 
-<a name="import-host-config"></a>
-
 ## `import agent-config`
 
 Capture explicitly selected values from one physically stored native document
@@ -739,10 +733,10 @@ initial values fail the complete operation. Whole-document capture preserves raw
 bytes under the destination's admitted grammar. The preview omits arbitrary
 whole-file contents.
 Initial capture creates a new id and a new local file under
-`<source-dir>/host-config/`; it never overwrites a source destination. Without
+`<source-dir>/agent-config/`; it never overwrites a source destination. Without
 `--source-dir`, the directory is the manifest's basename with `.d` instead of its
 extension. To merge an initial capture into a manifest with an existing
-nonempty inline `host_config` array, convert it to `[[host_config]]` blocks
+nonempty inline `agent_config` array, convert it to `[[agent_config]]` blocks
 first. Initial-only placement and source-directory flags cannot accompany
 `--update-source`.
 
@@ -784,7 +778,7 @@ then exits without reading new host values or rerunning capture. Review a new
 dry-run afterward. A source target that cannot be independently selected from
 the invocation or current declaration, mismatching evidence, or other pending
 work is refused rather than recovered from marker-supplied paths. Capture and
-its recovery keep `command = "import host-config"` in JSON results.
+its recovery return `command = "import agent-config"` in JSON results.
 
 ## `add`
 
@@ -834,8 +828,6 @@ Common authoring is intentionally curated:
 | Skill | source, Git path/ref, installed name, target, scope | resource id, install mode, repair and source policy |
 | Skill group | source root, exact members, Git path/ref, target, scope | selectors, install mode, repair and per-member policy |
 
-<a name="add-host-config"></a>
-
 ### `add agent-config`
 
 ```sh
@@ -845,7 +837,7 @@ daem add agent-config preferences ./prefs.toml --target codex --scope project \
 
 Supply a prepared source file separate from the destination, manifest, and
 lockfile. Set one target and one scope. `--config-path` selects the destination
-relative to the [agent's configuration root](manifest.md#host-configuration).
+relative to the [agent's configuration root](manifest.md#agent-configuration).
 The default ownership is `keys`: every selected value in the source is managed.
 Choose `--ownership document` for a dedicated file. Omit `--syntax` to use the
 target and path default.
@@ -861,7 +853,7 @@ target and path default.
 - **S3 file object:** Use `s3://bucket/key`, with optional `--version-id` and
   `--region`. Use the normal external AWS credential configuration.
 
-Add accepts both `[[host_config]]` blocks and existing inline arrays. The same
+Add accepts both `[[agent_config]]` blocks and existing inline arrays. The same
 ID with the same source and settings preserves the declaration and still
 refreshes the lock. A different source, placement, ownership, or syntax choice
 under that ID is an error. Add never captures or changes the host file. After
@@ -962,7 +954,7 @@ daem remove skill <resource-key> [options]
 
 Every leaf accepts the same shared authoring options as add. Remove writes by
 default and transactionally refreshes the lockfile. Use keys from
-`daem list resources`, or read `host_config.id` in the manifest for an
+`daem list resources`, or read `agent_config.id` in the manifest for an
 agent configuration. A missing resource or a selection matching no declaration
 is an error, including repeated removal. When the manifest supplies an exact
 name under other selectors, a case variant, or a name one character edit away,
@@ -991,7 +983,7 @@ whole file. Preview actual cleanup with `daem apply --dry-run`: cleanup follows
 retained management, which can differ from the last declaration edit. Apply
 removes managed keys and keeps unrelated settings, or removes an unchanged
 managed dedicated file.
-If [drift blocks cleanup](troubleshooting.md#host-configuration-removal-is-blocked),
+If [drift blocks cleanup](troubleshooting.md#agent-configuration-removal-is-blocked),
 inspect the changed keys or file before deleting anything. To keep the host
 values or file and release management, use
 [`unmanage agent-config`](#unmanage-agent-config) instead of applying the removal.
@@ -1026,8 +1018,6 @@ source content. Partial removal retains recovery state for a later fresh
 verification and does not authorize unrelated package, cache, trust, session,
 or local-source deletion.
 
-<a name="unmanage-host-config"></a>
-
 ## `unmanage agent-config`
 
 Stop managing a complete declaration while keeping the agent's current
@@ -1048,7 +1038,7 @@ not one key at a time; `--target` and `--scope` are safety filters, not partial
 release selectors. Ambiguous retained placements and a current declaration that
 conflicts with the retained placement are refused.
 
-Automatic declaration edits operate on `[[host_config]]` blocks. A declaration
+Automatic declaration edits operate on `[[agent_config]]` blocks. A declaration
 written in an inline array still works with `lock` and `apply`, but cannot be
 removed automatically: convert it to array-table blocks, or remove the selected
 declaration manually and rerun `unmanage agent-config`. The command refuses before
@@ -1524,8 +1514,6 @@ planning context, including `--manage-existing`, is not a status observation.
 Both commands emit the current reconciliation-plan version in the
 [version table](#json-schema-contract); other result families are unchanged.
 
-<a name="replace-host-config"></a>
-
 ## `replace agent-config`
 
 Use this command to set selected native configuration keys to their locked
@@ -1533,7 +1521,7 @@ declaration values, either when first taking over a different existing value or
 after a managed key has changed. Ordinary `apply` still refuses those conflicts;
 `--manage-existing` remains exact-match adoption, not replacement.
 
-With the [example host-configuration declaration](manifest.md#host-configuration):
+With the [example agent configuration declaration](manifest.md#agent-configuration):
 
 ```bash
 daem replace agent-config codex-preferences --key /tui/notifications --dry-run
@@ -1558,7 +1546,7 @@ and formatting can change: execution rereads and preserves them rather than
 replaying saved file bytes. Replacing a file inode alone does not invalidate
 consent when the selected namespace, values and protection still match.
 
-The JSON envelope is schema version 1 with `command = "replace host-config"`,
+The JSON envelope is schema version 1 with `command = "replace agent-config"`,
 `mode` (`dry-run` or `executed`), `fingerprint`, `declaration`, `action_count` and
 `keys`. Each key has a literal-name `key_path` array, destination `file`, `action`
 (`create`, `recreate`, `adopt`, `takeover`, `replace`, `record`, or `current`),

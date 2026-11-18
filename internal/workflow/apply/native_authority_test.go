@@ -33,7 +33,7 @@ func TestNativeAuthorityPlanningRetainsItsQualifiedRouteAfterPreview(t *testing.
 	}
 	manifest := filepath.Join(workspace, "daem.toml")
 	for name, content := range map[string]string{
-		"daem.toml":        fmt.Sprintf("version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(workspace, "preferences.json")),
+		"daem.toml":        fmt.Sprintf("version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(workspace, "preferences.json")),
 		"preferences.json": `{"theme":"selected"}`,
 	} {
 		if err := os.WriteFile(filepath.Join(workspace, name), []byte(content), 0o600); err != nil {

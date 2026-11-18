@@ -108,7 +108,7 @@ func (candidate agentConfigReleaseCandidate) observeDocument(ctx context.Context
 	}
 	child, directory := binding.Coordinate().DirectoryChild()
 	if !directory {
-		return agentConfigReleaseLocation{}, fmt.Errorf("host configuration release requires a native directory-child document")
+		return agentConfigReleaseLocation{}, fmt.Errorf("agent configuration release requires a native directory-child document")
 	}
 	selected := filepath.Join(resolvedRoot, filepath.FromSlash(child))
 	path, err := rootedpath.ResolveFutureReferentPathBounded(selected, physicalwork.MaximumPhysicalPathDepth, budget)

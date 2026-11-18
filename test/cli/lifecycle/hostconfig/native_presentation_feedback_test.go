@@ -28,7 +28,7 @@ func TestNativeReplacementHumanOutcome(t *testing.T) {
 				t.Fatal(err)
 			}
 			fingerprint := nativeReplacementFingerprint(t, fixture)
-			_, stdout, _ := nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+			_, stdout, _ := nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 			outcome := "Applied declared values to 1 host configuration key: model"
 			if kind == "adopt" {
 				outcome = "Adopted 1 host configuration key without changing its value: model"
@@ -47,7 +47,7 @@ func TestNativeReplacementHumanOutcome(t *testing.T) {
 			}
 
 			fingerprint = nativeReplacementFingerprint(t, fixture)
-			_, stdout, _ = nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+			_, stdout, _ = nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 			if !strings.Contains(stdout, "No changes were needed") || strings.Contains(stdout, "Applied declared values") {
 				t.Fatalf("a true no-op must not claim another write: %s", stdout)
 			}
@@ -86,7 +86,7 @@ func TestNativeRemovedDeclarationOffersManagementRelease(t *testing.T) {
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
 	const drifted = "model='local'\nunrelated=true\n"
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), drifted)
-	nativefixture.RunLifecycleCommand(t, "remove", "host-config", "preferences", "--manifest", fixture.Manifest)
+	nativefixture.RunLifecycleCommand(t, "remove", "agent-config", "preferences", "--manifest", fixture.Manifest)
 
 	for _, command := range [][]string{{"apply", "--dry-run"}, {"status", "--check"}, {"apply", "--yes"}} {
 		args := append(command, "--manifest", fixture.Manifest)
@@ -119,7 +119,7 @@ func TestNativeRemovedDeclarationOffersManagementRelease(t *testing.T) {
 	t.Run("same ID on another target", func(t *testing.T) {
 		testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", `version=1
 targets=['codex','pi']
-[[host_config]]
+[[agent_config]]
 id='preferences'
 targets=['pi']
 path='settings.json'

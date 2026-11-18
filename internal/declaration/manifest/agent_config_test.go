@@ -138,11 +138,11 @@ targets = ["pi"]
 [defaults]
 scope = "global"
 
-[[host_config]]
+[[agent_config]]
 id = "nested-source"
 path = "settings.json"
 
-[host_config.source]
+[agent_config.source]
 git = "https://github.com/example/settings.git"
 path = "settings.json"
 ref = "main"
@@ -170,7 +170,7 @@ func TestDecodeRejectsInvalidAgentConfigDeclarations(t *testing.T) {
 	}{
 		{
 			name: "missing source",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "missing-source"
 path = "settings.json"
 `,
@@ -178,7 +178,7 @@ path = "settings.json"
 		},
 		{
 			name: "multiple targets",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "two-targets"
 targets = ["pi", "codex"]
 path = "settings.json"
@@ -188,7 +188,7 @@ source = "/workbench/settings.json"
 		},
 		{
 			name: "duplicate target",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "duplicate-target"
 targets = ["pi", "pi"]
 path = "settings.json"
@@ -198,7 +198,7 @@ source = "/workbench/settings.json"
 		},
 		{
 			name: "unknown host",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "unsupported-host"
 targets = ["unknown"]
 path = "settings.json"
@@ -209,7 +209,7 @@ source = "/workbench/settings.json"
 		{
 			name:            "inherited multiple hosts",
 			manifestTargets: `"pi", "codex"`,
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "inherited-hosts"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -218,16 +218,16 @@ source = "/workbench/settings.json"
 		},
 		{
 			name: "duplicate ID",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "duplicate"
 path = "first.json"
 source = "/workbench/first.json"
-[[host_config]]
+[[agent_config]]
 id = "duplicate"
 path = "second.json"
 source = "/workbench/second.json"
 `,
-			wantErr: "duplicate host_config id",
+			wantErr: "duplicate agent_config id",
 		},
 	}
 
@@ -254,7 +254,7 @@ func TestDecodeRejectsInvalidAgentConfigFieldsAndSources(t *testing.T) {
 	}{
 		{
 			name: "invalid scope",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "invalid-scope"
 scope = "machine"
 path = "settings.json"
@@ -264,7 +264,7 @@ source = "/workbench/settings.json"
 		},
 		{
 			name: "traversal path",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "traversal"
 path = "../settings.json"
 source = "/workbench/settings.json"
@@ -273,36 +273,36 @@ source = "/workbench/settings.json"
 		},
 		{
 			name: "absolute destination",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "absolute"
 path = "/etc/settings.json"
 source = "/workbench/settings.json"
 `,
-			wantErr: "host-root-relative",
+			wantErr: "relative to the configuration root",
 		},
 		{
 			name: "unknown ownership",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "ownership"
 path = "settings.json"
 source = "/workbench/settings.json"
 ownership = "keys-and-file"
 `,
-			wantErr: "unknown host configuration ownership",
+			wantErr: "unknown agent configuration ownership",
 		},
 		{
 			name: "unknown syntax",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "syntax"
 path = "settings.json"
 source = "/workbench/settings.json"
 syntax = "yaml"
 `,
-			wantErr: "unknown host configuration syntax",
+			wantErr: "unknown agent configuration syntax",
 		},
 		{
 			name: "local link source",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "link"
 path = "settings.json"
 source = { path = "/workbench/settings.json", mode = "link" }
@@ -311,7 +311,7 @@ source = { path = "/workbench/settings.json", mode = "link" }
 		},
 		{
 			name: "global relative local source",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "relative-global"
 path = "settings.json"
 source = "settings.json"
@@ -320,7 +320,7 @@ source = "settings.json"
 		},
 		{
 			name: "S3 archive source",
-			body: `[[host_config]]
+			body: `[[agent_config]]
 id = "archive"
 path = "settings.json"
 source = { s3 = "s3://settings-bucket/settings.tar.gz", format = "tar.gz" }
@@ -340,7 +340,7 @@ source = { s3 = "s3://settings-bucket/settings.tar.gz", format = "tar.gz" }
 }
 
 func agentConfigManifest(manifestTarget string, defaultScope string, fields string) []byte {
-	return agentConfigDocument(fmt.Sprintf("%q", manifestTarget), defaultScope, "[[host_config]]\n"+fields)
+	return agentConfigDocument(fmt.Sprintf("%q", manifestTarget), defaultScope, "[[agent_config]]\n"+fields)
 }
 
 func agentConfigDocument(manifestTargets string, defaultScope string, body string) []byte {

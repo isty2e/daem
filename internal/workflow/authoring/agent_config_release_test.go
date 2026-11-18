@@ -46,7 +46,7 @@ func newHostReleaseFixture(t *testing.T, claimless bool) hostReleaseFixture {
 	root := t.TempDir()
 	configureUnmanageTestHomes(t, root)
 	paths := unmanageTestPaths(t, filepath.Join(root, "project"))
-	writeUnmanageFile(t, paths.ManifestPath, []byte("version=1\ntargets=['codex']\n[[host_config]]\nid='preferences'\nscope='project'\npath='config.toml'\nsource='./missing-source.toml'\nownership='keys'\n"))
+	writeUnmanageFile(t, paths.ManifestPath, []byte("version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='project'\npath='config.toml'\nsource='./missing-source.toml'\nownership='keys'\n"))
 	id, err := entity.New(entity.KindAgentConfig, "preferences")
 	if err != nil {
 		t.Fatal(err)

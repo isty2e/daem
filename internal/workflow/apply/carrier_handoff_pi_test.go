@@ -46,7 +46,7 @@ func TestPiSourceHandoffConvergesMovingGitToNPMAndProviderSelector(t *testing.T)
 					t.Fatal(err)
 				}
 				writeApplyFile(t, filepath.Join(root, "preferences.json"), `{"theme":"handoff-native"}`)
-				writeApplyFile(t, manifest, string(contents)+fmt.Sprintf("\n[[host_config]]\nid='preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(root, "preferences.json")))
+				writeApplyFile(t, manifest, string(contents)+fmt.Sprintf("\n[[agent_config]]\nid='preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(root, "preferences.json")))
 			}
 			if test.provider {
 				contents, err := os.ReadFile(manifest)

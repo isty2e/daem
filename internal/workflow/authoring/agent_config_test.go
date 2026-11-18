@@ -20,19 +20,19 @@ func TestAgentConfigDeclarationEditing(t *testing.T) {
 	const header = "version = 1\ntargets = [\"codex\"]\n"
 	const selected = `{ id = "remove", path = "prefs.toml", source = { git = "https://example.org/settings.git", path = "a,b.toml", ref = "main" } }`
 	const retained = `{ id = "keep", path = "config.toml", source = "keep.toml" }`
-	const blockSelected = "[[host_config]]\nid = \"remove\"\npath = \"prefs.toml\"\n[host_config.source]\ngit = \"https://example.org/settings.git\"\npath = \"a,b.toml\"\nref = \"main\"\n"
-	const blockRetained = "[[host_config]]\nid = \"keep\"\npath = \"config.toml\"\nsource = \"keep.toml\"\n"
+	const blockSelected = "[[agent_config]]\nid = \"remove\"\npath = \"prefs.toml\"\n[agent_config.source]\ngit = \"https://example.org/settings.git\"\npath = \"a,b.toml\"\nref = \"main\"\n"
+	const blockRetained = "[[agent_config]]\nid = \"keep\"\npath = \"config.toml\"\nsource = \"keep.toml\"\n"
 	const note = "# keep this note\n"
-	const multiLineSource = "[[host_config]]\nid = 'remove'\npath = 'prefs.toml'\nsource = '''a\n#still part of the source'''\n"
+	const multiLineSource = "[[agent_config]]\nid = 'remove'\npath = 'prefs.toml'\nsource = '''a\n#still part of the source'''\n"
 
 	for _, example := range []struct{ name, original, removed string }{
 		{"array tables", blockSelected + note + blockRetained, note + blockRetained},
 		{"array table multiline value", multiLineSource + note + blockRetained, note + blockRetained},
-		{"first inline row", "\"host_config\" = [\n  " + selected + ", # selected note\n  " + note + "  " + retained + "\n]\n", "\"host_config\" = [\n  " + note + "  " + retained + "\n]\n"},
-		{"last inline row", "host_config = [\n  " + retained + "\n  " + note + "  , " + selected + "]\n", "host_config = [\n  " + retained + "\n  " + note + "   ]\n"},
-		{"compact first row", "host_config = [" + selected + ", " + retained + "]\n", "host_config = [ " + retained + "]\n"},
-		{"compact last row", "host_config = [" + retained + "," + selected + ",]\n", "host_config = [" + retained + ",]\n"},
-		{"only inline row", "host_config = [" + selected + "]\n", "host_config = []\n"},
+		{"first inline row", "\"agent_config\" = [\n  " + selected + ", # selected note\n  " + note + "  " + retained + "\n]\n", "\"agent_config\" = [\n  " + note + "  " + retained + "\n]\n"},
+		{"last inline row", "agent_config = [\n  " + retained + "\n  " + note + "  , " + selected + "]\n", "agent_config = [\n  " + retained + "\n  " + note + "   ]\n"},
+		{"compact first row", "agent_config = [" + selected + ", " + retained + "]\n", "agent_config = [ " + retained + "]\n"},
+		{"compact last row", "agent_config = [" + retained + "," + selected + ",]\n", "agent_config = [" + retained + ",]\n"},
+		{"only inline row", "agent_config = [" + selected + "]\n", "agent_config = []\n"},
 	} {
 		t.Run(example.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -62,7 +62,7 @@ func TestAgentConfigDeclarationEditing(t *testing.T) {
 			id, _ := entity.New(entity.KindAgentConfig, add.ID)
 			configs := environment.AgentConfigs()
 			wantCount := 2
-			if example.removed == "host_config = []\n" {
+			if example.removed == "agent_config = []\n" {
 				wantCount = 1
 			}
 			if index := agentConfigIndex(configs, id); index < 0 || len(configs) != wantCount ||
@@ -82,7 +82,7 @@ func TestAgentConfigDeclarationSelectionUsesEffectiveFacts(t *testing.T) {
 	root := t.TempDir()
 	content := []byte(`version=1
 targets=['codex']
-host_config = [{ id = "sample", path = "config.toml", source = "./prefs.toml" }]
+agent_config = [{ id = "sample", path = "config.toml", source = "./prefs.toml" }]
 `)
 	document := ManifestDocument{Root: root, Content: content}
 	add := AddAgentConfigRequest{ID: "sample", SourceArg: filepath.Join(root, "prefs.toml"), Target: target.TargetCodex, Scope: target.ScopeProject, ConfigPath: "config.toml"}
@@ -109,7 +109,7 @@ func TestAgentConfigInlineAppendPreservesArrayLayout(t *testing.T) {
 	} {
 		t.Run(example.name, func(t *testing.T) {
 			root := t.TempDir()
-			header := "version = 1" + example.newline + "targets = ['codex']" + example.newline + "host_config = "
+			header := "version = 1" + example.newline + "targets = ['codex']" + example.newline + "agent_config = "
 			change, err := buildAddAgentConfigChange(ManifestDocument{Root: root, Content: []byte(header + example.array)}, AddAgentConfigRequest{
 				ID: "added", SourceArg: filepath.Join(root, "prefs.toml"),
 				ConfigPath: "prefs.toml", Target: target.TargetCodex, Scope: target.ScopeProject,
@@ -211,7 +211,7 @@ func TestAgentConfigControlFileSourceCanBeRemoved(t *testing.T) {
 	manifest := filepath.Join(root, "daem.toml")
 	const original = `version = 1
 targets = ['codex']
-host_config = [
+agent_config = [
   { id = 'self-source', path = 'prefs.toml', source = 'daem.toml' },
   { id = 'other', path = 'other.toml', source = 'other.toml' },
 ]

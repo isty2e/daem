@@ -28,7 +28,7 @@ func TestNativeKeyHumanDeclarationAndLocation(t *testing.T) {
 			manifest := filepath.Join(workspace, "daem.toml")
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -42,7 +42,7 @@ ownership = "keys"
 				{"apply", "--manifest", manifest, "--yes"},
 			} {
 				output := nativefixture.RunLifecycleCommand(t, args...)
-				for _, expected := range []string{`resource="host_config/preferences"`, `.codex/config.toml`, "key: " + test.display} {
+				for _, expected := range []string{`resource="agent-config/preferences"`, `.codex/config.toml`, "key: " + test.display} {
 					if !strings.Contains(output, expected) {
 						t.Fatalf("%q omitted native declaration/location %q: %s", args, expected, output)
 					}
@@ -53,7 +53,7 @@ ownership = "keys"
 			}
 
 			status := clijson.DecodePlan(t, []byte(requireNativeJSONCommand(t, "status", "--manifest", manifest, "--json")))
-			if len(status.Actions) != 1 || status.Actions[0].ResourceID != "host_config/preferences" {
+			if len(status.Actions) != 1 || status.Actions[0].ResourceID != "agent-config/preferences" {
 				t.Fatal("native JSON row omitted the readable declaration identity")
 			}
 		})

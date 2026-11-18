@@ -21,7 +21,7 @@ func nativeReleaseFixture(t *testing.T, claimless, bindingAbsent bool) (NativeRe
 	row := fixture.before.ManagedAggregates()[0]
 	id, _, present := topologyprojection.AgentConfigKeyIdentity(row.Subject())
 	if !present {
-		t.Fatal("native fixture has no host-config identity")
+		t.Fatal("native fixture has no agent-config identity")
 	}
 	identities, err := journaldocument.AgentConfigManagements(t.Context(), fixture.before, id)
 	if err != nil || len(identities) != 1 {

@@ -117,7 +117,7 @@ func TestImportAgentConfigRecoversInitialPublicationWithoutRecapture(t *testing.
 				if err := os.WriteFile(host, []byte(`{"chosen":1}`), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--host-path", path, "--key", "/chosen"}
+				args := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--config-path", path, "--key", "/chosen"}
 				fingerprint := captureFingerprint(t, args)
 				if code, out, err := runCaptureCLI(t, append(append([]string{}, args...), "--yes", "--expect-plan", fingerprint)); code != 0 {
 					t.Fatal(code, out, err)
@@ -190,7 +190,7 @@ func TestImportAgentConfigRecoveryRejectsWrongDeclarationAndChangedApproval(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := filepath.Join(filepath.Dir(manifest), "daem.d", "host-config", "chosen.json")
+	source := filepath.Join(filepath.Dir(manifest), "daem.d", "agent-config", "chosen.json")
 	content, err := os.ReadFile(source)
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +235,7 @@ func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 					}
 					host = whole
 					for index, argument := range args {
-						if argument == "--host-path" {
+						if argument == "--config-path" {
 							args[index+1] = "whole.json"
 						}
 					}
@@ -247,7 +247,7 @@ func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 				if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint)); code != 0 {
 					t.Fatal(code, out, err)
 				}
-				originalSource := filepath.Join(filepath.Dir(manifest), "daem.d", "host-config", "chosen.json")
+				originalSource := filepath.Join(filepath.Dir(manifest), "daem.d", "agent-config", "chosen.json")
 				originalBytes, err := os.ReadFile(originalSource)
 				if err != nil {
 					t.Fatal(err)
@@ -279,7 +279,7 @@ func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 				if err := plan.Close(); err != nil {
 					t.Fatal(err)
 				}
-				update := []string{"import", "host-config", "chosen", "--manifest", manifest, "--update-source"}
+				update := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
 				if !retirement {
 					update = append(update, "--source", export)
 				}

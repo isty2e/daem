@@ -22,10 +22,11 @@ func PrintUnmanageAgentConfigWithOptions(output io.Writer, result authoring.Unma
 }
 
 func UnmanageAgentConfigJSONFrom(result authoring.UnmanageAgentConfigResult) ManifestAuthoringJSONOutput {
+	kind := string(AuthoringResourceAgentConfig)
 	return ManifestAuthoringJSONOutput{
 		Command: "unmanage", Mode: string(result.Mode), Operation: "unmanage", ManifestPath: result.ManifestPath,
 		Lockfile: authoringLockfileJSON(AuthoringLockfile{Path: result.LockfilePath, Status: string(result.LockfileStatus)}), ResourceCount: 1,
-		Changes:    []ManifestAuthoringJSONChange{{Operation: "unmanage", ChangeKind: string(result.ManifestStatus), Status: string(result.ManagementStatus), ResourceID: authoringResourceID("host_config", result.ResourceID), Resource: authoringJSONResource("host_config", result.ResourceID), Target: string(result.Target), Scope: string(result.Scope)}},
+		Changes:    []ManifestAuthoringJSONChange{{Operation: "unmanage", ChangeKind: string(result.ManifestStatus), Status: string(result.ManagementStatus), ResourceID: authoringResourceID(kind, result.ResourceID), Resource: authoringJSONResource(kind, result.ResourceID), Target: string(result.Target), Scope: string(result.Scope)}},
 		Management: &UnmanageManagementJSON{Status: string(result.ManagementStatus), Statefile: UnmanageManagedFileJSON{Path: result.StatefilePath, Status: string(result.StatefileStatus)}, Registry: UnmanageManagedFileJSON{Path: result.RegistryPath, Status: string(result.RegistryStatus)}},
 		Host:       &UnmanageHostJSON{State: "retained"},
 	}

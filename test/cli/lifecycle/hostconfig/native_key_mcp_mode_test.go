@@ -33,7 +33,7 @@ command = "node"
 args = ["server.js"]
 `
 			if native {
-				content += `[[host_config]]
+				content += `[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"

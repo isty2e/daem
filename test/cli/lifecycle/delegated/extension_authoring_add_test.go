@@ -365,7 +365,7 @@ func TestRunAddExtensionRejectsUnsupportedSourceFlags(t *testing.T) {
 		},
 		{
 			name: "raw host config",
-			args: []string{"add", "extension", "context7", "--host-config", `{"plugin":"context7"}`, "--dry-run"},
+			args: []string{"add", "extension", "context7", "--agent-config", `{"plugin":"context7"}`, "--dry-run"},
 		},
 	}
 	for _, test := range tests {

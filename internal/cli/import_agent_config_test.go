@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -36,7 +35,7 @@ func captureCLIFixture(t *testing.T, content string) (root, manifest, host strin
 	if err := os.WriteFile(host, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args = []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", "pi", "--scope", "project", "--host-path", "settings.json"}
+	args = []string{"import", "agent-config", "chosen", "--manifest", manifest, "--target", "pi", "--scope", "project", "--config-path", "settings.json"}
 	return
 }
 
@@ -116,7 +115,7 @@ func captureFingerprint(t *testing.T, args []string) string {
 		Command     string `json:"command"`
 		Fingerprint string `json:"fingerprint"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil || payload.Command != "import host-config" || len(payload.Fingerprint) != 64 {
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil || payload.Command != "import agent-config" || len(payload.Fingerprint) != 64 {
 		t.Fatal("invalid approval preview", stdout, err)
 	}
 	return payload.Fingerprint
@@ -147,8 +146,6 @@ func TestImportAgentConfigLiteralStorageAndMaskedSelectedDisclosure(t *testing.T
 		t.Fatal("preview created metadata", err)
 	}
 	fingerprint := captureFingerprint(t, args)
-	args[1] = "agent-config"
-	args[slices.Index(args, "--host-path")] = "--config-path"
 	code, stdout, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint, "--json"))
 	if code != 0 {
 		t.Fatalf("write: %d %s %s", code, stdout, stderr)
@@ -218,7 +215,7 @@ func TestImportAgentConfigUpdateReleasesMissingLeafWithoutAcquiringSiblings(t *t
 	if err := os.WriteFile(host, []byte(`{"nested":{"new":9},"sibling":2}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	update := []string{"import", "host-config", "chosen", "--manifest", manifest, "--update-source"}
+	update := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
 	fingerprint = captureFingerprint(t, update)
 	if code, out, err := runCaptureCLI(t, append(update, "--yes", "--expect-plan", fingerprint)); code != 0 {
 		t.Fatal(code, out, err)
@@ -280,7 +277,7 @@ func TestImportAgentConfigInitialUsesAdmittedRootsAndGrammar(t *testing.T) {
 				if err := os.WriteFile(host, []byte(content), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--host-path", path, "--key", "/capture"}
+				args := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", scope, "--config-path", path, "--key", "/capture"}
 				fingerprint := captureFingerprint(t, args)
 				if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint)); code != 0 {
 					t.Fatal(code, out, err)
@@ -321,7 +318,7 @@ func TestImportAgentConfigWholeInitialPreservesBytesAndOmitsRawDisclosure(t *tes
 	if err := os.WriteFile(host, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"import", "host-config", "whole", "--manifest", manifest, "--target", "codex", "--scope", "project", "--host-path", "whole.jsonc", "--ownership", "document"}
+	args := []string{"import", "agent-config", "whole", "--manifest", manifest, "--target", "codex", "--scope", "project", "--config-path", "whole.jsonc", "--ownership", "document"}
 	code, out, errText := runCaptureCLI(t, append(append([]string{}, args...), "--dry-run", "--diff"))
 	if code != 0 || strings.Contains(out+errText, "whole-literal-private") || strings.Contains(out+errText, "private-host-comment") {
 		t.Fatal("whole preview leaked raw contents", code, out, errText)
@@ -330,7 +327,7 @@ func TestImportAgentConfigWholeInitialPreservesBytesAndOmitsRawDisclosure(t *tes
 	if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint)); code != 0 {
 		t.Fatal(code, out, err)
 	}
-	stored, err := os.ReadFile(filepath.Join(root, "daem.d", "host-config", "whole.jsonc"))
+	stored, err := os.ReadFile(filepath.Join(root, "daem.d", "agent-config", "whole.jsonc"))
 	if err != nil || string(stored) != content {
 		t.Fatal("whole capture reserialized bytes", err)
 	}

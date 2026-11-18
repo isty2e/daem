@@ -22,7 +22,7 @@ type AgentConfigCaptureRecoveryJSON struct {
 }
 
 func AgentConfigCaptureRecoveryDisclosure(plan *workflowadopt.AgentConfigCaptureRecovery, mode string) AgentConfigCaptureRecoveryJSON {
-	result := AgentConfigCaptureRecoveryJSON{1, "import host-config", mode, plan.Disposition(), plan.Fingerprint(), humanErrorDetail(plan.ManifestPath()), humanErrorDetail(plan.SourcePath()), humanErrorDetail(plan.SourceReferent()), []string{
+	result := AgentConfigCaptureRecoveryJSON{1, "import " + AgentConfigResourceName, mode, plan.Disposition(), plan.Fingerprint(), humanErrorDetail(plan.ManifestPath()), humanErrorDetail(plan.SourcePath()), humanErrorDetail(plan.SourceReferent()), []string{
 		"This invocation only recovers the named source/declaration transaction; it does not read new host values or retry capture.",
 		"Approval covers these named files. Other manifests or programs may read them; exclusive source ownership is not established.",
 		"Recovery can restore or finalize literal plaintext data, including credentials. No file contents are printed.",

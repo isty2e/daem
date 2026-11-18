@@ -22,7 +22,7 @@ func TestNativeKeyReplacementCLI(t *testing.T) {
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
 
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -43,15 +43,16 @@ ownership = "keys"
 	}
 	preview := func() string {
 		t.Helper()
-		code, stdout, stderr := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--dry-run", "--json")
+		code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--dry-run", "--json")
 		if code != 0 {
 			t.Fatalf("replacement preview failed: %d %s %s", code, stdout, stderr)
 		}
 		var result struct {
+			Command     string `json:"command"`
 			Fingerprint string `json:"fingerprint"`
 		}
-		if err := json.Unmarshal([]byte(stdout), &result); err != nil || !strings.HasPrefix(result.Fingerprint, "v1:") {
-			t.Fatalf("replacement preview has no versioned approval fingerprint: %s %v", stdout, err)
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil || result.Command != "replace agent-config" || !strings.HasPrefix(result.Fingerprint, "v1:") {
+			t.Fatalf("invalid replacement preview: %s %v", stdout, err)
 		}
 		return result.Fingerprint
 	}
@@ -60,7 +61,7 @@ ownership = "keys"
 	if string(read()) != before {
 		t.Fatal("preview modified the host document")
 	}
-	if code, _, _ := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes"); code == 0 || string(read()) != before {
+	if code, _, _ := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes"); code == 0 || string(read()) != before {
 		t.Fatal("bare yes authorized an unreviewed replacement")
 	}
 	// Fresh unrelated edits must survive and must not invalidate selected consent.
@@ -68,7 +69,7 @@ ownership = "keys"
 	if fresh := preview(); fresh != fingerprint {
 		t.Fatal("unrelated content changed replacement consent")
 	}
-	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint, "--json"); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint, "--json"); code != 0 {
 		t.Fatalf("explicit takeover failed: %d %s %s", code, stdout, stderr)
 	}
 	var values struct {
@@ -85,11 +86,11 @@ ownership = "keys"
 	}
 	fingerprint = preview()
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "model = \"third\"\nunmanaged = 2\n")
-	if code, _, _ := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code == 0 {
+	if code, _, _ := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code == 0 {
 		t.Fatal("changed selected value accepted stale consent")
 	}
 	fingerprint = preview()
-	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "host-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code != 0 {
 		t.Fatalf("managed drift replacement failed: %d %s %s", code, stdout, stderr)
 	}
 	if err := toml.Unmarshal(read(), &values); err != nil || values.Model != "declared" {

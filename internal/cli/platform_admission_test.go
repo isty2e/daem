@@ -80,12 +80,12 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"add", "--help"},
 		{"add", "help", "skill"},
 		{"add", "skill", "--help"},
-		{"add", "host-config", "--help"},
+		{"add", "agent-config", "--help"},
 		{"apply", "--help"},
 		{"import", "--help"},
-		{"import", "host-config", "--help"},
+		{"import", "agent-config", "--help"},
 		{"replace", "--help"},
-		{"replace", "host-config", "--help"},
+		{"replace", "agent-config", "--help"},
 		{"init", "--help"},
 		{"lock", "--help"},
 		{"outdated", "--help"},
@@ -98,15 +98,11 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"remove", "--help"},
 		{"remove", "help", "skill"},
 		{"remove", "skill", "--help"},
-		{"remove", "host-config", "--help"},
+		{"remove", "agent-config", "--help"},
 		{"unmanage", "--help"},
 		{"unmanage", "extension", "--help"},
-		{"unmanage", "host-config", "--help"},
+		{"unmanage", "agent-config", "--help"},
 	}
-	for _, verb := range []string{"add", "remove", "import", "unmanage", "replace"} {
-		tests = append(tests, []string{verb, "agent-config", "--help"})
-	}
-
 	for _, args := range tests {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			var stdout bytes.Buffer
@@ -525,6 +521,7 @@ func testPlatformAdmission(t *testing.T, goos string, goarch string) platformsup
 
 func platformGatedCommandExamples(manifestPath string) [][]string {
 	examples := [][]string{
+		{"add", "agent-config", "example", "./prefs.toml", "--manifest", manifestPath},
 		{"add", "skill", "example", "./skill", "--manifest", manifestPath},
 		{"apply", "--yes", "--manifest", manifestPath},
 		{"import", "--target", "codex", "--manifest", manifestPath},
@@ -538,11 +535,8 @@ func platformGatedCommandExamples(manifestPath string) [][]string {
 		{"remove", "skill", "example", "--manifest", manifestPath},
 		{"unmanage", "extension", "example", "--manifest", manifestPath},
 	}
-	for _, subject := range []string{"agent-config", "host-config"} {
-		examples = append(examples, []string{"add", subject, "example", "./prefs.toml", "--manifest", manifestPath})
-		for _, verb := range []string{"remove", "import", "unmanage", "replace"} {
-			examples = append(examples, []string{verb, subject, "example", "--manifest", manifestPath})
-		}
+	for _, verb := range []string{"remove", "import", "unmanage", "replace"} {
+		examples = append(examples, []string{verb, "agent-config", "example", "--manifest", manifestPath})
 	}
 	return examples
 }

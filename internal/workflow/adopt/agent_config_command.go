@@ -130,7 +130,7 @@ func normalizeInitialCapture(request AgentConfigInitialCommandInput) (AgentConfi
 	if extension == "" {
 		extension = ".conf"
 	}
-	path := filepath.Join(directory, "host-config", url.PathEscape(request.Name)+extension)
+	path := filepath.Join(directory, "agent-config", url.PathEscape(request.Name)+extension)
 	local, err := source.NewLocalSource(path, source.LocalSourceModeVendor)
 	if err != nil {
 		return AgentConfigInitialInput{}, err

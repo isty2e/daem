@@ -183,7 +183,7 @@ func agentConfigReleaseGuidance(id entity.ID, selected target.Target, scope targ
 }
 
 func agentConfigPreviewGuidance(operation string, id entity.ID, manifestPath, purpose string, options ...string) Guidance {
-	command := []string{"daem", operation, "agent-config"}
+	command := []string{"daem", operation, AgentConfigResourceName}
 	literal := strings.HasPrefix(id.Name(), "-")
 	if !literal {
 		command = append(command, id.Name())

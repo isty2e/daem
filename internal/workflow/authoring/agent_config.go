@@ -86,9 +86,9 @@ func buildAddAgentConfigChange(document ManifestDocument, request AddAgentConfig
 	after := result.AgentConfigs()
 	if len(after) != len(before)+1 || !slices.Equal(before, after[:len(before)]) ||
 		!sameAgentConfigDeclaration(document.Root, after[len(before)], requested) {
-		return Change{}, fmt.Errorf("manifest edit did not add only the requested host configuration")
+		return Change{}, fmt.Errorf("manifest edit did not add only the requested agent configuration")
 	}
-	change.ChangeKind = "append host-config resource"
+	change.ChangeKind = "append agent-config resource"
 	return change, nil
 }
 
@@ -112,9 +112,9 @@ func buildRemoveAgentConfigChange(document ManifestDocument, request RemoveAgent
 		}
 		return Change{}, missingResourceSelection(entity.KindAgentConfig, request.ID, available)
 	}
-	changeKind := "remove selected-keys host-config declaration"
+	changeKind := "remove selected-keys agent-config declaration"
 	if configs[index].Ownership() == agentconfig.OwnershipDocument {
-		changeKind = "remove whole-file host-config declaration"
+		changeKind = "remove whole-file agent-config declaration"
 	}
 
 	content, err := declarationcodec.RemoveAgentConfigDeclaration(document.Content, id.Name())
@@ -126,7 +126,7 @@ func buildRemoveAgentConfigChange(document ManifestDocument, request RemoveAgent
 		return Change{}, fmt.Errorf("resulting manifest is invalid: %w", err)
 	}
 	if !slices.Equal(slices.Delete(configs, index, index+1), result.AgentConfigs()) {
-		return Change{}, fmt.Errorf("manifest edit did not remove only host configuration %q", id.Name())
+		return Change{}, fmt.Errorf("manifest edit did not remove only agent configuration %q", id.Name())
 	}
 	return Change{
 		ManifestPath: document.Path, Original: document.Content, Content: content,

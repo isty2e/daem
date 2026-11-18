@@ -190,7 +190,7 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 			candidate.manifestChanged = candidate.files[0].write
 		}
 		if removed != 1 {
-			return agentConfigReleaseCandidate{}, fmt.Errorf("agent configuration declaration cannot be removed automatically: use [[host_config]] blocks or remove the declaration manually, then rerun unmanage agent-config")
+			return agentConfigReleaseCandidate{}, fmt.Errorf("agent configuration declaration cannot be removed automatically: use [[agent_config]] blocks or remove the declaration manually, then rerun unmanage agent-config")
 		}
 		remaining, err := declarationmanifest.Decode(candidate.files[0].after)
 		if err != nil {

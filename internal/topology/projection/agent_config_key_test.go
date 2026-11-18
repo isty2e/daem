@@ -84,10 +84,10 @@ func TestAgentConfigKeyIdentityRefusesForgedOrNoncanonicalSubjects(t *testing.T)
 		"key-v1.." + encode("/a"), "key-v1." + encode(id.String()) + ".",
 		"key-v1." + encode(id.String()) + "." + encode("/bad~2escape"),
 		"key-v1." + encode("skill:review") + "." + encode("/a"),
-		"key-v1." + encode("host_config:%72eview") + "." + encode("/a"),
+		"key-v1." + encode("agent_config:%72eview") + "." + encode("/a"),
 		valid[:len(valid)-1] + "F", // same decoded bytes, nonzero base64 padding bits
 	} {
-		subject, err := topology.NewSubjectID(topology.SubjectProjection, "pi.global.host-config", key)
+		subject, err := topology.NewSubjectID(topology.SubjectProjection, "pi.global.agent-config", key)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func TestAgentConfigKeyIdentityRefusesForgedOrNoncanonicalSubjects(t *testing.T)
 			t.Fatalf("accepted malformed case %d", index)
 		}
 	}
-	for _, namespace := range []string{"pi.global.other", "pi.invalid.host-config", "unsupported.global.host-config", "pi.global.host-config.extra"} {
+	for _, namespace := range []string{"pi.global.mcp-server", "pi.global.host-config", "pi.invalid.agent-config", "unsupported.global.agent-config", "pi.global.agent-config.extra"} {
 		subject, err := topology.NewSubjectID(topology.SubjectProjection, namespace, valid)
 		if err != nil {
 			t.Fatal(err)
@@ -104,7 +104,7 @@ func TestAgentConfigKeyIdentityRefusesForgedOrNoncanonicalSubjects(t *testing.T)
 			t.Fatalf("accepted invalid namespace %s", namespace)
 		}
 	}
-	resource, err := topology.NewSubjectID(topology.SubjectResource, "pi.global.host-config", valid)
+	resource, err := topology.NewSubjectID(topology.SubjectResource, "pi.global.agent-config", valid)
 	if err != nil {
 		t.Fatal(err)
 	}

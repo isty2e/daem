@@ -183,7 +183,7 @@ func (environment Environment) validateFamilies() error {
 	}
 	for index, value := range environment.agentConfigs {
 		if err := value.Validate(); err != nil {
-			return fmt.Errorf("host_configs[%d]: %w", index, err)
+			return fmt.Errorf("agent_configs[%d]: %w", index, err)
 		}
 		if err := addEntityID(seenIDs, value.ID()); err != nil {
 			return err

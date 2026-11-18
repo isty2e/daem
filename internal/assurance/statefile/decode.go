@@ -165,7 +165,7 @@ func (persisted managedPathDTO) canonical() (durable.ManagedPathState, error) {
 
 func (persisted legacyManagedAggregateDTO) canonical() (durable.ManagedAggregateState, error) {
 	if _, native := aggregate.AgentConfigSyntaxForCodec(aggregate.CodecContractID(persisted.CodecContractID)); native {
-		return durable.ManagedAggregateState{}, fmt.Errorf("native host-config family requires statefile v10")
+		return durable.ManagedAggregateState{}, fmt.Errorf("native agent-config family requires statefile v10")
 	}
 	subject, err := persisted.Subject.canonical()
 	if err != nil {

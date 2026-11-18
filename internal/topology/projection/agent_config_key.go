@@ -11,6 +11,8 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
+const agentConfigKeyFamily = "agent-config"
+
 // AgentConfigKeySubject identifies an atomic native value independently of its
 // content, document spelling, codec version or execution occurrence.
 func AgentConfigKeySubject(id entity.ID, selected target.Target, scope target.Scope, key output.KeyPath) (topology.SubjectID, error) {
@@ -18,7 +20,7 @@ func AgentConfigKeySubject(id entity.ID, selected target.Target, scope target.Sc
 		return topology.SubjectID{}, err
 	}
 	if id.Kind() != entity.KindAgentConfig || key.IsRoot() {
-		return topology.SubjectID{}, fmt.Errorf("native key projection requires a host_config entity and a non-root key")
+		return topology.SubjectID{}, fmt.Errorf("native key projection requires an agent_config entity and a non-root key")
 	}
 	namespace, err := agentConfigKeyNamespace(selected, scope)
 	if err != nil {
@@ -39,7 +41,7 @@ func AgentConfigKeyIdentity(subject topology.SubjectID) (entity.ID, output.KeyPa
 		return entity.ID{}, output.KeyPath{}, false
 	}
 	namespace := strings.Split(subject.Namespace(), ".")
-	if len(namespace) != 3 || namespace[2] != "host-config" {
+	if len(namespace) != 3 || namespace[2] != agentConfigKeyFamily {
 		return entity.ID{}, output.KeyPath{}, false
 	}
 	selected, scope := target.Target(namespace[0]), target.Scope(namespace[1])
@@ -80,5 +82,5 @@ func agentConfigKeyNamespace(selected target.Target, scope target.Scope) (string
 	if _, err := target.ParseScope(string(scope)); err != nil {
 		return "", err
 	}
-	return string(selected) + "." + string(scope) + ".host-config", nil
+	return string(selected) + "." + string(scope) + "." + agentConfigKeyFamily, nil
 }

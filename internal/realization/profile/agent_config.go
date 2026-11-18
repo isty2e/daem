@@ -144,13 +144,13 @@ func AgentConfigOperationRoute(placement configuration.Placement, operation Oper
 	}
 
 	if placement.Ownership() == desiredagentconfig.OwnershipDocument {
-		return NewOperationRoute(entity.KindAgentConfig, operation, placement.ID(), "managed-host-config-document"+suffix, "native-document.v1")
+		return NewOperationRoute(entity.KindAgentConfig, operation, placement.ID(), "managed-agent-config-document"+suffix, "native-document.v1")
 	}
 	codec, supported := aggregate.AgentConfigCodecForSyntax(string(placement.Grammar()))
 	if !supported {
 		return OperationRoute{}, fmt.Errorf("native key route has no codec")
 	}
-	return NewOperationRoute(entity.KindAgentConfig, operation, placement.ID(), "managed-host-config-key"+suffix, string(codec))
+	return NewOperationRoute(entity.KindAgentConfig, operation, placement.ID(), "managed-agent-config-key"+suffix, string(codec))
 }
 
 func AgentConfigDocumentProjection(placement configuration.Placement) (realization.RealizationSpec, error) {

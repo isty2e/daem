@@ -23,7 +23,7 @@ type AuthoringResourceKind string
 const (
 	AuthoringResourceExtension    AuthoringResourceKind = "extension"
 	AuthoringResourceHook         AuthoringResourceKind = "hook"
-	AuthoringResourceAgentConfig  AuthoringResourceKind = "host_config"
+	AuthoringResourceAgentConfig  AuthoringResourceKind = AuthoringResourceKind(entity.KindAgentConfig)
 	AuthoringResourceInstructions AuthoringResourceKind = "instructions"
 	AuthoringResourceMCPServer    AuthoringResourceKind = "mcp_server"
 	AuthoringResourceSkill        AuthoringResourceKind = "skill"
@@ -50,14 +50,10 @@ func AuthoringChangeFrom(
 	result authoringworkflow.OperationResult,
 ) AuthoringChangeSummary {
 	manifestBlock, warnings := authoringAddedContent(operation, result)
-	changeKind := result.ChangeKind
-	if resourceKind == AuthoringResourceAgentConfig {
-		changeKind = strings.ReplaceAll(changeKind, "host-config", "agent configuration")
-	}
 	return AuthoringChangeSummary{
 		Label:        label,
 		ResourceID:   authoringResourceID(string(resourceKind), result.ResourceID),
-		ChangeKind:   changeKind,
+		ChangeKind:   result.ChangeKind,
 		ManifestPath: result.ManifestPath,
 		Lockfile:     authoringLockfileFrom(result),
 		PlannedBlock: manifestBlock,

@@ -211,7 +211,7 @@ func TestRefreshMetadataReplanWithManagedNativeSettings(t *testing.T) {
 	if err := os.WriteFile(source, []byte("[tui]\nnotifications=false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	native := fmt.Sprintf("\n[[host_config]]\nid='preferences'\ntargets=['codex']\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", source)
+	native := fmt.Sprintf("\n[[agent_config]]\nid='preferences'\ntargets=['codex']\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", source)
 	if err := os.WriteFile(manifest, []byte("version=1\ntargets=['codex']\n"+native), 0o600); err != nil {
 		t.Fatal(err)
 	}

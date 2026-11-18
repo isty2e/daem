@@ -41,6 +41,6 @@ func TestTargetValuesReturnsCopy(t *testing.T) {
 	agentConfigValues := agentConfig.TargetValues()
 	agentConfigValues[0] = "mutated"
 	if agentConfig.Targets[0] != "codex" {
-		t.Fatalf("TargetValues mutated host_config target values: %#v", agentConfig.Targets)
+		t.Fatalf("TargetValues mutated agent_config target values: %#v", agentConfig.Targets)
 	}
 }

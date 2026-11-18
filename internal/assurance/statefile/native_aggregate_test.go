@@ -29,7 +29,7 @@ func TestLegacyStateAggregateRefusesNativeFamilyWithOrdinaryKey(t *testing.T) {
 		CodecContractID: string(contribution.CodecContractID()), ComparedFields: contribution.ComparedFields(),
 	}
 	if _, err := persisted.canonical(); err == nil {
-		t.Fatal("legacy state row admitted native host-config family through an ordinary content path")
+		t.Fatal("legacy state row admitted native agent-config family through an ordinary content path")
 	}
 }
 

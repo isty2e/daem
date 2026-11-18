@@ -31,15 +31,15 @@ func rejectAgentConfigControlSourceOverlap(ctx context.Context, configs []agentc
 
 		referent, _, err := mutation.CanonicalReferentPath(localAgentConfigFile(root, local))
 		if err != nil {
-			return fmt.Errorf("locate host configuration %q source: %w", config.ID().Name(), err)
+			return fmt.Errorf("locate agent configuration %q source: %w", config.ID().Name(), err)
 		}
 		entry, err := mutation.ObserveDirectoryEntryAuthority(referent)
 		if err != nil {
-			return fmt.Errorf("observe host configuration %q source entry: %w", config.ID().Name(), err)
+			return fmt.Errorf("observe agent configuration %q source entry: %w", config.ID().Name(), err)
 		}
 		for _, control := range controls {
 			if control.Equal(entry) {
-				return fmt.Errorf("host configuration %q source is the manifest or lockfile selected for replacement; use a separate source file", config.ID().Name())
+				return fmt.Errorf("agent configuration %q source is the manifest or lockfile selected for replacement; use a separate source file", config.ID().Name())
 			}
 		}
 	}

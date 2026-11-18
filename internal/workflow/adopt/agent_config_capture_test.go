@@ -46,7 +46,7 @@ func newCaptureWorkflowFixture(t *testing.T, ownership string, host []byte) capt
 		t.Fatal(err)
 	}
 	fixture := captureWorkflowFixture{paths: paths, host: filepath.Join(root, ".codex", "capture.jsonc"), source: filepath.Join(root, "source.jsonc"), alias: filepath.Join(root, "alias.jsonc")}
-	fixture.manifest = []byte("version = 1\ntargets = [\"codex\"]\n# keep manifest\n[[host_config]]\nid = \"chosen\"\nscope = \"project\"\npath = \"capture.jsonc\"\nsource = \"source.jsonc\"\nownership = \"" + ownership + "\"\n[[host_config]]\nid = \"peer\"\nscope = \"project\"\npath = \"unselected.json\"\nsource = \"alias.jsonc\"\n")
+	fixture.manifest = []byte("version = 1\ntargets = [\"codex\"]\n# keep manifest\n[[agent_config]]\nid = \"chosen\"\nscope = \"project\"\npath = \"capture.jsonc\"\nsource = \"source.jsonc\"\nownership = \"" + ownership + "\"\n[[agent_config]]\nid = \"peer\"\nscope = \"project\"\npath = \"unselected.json\"\nsource = \"alias.jsonc\"\n")
 	if err := os.Mkdir(filepath.Dir(fixture.host), 0o700); err != nil {
 		t.Fatal(err)
 	}

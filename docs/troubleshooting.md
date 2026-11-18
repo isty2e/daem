@@ -644,7 +644,7 @@ Choose the intended direction before changing files:
   is unavailable or uncertain, stop for manual analysis rather than deleting
   state or replacing the output speculatively.
 - **Release ownership:** removing a declaration and applying is a removal path,
-  not a way to leave the output in place. For host configuration,
+  not a way to leave the output in place. For an agent configuration declaration,
   [`unmanage agent-config`](cli.md#unmanage-agent-config) keeps the current file
   contents and releases the whole declaration's management. It can also
   release retained management after you remove the declaration. For an
@@ -657,7 +657,7 @@ settle drift at the previous path: its retained baseline must still match.
 `--manage-existing` does not bypass drift, and `recover` is not a drift-repair
 command. If a recovery journal is active, resolve it before manual host edits.
 
-### Host Configuration Removal Is Blocked
+### Agent Configuration Removal Is Blocked
 
 When a key has changed since daem last applied it, dropping the key from its
 source or removing the declaration does not let apply delete the changed value.

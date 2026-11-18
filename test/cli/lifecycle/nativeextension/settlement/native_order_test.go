@@ -279,7 +279,7 @@ func newNativePiOrderFixture(t *testing.T, scope target.Scope) nativefixture.Rec
 	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--manage-existing", "--yes")
 
-	declaration := string(testkit.ReadFile(t, manifest)) + fmt.Sprintf("\n[[host_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.json"))
+	declaration := string(testkit.ReadFile(t, manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.json"))
 	testkit.WriteFile(t, workspace, "daem.toml", declaration)
 	testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"fixture-theme"}`)
 	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)

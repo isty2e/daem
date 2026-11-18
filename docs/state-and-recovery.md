@@ -90,7 +90,7 @@ continue to define that profile. Remove an unwanted empty parent manually only
 after checking its host-specific meaning. While daem manages a dotted child of
 an implicit TOML parent, declaring that same parent with an explicit header may
 make the document invalid. Remove the managed child before changing that parent
-representation. See [Host Configuration](manifest.md#host-configuration) for
+representation. See [Agent Configuration](manifest.md#agent-configuration) for
 declarations and the apply workflow.
 
 ### Pending Pi Pin Changes

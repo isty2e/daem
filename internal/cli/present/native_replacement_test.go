@@ -14,7 +14,7 @@ func TestNativeReplacementDisclosureMasksSensitiveValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	disclosure := applyworkflow.NativeReplacementDisclosure{Fingerprint: "v1:opaque", Declaration: "host_config:preferences", Keys: []applyworkflow.NativeReplacementKey{{Path: key, File: "/file", Action: "replace", CurrentPresent: true, Current: `"private-current-value"`, Desired: `"private-desired-value"`}}}
+	disclosure := applyworkflow.NativeReplacementDisclosure{Fingerprint: "v1:opaque", Declaration: "agent_config:preferences", Keys: []applyworkflow.NativeReplacementKey{{Path: key, File: "/file", Action: "replace", CurrentPresent: true, Current: `"private-current-value"`, Desired: `"private-desired-value"`}}}
 	encoded, err := NativeReplacementJSON(disclosure, "dry-run", 1)
 	if err != nil {
 		t.Fatal(err)

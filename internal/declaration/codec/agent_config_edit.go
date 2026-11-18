@@ -22,7 +22,7 @@ func AppendAgentConfigDeclaration(content []byte, config agentconfig.Config) ([]
 	if err != nil {
 		return nil, "", err
 	}
-	block := "[[host_config]]\n" + strings.Join(fields, "\n")
+	block := "[[agent_config]]\n" + strings.Join(fields, "\n")
 	if !exists {
 		return declaration.AppendDocumentBlock(content, block+"\n"), block, nil
 	}
@@ -132,7 +132,7 @@ func scanInlineAgentConfigs(content []byte) (inlineAgentConfigs, bool, error) {
 		return inlineAgentConfigs{}, false, err
 	}
 	for _, expression := range index.Expressions() {
-		if expression.Kind != tomlsyntax.KeyValue || !slices.Equal(expression.Path, tomlsyntax.Key{"host_config"}) {
+		if expression.Kind != tomlsyntax.KeyValue || !slices.Equal(expression.Path, tomlsyntax.Key{"agent_config"}) {
 			continue
 		}
 		array, err := indexInlineAgentConfigRows(string(content), expression.Value)
@@ -143,7 +143,7 @@ func scanInlineAgentConfigs(content []byte) (inlineAgentConfigs, bool, error) {
 
 func indexInlineAgentConfigRows(content string, value tomlsyntax.Span) (inlineAgentConfigs, error) {
 	if value.End-value.Start < 2 || content[value.Start] != '[' || content[value.End-1] != ']' {
-		return inlineAgentConfigs{}, fmt.Errorf("host_config is not an inline array")
+		return inlineAgentConfigs{}, fmt.Errorf("agent_config is not an inline array")
 	}
 	array := inlineAgentConfigs{close: value.End - 1}
 	for cursor := value.Start + 1; cursor < array.close; {
@@ -153,13 +153,13 @@ func indexInlineAgentConfigRows(content string, value tomlsyntax.Span) (inlineAg
 		}
 		end, ok := tomlsyntax.SkipValue(content, start, array.close, 0)
 		if !ok || content[start] != '{' {
-			return inlineAgentConfigs{}, fmt.Errorf("cannot locate inline host_config table")
+			return inlineAgentConfigs{}, fmt.Errorf("cannot locate inline agent_config table")
 		}
 		row := inlineAgentConfigRow{span: declaration.DocumentRange{Start: start, End: end}, comma: -1}
 		cursor = tomlsyntax.SkipSpaceAndComments(content, end, array.close)
 		if cursor < array.close {
 			if content[cursor] != ',' {
-				return inlineAgentConfigs{}, fmt.Errorf("cannot locate inline host_config separator")
+				return inlineAgentConfigs{}, fmt.Errorf("cannot locate inline agent_config separator")
 			}
 			row.comma = cursor
 			cursor++
@@ -175,9 +175,9 @@ func (array inlineAgentConfigs) remove(content []byte, id string) ([]byte, error
 		// Decode exactly the table spanned by this array member, never a text
 		// match on an id that may also appear in a source or comment.
 		var decoded struct {
-			AgentConfig declaration.AgentConfig `toml:"host_config"`
+			AgentConfig declaration.AgentConfig `toml:"agent_config"`
 		}
-		fragment := "host_config = " + text[row.span.Start:row.span.End]
+		fragment := "agent_config = " + text[row.span.Start:row.span.End]
 		if _, err := tomlsyntax.Decode(fragment, &decoded); err != nil {
 			return nil, err
 		}

@@ -32,11 +32,11 @@ func TestNativeKeyReplacementTargetScopes(t *testing.T) {
 					testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), string(content))
 				}
 				fingerprint := nativeReplacementFingerprint(t, fixture.RecoveryFixture)
-				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint, "--json")
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint, "--json")
 				requireNativeKeyScopeDesired(t, fixture, "after-model")
 				fingerprint = nativeReplacementFingerprint(t, fixture.RecoveryFixture)
 				before := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)
-				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+				nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 				requireNativeKeyScopeDesired(t, fixture, "after-model")
 				for path, image := range before {
 					if current := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)[path]; current != image {
@@ -69,7 +69,7 @@ func TestNativeKeyReplacementBindsProtectionAndSource(t *testing.T) {
 				extra = append(extra, "--key", "/outside")
 			}
 			before := nativefixture.SnapshotRecoveryEvidence(t, fixture)
-			args := append([]string{"replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint}, extra...)
+			args := append([]string{"replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint}, extra...)
 			if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture, "none", args...); code == 0 {
 				t.Fatal("changed replacement authority was accepted")
 			}

@@ -100,7 +100,7 @@ func newAgentConfigResolveTask(ordinal int, config agentconfig.Config) sourceTas
 		stage: EventStageAgentConfig, ordinal: ordinal, operation: acquisition.OperationResolve,
 		sourceSpec: config.Source(), entityID: config.ID(),
 		startedEvent: EventResourceResolveStarted, succeededEvent: EventResourceResolved, failedEvent: EventResourceResolveFailed,
-		errorPrefix: fmt.Sprintf("resolve host_config %q source", config.ID().Name()),
+		errorPrefix: fmt.Sprintf("resolve agent_config %q source", config.ID().Name()),
 	}
 }
 

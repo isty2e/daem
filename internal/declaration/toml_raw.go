@@ -17,7 +17,7 @@ type Manifest struct {
 	Instructions map[string]Instructions `toml:"instructions"`
 	MCPServers   []MCPServer             `toml:"mcp_server"`
 	Extensions   []Extension             `toml:"extension"`
-	AgentConfigs []AgentConfig           `toml:"host_config"`
+	AgentConfigs []AgentConfig           `toml:"agent_config"`
 }
 
 type Defaults struct {

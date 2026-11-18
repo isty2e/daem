@@ -20,7 +20,7 @@ func RequireAgentConfigAuthoringOnly(ctx context.Context, snapshot durable.Snaps
 		return err
 	}
 	if len(managements) != 0 {
-		return fmt.Errorf("authoring-only host-config removal has retained management")
+		return fmt.Errorf("authoring-only agent-config removal has retained management")
 	}
 	index, err := IndexSnapshotForClaims(ctx, snapshot, NativeClaims)
 	if err != nil {
@@ -41,7 +41,7 @@ func RequireAgentConfigAuthoringOnly(ctx context.Context, snapshot durable.Snaps
 	for _, claim := range claims {
 		footprint := claim.Address().Footprint()
 		if _, present := remaining[footprint]; !present || claim.State() != ownership.ClaimActive {
-			return fmt.Errorf("authoring-only host-config removal has orphan or reserved own metadata")
+			return fmt.Errorf("authoring-only agent-config removal has orphan or reserved own metadata")
 		}
 		delete(remaining, footprint)
 	}
@@ -75,7 +75,7 @@ func RequireAgentConfigAuthoringOnly(ctx context.Context, snapshot durable.Snaps
 		return err
 	}
 	if changed {
-		return fmt.Errorf("authoring-only host-config removal would release own metadata")
+		return fmt.Errorf("authoring-only agent-config removal would release own metadata")
 	}
 	return ctx.Err()
 }

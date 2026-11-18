@@ -48,7 +48,7 @@ func TestNativeKeyCLIPlanning(t *testing.T) {
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
 
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -110,12 +110,12 @@ func TestNativeKeyCLIPlanningEmptyAndChangedSources(t *testing.T) {
 			workspace := filepath.Dir(manifest)
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "first"
 path = "config.toml"
 source = "./first.toml"
 ownership = "keys"
-[[host_config]]
+[[agent_config]]
 id = "second"
 path = "extension/second.toml"
 source = "./second.toml"
@@ -213,7 +213,7 @@ func TestNativeKeyCLIPlanningLastRemovalFromPreparedState(t *testing.T) {
 	manifest := filepath.Join(workspace, "daem.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -330,7 +330,7 @@ func TestNativeKeyPlanningRetainsSuppliedSourceEpoch(t *testing.T) {
 	workspace := filepath.Dir(manifest)
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -377,13 +377,13 @@ func TestNativeKeyCLIPlanningPreservesSelectedActors(t *testing.T) {
 	manifest := filepath.Join(workspace, "daem.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["pi", "codex"]
-[[host_config]]
+[[agent_config]]
 id = "pi-preferences"
 targets = ["pi"]
 path = "settings.json"
 source = "./pi.json"
 ownership = "keys"
-[[host_config]]
+[[agent_config]]
 id = "codex-preferences"
 targets = ["codex"]
 path = "config.toml"
@@ -428,7 +428,7 @@ func TestNativeKeyCLIPlanningGlobalRootAdmission(t *testing.T) {
 			testkit.WriteFile(t, workspace, "fragment", content)
 			testkit.WriteFile(t, workspace, "daem.toml", fmt.Sprintf(`version = 1
 targets = [%q]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 scope = "global"
 path = %q
@@ -482,7 +482,7 @@ func TestNativeDocumentCLIPlanningIsReadOnly(t *testing.T) {
 	manifest := filepath.Join(workspace, "daem.toml")
 	body := `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "extension/preferences.toml"
 source = "./fragment"

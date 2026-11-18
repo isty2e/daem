@@ -40,10 +40,10 @@ func nativePiPinFixture(t *testing.T, scope target.Scope, mode, mutation string)
 	case "changed":
 		testkit.WriteFile(t, f.Workspace, "preferences.json", `{"theme":"updated-theme"}`)
 	case "retiring":
-		declaration, _, _ = strings.Cut(declaration, "\n[[host_config]]")
+		declaration, _, _ = strings.Cut(declaration, "\n[[agent_config]]")
 	case "whole":
 		testkit.WriteFile(t, f.Workspace, "dedicated.json", `{"enabled":true}`)
-		declaration += fmt.Sprintf("\n[[host_config]]\nid='dedicated'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "dedicated.json"))
+		declaration += fmt.Sprintf("\n[[agent_config]]\nid='dedicated'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "dedicated.json"))
 		testkit.WriteFile(t, f.Workspace, "daem.toml", strings.ReplaceAll(declaration, nativePinAfter, nativePinBefore))
 		f.Require(t, "lock")
 		f.Require(t, "apply", "--yes")

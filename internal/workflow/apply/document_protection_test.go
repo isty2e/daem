@@ -33,7 +33,7 @@ func documentProtectionCommandFixture(t *testing.T, native bool) daempaths.Paths
 	}
 	manifest := "version=1\ntargets=['codex']\n[instructions.project]\nsource='./instructions.md'\n"
 	if native {
-		manifest += "[[host_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+		manifest += "[[agent_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 	}
 	for path, content := range map[string]string{"daem.toml": manifest, "instructions.md": "ordinary instructions\n", "preferences.toml": "model='native-test'\n"} {
 		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o600); err != nil {

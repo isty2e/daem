@@ -7,64 +7,58 @@ import (
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
-func TestAgentConfigCommandSpellingsShareFailureIdentity(t *testing.T) {
+func TestAgentConfigFailureIdentityNamesTheInvokedLeaf(t *testing.T) {
 	for _, verb := range []string{"add", "remove", "import", "unmanage", "replace"} {
 		t.Run(verb, func(t *testing.T) {
 			options := RunOptions{Context: t.Context()}
-			preferred, stderr, code := runCLIEdge(t, []string{verb, "agent-config", "--json"}, options)
+			stdout, stderr, code := runCLIEdge(t, []string{verb, "agent-config", "--json"}, options)
 			if code != 2 || stderr != "" {
-				t.Fatalf("preferred spelling: exit=%d stdout=%q stderr=%q", code, preferred, stderr)
+				t.Fatalf("missing declaration ID: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
-			clijson.DecodeFailure(t, preferred, verb+" host-config", "usage")
-
-			legacy, stderr, code := runCLIEdge(t, []string{verb, "host-config", "--json"}, options)
-			if code != 2 || stderr != "" || legacy != preferred {
-				t.Fatalf("legacy spelling differs: exit=%d stdout=%q stderr=%q; preferred stdout=%q", code, legacy, stderr, preferred)
-			}
+			clijson.DecodeFailure(t, stdout, verb+" agent-config", "usage")
 		})
 	}
 }
 
-func TestAgentConfigHelpUsesPreferredSpelling(t *testing.T) {
-	for _, verb := range []string{"add", "remove", "import", "unmanage", "replace"} {
-		t.Run(verb, func(t *testing.T) {
-			options := RunOptions{Context: t.Context()}
-			preferred, stderr, code := runCLIEdge(t, []string{"help", verb, "agent-config"}, options)
-			if code != 0 || stderr != "" || !strings.HasPrefix(preferred, "daem "+verb+" agent-config - ") {
-				t.Fatalf("preferred help: exit=%d stdout=%q stderr=%q", code, preferred, stderr)
-			}
+func TestAgentConfigPathStaysWithinItsGrammar(t *testing.T) {
+	options := RunOptions{Context: t.Context()}
+	stdout, stderr, code := runCLIEdge(t, []string{"import", "agent-config", "prefs", "--update-source", "--config-path=", "--dry-run", "--json"}, options)
+	if code != 2 || stderr != "" {
+		t.Fatalf("update with initial path flag: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	failure := clijson.DecodeFailure(t, stdout, "import agent-config", "usage")
+	if !strings.Contains(failure.Error.Message, "is initial-only") {
+		t.Fatalf("expected the initial-only diagnostic for --config-path, got %+v", failure.Error)
+	}
 
-			aliases := [][]string{{"help", verb, "host-config"}, {verb, "host-config", "--help"}}
-			if verb == "add" || verb == "remove" || verb == "unmanage" {
-				aliases = append(aliases, []string{verb, "help", "host-config"})
-			}
-			for _, args := range aliases {
-				legacy, stderr, code := runCLIEdge(t, args, options)
-				if code != 0 || stderr != "" || legacy != preferred {
-					t.Fatalf("%v did not show the preferred help: exit=%d stdout=%q stderr=%q", args, code, legacy, stderr)
-				}
-			}
-		})
+	stdout, stderr, code = runCLIEdge(t, []string{"add", "agent-config", "prefs", "prefs.toml", "--config-path", "--json"}, options)
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "requires an explicit --target and --scope") {
+		t.Fatalf("--config-path did not consume --json as a path: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
 
-func TestAgentConfigPathAliasesStayWithinTheirGrammar(t *testing.T) {
-	for _, flag := range []string{"--config-path", "--host-path"} {
-		t.Run(flag, func(t *testing.T) {
-			options := RunOptions{Context: t.Context()}
-			stdout, stderr, code := runCLIEdge(t, []string{"import", "agent-config", "prefs", "--update-source", flag + "=", "--dry-run", "--json"}, options)
-			if code != 2 || stderr != "" {
-				t.Fatalf("update with initial path flag: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+func TestAgentConfigRejectsUnreleasedCommandAndFlagNames(t *testing.T) {
+	options := RunOptions{Context: t.Context()}
+	for _, verb := range []string{"add", "remove", "import", "unmanage", "replace"} {
+		t.Run(verb, func(t *testing.T) {
+			stdout, stderr, code := runCLIEdge(t, []string{verb, "host-config", "--json"}, options)
+			if code != 2 {
+				t.Fatalf("old subject: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
-			failure := clijson.DecodeFailure(t, stdout, "import host-config", "usage")
-			if !strings.Contains(failure.Error.Message, "is initial-only") {
-				t.Fatalf("expected the initial-only diagnostic for %s, got %+v", flag, failure.Error)
-			}
-
-			stdout, stderr, code = runCLIEdge(t, []string{"add", "agent-config", "prefs", "prefs.toml", flag, "--json"}, options)
-			if code != 2 || stdout != "" || !strings.Contains(stderr, "requires an explicit --target and --scope") {
-				t.Fatalf("%s consumed --json as an option instead of a path: exit=%d stdout=%q stderr=%q", flag, code, stdout, stderr)
+			if verb == "import" {
+				clijson.DecodeFailure(t, stdout, "import", "usage")
+			} else if stdout != "" || stderr == "" {
+				t.Fatalf("old subject selected a JSON leaf: stdout=%q stderr=%q", stdout, stderr)
 			}
 		})
 	}
+
+	stdout, stderr, code := runCLIEdge(t, []string{
+		"add", "agent-config", "prefs", "prefs.toml", "--target", "codex", "--scope", "project",
+		"--host-path=config.toml", "--json",
+	}, options)
+	if code != 2 || stderr != "" {
+		t.Fatalf("old destination flag: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	clijson.DecodeFailure(t, stdout, "add agent-config", "usage")
 }

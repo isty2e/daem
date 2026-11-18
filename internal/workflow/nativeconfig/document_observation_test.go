@@ -82,12 +82,12 @@ func TestSelectedNativeObservationDoesNotReadOtherDeclaredDocuments(t *testing.T
 	}
 	environment, err := declarationmanifest.Decode([]byte(`version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "selected"
 scope = "project"
 path = "selected.json"
 source = "source.json"
-[[host_config]]
+[[agent_config]]
 id = "unselected"
 scope = "project"
 path = "blocked.json"

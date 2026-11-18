@@ -53,7 +53,7 @@ func ValidatePlacement(paths daempaths.Paths, environment desired.Environment) e
 	}
 	for _, config := range environment.AgentConfigs() {
 		if config.Scope() == target.ScopeProject {
-			return projectScopeFromUserDefaultError(paths, fmt.Sprintf("host_config %q", config.ID().Name()))
+			return projectScopeFromUserDefaultError(paths, fmt.Sprintf("agent_config %q", config.ID().Name()))
 		}
 	}
 

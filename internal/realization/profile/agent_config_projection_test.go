@@ -140,12 +140,12 @@ func TestNativeOperationRoutesRetainPersistedTokens(t *testing.T) {
 		version   string
 		identity  string
 	}{
-		{target.TargetPi, target.ScopeGlobal, "settings.json", desiredagentconfig.OwnershipKeys, "", "managed-host-config-key", "native-json-v1", "pi-host-config-global-v1"},
-		{target.TargetPi, target.ScopeGlobal, "settings.json", desiredagentconfig.OwnershipKeys, desiredagentconfig.SyntaxJSON, "managed-host-config-key", "native-json-v1", "pi-host-config-global-v1"},
-		{target.TargetPi, target.ScopeGlobal, "models.json", desiredagentconfig.OwnershipKeys, "", "managed-host-config-key", "native-json-line-comments-v1", "pi-host-config-global-v1"},
-		{target.TargetPi, target.ScopeProject, "models.json", desiredagentconfig.OwnershipKeys, "", "managed-host-config-key", "native-json-v1", "pi-host-config-project-v1"},
-		{target.TargetCodex, target.ScopeProject, "config.toml", desiredagentconfig.OwnershipKeys, "", "managed-host-config-key", "native-toml-v1", "codex-host-config-project-v1"},
-		{target.TargetCodex, target.ScopeGlobal, "prompts/review.md", desiredagentconfig.OwnershipDocument, "", "managed-host-config-document", "native-document.v1", "codex-host-config-global-v1"},
+		{target.TargetPi, target.ScopeGlobal, "settings.json", desiredagentconfig.OwnershipKeys, "", "managed-agent-config-key", "native-json-v1", "pi-agent-config-global-v1"},
+		{target.TargetPi, target.ScopeGlobal, "settings.json", desiredagentconfig.OwnershipKeys, desiredagentconfig.SyntaxJSON, "managed-agent-config-key", "native-json-v1", "pi-agent-config-global-v1"},
+		{target.TargetPi, target.ScopeGlobal, "models.json", desiredagentconfig.OwnershipKeys, "", "managed-agent-config-key", "native-json-line-comments-v1", "pi-agent-config-global-v1"},
+		{target.TargetPi, target.ScopeProject, "models.json", desiredagentconfig.OwnershipKeys, "", "managed-agent-config-key", "native-json-v1", "pi-agent-config-project-v1"},
+		{target.TargetCodex, target.ScopeProject, "config.toml", desiredagentconfig.OwnershipKeys, "", "managed-agent-config-key", "native-toml-v1", "codex-agent-config-project-v1"},
+		{target.TargetCodex, target.ScopeGlobal, "prompts/review.md", desiredagentconfig.OwnershipDocument, "", "managed-agent-config-document", "native-document.v1", "codex-agent-config-global-v1"},
 	} {
 		placement := mustAgentConfigPlacement(t, configuration.PlacementInput{
 			Target: test.selected, Scope: test.scope, Path: test.path, Ownership: test.ownership, Syntax: test.syntax,

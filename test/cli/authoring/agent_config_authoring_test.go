@@ -18,18 +18,18 @@ import (
 func TestAgentConfigRemoveGuidanceSelectsLiteralID(t *testing.T) {
 	const manifestContent = `version = 1
 targets = ['codex']
-host_config = [{id = %q, path = 'config.toml', source = 'prefs.toml'}]
+agent_config = [{id = %q, path = 'config.toml', source = 'prefs.toml'}]
 `
-	for _, id := range []string{"--help", "host-config", "--host-path"} {
+	for _, id := range []string{"--help", "agent-config"} {
 		t.Run(id, func(t *testing.T) {
 			root := t.TempDir()
 			manifest := filepath.Join(root, "daem.toml")
 			testkit.WriteFile(t, root, "daem.toml", fmt.Sprintf(manifestContent, id))
-			exit, stdout, stderr := testkit.RunCapturedCLI("remove", "host-config", "--manifest", manifest, "--scope", "global", "--json", "--", id)
+			exit, stdout, stderr := testkit.RunCapturedCLI("remove", "agent-config", "--manifest", manifest, "--scope", "global", "--json", "--", id)
 			if exit != 1 || stderr != "" {
 				t.Fatalf("mismatched scope: %d %s %s", exit, stdout, stderr)
 			}
-			result := clijson.DecodeFailure(t, stdout, "remove host-config", "operation")
+			result := clijson.DecodeFailure(t, stdout, "remove agent-config", "operation")
 			for _, guidance := range result.Guidance {
 				if len(guidance.Argv) < 3 || !slices.Equal(guidance.Argv[:3], []string{"daem", "remove", "agent-config"}) {
 					continue
@@ -38,11 +38,11 @@ host_config = [{id = %q, path = 'config.toml', source = 'prefs.toml'}]
 				if exit != 0 {
 					t.Fatalf("suggested remove failed: %d %s %s", exit, stdout, stderr)
 				}
-				exit, stdout, stderr = testkit.RunCapturedCLI("remove", "host-config", "--manifest", manifest, "--json", "--", id)
+				exit, stdout, stderr = testkit.RunCapturedCLI("remove", "agent-config", "--manifest", manifest, "--json", "--", id)
 				if exit != 1 || stderr != "" {
 					t.Fatalf("repeated removal should fail after following advice: %d %s %s", exit, stdout, stderr)
 				}
-				clijson.DecodeFailure(t, stdout, "remove host-config", "operation")
+				clijson.DecodeFailure(t, stdout, "remove agent-config", "operation")
 				return
 			}
 			t.Fatalf("no runnable selection in %+v", result.Guidance)
@@ -59,21 +59,21 @@ func TestAgentConfigAddValidatesPlacementAndSourceFlagShape(t *testing.T) {
 		name    string
 		options []string
 	}{
-		{"no implicit placement", []string{"--host-path", "config.toml"}},
+		{"no implicit placement", []string{"--config-path", "config.toml"}},
 		{"Git path does not choose host path", []string{"--path", "config.toml", "--target", "codex", "--scope", "project"}},
-		{"explicit empty Git flag", []string{"--ref=", "--host-path", "config.toml", "--target", "codex", "--scope", "project"}},
-		{"blank host path", []string{"--host-path", "  ", "--target", "codex", "--scope", "project"}},
-		{"explicit empty ownership", []string{"--ownership=", "--host-path", "config.toml", "--target", "codex", "--scope", "project"}},
-		{"explicit blank syntax", []string{"--syntax", "  ", "--host-path", "config.toml", "--target", "codex", "--scope", "project"}},
-		{"multiple distinct targets", []string{"--host-path", "config.toml", "--target", "codex", "--scope", "project", "--target", "pi"}},
+		{"explicit empty Git flag", []string{"--ref=", "--config-path", "config.toml", "--target", "codex", "--scope", "project"}},
+		{"blank host path", []string{"--config-path", "  ", "--target", "codex", "--scope", "project"}},
+		{"explicit empty ownership", []string{"--ownership=", "--config-path", "config.toml", "--target", "codex", "--scope", "project"}},
+		{"explicit blank syntax", []string{"--syntax", "  ", "--config-path", "config.toml", "--target", "codex", "--scope", "project"}},
+		{"multiple distinct targets", []string{"--config-path", "config.toml", "--target", "codex", "--scope", "project", "--target", "pi"}},
 	} {
 		t.Run(example.name, func(t *testing.T) {
-			args := append([]string{"add", "host-config", "sample", "./prefs.toml", "--manifest", manifest, "--json"}, example.options...)
+			args := append([]string{"add", "agent-config", "sample", "./prefs.toml", "--manifest", manifest, "--json"}, example.options...)
 			exit, stdout, stderr := testkit.RunCapturedCLI(args...)
 			if exit != 2 || stderr != "" {
 				t.Fatalf("invalid request not refused at ingress: %d %s %s", exit, stdout, stderr)
 			}
-			clijson.DecodeFailure(t, stdout, "add host-config", "usage")
+			clijson.DecodeFailure(t, stdout, "add agent-config", "usage")
 			testkit.AssertFileContent(t, manifest, original)
 		})
 	}
@@ -104,8 +104,8 @@ func TestAgentConfigAddLocksExactS3File(t *testing.T) {
 	t.Setenv("AWS_DEFAULT_PROFILE", "")
 	manifest := filepath.Join(root, "daem.toml")
 	testkit.WriteFile(t, root, "daem.toml", "version = 1\ntargets = ['codex']\n")
-	exit, stdout, stderr := testkit.RunCapturedCLI("add", "host-config", "prefs", "s3://"+bucket+"/prefs.toml",
-		"--manifest", manifest, "--target", "codex", "--scope", "project", "--host-path", "config.toml",
+	exit, stdout, stderr := testkit.RunCapturedCLI("add", "agent-config", "prefs", "s3://"+bucket+"/prefs.toml",
+		"--manifest", manifest, "--target", "codex", "--scope", "project", "--config-path", "config.toml",
 		"--region", "us-east-1", "--version-id", version, "--json")
 	if exit != 0 || stderr != "" {
 		t.Fatalf("add S3 host configuration failed: %d %s %s", exit, stdout, stderr)

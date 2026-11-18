@@ -29,7 +29,7 @@ func TestNativeApplyRetiresAlreadyAbsentCarrierClaim(t *testing.T) {
 
 			root, manifestPath, lockfilePath, missing, previous, _ := writeApplyPiPackageCarrierCommandFixtureForScope(t, scope)
 			claim := seedApplyCarrierClaim(t, root, manifestPath, previous, scope)
-			writeApplyFile(t, manifestPath, "version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n")
+			writeApplyFile(t, manifestPath, "version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n")
 			writeApplyFile(t, filepath.Join(root, "preferences.json"), `{"theme":"native-retirement"}`)
 			if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifestPath}); err != nil {
 				t.Fatal(err)

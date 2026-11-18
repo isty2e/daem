@@ -16,7 +16,7 @@ func normalizeAgentConfigs(
 ) ([]desiredagentconfig.Config, error) {
 	configs := make([]desiredagentconfig.Config, 0, len(rawConfigs))
 	for index, raw := range rawConfigs {
-		context := fmt.Sprintf("host_config[%d]", index)
+		context := fmt.Sprintf("agent_config[%d]", index)
 		config, err := normalizeAgentConfig(raw, defaultTargets, defaults, context)
 		if err != nil {
 			return nil, err

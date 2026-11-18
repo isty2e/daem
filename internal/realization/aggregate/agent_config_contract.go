@@ -45,14 +45,14 @@ func AgentConfigPlacementID(selected target.Target, scope target.Scope) (string,
 	if _, err := target.ParseScope(string(scope)); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s-host-config-%s-v1", selected, scope), nil
+	return fmt.Sprintf("%s-agent-config-%s-v1", selected, scope), nil
 }
 
 // AgentConfigDocumentSubject binds whole-file ownership to the complete canonical
 // declaration, target and scope identity, not only the declaration's entity ID.
 func AgentConfigDocumentSubject(id entity.ID, selected target.Target, scope target.Scope) (topology.SubjectID, error) {
 	if id.Kind() != entity.KindAgentConfig {
-		return topology.SubjectID{}, fmt.Errorf("native document subject requires a host-config entity")
+		return topology.SubjectID{}, fmt.Errorf("native document subject requires an agent_config entity")
 	}
 	placementID, err := AgentConfigPlacementID(selected, scope)
 	if err != nil {

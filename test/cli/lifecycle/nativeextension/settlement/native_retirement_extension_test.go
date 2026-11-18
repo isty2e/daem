@@ -24,7 +24,7 @@ func nativePiLastKeyRetirementFixture(t *testing.T, scope target.Scope, omitted 
 	fixture.Require(t, "apply", "--yes")
 	if omitted {
 		manifest := string(testkit.ReadFile(t, fixture.Manifest))
-		index := strings.LastIndex(manifest, "[[host_config]]")
+		index := strings.LastIndex(manifest, "[[agent_config]]")
 		if index < 0 {
 			t.Fatal("fixture native declaration is missing")
 		}

@@ -17,6 +17,6 @@ func TestNativeKeyReplacementAllowsSafeAncestorGrowth(t *testing.T) {
 	if fresh := nativeReplacementFingerprint(t, fixture.RecoveryFixture); fresh != fingerprint {
 		t.Fatal("an unrelated sibling creating a traversable parent invalidated consent")
 	}
-	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 	nativefixture.RequireSharedValues(t, configdocument.JSON, testkit.ReadFile(t, fixture.Destination), `{"extensionPreferences":{"foreign":3,"managed":"after-model"}}`, true)
 }

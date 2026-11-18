@@ -18,7 +18,7 @@ func TestNativePiRetirementWithSharedMCP(t *testing.T) {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := nativefixture.NewPiInvocation(t, "")
 			manifest := string(testkit.ReadFile(t, fixture.Manifest)) + `
-[[host_config]]
+[[agent_config]]
 id = "codex-preferences"
 targets = ["codex"]
 path = "config.toml"

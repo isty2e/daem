@@ -23,7 +23,7 @@ For setup steps, use [Getting Started](getting-started.md) or
 - [Hooks](#hooks)
 - [Hook Assets](#hook-assets)
 - [Instructions](#instructions)
-- [Host Configuration](#host-configuration)
+- [Agent Configuration](#agent-configuration)
 - [Lock Behavior](#lock-behavior)
 - [Complete Example](#complete-example)
 - [Extension Carriers](#extension-carriers)
@@ -49,7 +49,7 @@ targets = ["codex"]
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
 | `mcp_server` | array of tables | no | Supported MCP exact-projection relations; see [MCP Servers](#mcp-servers). |
-| `host_config` | array of tables | no | Selected native configuration keys for Codex or Pi; see [Host Configuration](#host-configuration). |
+| `agent_config` | array of tables | no | Selected settings or dedicated configuration files; see [Agent Configuration](#agent-configuration). |
 | `extension` | array of tables | no | Supported host plugin/package carrier declarations; see [Extension Carriers](#extension-carriers). |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -1366,9 +1366,9 @@ targets, including matching target-specific rendering tables, then refreshes
 the lockfile from the prospective manifest. Host deletion still requires
 explicit `apply`.
 
-## Host Configuration
+## Agent Configuration
 
-`[[host_config]]` manages selected keys or a dedicated whole configuration file
+`[[agent_config]]` manages selected keys or a dedicated whole configuration file
 for Pi, Codex, Claude Code, OpenCode or Antigravity CLI. In key mode, declare only
 values you want daem to keep consistent. Other settings, such as
 a model or reasoning-effort choice changed by the host, remain unmanaged unless
@@ -1394,7 +1394,7 @@ daem add agent-config codex-preferences ./codex-preferences.toml \
 Or add this declaration to `daem.toml` by hand and run `daem lock`:
 
 ```toml
-[[host_config]]
+[[agent_config]]
 id = "codex-preferences"
 targets = ["codex"]
 scope = "project"
@@ -1429,15 +1429,15 @@ host has loaded the file or that a particular extension recognizes its values.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `id` | string | yes | none | Unique host-configuration declaration name. |
+| `id` | string | yes | none | Unique agent configuration declaration name. |
 | `targets` | array of strings | no | top-level `targets` | Must resolve to exactly one target: `pi`, `codex`, `claude-code`, `opencode` or `antigravity-cli`. |
 | `scope` | string | no | `defaults.scope` | `project` or `global`. |
-| `path` | string | yes | none | Canonical slash-separated path relative to the selected host root. |
+| `path` | string | yes | none | Canonical slash-separated path relative to the selected agent's configuration root. |
 | `source` | string or source object | yes | none | Local regular file, Git file source, or S3 file object; see [Sources](#sources). Local sources use vendor mode; global local sources must be absolute. |
 | `ownership` | string | no | `keys` | `keys` manages selected values; `document` manages a dedicated whole file. See the ownership limits below. |
-| `syntax` | string | no | host/path default | `json`, `jsonc`, `json-line-comments`, or `toml`. This selects parsing, not a host-schema validator. |
+| `syntax` | string | no | target and path default | `json`, `jsonc`, `json-line-comments`, or `toml`. This selects parsing, not a validator for the agent's settings. |
 
-`path` is relative to the selected host root:
+`path` is relative to the selected agent's configuration root:
 
 | Target | Project root | Global root |
 | --- | --- | --- |
@@ -1450,7 +1450,7 @@ host has loaded the file or that a particular extension recognizes its values.
 OpenCode project paths must be under `.opencode/`, or select one of the root
 files `opencode.json`, `opencode.jsonc`, `tui.json` or `tui.jsonc`. Antigravity CLI
 declarations require global scope; it has no project preferences layer.
-Do not put the selected host-root prefix in `path`. Absolute paths, `..`, `.`
+Omit the configuration root prefix from `path`. Absolute paths, `..`, `.`
 components, empty components and backslashes are rejected. Preview does not create
 missing host directories; confirmed apply creates the selected directories as
 needed. Empty directory scaffolding can remain after removal or rollback.
@@ -1472,7 +1472,7 @@ ownership of the same physical file, including aliases.
 Use dedicated resources for reserved configuration: Codex `mcp_servers`, `hooks`,
 `plugins` and `marketplaces`, Claude Code `enabledPlugins`, OpenCode `plugin`,
 and Pi `packages`, `extensions` and `skills` cannot be authored through
-`host_config`. Host-owned authentication, runtime/cache,
+`agent_config`. Host-owned authentication, runtime/cache,
 package code and loader-control paths are also reserved. These exclusions do not
 certify other keys as safe for credentials; do not put secrets in source files or
 locks.

@@ -20,7 +20,7 @@ func TestLegacyJournalBoundariesRefuseNativeScopeWithoutLosslessEncoding(t *test
 		t.Fatal(err)
 	}
 	contract, err := aggregate.NewProjectionContract(aggregate.ProjectionContractInput{
-		PlacementID: "pi.host-config", Target: target.TargetPi, Scope: target.ScopeProject,
+		PlacementID: "pi.agent-config", Target: target.TargetPi, Scope: target.ScopeProject,
 		AggregateRoot: outputtest.Parse(t, ".pi/settings.json"), Footprint: scope,
 		MergeUnit: "native-key", Cardinality: aggregate.ContributionExclusive,
 		SiblingRetention: aggregate.PreserveUnmanagedSiblings, SiblingPreservation: aggregate.PreserveSiblingsSemantic,

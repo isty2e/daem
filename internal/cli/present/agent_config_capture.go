@@ -42,7 +42,7 @@ type AgentConfigCaptureJSON struct {
 
 func AgentConfigCaptureDisclosure(ctx context.Context, plan *workflowadopt.AgentConfigCapturePlan, mode string) (AgentConfigCaptureJSON, error) {
 	result := AgentConfigCaptureJSON{
-		SchemaVersion: 1, Command: "import host-config", Mode: mode,
+		SchemaVersion: 1, Command: "import " + AgentConfigResourceName, Mode: mode,
 		Declaration: humanErrorDetail(plan.Config().ID().Name()), Fingerprint: plan.Fingerprint(),
 		Source: humanErrorDetail(plan.SourcePath()), Referent: humanErrorDetail(plan.SourceReferent()),
 		Initial: plan.Initial(), Ownership: string(plan.Config().Ownership()), Retire: plan.RetiresDeclaration(), SourceBytes: len(plan.SourceAfter()),

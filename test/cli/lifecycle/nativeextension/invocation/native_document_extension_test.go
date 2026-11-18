@@ -33,14 +33,14 @@ func TestNativeWholeDocumentPublishesAfterPiInstall(t *testing.T) {
 					invokesCommand := mode != "move-current-relation"
 					f := nativefixture.NewPiInvocationAtScope(t, "none", scope)
 					original := string(testkit.ReadFile(t, f.Manifest))
-					base, keys, found := strings.Cut(original, "\n[[host_config]]")
+					base, keys, found := strings.Cut(original, "\n[[agent_config]]")
 					if !found {
 						t.Fatal("native invocation fixture has no key declaration")
 					}
 					if withKeys {
-						base += "\n[[host_config]]" + keys
+						base += "\n[[agent_config]]" + keys
 					}
-					declaration := base + fmt.Sprintf("\n[[host_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.json"))
+					declaration := base + fmt.Sprintf("\n[[agent_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.json"))
 					testkit.WriteFile(t, f.Workspace, "daem.toml", declaration)
 					desired := `{"mode":"original","released":2}`
 					testkit.WriteFile(t, f.Workspace, "whole.json", desired)
@@ -174,7 +174,7 @@ func TestNativeWholeDocumentRefusesPhysicalHostRewriteAlias(t *testing.T) {
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			f := nativefixture.NewPiInvocationAtScope(t, "none", scope)
-			base, _, found := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[host_config]]")
+			base, _, found := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[agent_config]]")
 			if !found {
 				t.Fatal("native invocation fixture has no key declaration")
 			}
@@ -186,7 +186,7 @@ func TestNativeWholeDocumentRefusesPhysicalHostRewriteAlias(t *testing.T) {
 				t.Fatal(err)
 			}
 			testkit.WriteFile(t, f.Workspace, "whole.json", string(testkit.ReadFile(t, f.Settings)))
-			declaration := base + fmt.Sprintf("\n[[host_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.json"))
+			declaration := base + fmt.Sprintf("\n[[agent_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.json"))
 			testkit.WriteFile(t, f.Workspace, "daem.toml", declaration)
 			f.Require(t, "lock")
 			before := string(testkit.ReadFile(t, f.Settings))
@@ -209,7 +209,7 @@ func TestNativeWholeDocumentSuffixRecoveryDoesNotRepeatPiInstall(t *testing.T) {
 					f := nativefixture.NewPiInvocationAtScope(t, "none", scope)
 					desired := `{"dedicated":true}`
 					testkit.WriteFile(t, f.Workspace, "whole.json", desired)
-					declaration := string(testkit.ReadFile(t, f.Manifest)) + fmt.Sprintf("\n[[host_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.json"))
+					declaration := string(testkit.ReadFile(t, f.Manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='whole'\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.json"))
 					testkit.WriteFile(t, f.Workspace, "daem.toml", declaration)
 					f.Require(t, "lock")
 					originalDocument := filepath.Join(filepath.Dir(f.Settings), "dedicated.json")

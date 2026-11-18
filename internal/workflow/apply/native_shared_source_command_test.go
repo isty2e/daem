@@ -96,7 +96,7 @@ func TestCodexMCPAndNativeKeysShareOnlyTheirSelectedPhysicalDocument(t *testing.
 			}
 			const header = "version=1\ntargets=['codex']\n"
 			mcp := fmt.Sprintf("[[mcp_server]]\nname='search'\nscope=%q\ntransport='stdio'\ncommand='node'\nargs=['search.js']\n", scope)
-			native := fmt.Sprintf("[[host_config]]\nid='preferences'\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", scope, source)
+			native := fmt.Sprintf("[[agent_config]]\nid='preferences'\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", scope, source)
 			apply := func(contents string) CommandResult {
 				t.Helper()
 				if err := os.WriteFile(manifest, []byte(header+contents), 0o600); err != nil {

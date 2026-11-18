@@ -35,7 +35,7 @@ func TestNativePiOrdinarySuffixUsesOnePreEffectReservation(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	manifest := filepath.Join(root, "daem.toml")
 	files := map[string]string{
-		"daem.toml":       "version=1\ntargets=['pi']\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n[[extension]]\nid='tools'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n",
+		"daem.toml":       "version=1\ntargets=['pi']\n[instructions.project]\nsource='./instructions.md'\n[[agent_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n[[extension]]\nid='tools'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n",
 		"instructions.md": "ordinary suffix\n", "preferences.json": `{"theme":"native-test"}`,
 	}
 	for path, content := range files {
@@ -79,7 +79,7 @@ func TestNativeOrdinaryFirstApplyUsesOneWorkflow(t *testing.T) {
 	}
 	manifest := filepath.Join(root, "daem.toml")
 	files := map[string]string{
-		"daem.toml":        "version=1\ntargets=['codex']\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n",
+		"daem.toml":        "version=1\ntargets=['codex']\n[instructions.project]\nsource='./instructions.md'\n[[agent_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n",
 		"instructions.md":  "ordinary instructions\n",
 		"preferences.toml": "model='native-test'\n",
 	}

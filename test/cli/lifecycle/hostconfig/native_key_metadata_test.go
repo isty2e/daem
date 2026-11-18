@@ -22,7 +22,7 @@ func TestNativePreparedWriteRefusesChangedSourceAndCancellation(t *testing.T) {
 			manifest := filepath.Join(workspace, "daem.toml")
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -81,7 +81,7 @@ func TestNativeEmptyKeyApplyDoesNotInventEffects(t *testing.T) {
 	manifest := filepath.Join(workspace, "daem.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "empty"
 path = "config.toml"
 source = "./empty.toml"

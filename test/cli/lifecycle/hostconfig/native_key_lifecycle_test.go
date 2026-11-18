@@ -22,7 +22,7 @@ func TestNativeKeyCLILifecycle(t *testing.T) {
 		testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
 
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"

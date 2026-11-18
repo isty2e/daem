@@ -27,7 +27,7 @@ func ParseOwnership(value string) (Ownership, error) {
 	case OwnershipDocument:
 		return OwnershipDocument, nil
 	default:
-		return "", fmt.Errorf("unknown host configuration ownership %q", value)
+		return "", fmt.Errorf("unknown agent configuration ownership %q", value)
 	}
 }
 
@@ -48,7 +48,7 @@ func ParseSyntax(value string) (Syntax, error) {
 	case SyntaxDefault, SyntaxJSON, SyntaxJSONC, SyntaxJSONLineComments, SyntaxTOML:
 		return Syntax(value), nil
 	default:
-		return "", fmt.Errorf("unknown host configuration syntax %q", value)
+		return "", fmt.Errorf("unknown agent configuration syntax %q", value)
 	}
 }
 
@@ -76,7 +76,7 @@ type Config struct {
 
 func New(spec Spec) (Config, error) {
 	if strings.IndexFunc(spec.Name, unsafeControl) >= 0 {
-		return Config{}, fmt.Errorf("host configuration id must not contain control characters")
+		return Config{}, fmt.Errorf("agent configuration id must not contain control characters")
 	}
 	id, err := entity.New(entity.KindAgentConfig, spec.Name)
 	if err != nil {
@@ -114,17 +114,17 @@ func New(spec Spec) (Config, error) {
 // ValidateRelativePath refuses noncanonical paths without cleaning or expansion.
 func ValidateRelativePath(value string) error {
 	if value == "" || strings.TrimSpace(value) != value || !utf8.ValidString(value) {
-		return fmt.Errorf("host configuration path must be non-empty, trimmed UTF-8")
+		return fmt.Errorf("agent configuration path must be non-empty, trimmed UTF-8")
 	}
 	if strings.HasPrefix(value, "/") || strings.Contains(value, `\`) || strings.IndexFunc(value, unsafeControl) >= 0 {
-		return fmt.Errorf("host configuration path must be a safe host-root-relative slash path")
+		return fmt.Errorf("agent configuration path must be slash-separated and relative to the configuration root")
 	}
 	if len(value) >= 2 && value[1] == ':' && (value[0] >= 'a' && value[0] <= 'z' || value[0] >= 'A' && value[0] <= 'Z') {
-		return fmt.Errorf("host configuration path must not select a filesystem drive")
+		return fmt.Errorf("agent configuration path must not select a filesystem drive")
 	}
 	for component := range strings.SplitSeq(value, "/") {
 		if component == "" || component == "." || component == ".." {
-			return fmt.Errorf("host configuration path must not contain empty or relative components")
+			return fmt.Errorf("agent configuration path must not contain empty or relative components")
 		}
 	}
 	return nil
@@ -140,14 +140,14 @@ func validateSource(value source.Source, scope target.Scope) error {
 	}
 	if local, ok := value.Local(); ok {
 		if local.Mode() != source.LocalSourceModeVendor {
-			return fmt.Errorf("host configuration local sources must use vendor mode")
+			return fmt.Errorf("local agent configuration sources must use vendor mode")
 		}
 		if scope == target.ScopeGlobal && !local.IsAbsolute() {
 			return fmt.Errorf("global local filesystem sources must use an absolute path")
 		}
 	}
 	if s3, ok := value.S3(); ok && s3.Format() != source.S3ObjectFormatFile {
-		return fmt.Errorf("host configuration S3 sources must use file format")
+		return fmt.Errorf("S3 agent configuration sources must use file format")
 	}
 	return nil
 }
@@ -162,7 +162,7 @@ func (config Config) Syntax() Syntax        { return config.syntax }
 
 func (config Config) Validate() error {
 	if config.id.Kind() != entity.KindAgentConfig {
-		return fmt.Errorf("host configuration has invalid entity kind")
+		return fmt.Errorf("agent configuration has invalid entity kind")
 	}
 	_, err := New(Spec{
 		Name: config.id.Name(), Source: config.source, Target: config.target,

@@ -40,7 +40,7 @@ command = "node"
 args = [%q]
 `, server)
 				if native {
-					content += `[[host_config]]
+					content += `[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -78,7 +78,7 @@ ownership = "keys"
 
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"

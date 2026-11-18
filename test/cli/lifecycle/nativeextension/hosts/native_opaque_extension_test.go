@@ -144,7 +144,7 @@ printf '{}\n'
 		}
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model='native-model'\n")
-	declaration += fmt.Sprintf("\n[[host_config]]\nid='preferences'\ntargets=['codex']\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", nativeScope, filepath.Join(workspace, "preferences.toml"))
+	declaration += fmt.Sprintf("\n[[agent_config]]\nid='preferences'\ntargets=['codex']\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", nativeScope, filepath.Join(workspace, "preferences.toml"))
 	testkit.WriteFile(t, workspace, "daem.toml", declaration)
 	t.Setenv("DAEM_TEST_OPAQUE_PHASE", "native")
 	fixture.require(t, "lock")

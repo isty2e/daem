@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	workflowadopt "github.com/isty2e/daem/internal/workflow/adopt"
@@ -18,8 +19,7 @@ func prepareImportAgentConfigInvocation(args []string, stdout, stderr io.Writer,
 	var scopes scopeFlagValues
 	flags.Var(&targets, "target", "one supported initial target")
 	flags.Var(&scopes, "scope", "initial project or global scope")
-	var configPath string
-	registerAgentConfigPathFlag(flags, &configPath)
+	configPath := flags.String(agentConfigPathFlag, "", "initial file path relative to the selected agent's configuration root")
 	ownership := flags.String("ownership", "keys", "initial keys or explicit document ownership")
 	syntax := flags.String("syntax", "", "initial grammar override")
 	sourceDir := flags.String("source-dir", "", "initial local source directory")
@@ -34,7 +34,7 @@ func prepareImportAgentConfigInvocation(args []string, stdout, stderr io.Writer,
 	var keys replacementKeyValues
 	flags.Var(&keys, "key", "RFC 6901 key selector; repeatable")
 	arguments := prepareAuthoringArguments(flags, args, 1)
-	response := newCommandResponse("import "+legacyAgentConfigSubject, arguments.output, stdout, stderr)
+	response := newCommandResponse(strings.Join(path, " "), arguments.output, stdout, stderr)
 	return &preparedInvocation{response: response, execute: func() int {
 		fail := func(code commandFailureClass, err error) int {
 			return response.failure(code, humanFailureDiagnostic(err))
@@ -62,7 +62,7 @@ func prepareImportAgentConfigInvocation(args []string, stdout, stderr io.Writer,
 		seen := make(map[string]bool)
 		flags.Visit(func(flag *flag.Flag) { seen[flag.Name] = true })
 		if *update {
-			for _, flag := range []string{"target", "scope", agentConfigPathFlag, legacyAgentConfigPathFlag, "ownership", "syntax", "source-dir", "merge"} {
+			for _, flag := range []string{"target", "scope", agentConfigPathFlag, "ownership", "syntax", "source-dir", "merge"} {
 				if seen[flag] {
 					return fail(usageFailure, fmt.Errorf("--%s is initial-only; --update-source uses the selected declaration", flag))
 				}
@@ -77,7 +77,7 @@ func prepareImportAgentConfigInvocation(args []string, stdout, stderr io.Writer,
 			if len(targets) != 1 || len(scopes) != 1 {
 				return fail(usageFailure, fmt.Errorf("initial capture requires exactly one --target and one --scope"))
 			}
-			command, err = workflowadopt.PlanAgentConfigInitialCapture(options.context, workflowadopt.AgentConfigInitialCommandInput{ManifestPath: *manifest, Name: name, Target: string(targets[0]), Scope: string(scopes[0]), ConfigPath: configPath, Ownership: *ownership, Syntax: *syntax, SourceDir: *sourceDir, Keys: keys, Merge: *merge})
+			command, err = workflowadopt.PlanAgentConfigInitialCapture(options.context, workflowadopt.AgentConfigInitialCommandInput{ManifestPath: *manifest, Name: name, Target: string(targets[0]), Scope: string(scopes[0]), ConfigPath: *configPath, Ownership: *ownership, Syntax: *syntax, SourceDir: *sourceDir, Keys: keys, Merge: *merge})
 		}
 		if err != nil {
 			if workflowadopt.IsAgentConfigCaptureInputError(err) {

@@ -52,7 +52,7 @@ func TestAgentConfigKeySelectionRefusesOtherDeclarations(t *testing.T) {
 	}
 	for _, id := range []entity.ID{{}, wrong} {
 		if _, err := NewAgentConfigKeySelection(id, nil); err == nil {
-			t.Fatal("selection must have one host-config declaration")
+			t.Fatal("selection must have one agent-config declaration")
 		}
 	}
 	if err := (AgentConfigKeySelection{}).Validate(); err == nil {

@@ -21,7 +21,7 @@ func NewAgentConfigKeySelection(declaration entity.ID, selectors []output.KeyPat
 		return AgentConfigKeySelection{}, err
 	}
 	if declaration.Kind() != entity.KindAgentConfig {
-		return AgentConfigKeySelection{}, fmt.Errorf("key selection requires a host-config declaration")
+		return AgentConfigKeySelection{}, fmt.Errorf("key selection requires an agent configuration declaration")
 	}
 	keys := slices.Clone(selectors)
 	for _, key := range keys {

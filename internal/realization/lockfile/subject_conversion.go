@@ -65,7 +65,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 	}
 	placement, err := agentConfigPlacementFromDTO(dto.AgentConfigPlacement)
 	if err != nil {
-		return lock.LockedSubjectContract{}, fmt.Errorf("host_config_placement: %w", err)
+		return lock.LockedSubjectContract{}, fmt.Errorf("agent_config_placement: %w", err)
 	}
 	realization, err := realizationFromDTO(dto.Realization)
 	if err != nil {

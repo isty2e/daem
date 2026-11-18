@@ -209,11 +209,11 @@ func buildAgentConfigCapturePlan(ctx context.Context, input AgentConfigUpdateInp
 	}
 	if initial != nil {
 		if found {
-			return plan, fmt.Errorf("host_config %q already exists; use --update-source", input.Name)
+			return plan, fmt.Errorf("agent_config %q already exists; use --update-source", input.Name)
 		}
 		plan.config = initial.Config
 	} else if !found {
-		return plan, fmt.Errorf("host_config %q is not declared", input.Name)
+		return plan, fmt.Errorf("agent_config %q is not declared", input.Name)
 	}
 	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: plan.config.Target(), Scope: plan.config.Scope(), Path: plan.config.Path(), Ownership: plan.config.Ownership(), Syntax: plan.config.Syntax()})
 	if err != nil {

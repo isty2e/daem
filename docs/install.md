@@ -99,7 +99,7 @@ may migrate or reject persisted formats according to their own contracts.
 ### Lockfile Schema 7
 
 This version writes schema 7 for all lockfiles, including manifests with
-`host_config`. Regenerate an existing schema 3–6 lockfile before using
+`agent_config`. Regenerate an existing schema 3–6 lockfile before using
 `status`, `apply`, or other lockfile readers:
 
 ```sh

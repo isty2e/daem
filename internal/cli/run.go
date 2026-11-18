@@ -212,7 +212,6 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		fmt.Fprintln(stderr, "next: run daem help")
 		return 2
 	}
-	args = canonicalAgentConfigSubject(args)
 	prepared := prepareInvocation(args, stdout, stderr, commandInvocation)
 	if diagnostic, rejected := platformRefusal(args, commandInvocation); rejected {
 		if prepared != nil {

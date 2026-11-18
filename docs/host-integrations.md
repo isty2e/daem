@@ -102,7 +102,7 @@ undeclared scripts, directories, tools, trust approval or bundled hooks.
 ### Native Configuration Keys
 
 Codex and Pi support selected-key configuration management through
-[`host_config`](manifest.md#host-configuration). It preserves unselected values
+[`agent_config`](manifest.md#agent-configuration). It preserves unselected values
 and uses the same journaled document operation for Codex MCP changes in that
 file. The manifest reference owns supported syntax, reserved fields, permissions
 and mixed-plan limits. This is file convergence, not host-schema validation or
@@ -524,7 +524,7 @@ deferred or blocked.
 Plugin commands can run alongside Codex/Pi settings keys when the private Claude
 config root (and project `.claude` namespace for project commands) is physically
 separate from those managed files. Overlapping root aliases refuse before effects.
-See [host configuration](manifest.md#host-configuration) for sequencing and recovery.
+See [agent configuration](manifest.md#agent-configuration) for sequencing and recovery.
 
 ## OpenCode/Pi Plugin-Package Route Summary
 
@@ -544,7 +544,7 @@ explicit-global scope. `pi-extension` is a rejected future candidate, not syntax
 OpenCode observes all four selected project/default-global server/TUI JSON and
 JSONC candidate paths, including absent default JSON candidates. Project plugin
 candidates are `.opencode/{opencode,tui}.json[c]` under the manifest directory.
-The manifest-root `opencode.json` used by MCP and `host_config` is a different
+The manifest-root `opencode.json` used by MCP and `agent_config` is a different
 file; its `plugin` rows are outside extension relation observation, removal and
 ordering. An absent selected relation is not evidence about those rows. Pi observes
 only the selected settings layer with npm/Git/local-source identity. Authored
@@ -561,11 +561,11 @@ separate from selecting a new Pi Git pin in apply. No per-contribution disable i
 supported.
 
 OpenCode installation, explicit refresh, direct removal and order updates can
-accompany managed `host_config` keys, including OpenCode's own root settings,
+accompany managed `agent_config` keys, including OpenCode's own root settings,
 when its four plugin candidates are physically separate from those managed files.
 Missing alternatives remain absent;
 an unverified removal stays pending. See
-[host configuration](manifest.md#host-configuration) for sequencing and recovery.
+[agent configuration](manifest.md#agent-configuration) for sequencing and recovery.
 
 ### Managed Pi Git Pins
 
@@ -628,7 +628,7 @@ prune, bundled contribution ownership and runtime readiness are not supported.
 Plugin commands can run alongside Codex/Pi settings keys when the shared config
 and plugin-store namespaces are physically separate from those managed files.
 Overlapping root aliases refuse before effects. See
-[host configuration](manifest.md#host-configuration) for sequencing and recovery.
+[agent configuration](manifest.md#agent-configuration) for sequencing and recovery.
 
 ## Deferred Product Surfaces
 

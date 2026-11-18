@@ -8,12 +8,12 @@ func TestDecodeManifestAgentConfigRowsAndIdentity(t *testing.T) {
 	content := []byte(`version = 1
 targets = ["pi"]
 
-[[host_config]]
+[[agent_config]]
 id = "native-settings"
 path = "settings.json"
 source = "/workbench/settings.json"
 
-[[host_config]]
+[[agent_config]]
 id = "remote-settings"
 targets = ["codex"]
 scope = "global"
@@ -37,7 +37,7 @@ syntax = "toml"
 		t.Fatalf("local host config = %#v, want decoded local source with vendor mode", local)
 	}
 	if key := local.Key(); key != (Key{Kind: KindAgentConfig, Name: "native-settings"}) {
-		t.Fatalf("Key() = %#v, want host_config/native-settings", key)
+		t.Fatalf("Key() = %#v, want agent-config/native-settings", key)
 	}
 	remote := manifest.AgentConfigs[1]
 	if remote.Source.Source.Git != "https://github.com/example/settings.git" ||
@@ -51,7 +51,7 @@ func TestDecodeManifestRejectsUnknownAgentConfigFields(t *testing.T) {
 	for _, content := range []string{
 		`version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "settings"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -59,21 +59,21 @@ unknown = "value"
 `,
 		`version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "settings"
 path = "settings.json"
 source = { path = "/workbench/settings.json", future = "value" }
 `,
 		`version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "settings"
 path = "settings.json"
 source = { path = "/workbench/settings.json", Path = "/other/settings.json" }
 `,
 	} {
 		if _, err := DecodeManifest([]byte(content)); err == nil {
-			t.Fatalf("DecodeManifest() accepted unknown or conflicting host_config syntax:\n%s", content)
+			t.Fatalf("DecodeManifest() accepted unknown or conflicting agent_config syntax:\n%s", content)
 		}
 	}
 }
@@ -81,7 +81,7 @@ source = { path = "/workbench/settings.json", Path = "/other/settings.json" }
 func TestDecodeManifestKeepsManifestVersionOne(t *testing.T) {
 	manifest, err := DecodeManifest([]byte(`version = 1
 targets = ["pi"]
-[[host_config]]
+[[agent_config]]
 id = "settings"
 path = "settings.json"
 source = "/workbench/settings.json"

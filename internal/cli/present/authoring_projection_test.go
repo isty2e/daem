@@ -39,7 +39,7 @@ func TestAuthoringProjectionKeepsGrammarAxesAndPublicNotesExact(t *testing.T) {
 		{kind: AuthoringResourceSkill, public: "skill", noteText: "host files are written only by apply"},
 		{kind: AuthoringResourceSkillGroup, public: "skill-group", noteText: "host files are written only by apply"},
 		{kind: AuthoringResourceHook, public: "hook", noteText: "managed hook aggregates"},
-		{kind: AuthoringResourceAgentConfig, public: "host_config", noteText: "apply reconciles the managed settings"},
+		{kind: AuthoringResourceAgentConfig, public: "agent-config", noteText: "apply reconciles the managed settings"},
 		{kind: AuthoringResourceMCPServer, public: "mcp-server", noteText: "locked projection"},
 		{kind: AuthoringResourceExtension, public: "extension", noteText: "separately admitted host route"},
 	}

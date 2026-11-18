@@ -59,7 +59,7 @@ func AgentConfigManagements(ctx context.Context, snapshot durable.Snapshot, decl
 		return nil, err
 	}
 	if err := declaration.Validate(); err != nil || declaration.Kind() != entity.KindAgentConfig {
-		return nil, fmt.Errorf("retained native management requires a host-config declaration identity")
+		return nil, fmt.Errorf("retained native management requires an agent configuration declaration identity")
 	}
 	type identity struct {
 		target      target.Target

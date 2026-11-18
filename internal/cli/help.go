@@ -17,7 +17,7 @@ func printUsage(output io.Writer, width int) {
 }
 
 func printCommandUsage(path []string, output io.Writer, width int) bool {
-	return clipresent.PrintCommandUsage(output, canonicalAgentConfigSubject(path), usageContext(width))
+	return clipresent.PrintCommandUsage(output, path, usageContext(width))
 }
 
 func printCommandHelpHint(output io.Writer, path []string) {

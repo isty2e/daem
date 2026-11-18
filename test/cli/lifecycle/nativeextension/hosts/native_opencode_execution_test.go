@@ -119,7 +119,7 @@ esac
 		f.require(t, "apply", "--yes")
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model='native-model'\n")
-	f.declaration += fmt.Sprintf("\n[[host_config]]\nid='prefs'\ntargets=['codex']\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", nativeScope, filepath.Join(workspace, "preferences.toml"))
+	f.declaration += fmt.Sprintf("\n[[agent_config]]\nid='prefs'\ntargets=['codex']\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", nativeScope, filepath.Join(workspace, "preferences.toml"))
 	testkit.WriteFile(t, workspace, "daem.toml", f.declaration)
 	t.Setenv("DAEM_TEST_OC_PHASE", "native")
 	f.require(t, "lock")
@@ -213,7 +213,7 @@ func TestNativeOpenCodeAndPiOrderCompletionIsPerClass(t *testing.T) {
 	f.require(t, "apply", "--yes", "--json")
 	nativefixture.RequirePiOrderValues(t, settings, "", "npm:@acme/pi-alpha@1", "npm:@acme/pi-beta@1")
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"packages":["npm:@acme/pi-beta@1","npm:@acme/pi-alpha@1"],"foreign":{"retained":true}}`)
-	f.declaration += fmt.Sprintf("\n[[host_config]]\nid='pi-prefs'\ntargets=['pi']\nscope='project'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(f.workspace, "pi-prefs.json"))
+	f.declaration += fmt.Sprintf("\n[[agent_config]]\nid='pi-prefs'\ntargets=['pi']\nscope='project'\npath='settings.json'\nsource=%q\nownership='keys'\n", filepath.Join(f.workspace, "pi-prefs.json"))
 	testkit.WriteFile(t, f.workspace, "pi-prefs.json", `{"theme":"next-theme"}`)
 	testkit.WriteFile(t, f.workspace, "daem.toml", f.declaration)
 	for _, name := range []string{"opencode.json", "opencode.jsonc", "tui.json", "tui.jsonc"} {

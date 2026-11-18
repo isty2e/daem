@@ -86,7 +86,7 @@ func newCaptureHistoryFixture(t *testing.T, scope target.Scope, ownershipKind st
 	}
 	environment, err := declarationmanifest.Decode([]byte(fmt.Sprintf(`version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "selected"
 scope = %q
 path = "selected.json"

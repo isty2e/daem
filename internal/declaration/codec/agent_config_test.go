@@ -44,16 +44,16 @@ func TestScanAgentConfigBlocksKeepsNestedSourceAndFindsNextRow(t *testing.T) {
 	content := []byte(`version = 1
 targets = ["pi"]
 
-[[host_config]]
+[[agent_config]]
 id = "git-settings"
 path = "config.toml"
 
-[host_config.source]
+[agent_config.source]
 git = "https://github.com/example/settings.git"
 path = "config.toml"
 ref = "main"
 
-[[host_config]]
+[[agent_config]]
 id = "local-settings"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -72,12 +72,12 @@ source = "/workbench/settings.json"
 		t.Fatalf("first block = %#v, want decoded nested Git source", blocks[0].AgentConfig)
 	}
 	firstBlock := string(content[blocks[0].Start:blocks[0].End])
-	if !bytes.Contains([]byte(firstBlock), []byte("[host_config.source]")) ||
+	if !bytes.Contains([]byte(firstBlock), []byte("[agent_config.source]")) ||
 		bytes.Contains([]byte(firstBlock), []byte(`id = "local-settings"`)) {
 		t.Fatalf("first block range = %q, want nested source and no following row", firstBlock)
 	}
 	if key := blocks[1].AgentConfig.Key(); key != (declaration.Key{Kind: declaration.KindAgentConfig, Name: "local-settings"}) {
-		t.Fatalf("second row key = %#v, want host_config/local-settings", key)
+		t.Fatalf("second row key = %#v, want agent-config/local-settings", key)
 	}
 }
 
@@ -87,7 +87,7 @@ targets = ["pi"]
 [defaults]
 scope = "global"
 
-[[host_config]]
+[[agent_config]]
 id = "existing-settings"
 path = "settings.json"
 source = "/workbench/settings.json"
@@ -142,6 +142,6 @@ func assertAgentConfigRowUnchanged(t *testing.T, expected []byte, content []byte
 		t.Fatalf("ScanHostConfigBlocks() = %#v, %v", blocks, err)
 	}
 	if !bytes.Equal(content[blocks[0].Start:blocks[0].End], expected) {
-		t.Fatalf("host_config row changed:\n%s\nwant:\n%s", content[blocks[0].Start:blocks[0].End], expected)
+		t.Fatalf("agent_config row changed:\n%s\nwant:\n%s", content[blocks[0].Start:blocks[0].End], expected)
 	}
 }

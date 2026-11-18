@@ -10,7 +10,7 @@ import (
 // together. Other subjects and order constraints retain their exact values.
 func (file File) WithoutAgentConfig(id entity.ID) (File, bool, error) {
 	if err := id.Validate(); err != nil || id.Kind() != entity.KindAgentConfig {
-		return File{}, false, fmt.Errorf("lock release requires a host-config entity identity")
+		return File{}, false, fmt.Errorf("lock release requires an agent_config entity identity")
 	}
 	if err := Validate(file); err != nil {
 		return File{}, false, err

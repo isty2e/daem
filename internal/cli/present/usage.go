@@ -420,7 +420,7 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRow, scope helpRow, dryRun helpRow, diff helpRow, jsonOutput helpRow, verbose helpRow, reference string) {
 	common := []helpRow{workspace, target, scope, dryRun, diff, jsonOutput, verbose}
 	pages["remove agent-config"] = leaf("daem remove agent-config", "daem remove agent-config <id> [--target <target>] [--scope <scope>] [options]", "remove an agent configuration declaration and refresh the lockfile",
-		[]helpRow{{"<id>", "Exact host_config.id in the manifest."}},
+		[]helpRow{{"<id>", "Exact agent_config.id in the manifest."}},
 		[]helpRow{workspace, {"--target <target>", "Require this declaration to have the selected target."}, {"--scope <scope>", "Require this declaration to have the selected scope."}, dryRun, diff, jsonOutput, verbose},
 		[]helpRow{{"", "Removes a whole declaration; no per-key removal. Writes by default."}, {"", "Use apply --dry-run to preview cleanup. To keep the agent's settings and release management, use unmanage agent-config instead."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID."}},
 		[]string{"daem remove agent-config preferences --dry-run --diff"}, reference)

@@ -80,7 +80,7 @@ func TestAgentConfigReleaseDoesNotUseFoldedHistoryToSelectAnOwner(t *testing.T) 
 
 func TestAgentConfigReleaseCannotSelectALegacyPeerForAMissingNativeDocument(t *testing.T) {
 	fixture := newHostReleaseFixture(t, false)
-	writeUnmanageFile(t, fixture.paths.ManifestPath, []byte("version=1\ntargets=['codex']\n[[host_config]]\nid='preferences'\nscope='project'\npath='İstanbul/config.toml'\nsource='./missing-source.toml'\nownership='keys'\n"))
+	writeUnmanageFile(t, fixture.paths.ManifestPath, []byte("version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='project'\npath='İstanbul/config.toml'\nsource='./missing-source.toml'\nownership='keys'\n"))
 	key, err := output.NewKeyPath("model")
 	if err != nil {
 		t.Fatal(err)

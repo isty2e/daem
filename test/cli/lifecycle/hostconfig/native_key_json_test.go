@@ -28,7 +28,7 @@ func TestNativeKeyJSONLifecycleLiteralNames(t *testing.T) {
 			testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
 
-[[host_config]]
+[[agent_config]]
 id = "literal-names"
 path = "config.toml"
 source = "./preferences.toml"

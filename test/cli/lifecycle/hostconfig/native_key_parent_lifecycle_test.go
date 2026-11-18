@@ -76,7 +76,7 @@ func TestNativeKeyParentCLILifecycle(t *testing.T) {
 			sourceName := "preferences" + filepath.Ext(fixture.filename)
 			testkit.WriteFile(t, workspace, "daem.toml", fmt.Sprintf(`version = 1
 targets = [%q]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = %q
 source = %q

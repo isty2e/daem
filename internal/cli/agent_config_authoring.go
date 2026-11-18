@@ -13,6 +13,11 @@ import (
 	"github.com/isty2e/daem/internal/workflow/authoring"
 )
 
+const (
+	agentConfigSubject  = clipresent.AgentConfigResourceName
+	agentConfigPathFlag = "config-path"
+)
+
 func prepareAgentConfigAuthoring(ctx context.Context, operation clipresent.AuthoringOperation, args []string, stdout, stderr io.Writer) *preparedInvocation {
 	path := []string{string(operation), agentConfigSubject}
 	flags := newCommandFlagSet(path, stderr)
@@ -31,7 +36,7 @@ func prepareAgentConfigAuthoring(ctx context.Context, operation clipresent.Autho
 	adding := operation == clipresent.AuthoringOperationAdd
 	if adding {
 		positionalCount = 2
-		registerAgentConfigPathFlag(flags, &add.ConfigPath)
+		flags.StringVar(&add.ConfigPath, agentConfigPathFlag, "", "path relative to the selected agent's configuration root")
 		flags.StringVar(&add.Ownership, "ownership", "", "keys (default) or document")
 		flags.StringVar(&add.Syntax, "syntax", "", "configuration grammar; omit to use the target and path default")
 		flags.StringVar(&add.RepositoryPath, "path", "", "file path within a Git source repository")
@@ -40,7 +45,7 @@ func prepareAgentConfigAuthoring(ctx context.Context, operation clipresent.Autho
 		flags.StringVar(&add.Region, "region", "", "S3 region override")
 	}
 	arguments := prepareAuthoringArguments(flags, args, positionalCount)
-	response := newCommandResponse(string(operation)+" "+legacyAgentConfigSubject, arguments.output, stdout, stderr)
+	response := newCommandResponse(strings.Join(path, " "), arguments.output, stdout, stderr)
 
 	return &preparedInvocation{response: response, execute: func() int {
 		if commandHelpRequested(args) {

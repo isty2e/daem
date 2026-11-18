@@ -27,7 +27,7 @@ func nativeOrdinaryRecoveryFixture(t *testing.T) (nativefixture.RecoveryFixture,
 		Manifest:    filepath.Join(workspace, "daem.toml"),
 		Destination: filepath.Join(workspace, ".codex", "config.toml"), Kind: "ordinary",
 	}
-	testkit.WriteFile(t, workspace, "daem.toml", "version=1\ntargets=['codex']\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n")
+	testkit.WriteFile(t, workspace, "daem.toml", "version=1\ntargets=['codex']\n[instructions.project]\nsource='./instructions.md'\n[[agent_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n")
 	testkit.WriteFile(t, workspace, "instructions.md", "before instructions\n")
 	testkit.WriteFile(t, workspace, "preferences.toml", "model='before-model'\n")
 	testkit.WriteFile(t, workspace, ".codex/config.toml", nativefixture.RecoveryOutside)
