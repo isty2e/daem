@@ -1480,7 +1480,8 @@ locks.
 Existing key-only documents keep their permission bits; newly created documents
 use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
 document policy requires `0600`, and the preview includes that permission change.
-Both sets of changes are applied and recovered together.
+Both sets of changes are applied and recovered together, including when a path
+alias resolves to the same `config.toml`.
 
 Selected-value drift is not silently overwritten. To take over a different
 existing value or replace a changed managed value, use

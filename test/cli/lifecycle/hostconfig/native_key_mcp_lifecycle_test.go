@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -128,6 +129,75 @@ ownership = "keys"
 			nativefixture.RequireSharedValues(t, configdocument.TOML, content, outside, true)
 			nativefixture.RequireMCPUserComments(t, content)
 			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+		})
+	}
+}
+
+func TestNativeKeyAndMCPShareAliasedDocument(t *testing.T) {
+	for _, name := range []string{"absent", "existing"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			nativefixture.SetRecoveryEnvironment(t, root)
+			workspace := filepath.Join(root, "workspace")
+			manifest := filepath.Join(workspace, "daem.toml")
+			directory := filepath.Join(workspace, ".codex")
+			destination := filepath.Join(directory, "config.toml")
+			if err := os.MkdirAll(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(".", filepath.Join(directory, "alias")); err != nil {
+				t.Fatal(err)
+			}
+
+			const outside = "# Kept by the user\nmanual = true\n"
+			if name == "existing" {
+				testkit.WriteFile(t, workspace, ".codex/config.toml", outside)
+				if err := os.Chmod(destination, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			const nativeOnly = `version=1
+targets=['codex']
+[[agent_config]]
+id='preferences'
+path='alias/config.toml'
+source='prefs.toml'
+`
+			const mcp = `[[mcp_server]]
+name='search'
+transport='stdio'
+command='echo'
+`
+			const keyValue = "model = 'fixture'\n"
+			const mcpValue = "[mcp_servers.search]\ncommand = 'echo'\n"
+			testkit.WriteFile(t, workspace, "prefs.toml", keyValue)
+			testkit.WriteFile(t, workspace, "daem.toml", nativeOnly+mcp)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			before := nativefixture.SnapshotRecoveryPaths(t, destination)
+
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--diff")
+			if !maps.Equal(before, nativefixture.SnapshotRecoveryPaths(t, destination)) {
+				t.Fatal("preview changed the shared document")
+			}
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			actual := testkit.ReadFile(t, destination)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, actual, keyValue+mcpValue, true)
+			nativefixture.RequireSharedMode(t, destination, 0o600)
+
+			testkit.WriteFile(t, workspace, "daem.toml", nativeOnly)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+			actual = testkit.ReadFile(t, destination)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, actual, keyValue, true)
+			nativefixture.RequireSharedValues(t, configdocument.TOML, actual, mcpValue, false)
+			if name == "existing" {
+				nativefixture.RequireSharedValues(t, configdocument.TOML, actual, outside, true)
+				if !bytes.Contains(actual, []byte("# Kept by the user")) {
+					t.Fatalf("shared writes lost the existing comment: %s", actual)
+				}
+			}
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+			testkit.AssertNoRecoveryArtifacts(t, workspace)
 		})
 	}
 }

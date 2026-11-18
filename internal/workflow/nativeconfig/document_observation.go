@@ -243,7 +243,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	if err != nil {
 		return nil, err
 	}
-	addresses, err = joinOrdinaryDocumentAliases(ctx, paths, roots, budget, addresses, candidates)
+	ordinaryAliases, err := observeOrdinaryDocumentAliases(ctx, paths, budget, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +253,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	}
 	registry := &observedRegistry{RegistryReader: reader}
 	documents, err := journal.ObserveNativeDocuments(ctx, journalobservation.Input{
-		Owner: owner, Before: before, Aliases: addresses, Roots: roots,
+		Owner: owner, Before: before, Aliases: addresses, OrdinaryAliases: ordinaryAliases, Roots: roots,
 		Protection: protection,
 		Filesystem: storagecommit.Adapter{}, Registry: registry, Limits: DocumentLimits(), Budget: budget,
 	})
