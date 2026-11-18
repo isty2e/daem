@@ -181,7 +181,7 @@ func printAggregateResourcePlan(output io.Writer, decision reconcile.AggregateSu
 	printNativeKeyLocation(output, decision)
 	if decision.IsBlocked() {
 		fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
-	} else if decision.Kind() == reconcile.AggregateRemove && decision.Detail() != "" {
+	} else if decision.Kind() == reconcile.AggregateRemove && !decision.RetiresAbsentKey() && decision.Detail() != "" {
 		fmt.Fprintln(output, "    detail: removal may change the effective host definition; runtime absence is not claimed")
 	}
 }

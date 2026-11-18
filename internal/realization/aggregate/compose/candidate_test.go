@@ -12,6 +12,23 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+func TestCandidateVerificationDistinguishesAbsentAndEmptyDocuments(t *testing.T) {
+	native := nativePort(t)
+	model := nativeSet(t, native, target.ScopeProject, ".codex/config.toml", path(t, "model"), `"fast"`)
+	absent := aggregate.AbsentDocument()
+	before := observe(t, native, absent, selectSets(t, model))
+	retirement := edit(t, native, desiredPlan(t, before, nil), path(t, "model"))
+	participants := []compose.Participant{retirement.Participant()}
+
+	if err := compose.VerifyCandidate(t.Context(), absent, absent, limits, participants); err != nil {
+		t.Errorf("absent document was not preserved: %v", err)
+	}
+	empty := aggregate.ExistingDocument([]byte("\n"))
+	if err := compose.VerifyCandidate(t.Context(), absent, empty, limits, participants); err == nil {
+		t.Fatal("absent document was equated with an empty file")
+	}
+}
+
 func TestCandidateVerificationUsesSemanticMCPSelectionNotBroadRewriteParent(t *testing.T) {
 	native := nativePort(t)
 	model := nativeSet(t, native, target.ScopeProject, ".codex/config.toml", path(t, "model"), `"fast"`)

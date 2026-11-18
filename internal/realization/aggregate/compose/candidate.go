@@ -21,7 +21,15 @@ func VerifyCandidate(ctx context.Context, original, expected aggregate.Document,
 	if err != nil {
 		return err
 	}
-	left, err := parse(ctx, projected.Document(), participants[0].syntax, limits)
+	actual := projected.Document()
+	if actual.Exists() != expected.Exists() {
+		return fmt.Errorf("document candidate changes protected content")
+	}
+	if !actual.Exists() {
+		return ctx.Err()
+	}
+
+	left, err := parse(ctx, actual, participants[0].syntax, limits)
 	if err != nil {
 		return err
 	}
@@ -40,7 +48,7 @@ func VerifyCandidate(ctx context.Context, original, expected aggregate.Document,
 	leftComments, rightComments := left.Comments(), right.Comments()
 	slices.Sort(leftComments)
 	slices.Sort(rightComments)
-	if left.Exists() != right.Exists() || !leftRoot.Equal(rightRoot) || !slices.Equal(leftComments, rightComments) {
+	if !leftRoot.Equal(rightRoot) || !slices.Equal(leftComments, rightComments) {
 		return fmt.Errorf("document candidate changes protected content")
 	}
 	return ctx.Err()

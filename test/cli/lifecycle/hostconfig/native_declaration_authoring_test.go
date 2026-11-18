@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,72 @@ import (
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
+
+func TestAgentConfigRemovedKeysWithAbsentDocument(t *testing.T) {
+	const removed = "version=1\ntargets=['codex']\n"
+	const newKey = "notifications = true\n"
+	for _, tc := range []struct {
+		name       string
+		manifest   string
+		withNewKey bool
+	}{
+		{name: "retire without a parent directory", manifest: removed},
+		{name: "add a disjoint key", manifest: removed + `[[agent_config]]
+id = "new"
+path = "config.toml"
+source = "new.toml"
+`, withNewKey: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := nativefixture.NewPresentation(t, "model = 'original'\n", "")
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			root := filepath.Dir(fixture.Destination)
+			if err := os.Remove(fixture.Destination); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(root); err != nil {
+				t.Fatal(err)
+			}
+			workspace := filepath.Dir(fixture.Manifest)
+			testkit.WriteFile(t, workspace, "daem.toml", tc.manifest)
+			if tc.withNewKey {
+				testkit.WriteFile(t, workspace, "new.toml", newKey)
+			}
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+
+			project, err := paths.Resolve(fixture.Manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := []string{root, project.StatefilePath, project.OwnershipRegistryPath, project.RecoveryDir}
+			before := nativefixture.SnapshotRecoveryPaths(t, observed...)
+			preview := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--dry-run", "--diff")
+			if !maps.Equal(before, nativefixture.SnapshotRecoveryPaths(t, observed...)) {
+				t.Fatal("preview changed output or recovery evidence")
+			}
+			applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+
+			for _, result := range []string{preview, applied} {
+				if !strings.Contains(result, "key: model: retire management of missing output") {
+					t.Fatalf("the absent key was not reported as record-only: %s", result)
+				}
+			}
+			if tc.withNewKey {
+				actual := testkit.ReadFile(t, fixture.Destination)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, actual, newKey, true)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, actual, "model = 'original'\n", false)
+			} else {
+				testkit.AssertPathMissing(t, root)
+				if strings.Contains(preview, "@@") {
+					t.Fatalf("the absent retirement reported a file diff: %s", preview)
+				}
+			}
+			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, tc.withNewKey)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json"))
+			testkit.AssertNoRecoveryArtifacts(t, workspace)
+		})
+	}
+}
 
 func TestAgentConfigDeclarationAuthoringSharedLifecycle(t *testing.T) {
 	root := t.TempDir()

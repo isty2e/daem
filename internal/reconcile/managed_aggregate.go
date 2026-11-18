@@ -108,15 +108,16 @@ type AggregateProjectionDecision struct {
 // aggregateSubjectDelta separates one logical contribution transition from
 // the enclosing physical aggregate write.
 type aggregateSubjectDelta struct {
-	subject     topology.SubjectID
-	contract    aggregate.ProjectionContract
-	previous    aggregate.ManagedContribution
-	hasPrevious bool
-	occupancy   aggregate.ContributionOccupancyState
-	kind        AggregateDecisionKind
-	reason      ActionReason
-	detail      string
-	mutatesHost bool
+	subject          topology.SubjectID
+	contract         aggregate.ProjectionContract
+	previous         aggregate.ManagedContribution
+	hasPrevious      bool
+	occupancy        aggregate.ContributionOccupancyState
+	kind             AggregateDecisionKind
+	reason           ActionReason
+	detail           string
+	mutatesHost      bool
+	retiresAbsentKey bool
 }
 
 // NewAggregateDecision constructs and validates one immutable physical
@@ -164,6 +165,10 @@ func newAggregateProjectionDecision(input AggregateProjectionDecisionInput) (Agg
 	if err := validateActionReason(input.Reason); err != nil {
 		return AggregateProjectionDecision{}, err
 	}
+	_, native := aggregate.AgentConfigSyntaxForCodec(input.Contract.CodecContractID())
+	absentKey := native && input.Kind == AggregateRecord &&
+		input.Before.Absent() && input.Expected.Absent()
+
 	deltas := make([]aggregateSubjectDelta, 0, len(input.Subjects))
 	seenSubjects := make(map[topology.SubjectID]struct{}, len(input.Subjects))
 	for subjectIndex, subjectInput := range input.Subjects {
@@ -210,15 +215,16 @@ func newAggregateProjectionDecision(input AggregateProjectionDecisionInput) (Agg
 			}
 		}
 		deltas = append(deltas, aggregateSubjectDelta{
-			subject:     subjectInput.Subject,
-			contract:    subjectInput.Contract,
-			previous:    previous,
-			hasPrevious: hasPrevious,
-			occupancy:   subjectInput.Occupancy,
-			kind:        subjectInput.Kind,
-			reason:      subjectInput.Reason,
-			detail:      subjectInput.Detail,
-			mutatesHost: subjectInput.MutatesHost,
+			subject:          subjectInput.Subject,
+			contract:         subjectInput.Contract,
+			previous:         previous,
+			hasPrevious:      hasPrevious,
+			occupancy:        subjectInput.Occupancy,
+			kind:             subjectInput.Kind,
+			reason:           subjectInput.Reason,
+			detail:           subjectInput.Detail,
+			mutatesHost:      subjectInput.MutatesHost,
+			retiresAbsentKey: absentKey && subjectInput.Kind == AggregateRemove,
 		})
 	}
 	desired := input.Desired

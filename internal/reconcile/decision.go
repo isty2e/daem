@@ -112,6 +112,12 @@ func (decision AggregateSubjectDecision) MutatesHost() bool {
 	return decision.delta.mutatesHost
 }
 
+// RetiresAbsentKey identifies removal intent for a key that is absent in both
+// images, even if another subject blocks the shared document.
+func (decision AggregateSubjectDecision) RetiresAbsentKey() bool {
+	return decision.delta.retiresAbsentKey
+}
+
 func (decision AggregateSubjectDecision) MutatesState() bool {
 	return aggregateSubjectDeltaMutatesState(decision.delta)
 }

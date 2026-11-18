@@ -27,7 +27,7 @@ func classifyAggregateProjection(
 			desired[item.SubjectID()] = item.Contribution()
 		}
 	}
-	sameProjection := aggregateProjectionStatesEqual(projection.before, projection.expected)
+	sameProjection := projection.before.SameManagedProjection(projection.expected)
 	if replacement == nil && projection.hasManagedBaseline &&
 		projection.before.CanonicalProjection() != projection.managedBaseline &&
 		!sameProjection {
@@ -116,7 +116,7 @@ func classifyAggregateProjection(
 		deltas = append(deltas, delta)
 	}
 	projection.deltas = deltas
-	projection.kind, projection.reason = classifyProjectionTransition(projection, modeCurrent)
+	projection.kind, projection.reason = classifyProjectionTransition(projection, sameProjection, modeCurrent)
 	return projection, nil
 }
 
@@ -148,14 +148,14 @@ func blockUnmanagedAggregateProjection(
 
 func classifyProjectionTransition(
 	projection aggregateProjectionDecision,
-	modeCurrent bool,
+	sameProjection, modeCurrent bool,
 ) (reconcile.AggregateDecisionKind, reconcile.ActionReason) {
 	switch {
 	case !projection.before.Present() && projection.expected.Present():
 		return reconcile.AggregateCreate, reconcile.ReasonMissingOutput
 	case projection.before.Present() && !projection.expected.Present():
 		return reconcile.AggregateRemove, reconcile.ReasonRemovedFromManifest
-	case !aggregateProjectionStatesEqual(projection.before, projection.expected):
+	case !sameProjection:
 		return reconcile.AggregateReplace, reconcile.ReasonContentChanged
 	case !modeCurrent && projection.expected.Present():
 		return reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
@@ -290,13 +290,6 @@ func aggregateProjectionSubjects(projection aggregateProjectionDecision) []topol
 		return topology.CompareSubjectID(subjects[left], subjects[right]) < 0
 	})
 	return subjects
-}
-
-func aggregateProjectionStatesEqual(
-	left aggregate.ProjectionState,
-	right aggregate.ProjectionState,
-) bool {
-	return left.Equal(right)
 }
 
 func aggregateSubjectDeltaMutatesState(delta aggregateSubjectDelta) bool {

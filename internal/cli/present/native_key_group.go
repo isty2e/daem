@@ -64,7 +64,7 @@ func printNativeGroupKey(output io.Writer, decision reconcile.AggregateSubjectDe
 		fmt.Fprintf(output, " (%s)", actionReasonLabel(decision.Reason()))
 	}
 	fmt.Fprintln(output)
-	if decision.Kind() == reconcile.AggregateRemove && decision.Detail() != "" {
+	if decision.Kind() == reconcile.AggregateRemove && !decision.RetiresAbsentKey() && decision.Detail() != "" {
 		fmt.Fprintln(output, "      detail: removal may change the effective host definition; runtime absence is not claimed")
 	}
 }

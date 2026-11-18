@@ -94,7 +94,7 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 		printNativeKeyLocation(output, decision)
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
-		} else if decision.Kind() == reconcile.AggregateRemove &&
+		} else if decision.Kind() == reconcile.AggregateRemove && !decision.RetiresAbsentKey() &&
 			decision.Detail() != "" {
 			fmt.Fprintln(
 				output,
@@ -107,10 +107,14 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 func printVerboseAggregateRows(output io.Writer, decisions []reconcile.AggregateSubjectDecision) {
 	for _, decision := range decisions {
 		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
+		label := aggregatePublicKind(decision)
+		if decision.RetiresAbsentKey() {
+			label = absentRetirementLabel
+		}
 		fmt.Fprintf(
 			output,
 			"%s %s=%s target=%s scope=%s destination=%s content_path=%s reason=%s",
-			aggregatePublicKind(decision),
+			label,
 			identityLabel,
 			Quote(identityValue),
 			Escape(string(decision.Target())),
@@ -155,7 +159,12 @@ func projectionIdentityLabel(subject topology.SubjectID) (string, string) {
 	return "subject", subjectString(*planJSONSubjectFor(subject))
 }
 
+const absentRetirementLabel = "retire management of missing output"
+
 func aggregateLabel(decision reconcile.AggregateSubjectDecision) string {
+	if decision.RetiresAbsentKey() {
+		return absentRetirementLabel
+	}
 	if decision.Kind() == reconcile.AggregateRecord {
 		switch decision.Reason() {
 		case reconcile.ReasonManagedExisting:
