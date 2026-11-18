@@ -71,7 +71,7 @@ func prepareHostConfigAuthoring(ctx context.Context, operation clipresent.Author
 		options := authoringExecutionOptions(*manifest, *dryRun)
 		var result authoring.OperationResult
 		if adding {
-			if err := validateHostConfigSourceFlags(flags, add.HostPath); err != nil {
+			if err := validateHostConfigAddFlags(flags, add.HostPath); err != nil {
 				return response.failure(usageFailure, authoringArgumentDiagnostic(path, err, args))
 			}
 			add.ID, add.SourceArg, add.Target, add.Scope = operands[0], operands[1], selected, scope
@@ -108,14 +108,14 @@ func hostConfigAuthoringPlacement(targets targetFlagValues, scopes scopeFlagValu
 	return selected, scope, nil
 }
 
-func validateHostConfigSourceFlags(flags *flag.FlagSet, hostPath string) error {
-	if hostPath == "" {
+func validateHostConfigAddFlags(flags *flag.FlagSet, hostPath string) error {
+	if strings.TrimSpace(hostPath) == "" {
 		return fmt.Errorf("--host-path is required; --path selects a file inside a Git source repository")
 	}
 	var err error
 	flags.Visit(func(value *flag.Flag) {
 		switch value.Name {
-		case "path", "ref", "version-id", "region":
+		case "path", "ref", "version-id", "region", "ownership", "syntax":
 			if err == nil && strings.TrimSpace(value.Value.String()) == "" {
 				err = fmt.Errorf("--%s requires a nonempty value", value.Name)
 			}

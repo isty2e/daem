@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -98,18 +99,42 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 	}
 	testkit.WriteFile(t, workspace, "retained.toml", retained)
 	removed := clijson.DecodeManifestAuthoring(t, []byte(nativefixture.RunLifecycleCommand(t, remove...)))
-	if removed.Operation != "remove" || len(removed.Changes) != 1 || removed.Changes[0].ResourceID != "host_config/preferences" || removed.Management != nil || removed.Host != nil {
+	if removed.Operation != "remove" || len(removed.Changes) != 1 || removed.Changes[0].ResourceID != "host_config/preferences" ||
+		removed.Changes[0].ChangeKind != "remove selected-keys host-config declaration" || removed.Management != nil || removed.Host != nil {
 		t.Fatalf("remove did not report an authoring-only change: %+v", removed)
 	}
 	for path, expected := range map[string][]byte{destination: drifted, project.StatefilePath: state, project.OwnershipRegistryPath: registry} {
 		testkit.AssertFileContent(t, path, string(expected))
 	}
+	afterRemove, err := lockfile.Load(t.Context(), project.LockfilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, subject := range afterRemove.Locked.Subjects() {
+		if subject.EntityID().Kind() != entity.KindHostConfig || subject.EntityID().Name() != "retained" {
+			t.Fatalf("remove kept an unexpected lock subject: %s", subject.EntityID())
+		}
+	}
+	if afterRemove.Locked.Len() != 2 {
+		t.Fatalf("want a source and one key for the retained declaration, got %d subjects", afterRemove.Locked.Len())
+	}
+	lockAfterRemove := testkit.ReadFile(t, project.LockfilePath)
 
 	exit, stdout, stderr := testkit.RunCapturedCLI("apply", "--manifest", manifest, "--yes", "--json")
-	if exit != 1 || !strings.Contains(stdout+stderr, "drifted_output") {
+	if exit != 1 || stderr != "" {
 		t.Fatalf("apply did not refuse drifted managed key: %d %s %s", exit, stdout, stderr)
 	}
-	testkit.AssertFileContent(t, destination, string(drifted))
+	blocked := clijson.DecodeApplyResult(t, []byte(stdout))
+	driftReported := false
+	for _, action := range blocked.Actions {
+		driftReported = driftReported || (action.Resource.Name == "preferences" && action.Reason == "drifted_output")
+	}
+	if !blocked.HasErrors || !driftReported {
+		t.Fatalf("drifted declaration did not block apply: %s", stdout)
+	}
+	for path, expected := range map[string][]byte{destination: drifted, project.StatefilePath: state, project.OwnershipRegistryPath: registry, project.LockfilePath: lockAfterRemove} {
+		testkit.AssertFileContent(t, path, string(expected))
+	}
 	if err := os.WriteFile(destination, applied, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +145,7 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 	if !bytes.Contains(remaining, []byte("# kept by the user")) {
 		t.Fatalf("cleanup removed an unrelated comment: %s", remaining)
 	}
+	nativefixture.RequireLifecycleMetadata(t, manifest, true)
 	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 }
 
@@ -142,7 +168,10 @@ func TestHostConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	testkit.AssertFileContent(t, destination, content)
 	nativefixture.RequireLifecycleMetadata(t, manifest, true)
 
-	nativefixture.RunLifecycleCommand(t, "remove", "host-config", "dedicated", "--manifest", manifest)
+	removed := nativefixture.RunLifecycleCommand(t, "remove", "host-config", "dedicated", "--manifest", manifest)
+	if !strings.Contains(removed, "change: remove whole-file host-config declaration") {
+		t.Fatalf("whole-file declaration removal was not identified: %s", removed)
+	}
 	testkit.AssertFileContent(t, destination, content)
 	nativefixture.RequireLifecycleMetadata(t, manifest, true)
 	locked, err := lockfile.Load(t.Context(), filepath.Join(workspace, "daem.lock.toml"))

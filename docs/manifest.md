@@ -1417,7 +1417,8 @@ markers to the host document. Change the source and rerun `lock` and `apply` to
 update or remove individual managed values. To remove the complete declaration
 and refresh the lock, use `daem remove host-config codex-preferences`. Preview
 and apply to remove the managed values; unrelated settings remain. To leave the
-host values in place and release management, use `daem unmanage host-config`.
+host values in place and release management, use
+`daem unmanage host-config codex-preferences` instead.
 
 For Pi, use `targets = ["pi"]` and a JSON fragment such as
 `{"retry":{"enabled":true}}` with `path = "settings.json"`; project placement

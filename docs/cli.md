@@ -855,6 +855,7 @@ ID with the same source and settings preserves the declaration and still
 refreshes the lock. A different source, placement, ownership, or syntax choice
 under that ID is an error. Add never captures or changes the host file. After
 writing the declaration, preview with `daem apply --dry-run` before applying.
+If an ID begins with `-`, put all flags before `--`, then give the ID and source.
 
 ### Other add resources
 
@@ -970,11 +971,15 @@ deletion, trust reset, or contribution-level mutation.
 
 `remove host-config` removes the complete declaration from a block or inline
 array. `--target` and `--scope` assert its effective placement; they do not
-select part of a declaration. The removed source need not still exist unless
+select part of a declaration. If an ID begins with `-`, put the flags before
+`--`, then give the ID. The removed source need not still exist unless
 another declaration uses it. All remaining sources must resolve for the new lock.
 
-Preview cleanup with `daem apply --dry-run`. Apply removes managed keys and
-keeps unrelated settings, or removes an unchanged managed dedicated file.
+The result identifies whether the removed declaration specified keys or a
+whole file. Preview actual cleanup with `daem apply --dry-run`: cleanup follows
+retained management, which can differ from the last declaration edit. Apply
+removes managed keys and keeps unrelated settings, or removes an unchanged
+managed dedicated file.
 Drift or another apply block can prevent cleanup. To keep the host values or
 file and release management, use [`unmanage host-config`](#unmanage-host-config)
 instead of applying the removal.

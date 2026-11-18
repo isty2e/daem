@@ -133,7 +133,7 @@ func authoringNextStepNote(operation AuthoringOperation, resourceKind AuthoringR
 		case AuthoringResourceHook:
 			return "remove updates the manifest and lockfile only; host hook config changes only when apply reconciles managed hook aggregates"
 		case AuthoringResourceHostConfig:
-			return "remove leaves host settings in place; apply can remove the managed keys or dedicated file"
+			return "remove leaves host settings in place; apply --dry-run shows cleanup based on retained management"
 		case AuthoringResourceMCPServer:
 			return "remove updates the manifest and lockfile only; MCP config changes only when apply removes the managed projection"
 		case AuthoringResourceExtension:

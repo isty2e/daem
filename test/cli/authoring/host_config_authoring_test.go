@@ -56,6 +56,9 @@ func TestHostConfigAddValidatesPlacementAndSourceFlagShape(t *testing.T) {
 		{"no implicit placement", []string{"--host-path", "config.toml"}},
 		{"Git path does not choose host path", []string{"--path", "config.toml", "--target", "codex", "--scope", "project"}},
 		{"explicit empty Git flag", []string{"--ref=", "--host-path", "config.toml", "--target", "codex", "--scope", "project"}},
+		{"blank host path", []string{"--host-path", "  ", "--target", "codex", "--scope", "project"}},
+		{"explicit empty ownership", []string{"--ownership=", "--host-path", "config.toml", "--target", "codex", "--scope", "project"}},
+		{"explicit blank syntax", []string{"--syntax", "  ", "--host-path", "config.toml", "--target", "codex", "--scope", "project"}},
 		{"multiple distinct targets", []string{"--host-path", "config.toml", "--target", "codex", "--scope", "project", "--target", "pi"}},
 	} {
 		t.Run(example.name, func(t *testing.T) {

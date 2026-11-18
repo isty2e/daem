@@ -397,7 +397,7 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 			{"--target <target>", "Required: one host target."},
 			{"--scope <scope>", "Required: project or global."},
 			{"--host-path <path>", "Required: path relative to the selected host configuration root."},
-			{"--ownership <mode>", "Manage keys (default) or a dedicated document."},
+			{"--ownership <mode>", "Use keys (default) for selected values or document for a dedicated file."},
 			{"--syntax <syntax>", "Configuration grammar; omit to use the host/path default."},
 			{"--path <repo-path>", "Git file path; may be supplied by owner/repo/path instead."},
 			{"--ref <git-ref>", "Required for Git: branch, tag, or full object ID."},
@@ -405,7 +405,7 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 			{"--region <region>", "S3 region override."},
 			dryRun, diff, jsonOutput, verbose,
 		},
-		[]helpRow{{"", "Only edits the manifest and lockfile. Use apply to change host configuration."}},
+		[]helpRow{{"", "Only edits the manifest and lockfile. Use apply to change host configuration."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID and source."}},
 		[]string{"daem add host-config preferences ./prefs.toml --target codex --scope project --host-path config.toml --dry-run --diff"}, reference)
 	pages["add skill"] = leaf("daem add skill", "daem add skill <source> [--path <repo-path>] [--ref <git-ref>] [--name <installed-name>] [options]", "add one skill and refresh the lockfile",
 		[]helpRow{{"<source>", "Local path or Git repository locator."}}, append([]helpRow{{"--path <repo-path>", "Skill directory within a Git repository."}, {"--ref <git-ref>", "Strict branch, tag, or full object id."}, {"--name <installed-name>", "Target-visible installed directory name."}}, common...),
@@ -422,7 +422,7 @@ func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRo
 	pages["remove host-config"] = leaf("daem remove host-config", "daem remove host-config <id> [--target <target>] [--scope <scope>] [options]", "remove a native configuration declaration and refresh the lockfile",
 		[]helpRow{{"<id>", "Exact host_config.id in the manifest."}},
 		[]helpRow{workspace, {"--target <target>", "Require this declaration to have the selected target."}, {"--scope <scope>", "Require this declaration to have the selected scope."}, dryRun, diff, jsonOutput, verbose},
-		[]helpRow{{"", "Removes a whole declaration; no per-key removal. Writes by default."}, {"", "Use apply to remove its managed keys or dedicated file. To keep host settings and release management, use unmanage host-config instead."}},
+		[]helpRow{{"", "Removes a whole declaration; no per-key removal. Writes by default."}, {"", "Use apply --dry-run to preview cleanup. To keep host settings and release management, use unmanage host-config instead."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID."}},
 		[]string{"daem remove host-config preferences --dry-run --diff"}, reference)
 	resources := []struct {
 		kind, operand, summary string

@@ -112,6 +112,10 @@ func buildRemoveHostConfigChange(document ManifestDocument, request RemoveHostCo
 		}
 		return Change{}, missingResourceSelection(entity.KindHostConfig, request.ID, available)
 	}
+	changeKind := "remove selected-keys host-config declaration"
+	if configs[index].Ownership() == hostconfig.OwnershipDocument {
+		changeKind = "remove whole-file host-config declaration"
+	}
 
 	content, err := declarationcodec.RemoveHostConfigDeclaration(document.Content, id.Name())
 	if err != nil {
@@ -126,7 +130,7 @@ func buildRemoveHostConfigChange(document ManifestDocument, request RemoveHostCo
 	}
 	return Change{
 		ManifestPath: document.Path, Original: document.Content, Content: content,
-		ResourceID: id.Name(), ChangeKind: "remove host-config resource",
+		ResourceID: id.Name(), ChangeKind: changeKind,
 	}, nil
 }
 
