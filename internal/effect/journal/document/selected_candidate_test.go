@@ -196,11 +196,11 @@ func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired 
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "preferences")
+	id, err := entity.New(entity.KindAgentConfig, "preferences")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeProject, contract.Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeProject, contract.Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

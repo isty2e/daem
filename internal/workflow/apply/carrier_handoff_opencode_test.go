@@ -58,7 +58,7 @@ func TestOpenCodeHandoffRetiresBothDocumentsAndKeepsForeignRows(t *testing.T) {
 			if native {
 				writeApplyFile(t, filepath.Join(root, "opencode.json"), `{"plugin":["beta@2","alpha@2","beta@1","alpha@1","root-only@1"]}`)
 				writeApplyFile(t, filepath.Join(root, "preferences.json"), `{"model":"handoff-native"}`)
-				writeApplyFile(t, manifest, declaration("2")+"\n[[host_config]]\nid='preferences'\npath='opencode.json'\nsource='./preferences.json'\nownership='keys'\n")
+				writeApplyFile(t, manifest, declaration("2")+"\n[[agent_config]]\nid='preferences'\npath='opencode.json'\nsource='./preferences.json'\nownership='keys'\n")
 			}
 			if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifest}); err != nil {
 				t.Fatal(err)

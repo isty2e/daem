@@ -9,7 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
@@ -48,11 +48,11 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 	}
 
 	var source lockobserve.NativeSourceObservation
-	for _, config := range input.Environment.HostConfigs() {
+	for _, config := range input.Environment.AgentConfigs() {
 		if config.ID() != selection.Declaration() {
 			continue
 		}
-		if config.Ownership() != hostconfig.OwnershipKeys {
+		if config.Ownership() != agentconfig.OwnershipKeys {
 			return Assessment{}, fmt.Errorf("replacement supports key ownership only")
 		}
 		source, err = input.SourceEpoch.NativeSource(ctx, config)
@@ -68,7 +68,7 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 	selectors := selection.Selectors()
 	matched := make([]bool, len(selectors))
 	for _, contract := range source.Projections() {
-		_, key, native := topologyprojection.HostConfigKeyIdentity(contract.SubjectID())
+		_, key, native := topologyprojection.AgentConfigKeyIdentity(contract.SubjectID())
 		if !native || !selection.Includes(key) {
 			continue
 		}
@@ -91,7 +91,7 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 		return Assessment{}, err
 	}
 	for _, previous := range before.ManagedAggregates() {
-		id, _, native := topologyprojection.HostConfigKeyIdentity(previous.Subject())
+		id, _, native := topologyprojection.AgentConfigKeyIdentity(previous.Subject())
 		if native && id == selection.Declaration() {
 			expected := inputs.desired[0].Contribution().Contract()
 			actual := previous.Contribution().Contract()

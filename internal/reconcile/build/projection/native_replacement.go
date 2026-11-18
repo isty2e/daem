@@ -11,7 +11,7 @@ import (
 
 // BuildNativeReplacementDecisions plans explicit selected-key replacement.
 // It does not approve the plan or relax namespace, ownership or claim checks.
-func BuildNativeReplacementDecisions(input AggregateInput, selection topologyprojection.HostConfigKeySelection) ([]reconcile.AggregateDecision, error) {
+func BuildNativeReplacementDecisions(input AggregateInput, selection topologyprojection.AgentConfigKeySelection) ([]reconcile.AggregateDecision, error) {
 	if err := selection.Validate(); err != nil {
 		return nil, err
 	}
@@ -20,7 +20,7 @@ func BuildNativeReplacementDecisions(input AggregateInput, selection topologypro
 	}
 	selected := make(map[topology.SubjectID]struct{}, len(input.Expected))
 	for _, contract := range input.Expected {
-		id, key, native := topologyprojection.HostConfigKeyIdentity(contract.SubjectID())
+		id, key, native := topologyprojection.AgentConfigKeyIdentity(contract.SubjectID())
 		if !native || id != selection.Declaration() || !selection.Includes(key) {
 			return nil, fmt.Errorf("replacement contains a subject outside its selected native declaration")
 		}

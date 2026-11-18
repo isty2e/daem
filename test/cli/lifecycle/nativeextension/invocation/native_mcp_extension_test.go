@@ -35,7 +35,7 @@ func TestNativePiInvocationWithMCPChanges(t *testing.T) {
 			base := string(testkit.ReadFile(t, fixture.Manifest))
 			if test.host == "codex" {
 				testkit.WriteFile(t, fixture.Workspace, "codex-preferences.toml", "model='fixture-model'\n")
-				base += "\n[[host_config]]\nid='codex-preferences'\ntargets=['codex']\npath='config.toml'\nsource='./codex-preferences.toml'\nownership='keys'\n"
+				base += "\n[[agent_config]]\nid='codex-preferences'\ntargets=['codex']\npath='config.toml'\nsource='./codex-preferences.toml'\nownership='keys'\n"
 			}
 			destination := filepath.Join(fixture.Workspace, filepath.FromSlash(test.destination))
 			if test.scope == target.ScopeGlobal {

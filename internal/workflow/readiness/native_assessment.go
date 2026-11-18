@@ -106,7 +106,7 @@ func requireOrdinaryNativeSourceAgreement(ctx context.Context, resolver liveDest
 
 func prepareNativeAssessmentSources(ctx context.Context, input Input, before durable.Snapshot, epoch lockobserve.SourceEpoch) (nativeAssessmentSources, error) {
 	facts := nativeAssessmentSources{input: input.Native}
-	for _, config := range input.Environment.HostConfigs() {
+	for _, config := range input.Environment.AgentConfigs() {
 		if !input.Selection.Includes(config.Target()) {
 			continue
 		}
@@ -137,7 +137,7 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 		return nil
 	}
 	for _, state := range before.ManagedAggregates() {
-		if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native && input.Selection.Includes(state.Contribution().Target()) {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native && input.Selection.Includes(state.Contribution().Target()) {
 			if err := requireDocument(state.Contribution().Contract().Address().Document()); err != nil {
 				return nativeAssessmentSources{}, err
 			}
@@ -148,7 +148,7 @@ func prepareNativeAssessmentSources(ctx context.Context, input Input, before dur
 		if len(source.Projections()) == 0 {
 			continue
 		}
-		placement, _ := source.SourceContract().HostConfigPlacement()
+		placement, _ := source.SourceContract().AgentConfigPlacement()
 		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
 		if err != nil {
 			return nativeAssessmentSources{}, err
@@ -198,7 +198,7 @@ func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, res
 	var ordinaryPathStates []durable.ManagedPathState
 	var nativePaths []aggregate.DocumentAddress
 	for index, request := range managed.requests {
-		if !aggregate.IsHostConfigDocumentSubject(request.Subject) {
+		if !aggregate.IsAgentConfigDocumentSubject(request.Subject) {
 			ordinaryPaths = append(ordinaryPaths, managed.ownership[index])
 			continue
 		}
@@ -212,7 +212,7 @@ func nativeOwnershipObservations(ctx context.Context, paths daempaths.Paths, res
 		}
 	}
 	for _, state := range before.ManagedPaths() {
-		if !aggregate.IsHostConfigDocumentSubject(state.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(state.Subject()) {
 			ordinaryPathStates = append(ordinaryPathStates, state)
 		}
 	}

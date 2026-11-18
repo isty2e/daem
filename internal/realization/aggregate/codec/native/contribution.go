@@ -34,7 +34,7 @@ func ValidateContributions(ctx context.Context, contractID aggregate.CodecContra
 }
 
 func nativeSyntax(contractID aggregate.CodecContractID) (configdocument.Syntax, error) {
-	name, ok := aggregate.HostConfigSyntaxForCodec(contractID)
+	name, ok := aggregate.AgentConfigSyntaxForCodec(contractID)
 	if !ok {
 		return 0, fmt.Errorf("native codec contract is unsupported")
 	}
@@ -47,7 +47,7 @@ func validNativeContract(contractID aggregate.CodecContractID, contract aggregat
 	}
 	address := contract.Address()
 	document := address.Document()
-	expected, err := aggregate.NewHostConfigProjectionContract(document.Target(), document.Scope(), document.AggregateRoot(), address.Footprint(), contractID)
+	expected, err := aggregate.NewAgentConfigProjectionContract(document.Target(), document.Scope(), document.AggregateRoot(), address.Footprint(), contractID)
 	return err == nil && expected.Equal(contract)
 }
 

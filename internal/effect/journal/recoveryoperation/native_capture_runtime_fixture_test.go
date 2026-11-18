@@ -17,7 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
@@ -68,7 +68,7 @@ func nativeCaptureInput(t *testing.T, create bool, scope target.Scope) nativeCap
 	if scope == target.ScopeGlobal {
 		nativePath = "extension-settings/preferences.toml"
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: target.TargetCodex, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys})
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: target.TargetCodex, Scope: scope, Path: nativePath, Ownership: agentconfig.OwnershipKeys})
 	if err != nil {
 		t.Fatal(err)
 	}

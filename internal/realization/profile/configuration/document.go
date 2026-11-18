@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -59,14 +59,14 @@ type DocumentInput struct {
 	Target target.Target
 	Scope  target.Scope
 	Path   string
-	Syntax hostconfig.Syntax
+	Syntax agentconfig.Syntax
 }
 
 type AliasInput struct {
 	Target      target.Target
 	Scope       target.Scope
 	Destination output.Destination
-	Syntax      hostconfig.Syntax
+	Syntax      agentconfig.Syntax
 }
 
 // AliasBinding retains the static address contract independently of selected
@@ -179,7 +179,7 @@ func NewDocumentSpec(input DocumentInput) (DocumentSpec, error) {
 	if err != nil {
 		return DocumentSpec{}, err
 	}
-	if err := hostconfig.ValidateRelativePath(input.Path); err != nil {
+	if err := agentconfig.ValidateRelativePath(input.Path); err != nil {
 		return DocumentSpec{}, err
 	}
 	if !layout.contains(input.Path) {
@@ -219,7 +219,7 @@ func DocumentSpecForAlias(input AliasInput) (DocumentSpec, error) {
 	return NewDocumentSpec(DocumentInput{Target: input.Target, Scope: input.Scope, Path: nativePath, Syntax: input.Syntax})
 }
 
-func (alias dedicatedAliasFact) anchorDocumentSpec(syntax hostconfig.Syntax) (DocumentSpec, error) {
+func (alias dedicatedAliasFact) anchorDocumentSpec(syntax agentconfig.Syntax) (DocumentSpec, error) {
 	destination, err := output.Parse(alias.alias)
 	if err != nil {
 		return DocumentSpec{}, err
@@ -237,7 +237,7 @@ func buildDocument(input DocumentInput, root rootFact, catalogPath string, desti
 }
 
 func buildBoundDocument(input DocumentInput, binding AliasBinding, destination output.Destination, observations observationSet, outsideNativeLayout bool) (DocumentSpec, error) {
-	requested, err := hostconfig.ParseSyntax(string(input.Syntax))
+	requested, err := agentconfig.ParseSyntax(string(input.Syntax))
 	if err != nil {
 		return DocumentSpec{}, err
 	}
@@ -271,14 +271,14 @@ func buildBoundDocument(input DocumentInput, binding AliasBinding, destination o
 	return spec, nil
 }
 
-func selectGrammar(known Grammar, nativePath string, requested hostconfig.Syntax) (Grammar, error) {
+func selectGrammar(known Grammar, nativePath string, requested agentconfig.Syntax) (Grammar, error) {
 	if known != "" {
-		if requested != hostconfig.SyntaxDefault && Grammar(requested) != known {
+		if requested != agentconfig.SyntaxDefault && Grammar(requested) != known {
 			return "", fmt.Errorf("%w: %q requires %s", ErrGrammar, nativePath, known)
 		}
 		return known, nil
 	}
-	if requested != hostconfig.SyntaxDefault {
+	if requested != agentconfig.SyntaxDefault {
 		return Grammar(requested), nil
 	}
 	switch strings.ToLower(path.Ext(nativePath)) {
@@ -348,9 +348,9 @@ func (spec DocumentSpec) AlternateFile() (output.Destination, bool) {
 func (spec DocumentSpec) Validate() error {
 	var canonical DocumentSpec
 	var err error
-	syntax := hostconfig.SyntaxDefault
+	syntax := agentconfig.SyntaxDefault
 	if spec.grammar != Opaque {
-		syntax = hostconfig.Syntax(spec.grammar)
+		syntax = agentconfig.Syntax(spec.grammar)
 	}
 	if spec.outsideNativeLayout {
 		input := AliasInput{Target: spec.target, Scope: spec.scope, Destination: spec.destination, Syntax: syntax}

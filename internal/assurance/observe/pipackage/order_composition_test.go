@@ -164,7 +164,7 @@ func composeTheme(t *testing.T, original, ordered aggregate.Document) aggregate.
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,11 +184,11 @@ func composeTheme(t *testing.T, original, ordered aggregate.Document) aggregate.
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "review-theme")
+	id, err := entity.New(entity.KindAgentConfig, "review-theme")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeProject, key)
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeProject, key)
 	if err != nil {
 		t.Fatal(err)
 	}

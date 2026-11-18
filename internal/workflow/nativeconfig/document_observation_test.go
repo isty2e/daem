@@ -82,12 +82,12 @@ func TestSelectedNativeObservationDoesNotReadOtherDeclaredDocuments(t *testing.T
 	}
 	environment, err := declarationmanifest.Decode([]byte(`version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "selected"
 scope = "project"
 path = "selected.json"
 source = "source.json"
-[[host_config]]
+[[agent_config]]
 id = "unselected"
 scope = "project"
 path = "blocked.json"
@@ -105,8 +105,8 @@ source = "other-source.json"
 	if err := os.Mkdir(filepath.Join(root, ".codex", "blocked.json"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	config := environment.HostConfigs()[0]
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+	config := environment.AgentConfigs()[0]
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 		Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 	})
 	if err != nil {
@@ -142,8 +142,8 @@ source = "other-source.json"
 	if _, present := observation.NativeInput(); present {
 		t.Fatal("closed observation still lends native evidence")
 	}
-	blocked := environment.HostConfigs()[1]
-	blockedPlacement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: blocked.Target(), Scope: blocked.Scope(), Path: blocked.Path(), Ownership: blocked.Ownership(), Syntax: blocked.Syntax()})
+	blocked := environment.AgentConfigs()[1]
+	blockedPlacement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: blocked.Target(), Scope: blocked.Scope(), Path: blocked.Path(), Ownership: blocked.Ownership(), Syntax: blocked.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestSelectedNativeObservationRefusesActualGlobalAuthNamespace(t *testing.T)
 					}
 				}
 
-				placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+				placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 					Target: host.selected, Scope: target.ScopeProject, Path: host.nativePath, Ownership: "document",
 				})
 				if err != nil {
@@ -289,7 +289,7 @@ func TestNativeProtectionRootsCannotGrantProjectSymlinkEscape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 		Target: target.TargetCodex, Scope: target.ScopeProject, Path: "shared.json", Ownership: "document",
 	})
 	if err != nil {

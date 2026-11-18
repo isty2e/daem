@@ -3,7 +3,7 @@ package configuration
 import (
 	"fmt"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/output"
 )
 
@@ -53,7 +53,7 @@ func (location AliasLocation) Validate() error {
 	}
 
 	if child, directory := location.coordinate.DirectoryChild(); directory {
-		return hostconfig.ValidateRelativePath(child)
+		return agentconfig.ValidateRelativePath(child)
 	}
 	return nil
 }

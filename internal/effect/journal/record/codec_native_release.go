@@ -194,15 +194,15 @@ func decodeNativeRelease(ctx context.Context, content []byte, codec durable.Snap
 	if err != nil {
 		return NativeRelease{}, err
 	}
-	id, err := entity.New(entity.KindHostConfig, record.Selection.Name)
+	id, err := entity.New(entity.KindAgentConfig, record.Selection.Name)
 	if err != nil {
 		return NativeRelease{}, err
 	}
-	identities, err := journaldocument.HostConfigManagements(ctx, before, id)
+	identities, err := journaldocument.AgentConfigManagements(ctx, before, id)
 	if err != nil {
 		return NativeRelease{}, err
 	}
-	var management journaldocument.HostConfigManagement
+	var management journaldocument.AgentConfigManagement
 	found := false
 	for _, identity := range identities {
 		if string(identity.Target()) == record.Selection.Target && string(identity.Scope()) == record.Selection.Scope &&

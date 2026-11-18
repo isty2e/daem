@@ -8,7 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -18,7 +18,7 @@ import (
 )
 
 func TestNativeApplyStateRejectsNarrowingWithWholeDeletion(t *testing.T) {
-	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{}`, hostconfig.OwnershipKeys)
+	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{}`, agentconfig.OwnershipKeys)
 	action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ args = ["-y", "@upstash/context7-mcp"]
 	if len(input.Aggregates) != 1 || !input.Aggregates[0].MutatesHost() {
 		t.Fatal("actual MCP workflow did not produce independent aggregate work")
 	}
-	nativeID, _ := aggregate.HostConfigCodecForSyntax("json")
+	nativeID, _ := aggregate.AgentConfigCodecForSyntax("json")
 	catalog, err := aggregatecodec.ForContributions(t.Context(), []aggregate.CodecContractID{nativeID, input.Aggregates[0].CodecContractID()}, narrowingLimits)
 	if err != nil {
 		t.Fatal(err)

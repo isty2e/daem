@@ -78,7 +78,7 @@ func testNativeOrdinaryApplyWithCurrentExtensions(t *testing.T, sources []string
 	if code, stdout, stderr := run("--yes", false); code != 0 || routes != len(sources) {
 		t.Fatalf("extension-only baseline failed: %d %s %s routes=%d", code, stdout, stderr, routes)
 	}
-	manifest := string(testkit.ReadFile(t, fixture.Manifest)) + "\n[instructions.project]\nsource='./instructions.md'\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+	manifest := string(testkit.ReadFile(t, fixture.Manifest)) + "\n[instructions.project]\nsource='./instructions.md'\n[[agent_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 	testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest)
 	for _, content := range []string{"first\n", "second\n"} {
 		testkit.WriteFile(t, workspace, "instructions.md", content)
@@ -194,7 +194,7 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 				}
 				testkit.WriteFile(t, filepath.Dir(fixture.Paths.StatefilePath), filepath.Base(fixture.Paths.StatefilePath), string(encoded))
 			}
-			manifest := string(testkit.ReadFile(t, fixture.Manifest)) + "\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+			manifest := string(testkit.ReadFile(t, fixture.Manifest)) + "\n[[agent_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 			testkit.WriteFile(t, workspace, "daem.toml", manifest)
 			nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
 			beforeRefusal := nativefixture.SnapshotRecoveryEvidence(t, fixture)
@@ -231,8 +231,8 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 				nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			}
 			after := nativefixture.ExtensionCompletionState(t, fixture.Paths)
-			if len(after.PendingCarrierInstalls()) != 0 || len(after.ManagedCarrierClaims()) != 1 || after.ContainsHostConfig() != (scenario != "empty fragment") {
-				t.Fatalf("mixed successor lost completion: pending=%d claims=%d native=%t", len(after.PendingCarrierInstalls()), len(after.ManagedCarrierClaims()), after.ContainsHostConfig())
+			if len(after.PendingCarrierInstalls()) != 0 || len(after.ManagedCarrierClaims()) != 1 || after.ContainsAgentConfig() != (scenario != "empty fragment") {
+				t.Fatalf("mixed successor lost completion: pending=%d claims=%d native=%t", len(after.PendingCarrierInstalls()), len(after.ManagedCarrierClaims()), after.ContainsAgentConfig())
 			}
 			claim, pending := after.ManagedCarrierClaims()[0], before.PendingCarrierInstalls()[0]
 			if !claim.Owner().ExactEqual(pending.Owner()) || !claim.Identity().ExactEqual(pending.Identity()) || !claim.InstallRequest().Equal(pending.InstallRequest()) || claim.Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {

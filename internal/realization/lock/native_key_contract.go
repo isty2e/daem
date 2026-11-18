@@ -12,17 +12,17 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-// NewHostConfigKeySubjectContract binds one source-derived atomic contribution
+// NewAgentConfigKeySubjectContract binds one source-derived atomic contribution
 // to its declaration and static native placement. Source custody is separate.
-func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, contribution aggregate.ManagedContribution, placement configuration.Placement) (LockedSubjectContract, error) {
-	declared, key, native := topologyprojection.HostConfigKeyIdentity(subject)
-	if id.Kind() != entity.KindHostConfig || !native || declared != id {
+func NewAgentConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, contribution aggregate.ManagedContribution, placement configuration.Placement) (LockedSubjectContract, error) {
+	declared, key, native := topologyprojection.AgentConfigKeyIdentity(subject)
+	if id.Kind() != entity.KindAgentConfig || !native || declared != id {
 		return LockedSubjectContract{}, fmt.Errorf("native key subject does not match its declaration")
 	}
 	if _, err := aggregate.NewSubjectContribution(subject, contribution); err != nil {
 		return LockedSubjectContract{}, err
 	}
-	expected, err := profile.HostConfigProjectionContract(placement, contribution.Footprint())
+	expected, err := profile.AgentConfigProjectionContract(placement, contribution.Footprint())
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
@@ -34,11 +34,11 @@ func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, c
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	write, err := profile.HostConfigOperationRoute(placement, profile.OperationWrite)
+	write, err := profile.AgentConfigOperationRoute(placement, profile.OperationWrite)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	remove, err := profile.HostConfigOperationRoute(placement, profile.OperationRemove)
+	remove, err := profile.AgentConfigOperationRoute(placement, profile.OperationRemove)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
@@ -67,11 +67,11 @@ func NewHostConfigKeySubjectContract(id entity.ID, subject topology.SubjectID, c
 }
 
 func validateNativeKeySubject(contract LockedSubjectContract, contribution aggregate.ManagedContribution) error {
-	placement, err := profile.HostConfigPlacementForContract(contribution.Contract())
+	placement, err := profile.AgentConfigPlacementForContract(contribution.Contract())
 	if err != nil {
 		return err
 	}
-	expected, err := NewHostConfigKeySubjectContract(contract.EntityID(), contract.SubjectID(), contribution, placement)
+	expected, err := NewAgentConfigKeySubjectContract(contract.EntityID(), contract.SubjectID(), contribution, placement)
 	if err != nil {
 		return err
 	}

@@ -32,11 +32,11 @@ type NativeNarrowingAction struct {
 }
 
 func NewNativeNarrowingAction(input NativeNarrowingActionInput) (NativeNarrowingAction, error) {
-	placement, present := input.Source.HostConfigPlacement()
+	placement, present := input.Source.AgentConfigPlacement()
 	if !present || !placement.UsesKeyOwnership() {
 		return NativeNarrowingAction{}, fmt.Errorf("narrowing requires a native key-mode source")
 	}
-	if _, err := profile.HostConfigOperationRoute(placement, profile.OperationWrite); err != nil {
+	if _, err := profile.AgentConfigOperationRoute(placement, profile.OperationWrite); err != nil {
 		return NativeNarrowingAction{}, err
 	}
 	contracts := make([]lock.LockedSubjectContract, 1, len(input.Projections)+1)
@@ -49,7 +49,7 @@ func NewNativeNarrowingAction(input NativeNarrowingActionInput) (NativeNarrowing
 	if _, err := durable.NewManagedPathState(baseline.Subject(), baseline.ConsumerTargets(), baseline.Scope(), baseline.Destination(), baseline.ContentHash(), baseline.ContentKind(), baseline.PermissionPolicy(), baseline.FileMode()); err != nil {
 		return NativeNarrowingAction{}, err
 	}
-	expectedSubject, err := aggregate.HostConfigDocumentSubject(input.Source.EntityID(), placement.Target(), placement.Scope())
+	expectedSubject, err := aggregate.AgentConfigDocumentSubject(input.Source.EntityID(), placement.Target(), placement.Scope())
 	if err != nil {
 		return NativeNarrowingAction{}, err
 	}
@@ -93,7 +93,7 @@ func NewNativeNarrowingAction(input NativeNarrowingActionInput) (NativeNarrowing
 	if err != nil {
 		return NativeNarrowingAction{}, err
 	}
-	codecID, native := aggregate.HostConfigCodecForSyntax(string(placement.Grammar()))
+	codecID, native := aggregate.AgentConfigCodecForSyntax(string(placement.Grammar()))
 	document := selection.DocumentAddress()
 	if !native || selection.CodecContractID() != codecID || document.Target() != placement.Target() ||
 		document.Scope() != placement.Scope() || document.AggregateRoot() != placement.Destination() || len(plan.Intents()) != len(sets) {

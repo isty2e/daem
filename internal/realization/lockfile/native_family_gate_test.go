@@ -16,7 +16,7 @@ func TestNativeWireDoesNotGrantCompleteLockFamilyAdmission(t *testing.T) {
 	if !present {
 		t.Fatal("MCP fixture lacks its observe contract")
 	}
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestNativeWireDoesNotGrantCompleteLockFamilyAdmission(t *testing.T) {
 			t.Fatal(err)
 		}
 		spec := nativeWireRealization(t, key)
-		subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeProject, key)
+		subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeProject, key)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -35,7 +35,7 @@ func TestNativeDocumentBoundariesRejectOversizedInputBeforeCopying(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, root, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, root, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}

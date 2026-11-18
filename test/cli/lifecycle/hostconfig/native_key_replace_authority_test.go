@@ -43,7 +43,7 @@ func TestNativeKeyReplacementDoesNotExecuteOtherWork(t *testing.T) {
 	fixture := nativefixture.NewRecoveryFixture(t, "mixed")
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), strings.Replace(string(testkit.ReadFile(t, fixture.Destination)), "before-model", "external-model", 1))
 	fingerprint := nativeReplacementFingerprint(t, fixture)
-	nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+	nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 	content := testkit.ReadFile(t, fixture.Destination)
 	nativefixture.RequireSharedValues(t, configdocument.TOML, content, "model='after-model'\n", true)
 	nativefixture.RequireSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\nargs=['old.js']\n", true)
@@ -55,10 +55,10 @@ func TestNativeKeyReplacementRefusesForeignOwner(t *testing.T) {
 	other := fixture.RecoveryFixture
 	other.Manifest = filepath.Join(filepath.Dir(filepath.Dir(fixture.Manifest)), "other", "daem.toml")
 	source := filepath.Join(filepath.Dir(fixture.Manifest), "preferences.toml")
-	testkit.WriteFile(t, filepath.Dir(other.Manifest), "daem.toml", "version=1\ntargets=['codex']\n[[host_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource="+`"`+source+`"`+"\nownership='keys'\n")
+	testkit.WriteFile(t, filepath.Dir(other.Manifest), "daem.toml", "version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource="+`"`+source+`"`+"\nownership='keys'\n")
 	nativefixture.RunRecoveryCommand(t, other, "none", "lock")
 	before := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)
-	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, other, "none", "replace", "host-config", "preferences", "--dry-run", "--json"); code == 0 {
+	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, other, "none", "replace", "agent-config", "preferences", "--dry-run", "--json"); code == 0 {
 		t.Fatal("replacement acquired another manifest's claim")
 	}
 	if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)) {
@@ -70,7 +70,7 @@ func TestNativeKeyReplacementRefusesScalarAncestor(t *testing.T) {
 	fixture := newNativeKeyScopeFixture(t, nativeKeyScopeNamed(t, "pi-project"), true)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"extensionPreferences":"local scalar","theme":"dark"}`)
 	before := nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)
-	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--dry-run", "--json"); code == 0 {
+	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "agent-config", "preferences", "--dry-run", "--json"); code == 0 {
 		t.Fatal("replacement expanded child consent to its scalar ancestor")
 	}
 	if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture.RecoveryFixture)) {
@@ -84,7 +84,7 @@ func TestNativeKeyReplacementLiteralJSONNames(t *testing.T) {
 	testkit.WriteFile(t, workspace, "preferences.json", `{"ext":{"a/b":2,"~":true,"":false}}`)
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), `{"ext":{"a/b":0,"~":false,"":true},"foreign":3}`)
 	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "lock")
-	_, stdout, _ := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--dry-run", "--json")
+	_, stdout, _ := nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "agent-config", "preferences", "--dry-run", "--json")
 	var preview struct {
 		Fingerprint string `json:"fingerprint"`
 		Keys        []struct {
@@ -104,6 +104,6 @@ func TestNativeKeyReplacementLiteralJSONNames(t *testing.T) {
 			t.Fatal("literal JSON key was lost", path, stdout)
 		}
 	}
-	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", preview.Fingerprint, "--json")
+	nativefixture.RunRecoveryCommand(t, fixture.RecoveryFixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", preview.Fingerprint, "--json")
 	nativefixture.RequireSharedValues(t, configdocument.JSON, testkit.ReadFile(t, fixture.Destination), `{"ext":{"a/b":2,"~":true,"":false},"foreign":3}`, true)
 }

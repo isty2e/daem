@@ -644,8 +644,8 @@ Choose the intended direction before changing files:
   is unavailable or uncertain, stop for manual analysis rather than deleting
   state or replacing the output speculatively.
 - **Release ownership:** removing a declaration and applying is a removal path,
-  not a way to leave the output in place. For host configuration,
-  [`unmanage host-config`](cli.md#unmanage-host-config) keeps the current host
+  not a way to leave the output in place. For an agent configuration declaration,
+  [`unmanage agent-config`](cli.md#unmanage-agent-config) keeps the current file
   contents and releases the whole declaration's management. It can also
   release retained management after you remove the declaration. For an
   eligible extension, [`unmanage extension`](cli.md#unmanage-extension) keeps
@@ -657,19 +657,19 @@ settle drift at the previous path: its retained baseline must still match.
 `--manage-existing` does not bypass drift, and `recover` is not a drift-repair
 command. If a recovery journal is active, resolve it before manual host edits.
 
-### Host Configuration Removal Is Blocked
+### Agent Configuration Removal Is Blocked
 
 When a key has changed since daem last applied it, dropping the key from its
 source or removing the declaration does not let apply delete the changed value.
 If you want the key gone, save any changes you need, remove only that key from
 the host file, and preview apply again. Apply can retire the management record
 for an already absent key. If the declaration still manages other keys,
-`unmanage host-config` would also release their management. To keep managing
+`unmanage agent-config` would also release their management. To keep managing
 the current value, add that value back to the source, run `daem lock`, and
 preview apply again.
 
 For a dedicated whole file, apply blocks removal if the file changed or is
-already missing. After removing the declaration, use `unmanage host-config`
+already missing. After removing the declaration, use `unmanage agent-config`
 to release the remaining management. If the file still exists and you want
 to delete it, save any changes you need, release its management, then delete it
 yourself.

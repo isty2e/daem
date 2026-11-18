@@ -142,7 +142,7 @@ func (codec documentObservationResultCodec) Read(aggregate.Document, aggregate.S
 
 func documentObservationFixture(t *testing.T, syntax, destination string) (aggregate.Codec, aggregate.Selection) {
 	t.Helper()
-	codecID, ok := aggregate.HostConfigCodecForSyntax(syntax)
+	codecID, ok := aggregate.AgentConfigCodecForSyntax(syntax)
 	if !ok {
 		t.Fatal("unknown test syntax")
 	}
@@ -165,7 +165,7 @@ func documentObservationFixture(t *testing.T, syntax, destination string) (aggre
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codecID)
+		contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codecID)
 		if err != nil {
 			t.Fatal(err)
 		}

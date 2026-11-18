@@ -123,7 +123,7 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 	return buildAggregateDecisions(input, nil)
 }
 
-func buildAggregateDecisions(input AggregateInput, replacement *topologyprojection.HostConfigKeySelection) ([]reconcile.AggregateDecision, error) {
+func buildAggregateDecisions(input AggregateInput, replacement *topologyprojection.AgentConfigKeySelection) ([]reconcile.AggregateDecision, error) {
 	selection := selectedTargetSet(input.SelectedTargets)
 	expected, blocked, err := expectedAggregateSubjects(
 		input.Locked,

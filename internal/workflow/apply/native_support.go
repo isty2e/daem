@@ -44,7 +44,7 @@ func (reason nativeSupportReason) detail() string {
 
 func checkNativeCommandSupport(assessment readiness.Assessment) error {
 	result := assessment.Reconciliation
-	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !result.ContainsHostConfig() {
+	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsAgentConfig() && !result.ContainsAgentConfig() {
 		return nil
 	}
 	if err := rejectBlockedCarrierHandoffPlan(result); err != nil {

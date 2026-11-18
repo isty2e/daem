@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
@@ -20,15 +20,15 @@ func ExpectedManagedPaths(
 		return nil, fmt.Errorf("desired environment: %w", err)
 	}
 	contracts := make([]lock.LockedSubjectContract, 0)
-	for _, config := range environment.HostConfigs() {
-		if config.Ownership() != hostconfig.OwnershipDocument {
+	for _, config := range environment.AgentConfigs() {
+		if config.Ownership() != agentconfig.OwnershipDocument {
 			continue
 		}
-		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 		if err != nil {
 			return nil, err
 		}
-		contract, err := lock.NewHostConfigDocumentSubjectContract(config.ID(), placement)
+		contract, err := lock.NewAgentConfigDocumentSubjectContract(config.ID(), placement)
 		if err != nil {
 			return nil, err
 		}

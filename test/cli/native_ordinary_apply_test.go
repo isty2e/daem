@@ -35,7 +35,7 @@ func TestNativeOrdinaryInstructionApply(t *testing.T) {
 				t.Helper()
 				content := "version=1\ntargets=['codex']\n[instructions.project]\nsource='./instructions.md'\n"
 				if native {
-					content += "[[host_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+					content += "[[agent_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 				}
 				testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), content)
 				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)

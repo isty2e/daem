@@ -21,7 +21,7 @@ func TestNativeWholeDiffUsesTheSelectedRootAfterObservationCloses(t *testing.T) 
 			if err := os.WriteFile(host, before, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			args := []string{"import", "host-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", "global", "--host-path", path, "--ownership", "document"}
+			args := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--target", selected, "--scope", "global", "--config-path", path, "--ownership", "document"}
 			fingerprint := captureFingerprint(t, args)
 			for _, command := range [][]string{
 				append(args, "--yes", "--expect-plan", fingerprint),
@@ -40,7 +40,7 @@ func TestNativeWholeDiffUsesTheSelectedRootAfterObservationCloses(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			local, _ := environment.HostConfigs()[0].Source().Local()
+			local, _ := environment.AgentConfigs()[0].Source().Local()
 			if err := os.WriteFile(local.Path(), after, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestNativeMutationCannotWriteInsideAnOrdinarySourceAtACustomRoot(t *testing
 			if err := os.WriteFile(filepath.Join(filepath.Dir(host), "SKILL.md"), []byte("---\nname: from-root\ndescription: source containment fixture\n---\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			body := fmt.Sprintf("version=1\ntargets=[%q]\n[[host_config]]\nid='chosen'\nscope='global'\npath=%q\nsource=%q\nownership='document'\n[[skill]]\nname='from-root'\nscope='global'\nsource={path=%q,mode='vendor'}\n", selected, path, source, filepath.Dir(host))
+			body := fmt.Sprintf("version=1\ntargets=[%q]\n[[agent_config]]\nid='chosen'\nscope='global'\npath=%q\nsource=%q\nownership='document'\n[[skill]]\nname='from-root'\nscope='global'\nsource={path=%q,mode='vendor'}\n", selected, path, source, filepath.Dir(host))
 			if err := os.WriteFile(manifest, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}

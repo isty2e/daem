@@ -184,11 +184,11 @@ func TestNativeDocumentAssessmentStagesExactNarrowingBeforeSemanticNoOp(t *testi
 			original := []byte("{\n  \"model\": true,\n  \"outside\": 1\n}\n")
 			expected := []byte(`{"model":"fast","new_key":2,"outside":1}`)
 			setup.withImages(aggregate.ExistingDocument(original), aggregate.ExistingDocument(expected))
-			id, _, found := topologyprojection.HostConfigKeyIdentity(fixture.after.ManagedAggregates()[0].Subject())
+			id, _, found := topologyprojection.AgentConfigKeyIdentity(fixture.after.ManagedAggregates()[0].Subject())
 			if !found {
 				t.Fatal("native declaration identity missing")
 			}
-			subject, err := aggregate.HostConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
+			subject, err := aggregate.AgentConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}

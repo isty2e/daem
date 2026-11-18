@@ -14,8 +14,8 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
@@ -37,7 +37,7 @@ import (
 
 func nativePreparationStateCodec(t *testing.T) durable.SnapshotCodec {
 	t.Helper()
-	id, _ := aggregate.HostConfigCodecForSyntax("json")
+	id, _ := aggregate.AgentConfigCodecForSyntax("json")
 	catalog, err := aggregatecodec.ForContributions(t.Context(), []aggregate.CodecContractID{id}, narrowingLimits)
 	if err != nil {
 		t.Fatal(err)
@@ -51,11 +51,11 @@ func nativePreparationStateCodec(t *testing.T) durable.SnapshotCodec {
 
 func nativePreparationOtherWholeState(t *testing.T) durable.ManagedPathState {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "other")
+	id, err := entity.New(entity.KindAgentConfig, "other")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func nativePreparationOtherWholeState(t *testing.T) durable.ManagedPathState {
 
 func TestNativeApplyStateDerivesNarrowingWithoutDeletingReleasedContent(t *testing.T) {
 	for _, fragment := range []string{`{}`, `{"a":2,"new":true}`} {
-		input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, fragment, hostconfig.OwnershipKeys)
+		input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, fragment, agentconfig.OwnershipKeys)
 		action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 		if err != nil {
 			t.Fatal(err)
@@ -123,7 +123,7 @@ func TestNativeApplyStateDerivesNarrowingWithoutDeletingReleasedContent(t *testi
 }
 
 func TestNativeApplyStateRejectsStaleAndDuplicateNarrowing(t *testing.T) {
-	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":2}`, hostconfig.OwnershipKeys)
+	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":2}`, agentconfig.OwnershipKeys)
 	action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ type nativeProjectSourceFixture struct {
 	selection targetselection.Selection
 }
 
-func nativeProjectStateSource(t *testing.T, root, name, fragment string, ownership hostconfig.Ownership) nativeProjectSourceFixture {
+func nativeProjectStateSource(t *testing.T, root, name, fragment string, ownership agentconfig.Ownership) nativeProjectSourceFixture {
 	t.Helper()
 	path := filepath.Join(root, name+".source")
 	if err := os.WriteFile(path, []byte(fragment), 0o600); err != nil {
@@ -177,7 +177,7 @@ func nativeProjectStateSource(t *testing.T, root, name, fragment string, ownersh
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := hostconfig.New(hostconfig.Spec{Name: name, Source: spec, Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: ownership, Syntax: hostconfig.SyntaxJSON})
+	config, err := agentconfig.New(agentconfig.Spec{Name: name, Source: spec, Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: ownership, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func nativeProjectStateSource(t *testing.T, root, name, fragment string, ownersh
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, HostConfigs: []hostconfig.Config{config}})
+	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, AgentConfigs: []agentconfig.Config{config}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func nativeProjectWholeDecisions(t *testing.T, fixture nativeProjectSourceFixtur
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, _ := fixture.observed.SourceContract().HostConfigPlacement()
+	placement, _ := fixture.observed.SourceContract().AgentConfigPlacement()
 	evidence, err := liveobserve.ManagedPathEvidence(t.Context(), func(destination output.Destination) (string, error) {
 		return filepath.Join(fixture.root, filepath.FromSlash(destination.RelativePath())), nil
 	}, []liveobserve.ManagedPathRequest{{Subject: projection.SubjectID(), Destination: placement.Destination(), ContentKind: realization.PathProjectionFile}})
@@ -267,15 +267,15 @@ func nativeProjectWholeDecisions(t *testing.T, fixture nativeProjectSourceFixtur
 
 func TestNativeApplyStateWholeAdoptionRetiresKeysWithoutContentEffects(t *testing.T) {
 	root := t.TempDir()
-	old := nativeProjectStateSource(t, root, "settings", `{"a":1,"b":2}`, hostconfig.OwnershipKeys)
+	old := nativeProjectStateSource(t, root, "settings", `{"a":1,"b":2}`, agentconfig.OwnershipKeys)
 	previous := nativeStateFromObservedKeys(t, old.observed)
 	before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedAggregates: previous})
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := []byte(`{"a":7,"b":2,"released":9}`)
-	whole := nativeProjectStateSource(t, root, "settings", string(content), hostconfig.OwnershipDocument)
-	placement, _ := whole.observed.SourceContract().HostConfigPlacement()
+	whole := nativeProjectStateSource(t, root, "settings", string(content), agentconfig.OwnershipDocument)
+	placement, _ := whole.observed.SourceContract().AgentConfigPlacement()
 	hostPath := filepath.Join(root, filepath.FromSlash(placement.Destination().RelativePath()))
 	if err := os.MkdirAll(filepath.Dir(hostPath), 0o700); err != nil {
 		t.Fatal(err)

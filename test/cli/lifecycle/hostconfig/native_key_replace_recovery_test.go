@@ -15,7 +15,7 @@ import (
 
 func nativeReplacementFingerprint(t *testing.T, fixture nativefixture.RecoveryFixture, selectors ...string) string {
 	t.Helper()
-	args := []string{"replace", "host-config", "preferences", "--dry-run", "--json"}
+	args := []string{"replace", "agent-config", "preferences", "--dry-run", "--json"}
 	for _, selector := range selectors {
 		args = append(args, "--key", selector)
 	}
@@ -54,7 +54,7 @@ func TestNativeKeyReplacementRecoversActualOriginalValue(t *testing.T) {
 				fixture := nativeReplacementRecoveryFixture(t, kind)
 				fingerprint := nativeReplacementFingerprint(t, fixture)
 				before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
-				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+				code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 				if code != nativefixture.RecoveryExit || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
 					t.Fatalf("replacement did not reach confirmed %s publication: %d %s %s", boundary, code, stdout, stderr)
 				}
@@ -96,7 +96,7 @@ func TestNativeKeyReplacementCompensatesReturnedFailures(t *testing.T) {
 			fixture := nativeReplacementRecoveryFixture(t, "same-baseline")
 			fingerprint := nativeReplacementFingerprint(t, fixture)
 			before := nativefixture.SnapshotRecoveryPaths(t, fixture.Paths.StatefilePath)
-			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, boundary, "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 			if code == 0 || !strings.Contains(stderr, nativefixture.RecoveryReceipt(fixture.Destination)) {
 				t.Fatalf("returned failure did not follow a real publication: %d %s %s", code, stdout, stderr)
 			}
@@ -112,7 +112,7 @@ func TestNativeKeyReplacementCompensatesReturnedFailures(t *testing.T) {
 func TestNativeKeyReplacementRecoveryRefusesThirdValue(t *testing.T) {
 	fixture := nativeReplacementRecoveryFixture(t, "same-baseline")
 	fingerprint := nativeReplacementFingerprint(t, fixture)
-	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture, "host", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint); code != nativefixture.RecoveryExit {
+	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture, "host", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint); code != nativefixture.RecoveryExit {
 		t.Fatal("replacement was not interrupted after publication", code)
 	}
 	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), "model='third-value'\n"+nativefixture.RecoveryOutside)

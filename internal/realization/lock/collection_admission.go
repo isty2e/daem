@@ -105,7 +105,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			continue
 		}
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
-			if subject.EntityID().Kind() == entity.KindHostConfig {
+			if subject.EntityID().Kind() == entity.KindAgentConfig {
 				nativeKeyProjections[subject.EntityID()] = append(nativeKeyProjections[subject.EntityID()], subject)
 			}
 			if piContract, pi := profile.PiMCPContractForCodec(contribution.CodecContractID()); pi {

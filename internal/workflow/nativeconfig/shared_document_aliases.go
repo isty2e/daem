@@ -31,7 +31,7 @@ func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snaps
 	}
 	candidates := make(map[aggregate.DocumentAddress]struct{})
 	add := func(contribution aggregate.ManagedContribution) error {
-		if _, native := aggregate.HostConfigSyntaxForCodec(contribution.CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID()); native {
 			return nil
 		}
 		address := contribution.Contract().Address().Document()

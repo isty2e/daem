@@ -12,7 +12,7 @@ import (
 )
 
 func printNativeKeyLocation(output io.Writer, decision reconcile.AggregateSubjectDecision) {
-	_, key, native := topologyprojection.HostConfigKeyIdentity(decision.Subject())
+	_, key, native := topologyprojection.AgentConfigKeyIdentity(decision.Subject())
 	if !native {
 		return
 	}

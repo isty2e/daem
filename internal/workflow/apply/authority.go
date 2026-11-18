@@ -287,7 +287,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		if len(consumers) == 0 && hasPrevious {
 			consumers = previous.ConsumerTargets()
 		}
-		native := aggregate.IsHostConfigDocumentSubject(decision.Subject())
+		native := aggregate.IsAgentConfigDocumentSubject(decision.Subject())
 		if err := addWholePath(decision.Scope(), decision.Destination(), consumers, native); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
@@ -300,7 +300,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	for _, decision := range planned.assessment.Reconciliation.Aggregates() {
 		document := decision.DocumentAddress()
 		_, native := nativeActors[document]
-		_, nativeCodec := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID())
+		_, nativeCodec := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID())
 		if native && !nativeCodec {
 			path, err := destinationResolver(planned.context.Paths).Resolve(document.AggregateRoot(), planned.context.physicalBudget)
 			if err != nil {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -20,7 +20,7 @@ import (
 func TestNativeNarrowingPhaseSplitRequiresTheExactPositiveTransition(t *testing.T) {
 	for _, fragment := range []string{`{}`, `{"a":2}`} {
 		t.Run(fragment, func(t *testing.T) {
-			input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, fragment, hostconfig.OwnershipKeys)
+			input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, fragment, agentconfig.OwnershipKeys)
 			action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 			if err != nil {
 				t.Fatal(err)
@@ -55,7 +55,7 @@ func TestNativeNarrowingPhaseSplitRequiresTheExactPositiveTransition(t *testing.
 				t.Fatal("missing positive or prematurely retiring narrowing passed phase coverage", err)
 			}
 			if fragment != `{}` {
-				changed := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, `{"a":3}`, hostconfig.OwnershipKeys)
+				changed := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1,"released":9}`, `{"a":1,"released":9}`, `{"a":3}`, agentconfig.OwnershipKeys)
 				other, err := readiness.BuildNativeNarrowingAction(t.Context(), changed)
 				if err != nil {
 					t.Fatal(err)
@@ -139,8 +139,8 @@ func TestPositiveNativePrefixPreparesOnlyItsActualStateProgress(t *testing.T) {
 
 func TestPositiveNativePrefixAndFreshSuffixPreserveDistinctRetirements(t *testing.T) {
 	root := t.TempDir()
-	previous := nativeProjectStateSource(t, root, "old", `{"a":1,"z":1}`, hostconfig.OwnershipKeys)
-	desired := nativeProjectStateSource(t, root, "new", `{"a":2}`, hostconfig.OwnershipKeys)
+	previous := nativeProjectStateSource(t, root, "old", `{"a":1,"z":1}`, agentconfig.OwnershipKeys)
+	desired := nativeProjectStateSource(t, root, "new", `{"a":2}`, agentconfig.OwnershipKeys)
 	states := nativeStateFromObservedKeys(t, previous.observed)
 	before, err := durable.NewSnapshot(durable.SnapshotInput{
 		ManagedPaths: []durable.ManagedPathState{nativePreparationOtherWholeState(t)}, ManagedAggregates: states,
@@ -148,7 +148,7 @@ func TestPositiveNativePrefixAndFreshSuffixPreserveDistinctRetirements(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecID, _ := aggregate.HostConfigCodecForSyntax("json")
+	codecID, _ := aggregate.AgentConfigCodecForSyntax("json")
 	catalog, err := aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{codecID}, narrowingLimits, narrowingLimits)
 	if err != nil {
 		t.Fatal(err)

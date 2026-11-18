@@ -82,7 +82,7 @@ func (after SnapshotIndex) ValidateExpectedBaselines(ctx context.Context, groups
 			return err
 		}
 		id, native := topologyprojection.EntityID(row.Subject())
-		if !native || id.Kind() != entity.KindHostConfig {
+		if !native || id.Kind() != entity.KindAgentConfig {
 			continue
 		}
 		for _, selected := range row.ConsumerTargets() {

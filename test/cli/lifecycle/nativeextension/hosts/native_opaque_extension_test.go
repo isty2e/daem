@@ -144,7 +144,7 @@ printf '{}\n'
 		}
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model='native-model'\n")
-	declaration += fmt.Sprintf("\n[[host_config]]\nid='preferences'\ntargets=['codex']\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", nativeScope, filepath.Join(workspace, "preferences.toml"))
+	declaration += fmt.Sprintf("\n[[agent_config]]\nid='preferences'\ntargets=['codex']\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", nativeScope, filepath.Join(workspace, "preferences.toml"))
 	testkit.WriteFile(t, workspace, "daem.toml", declaration)
 	t.Setenv("DAEM_TEST_OPAQUE_PHASE", "native")
 	fixture.require(t, "lock")
@@ -258,7 +258,7 @@ func TestNativeOpaqueRefreshAndRemovalPreserveLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
-				if err != nil || after.ContainsHostConfig() == retire || len(after.PendingCarrierRemovals()) != 0 {
+				if err != nil || after.ContainsAgentConfig() == retire || len(after.PendingCarrierRemovals()) != 0 {
 					t.Fatal("removal lost the complete native/state settlement", err)
 				}
 				fixture.require(t, "status", "--check", "--json")

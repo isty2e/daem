@@ -87,11 +87,11 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 			aliases[address] = struct{}{}
 		}
 	}
-	for _, config := range input.Environment.HostConfigs() {
+	for _, config := range input.Environment.AgentConfigs() {
 		if !input.Selection.Includes(config.Target()) {
 			continue
 		}
-		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
 		if err != nil {
@@ -107,7 +107,7 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 		if input.NativeReplacement != nil && contract.EntityID() != input.NativeReplacement.Declaration() {
 			continue
 		}
-		if placement, native := contract.HostConfigPlacement(); native && input.Selection.Includes(placement.Target()) {
+		if placement, native := contract.AgentConfigPlacement(); native && input.Selection.Includes(placement.Target()) {
 			address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
 			if err != nil {
 				return nil, err
@@ -122,7 +122,7 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 				continue
 			}
 		}
-		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(state.ConsumerTargets(), input.Selection.Includes) {
+		if aggregate.IsAgentConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(state.ConsumerTargets(), input.Selection.Includes) {
 			if len(state.ConsumerTargets()) != 1 {
 				return nil, fmt.Errorf("native whole history requires one canonical consumer")
 			}
@@ -134,11 +134,11 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 		}
 	}
 	for _, state := range before.ManagedAggregates() {
-		if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
 			add(state.Contribution().Contract().Address().Document())
 		}
 	}
-	if len(aliases) == 0 && !input.Lockfile.ContainsHostConfig() && !before.ContainsHostConfig() {
+	if len(aliases) == 0 && !input.Lockfile.ContainsAgentConfig() && !before.ContainsAgentConfig() {
 		return nil, nil
 	}
 	addresses := make([]aggregate.DocumentAddress, 0, len(aliases))

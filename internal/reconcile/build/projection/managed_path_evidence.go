@@ -310,7 +310,7 @@ func managedPathActiveClaimBlock(
 	}
 	address, exact := observation.ExactAddress()
 	matches := exact && claim.Address().Equal(address)
-	if aggregate.IsHostConfigDocumentSubject(subject) {
+	if aggregate.IsAgentConfigDocumentSubject(subject) {
 		matches = observation.CorrelatesClaimAddress()
 	}
 	if !matches || !claim.OwnedBy(owner) {

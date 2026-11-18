@@ -10,7 +10,7 @@ func aggregateJSONAddress(subject topology.SubjectID, address aggregate.Projecti
 	if err := address.Validate(); err != nil {
 		return "", nil, err
 	}
-	if _, _, native := topologyprojection.HostConfigKeyIdentity(subject); native {
+	if _, _, native := topologyprojection.AgentConfigKeyIdentity(subject); native {
 		return "", address.KeyPath().Segments(), nil
 	}
 

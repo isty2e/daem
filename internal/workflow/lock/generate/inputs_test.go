@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	hookassetresource "github.com/isty2e/daem/internal/desired/hookasset"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	instructionsresource "github.com/isty2e/daem/internal/desired/instructions"
 	skillresource "github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
@@ -25,19 +25,19 @@ func TestConsumedLocalPathsCoversEveryLocalSnapshotInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native, err := hostconfig.New(hostconfig.Spec{
+	native, err := agentconfig.New(agentconfig.Spec{
 		Name: "preferences", Source: sourcetest.Local(t, "native/preferences.toml", source.LocalSourceModeVendor),
 		Target: target.TargetCodex, Scope: target.ScopeProject, Path: "config.toml",
-		Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxTOML,
+		Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxTOML,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	environment := desiredtest.Environment(t, desired.Spec{
-		HostConfigs: []hostconfig.Config{native},
-		Targets:     []target.Target{target.TargetCodex},
-		Defaults:    desiredtest.Defaults(t, target.ScopeProject, skillresource.InstallModeCopy),
+		AgentConfigs: []agentconfig.Config{native},
+		Targets:      []target.Target{target.TargetCodex},
+		Defaults:     desiredtest.Defaults(t, target.ScopeProject, skillresource.InstallModeCopy),
 		Skills: []skillresource.Skill{
 			desiredtest.Skill(t, skillresource.Spec{Name: "shared", Source: shared, Targets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject, InstallMode: skillresource.InstallModeCopy}),
 			desiredtest.Skill(t, skillresource.Spec{Name: "other", Source: other, Targets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject, InstallMode: skillresource.InstallModeCopy}),

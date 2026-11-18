@@ -113,7 +113,7 @@ func (state ProjectionState) Validate() error {
 		return err
 	}
 	if !state.blockingAncestor.IsRoot() {
-		if _, native := HostConfigSyntaxForCodec(state.contract.CodecContractID()); !native {
+		if _, native := AgentConfigSyntaxForCodec(state.contract.CodecContractID()); !native {
 			return fmt.Errorf("blocked projection requires a native codec contract")
 		}
 		key := state.contract.address.KeyPath()
@@ -260,7 +260,7 @@ func NewProjectionIntent(before ProjectionState, desired *ContributionSet) (Proj
 		return ProjectionIntent{}, err
 	}
 	if desired == nil {
-		_, native := HostConfigSyntaxForCodec(before.contract.CodecContractID())
+		_, native := AgentConfigSyntaxForCodec(before.contract.CodecContractID())
 		if !before.present && !native {
 			return ProjectionIntent{}, fmt.Errorf("aggregate remove intent requires a present before projection")
 		}

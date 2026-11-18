@@ -13,7 +13,7 @@ func TestDocumentCodecKeySeparatesOwnerFromSelectionAndAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native, _ := HostConfigCodecForSyntax("toml")
+	native, _ := AgentConfigCodecForSyntax("toml")
 	key, err := NewDocumentCodecKey(document, native)
 	if err != nil || key.Validate() != nil || key.DocumentAddress() != document || key.CodecContractID() != native {
 		t.Fatal("valid codec owner changed its canonical identity", err)
@@ -32,7 +32,7 @@ func TestDocumentCodecKeySeparatesOwnerFromSelectionAndAdmission(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, document.AggregateRoot(), footprint, native)
+		contract, err := NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, document.AggregateRoot(), footprint, native)
 		if err != nil {
 			t.Fatal(err)
 		}

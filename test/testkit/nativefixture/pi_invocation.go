@@ -124,7 +124,7 @@ fi
 	}
 	// Model a host-side uninstall while retaining the actual producer's state.
 	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
-	declaration := string(testkit.ReadFile(t, manifest)) + fmt.Sprintf("\n[[host_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.json"))
+	declaration := string(testkit.ReadFile(t, manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.json"))
 	testkit.WriteFile(t, workspace, "daem.toml", declaration)
 	t.Setenv("DAEM_TEST_INSTALL_PHASE", "native")
 	fixture.Require(t, "lock")

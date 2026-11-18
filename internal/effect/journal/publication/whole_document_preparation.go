@@ -99,7 +99,7 @@ func wholeDocumentMutationFacts(mutation journalrecord.ManagedPathMutation) (jou
 		previous, _ := facts.PreviousState()
 		mode = previous.FileMode()
 	}
-	if err := profile.ValidateHostConfigDocumentOccupancy(facts.Subject(), facts.ConsumerTargets(), facts.Scope(), facts.Destination(), facts.ContentKind(), realization.PathPermissionsExact, mode); err != nil {
+	if err := profile.ValidateAgentConfigDocumentOccupancy(facts.Subject(), facts.ConsumerTargets(), facts.Scope(), facts.Destination(), facts.ContentKind(), realization.PathPermissionsExact, mode); err != nil {
 		return journalrecord.ManagedPathMutation{}, err
 	}
 	if err := validateWholeDocumentPrevious(facts); err != nil {
@@ -116,5 +116,5 @@ func validateWholeDocumentPrevious(facts journalrecord.ManagedPathMutation) erro
 	if previous.Subject() != facts.Subject() || previous.Scope() != facts.Scope() || previous.Destination() != facts.Destination() || !slices.Equal(previous.ConsumerTargets(), facts.ConsumerTargets()) {
 		return fmt.Errorf("whole document retargeting requires separate creation and retirement mutations")
 	}
-	return profile.ValidateHostConfigDocumentOccupancy(previous.Subject(), previous.ConsumerTargets(), previous.Scope(), previous.Destination(), previous.ContentKind(), previous.PermissionPolicy(), previous.FileMode())
+	return profile.ValidateAgentConfigDocumentOccupancy(previous.Subject(), previous.ConsumerTargets(), previous.Scope(), previous.Destination(), previous.ContentKind(), previous.PermissionPolicy(), previous.FileMode())
 }

@@ -86,7 +86,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	wholeGroups := make(map[int]struct{})
 	ordinaryManaged := work.managed[:0:0]
 	for _, effect := range work.managed {
-		if !aggregate.IsHostConfigDocumentSubject(effect.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
 			ordinaryManaged = append(ordinaryManaged, effect)
 			continue
 		}
@@ -132,7 +132,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		}
 	}
 	for _, action := range input.Preparation.Narrowings() {
-		placement, _ := action.SourceContract().HostConfigPlacement()
+		placement, _ := action.SourceContract().AgentConfigPlacement()
 		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
 		if err != nil {
 			return nativeApplyWork{}, err
@@ -181,7 +181,7 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 			}
 		}
 		if group < 0 {
-			if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); native {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID()); native {
 				return nativeApplyWork{}, fmt.Errorf("native effect has no retained namespace")
 			}
 			work.ordinaryAggregates = append(work.ordinaryAggregates, effect)

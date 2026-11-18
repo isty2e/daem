@@ -106,7 +106,7 @@ func WriteRecoveryDesired(t *testing.T, fixture RecoveryFixture, model, server s
 	t.Helper()
 	manifest := `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"
@@ -522,7 +522,7 @@ func (store *nativeRecoveryStore) acceptsStatePublication(content []byte) bool {
 		return false
 	}
 	for _, record := range state.ManagedPaths() {
-		if aggregate.IsHostConfigDocumentSubject(record.Subject()) {
+		if aggregate.IsAgentConfigDocumentSubject(record.Subject()) {
 			return true
 		}
 	}

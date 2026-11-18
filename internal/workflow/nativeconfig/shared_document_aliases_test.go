@@ -41,7 +41,7 @@ func TestOrdinaryAliasCandidatesRetainHistoryWithoutIntroducingUnselectedDesired
 	if err != nil {
 		t.Fatal(err)
 	}
-	nativeOnly, err := environment.HostConfigsOnly()
+	nativeOnly, err := environment.AgentConfigsOnly()
 	if err != nil {
 		t.Fatal(err)
 	}

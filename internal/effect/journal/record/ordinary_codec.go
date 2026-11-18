@@ -290,12 +290,12 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 	}
 	for _, snapshot := range []durable.Snapshot{journal.StatefileBefore, journal.StatefileAfter} {
 		for _, state := range snapshot.ManagedPaths() {
-			if id, ok := topologyprojection.EntityID(state.Subject()); ok && id.Kind() == entity.KindHostConfig {
+			if id, ok := topologyprojection.EntityID(state.Subject()); ok && id.Kind() == entity.KindAgentConfig {
 				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
 			}
 		}
 		for _, state := range snapshot.ManagedAggregates() {
-			if _, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
 				return fmt.Errorf("recovery journal version %d does not admit native configuration baselines", journal.Version)
 			}
 		}

@@ -18,7 +18,7 @@ func NewPresentation(t *testing.T, source, current string) RecoveryFixture {
 	destination := filepath.Join(workspace, ".codex", "config.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 path = "config.toml"
 source = "./preferences.toml"

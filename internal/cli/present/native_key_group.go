@@ -23,7 +23,7 @@ type humanDecisionGroup struct {
 }
 
 func nativeHumanGroupIdentity(decision reconcile.AggregateSubjectDecision) (nativeHumanGroupKey, bool) {
-	id, _, native := topologyprojection.HostConfigKeyIdentity(decision.Subject())
+	id, _, native := topologyprojection.AgentConfigKeyIdentity(decision.Subject())
 	return nativeHumanGroupKey{id, decision.Contract().Address().Document()}, native
 }
 
@@ -58,7 +58,7 @@ func printNativeGroupHeader(output io.Writer, decision reconcile.AggregateSubjec
 }
 
 func printNativeGroupKey(output io.Writer, decision reconcile.AggregateSubjectDecision) {
-	_, key, _ := topologyprojection.HostConfigKeyIdentity(decision.Subject())
+	_, key, _ := topologyprojection.AgentConfigKeyIdentity(decision.Subject())
 	fmt.Fprintf(output, "    key: %s: %s", nativeKeyDisplay(key), aggregateLabel(decision))
 	if decision.IsBlocked() {
 		fmt.Fprintf(output, " (%s)", actionReasonLabel(decision.Reason()))
@@ -109,7 +109,7 @@ func printNativeGroupBlock(output io.Writer, block configurationBlock, represent
 			continue
 		}
 		seen[subject] = true
-		id, key, native := topologyprojection.HostConfigKeyIdentity(subject)
+		id, key, native := topologyprojection.AgentConfigKeyIdentity(subject)
 		if native && id == identity.declaration && subject.Namespace() == representative.Subject().Namespace() {
 			causes = append(causes, "key "+nativeKeyDisplay(key))
 		} else {
@@ -127,7 +127,7 @@ func printNativeGroupBlock(output io.Writer, block configurationBlock, represent
 
 func configurationCauseDisplay(subject topology.SubjectID) string {
 	_, reference := projectionIdentityLabel(subject)
-	if _, key, native := topologyprojection.HostConfigKeyIdentity(subject); native {
+	if _, key, native := topologyprojection.AgentConfigKeyIdentity(subject); native {
 		return Quote(reference) + " key " + nativeKeyDisplay(key)
 	}
 	return Quote(reference)

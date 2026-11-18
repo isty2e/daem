@@ -20,8 +20,8 @@ func (values *replacementKeyValues) Set(raw string) error {
 	return nil
 }
 
-func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer, options commandOptions) *preparedInvocation {
-	path := []string{"replace", "host-config"}
+func prepareReplaceAgentConfigInvocation(args []string, stdout, stderr io.Writer, options commandOptions) *preparedInvocation {
+	path := []string{"replace", agentConfigSubject}
 	flags := newCommandFlagSet(path, stderr)
 	manifest := flags.String("manifest", "", "path to daem.toml")
 	dryRun := flags.Bool("dry-run", false, "preview selected replacement without effects")
@@ -33,7 +33,7 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 	var keys replacementKeyValues
 	flags.Var(&keys, "key", "RFC 6901 selector narrowing the declaration's atomic keys; repeatable")
 	arguments := prepareAuthoringArguments(flags, args, 1)
-	response := newCommandResponse("replace host-config", arguments.output, stdout, stderr)
+	response := newCommandResponse(strings.Join(path, " "), arguments.output, stdout, stderr)
 	return &preparedInvocation{response: response, execute: func() int {
 		fail := func(code commandFailureClass, err error) int {
 			return response.failure(code, humanFailureDiagnostic(err))
@@ -45,9 +45,9 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 		if err := arguments.bind(flags); err != nil {
 			return response.failure(usageFailure, flagBindingDiagnostic(path, err))
 		}
-		name, operandErr := requiredAuthoringOperand(arguments, "replace host-config requires one declaration id")
+		name, operandErr := requiredAuthoringOperand(arguments, "replace agent-config requires one declaration id")
 		if operandErr != nil {
-			return fail(usageFailure, fmt.Errorf("replace host-config requires one declaration id"))
+			return fail(usageFailure, fmt.Errorf("replace agent-config requires one declaration id"))
 		}
 		if *dryRun && *yes {
 			return fail(usageFailure, fmt.Errorf("--dry-run and --yes are mutually exclusive"))
@@ -67,7 +67,7 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 		if !*dryRun && !*yes && !options.confirmation.allowsInteractiveAuthorization() {
 			return fail(usageFailure, fmt.Errorf("replacement needs terminal confirmation or --yes --expect-plan <fingerprint>; review --dry-run first"))
 		}
-		if err := validatePresentationFlags("replace host-config", arguments.output == requestedJSON, *verbose, *showDiff); err != nil {
+		if err := validatePresentationFlags("replace agent-config", arguments.output == requestedJSON, *verbose, *showDiff); err != nil {
 			return fail(usageFailure, err)
 		}
 		plan, err := applyworkflow.PlanNativeReplacement(options.context, applyworkflow.NativeReplacementInput{ManifestPath: *manifest, ID: name, Keys: keys})
@@ -102,12 +102,12 @@ func prepareReplaceHostConfigInvocation(args []string, stdout, stderr io.Writer,
 		if !*dryRun {
 			approved := *expect
 			if !*yes {
-				confirmed, err := options.confirmation.prompt("replace host-config")
+				confirmed, err := options.confirmation.prompt("replace agent-config")
 				if err != nil {
 					return fail(operationFailure, err)
 				}
 				if !confirmed {
-					return fail(operationFailure, fmt.Errorf("replace host-config canceled"))
+					return fail(operationFailure, fmt.Errorf("replace agent-config canceled"))
 				}
 				approved = disclosure.Fingerprint
 			}

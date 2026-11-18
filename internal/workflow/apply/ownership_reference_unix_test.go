@@ -85,7 +85,7 @@ func TestOwnershipWritersSupplyObservedReferences(t *testing.T) {
 				if test.provisional {
 					destination, policy, body = "prompts/Caf\u00e9.md", "document", "published prompt\n"
 				}
-				manifest := fmt.Sprintf("version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\nscope=%q\npath=%q\nsource=%q\nownership=%q\n", test.scope, destination, source, policy)
+				manifest := fmt.Sprintf("version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\nscope=%q\npath=%q\nsource=%q\nownership=%q\n", test.scope, destination, source, policy)
 				if test.ordinaryPromotion {
 					skill := filepath.Join(selected, "skill-source")
 					writeApplyFile(t, filepath.Join(skill, "SKILL.md"), "---\nname: Caf\u00e9\ndescription: native ordinary publication\n---\n")

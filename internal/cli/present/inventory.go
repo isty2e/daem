@@ -48,7 +48,7 @@ func PrintInventoryReportWithOptions(output io.Writer, inventory listworkflow.Ou
 func printInventoryEntry(output io.Writer, label string, entry listworkflow.OutputInventoryEntry, options HumanOptions) {
 	resourceID := inventoryResourceID(entry)
 	identityLabel, identity := "resource", resourceID
-	_, key, native := topologyprojection.HostConfigKeyIdentity(entry.Subject())
+	_, key, native := topologyprojection.AgentConfigKeyIdentity(entry.Subject())
 	if native {
 		identityLabel, identity = projectionIdentityLabel(entry.Subject())
 	}
@@ -125,7 +125,7 @@ func inventoryJSONEntries(entries []listworkflow.OutputInventoryEntry) []invento
 			Reason:      string(entry.Reason()),
 			Detail:      entry.Detail(),
 		}
-		if _, key, native := topologyprojection.HostConfigKeyIdentity(entry.Subject()); native {
+		if _, key, native := topologyprojection.AgentConfigKeyIdentity(entry.Subject()); native {
 			_, row.Resource = planJSONEntityResource(entry.Subject())
 			row.KeyPath = key.Segments()
 		}

@@ -382,28 +382,28 @@ type CommandInput struct {
 	RelationObservations   *relationobserve.Batch
 	ManageUnmanagedMatches bool
 	environmentPresent     environmentSourcePresence
-	nativeReplacement      *topologyprojection.HostConfigKeySelection
+	nativeReplacement      *topologyprojection.AgentConfigKeySelection
 	persistenceBudget      *physicalwork.Budget
 }
 
 type CommandResult struct {
-	CarrierHandoffProgress *CarrierHandoffProgress
-	PermissionProtection   ownershipobserve.ProtectionObservation
-	ManifestPath           string
-	LockfilePath           string
-	LockfileExplicit       bool
-	StatefilePath          string
-	Reconciliation         reconcile.Result
-	ReconciliationReady    bool
-	HostConfigDeclarations []entity.ID // nil until a complete assessment is available
-	DelegateAttempts       []DelegateAttemptResult
-	RelationOrderResults   []RelationOrderExecutionResult
-	HostRouteAttempts      []durableattempt.HostRouteAttempt
-	CarrierAdoptionResults []durablecarrier.ManagedCarrierClaim
-	Diagnostics            []findings.Diagnostic
-	LockOnly               []readiness.UnsupportedProjection
-	MCPProjections         []mcpobserve.LockedProjectionObservation
-	ActionCount            int
+	CarrierHandoffProgress  *CarrierHandoffProgress
+	PermissionProtection    ownershipobserve.ProtectionObservation
+	ManifestPath            string
+	LockfilePath            string
+	LockfileExplicit        bool
+	StatefilePath           string
+	Reconciliation          reconcile.Result
+	ReconciliationReady     bool
+	AgentConfigDeclarations []entity.ID // nil until a complete assessment is available
+	DelegateAttempts        []DelegateAttemptResult
+	RelationOrderResults    []RelationOrderExecutionResult
+	HostRouteAttempts       []durableattempt.HostRouteAttempt
+	CarrierAdoptionResults  []durablecarrier.ManagedCarrierClaim
+	Diagnostics             []findings.Diagnostic
+	LockOnly                []readiness.UnsupportedProjection
+	MCPProjections          []mcpobserve.LockedProjectionObservation
+	ActionCount             int
 	// ExecutionAttempted reports whether normal apply crossed a durable mutation
 	// or delegated command-runner boundary. Independent format maintenance is
 	// not an attempt to execute the disclosed operation.
@@ -428,7 +428,7 @@ type commandContext struct {
 	physicalBudget               *physicalwork.Budget
 	RelationObservationsExplicit bool
 	ManageUnmanagedMatches       bool
-	nativeReplacement            *topologyprojection.HostConfigKeySelection
+	nativeReplacement            *topologyprojection.AgentConfigKeySelection
 }
 
 type commandPlan struct {
@@ -468,12 +468,12 @@ func rejectUnsupportedPreviewActions(assessment readiness.Assessment) error {
 	if err := checkNativeCommandSupport(assessment); err != nil {
 		return err
 	}
-	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !assessment.Reconciliation.ContainsHostConfig() {
+	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsAgentConfig() && !assessment.Reconciliation.ContainsAgentConfig() {
 		return execute.RejectUnsupportedExecutableActions(assessment.Reconciliation)
 	}
 	var paths []reconcile.ManagedPathDecision
 	for _, decision := range assessment.Reconciliation.ManagedPaths() {
-		if !decision.IsBlocked() && !decision.IsNoOp() && !aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+		if !decision.IsBlocked() && !decision.IsNoOp() && !aggregate.IsAgentConfigDocumentSubject(decision.Subject()) {
 			paths = append(paths, decision)
 		}
 	}
@@ -482,7 +482,7 @@ func rejectUnsupportedPreviewActions(assessment readiness.Assessment) error {
 	}
 	var aggregates []reconcile.AggregateDecision
 	for _, decision := range assessment.Reconciliation.Aggregates() {
-		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); !native && !decision.IsBlocked() && !decision.IsNoOp() {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID()); !native && !decision.IsBlocked() && !decision.IsNoOp() {
 			aggregates = append(aggregates, decision)
 		}
 	}
@@ -701,7 +701,7 @@ func planReadinessAtPathsWithAssessor(
 
 	result.Reconciliation = planning.Reconciliation
 	result.ReconciliationReady = true
-	result.HostConfigDeclarations = loaded.RuntimeEnvironment.HostConfigIDs()
+	result.AgentConfigDeclarations = loaded.RuntimeEnvironment.AgentConfigIDs()
 	result.Diagnostics = append(
 		result.Diagnostics,
 		diagnose.RetainedSkillDiscoveryDiagnostics(
@@ -837,11 +837,11 @@ func loadCommandInputsAtPaths(
 	}
 
 	if input.nativeReplacement != nil {
-		environment, err = environment.HostConfigOnly(input.nativeReplacement.Declaration())
+		environment, err = environment.AgentConfigOnly(input.nativeReplacement.Declaration())
 		if err != nil {
 			return commandContext{}, result, err
 		}
-		input.TargetValues = []string{string(environment.HostConfigs()[0].Target())}
+		input.TargetValues = []string{string(environment.AgentConfigs()[0].Target())}
 	}
 	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
 	if lockfileErr == nil && input.nativeReplacement != nil {

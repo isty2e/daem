@@ -38,7 +38,7 @@ func TestNativeKeyReplacementAdoptionAndRecreation(t *testing.T) {
 				}
 			}
 			fingerprint := nativeReplacementFingerprint(t, fixture)
-			nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "host-config", "preferences", "--yes", "--expect-plan", fingerprint)
+			nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
 			nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.Destination), "model='after-model'\n", true)
 			after, err := os.Stat(fixture.Destination)
 			if err != nil {

@@ -56,7 +56,7 @@ type ExactSupplySubjectInput struct {
 	SubjectID                 topology.SubjectID
 	ExactSupply               artifact.ExactIdentity
 	ExactFileUse              *ExactFileUse
-	HostConfigPlacement       *configuration.Placement
+	AgentConfigPlacement      *configuration.Placement
 	Derivation                DerivationContract
 	RepairRecipe              *skillrepair.Recipe
 	SkillSetMemberCorrelation *SkillSetMemberCorrelation
@@ -84,7 +84,7 @@ func NewExactSupplySubjectContract(input ExactSupplySubjectInput) (LockedSubject
 		SubjectID:                 input.SubjectID,
 		ExactSupply:               &input.ExactSupply,
 		ExactFileUse:              input.ExactFileUse,
-		HostConfigPlacement:       input.HostConfigPlacement,
+		AgentConfigPlacement:      input.AgentConfigPlacement,
 		Derivation:                &input.Derivation,
 		RepairRecipe:              input.RepairRecipe,
 		SkillSetMemberCorrelation: input.SkillSetMemberCorrelation,
@@ -172,12 +172,12 @@ func (shape exactSupplyFamilyShape) validate(contract LockedSubjectContract) (bo
 	if hasExactFileUse {
 		input.ExactFileUse = &exactFileUse
 	}
-	if shape.kind == entity.KindHostConfig {
-		placement, present := contract.HostConfigPlacement()
+	if shape.kind == entity.KindAgentConfig {
+		placement, present := contract.AgentConfigPlacement()
 		if !present {
 			return true, fmt.Errorf("host configuration exact Supply requires declaration placement")
 		}
-		input.HostConfigPlacement = &placement
+		input.AgentConfigPlacement = &placement
 	}
 	if recipe, ok := contract.RepairRecipe(); ok {
 		input.RepairRecipe = &recipe

@@ -29,7 +29,7 @@ func TestLegacyStateAggregateRefusesNativeFamilyWithOrdinaryKey(t *testing.T) {
 		CodecContractID: string(contribution.CodecContractID()), ComparedFields: contribution.ComparedFields(),
 	}
 	if _, err := persisted.canonical(); err == nil {
-		t.Fatal("legacy state row admitted native host-config family through an ordinary content path")
+		t.Fatal("legacy state row admitted native agent-config family through an ordinary content path")
 	}
 }
 
@@ -44,11 +44,11 @@ func nativeAggregateState(t testing.TB, keys ...string) durable.ManagedAggregate
 		t.Fatalf("native value fixture = %#v, %v", entries, err)
 	}
 	footprint := outputtest.KeyFootprint(t, keys...)
-	codec, admitted := aggregate.HostConfigCodecForSyntax("json")
+	codec, admitted := aggregate.AgentConfigCodecForSyntax("json")
 	if !admitted {
 		t.Fatal("native JSON grammar was not admitted")
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), footprint, codec)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), footprint, codec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,12 +56,12 @@ func nativeAggregateState(t testing.TB, keys ...string) durable.ManagedAggregate
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "native-example")
+	id, err := entity.New(entity.KindAgentConfig, "native-example")
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, _ := footprint.Key()
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, key)
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, key)
 	if err != nil {
 		t.Fatal(err)
 	}

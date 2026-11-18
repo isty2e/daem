@@ -318,7 +318,7 @@ func restorationPublicationFixture(t *testing.T, current string) (*Operation, mu
 func restorationPublicationComparison(t *testing.T, mode recovery.PermissionMode) journaldocument.Comparison {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	id, found := aggregate.HostConfigCodecForSyntax(configdocument.JSON.String())
+	id, found := aggregate.AgentConfigCodecForSyntax(configdocument.JSON.String())
 	if !found {
 		t.Fatal("native JSON codec unavailable")
 	}
@@ -338,7 +338,7 @@ func restorationPublicationComparison(t *testing.T, mode recovery.PermissionMode
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}

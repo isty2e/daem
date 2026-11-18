@@ -24,7 +24,7 @@ named project/global row.
 | MCP startup test | No | Project only | Project only | No | No |
 | Run MCP on apply | No | Project only | No | No | No |
 
-[Native configuration keys](manifest.md#host-configuration) manage only the
+[Agent configuration keys](manifest.md#agent-configuration) manage only the
 selected values in a shared TOML/JSON document. Whole-document ownership and
 ownership-mode transitions are not currently executable. The reference lists
 reserved fields, permission rules and unsupported mixed-plan combinations.

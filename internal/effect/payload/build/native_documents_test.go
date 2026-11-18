@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
@@ -26,11 +26,11 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func payloadDocumentConfig(t *testing.T, name string, spec source.Source, selected target.Target, scope target.Scope, path string, syntax hostconfig.Syntax) hostconfig.Config {
+func payloadDocumentConfig(t *testing.T, name string, spec source.Source, selected target.Target, scope target.Scope, path string, syntax agentconfig.Syntax) agentconfig.Config {
 	t.Helper()
-	config, err := hostconfig.New(hostconfig.Spec{
+	config, err := agentconfig.New(agentconfig.Spec{
 		Name: name, Source: spec, Target: selected, Scope: scope, Path: path,
-		Ownership: hostconfig.OwnershipDocument, Syntax: syntax,
+		Ownership: agentconfig.OwnershipDocument, Syntax: syntax,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,9 +60,9 @@ func payloadDocumentInput(t *testing.T, root string, environment desired.Environ
 	return Input{Paths: hostOutputTestPaths(t, root), Environment: environment, Lockfile: file, Selection: selection, ManagedPathPayloadSubjects: subjects}
 }
 
-func payloadDocumentSubject(t *testing.T, config hostconfig.Config) topology.SubjectID {
+func payloadDocumentSubject(t *testing.T, config agentconfig.Config) topology.SubjectID {
 	t.Helper()
-	subject, err := aggregate.HostConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
+	subject, err := aggregate.AgentConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,8 @@ func TestNativeDocumentPayloadUsesActualLockSourceBytesAndPrivateMode(t *testing
 				t.Fatal(err)
 			}
 			spec := sourcetest.Local(t, path, source.LocalSourceModeVendor)
-			config := payloadDocumentConfig(t, "document", spec, fixture.target, fixture.scope, fixture.path, hostconfig.SyntaxDefault)
-			environment := hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+			config := payloadDocumentConfig(t, "document", spec, fixture.target, fixture.scope, fixture.path, agentconfig.SyntaxDefault)
+			environment := hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 			file := payloadDocumentLock(t, root, environment)
 			subject := payloadDocumentSubject(t, config)
 			prepared, err := NativeDocumentPayloadSet(t.Context(), payloadDocumentInput(t, root, environment, file, subject))
@@ -127,9 +127,9 @@ func TestNativeDocumentPayloadPartitionsMixedRequestsAndFreezesDefault(t *testin
 	root := t.TempDir()
 	writeHostOutputTestFile(t, root, "source.md", "# same source\n")
 	spec := sourcetest.Local(t, filepath.Join(root, "source.md"), source.LocalSourceModeVendor)
-	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.SyntaxDefault)
+	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.SyntaxDefault)
 	ordinary := instructionResource(t, "ordinary", spec, target.TargetCodex)
-	environment := hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}, Instructions: []instructions.Instructions{ordinary}})
+	environment := hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}, Instructions: []instructions.Instructions{ordinary}})
 	file := payloadDocumentLock(t, root, environment)
 	var subjects []topology.SubjectID
 	for _, contract := range file.Locked.Subjects() {
@@ -170,8 +170,8 @@ func TestNativeDocumentPayloadSkipsUnrequestedSourcesAndRefusesChangedContent(t 
 	root := t.TempDir()
 	writeHostOutputTestFile(t, root, "source.md", "# locked\n")
 	spec := sourcetest.Local(t, filepath.Join(root, "source.md"), source.LocalSourceModeVendor)
-	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.SyntaxDefault)
-	environment := hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.SyntaxDefault)
+	environment := hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 	file := payloadDocumentLock(t, root, environment)
 	subject := payloadDocumentSubject(t, config)
 	input := payloadDocumentInput(t, root, environment, file)
@@ -201,19 +201,19 @@ func TestNativeDocumentPayloadPreflightRejectsStaleIntentAndBadRequests(t *testi
 	root := t.TempDir()
 	writeHostOutputTestFile(t, root, "source", "answer=42\n")
 	spec := sourcetest.Local(t, filepath.Join(root, "source"), source.LocalSourceModeVendor)
-	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "custom.conf", hostconfig.SyntaxDefault)
-	environment := hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "custom.conf", agentconfig.SyntaxDefault)
+	environment := hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 	file := payloadDocumentLock(t, root, environment)
 	subject := payloadDocumentSubject(t, config)
 	otherSource := sourcetest.Local(t, filepath.Join(root, "absent-source"), source.LocalSourceModeVendor)
-	for _, changed := range []hostconfig.Config{
+	for _, changed := range []agentconfig.Config{
 		payloadDocumentConfig(t, "native", spec, target.TargetCodex, config.Scope(), config.Path(), config.Syntax()),
 		payloadDocumentConfig(t, "native", spec, config.Target(), target.ScopeGlobal, config.Path(), config.Syntax()),
 		payloadDocumentConfig(t, "native", spec, config.Target(), config.Scope(), "other.conf", config.Syntax()),
-		payloadDocumentConfig(t, "native", spec, config.Target(), config.Scope(), config.Path(), hostconfig.SyntaxTOML),
+		payloadDocumentConfig(t, "native", spec, config.Target(), config.Scope(), config.Path(), agentconfig.SyntaxTOML),
 		payloadDocumentConfig(t, "native", otherSource, config.Target(), config.Scope(), config.Path(), config.Syntax()),
 	} {
-		input := payloadDocumentInput(t, root, hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{changed}}), file, subject)
+		input := payloadDocumentInput(t, root, hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{changed}}), file, subject)
 		if _, _, err := preflightNativeDocumentPayloads(t.Context(), input); err == nil {
 			t.Fatal("stale intent passed pure preflight")
 		}
@@ -221,11 +221,11 @@ func TestNativeDocumentPayloadPreflightRejectsStaleIntentAndBadRequests(t *testi
 			t.Fatal("stale declaration produced payload")
 		}
 	}
-	foreignID, err := entity.New(entity.KindHostConfig, "foreign")
+	foreignID, err := entity.New(entity.KindAgentConfig, "foreign")
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, err := aggregate.HostConfigDocumentSubject(foreignID, target.TargetPi, target.ScopeProject)
+	foreign, err := aggregate.AgentConfigDocumentSubject(foreignID, target.TargetPi, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestNativeDocumentPayloadPreflightRejectsStaleIntentAndBadRequests(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	keySubject, err := topologyprojection.HostConfigKeySubject(config.ID(), config.Target(), config.Scope(), key)
+	keySubject, err := topologyprojection.AgentConfigKeySubject(config.ID(), config.Target(), config.Scope(), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,10 +259,10 @@ func TestNativeDocumentPayloadLateFailureDiscardsOrdinaryAndNativePrefix(t *test
 	writeHostOutputTestFile(t, root, "second.md", "# second\n")
 	firstSource := sourcetest.Local(t, filepath.Join(root, "first.md"), source.LocalSourceModeVendor)
 	secondSource := sourcetest.Local(t, filepath.Join(root, "second.md"), source.LocalSourceModeVendor)
-	first := payloadDocumentConfig(t, "a-first", firstSource, target.TargetPi, target.ScopeProject, "prompts/first.md", hostconfig.SyntaxDefault)
-	second := payloadDocumentConfig(t, "z-second", secondSource, target.TargetPi, target.ScopeProject, "prompts/second.md", hostconfig.SyntaxDefault)
+	first := payloadDocumentConfig(t, "a-first", firstSource, target.TargetPi, target.ScopeProject, "prompts/first.md", agentconfig.SyntaxDefault)
+	second := payloadDocumentConfig(t, "z-second", secondSource, target.TargetPi, target.ScopeProject, "prompts/second.md", agentconfig.SyntaxDefault)
 	ordinary := instructionResource(t, "ordinary", firstSource, target.TargetCodex)
-	environment := hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{first, second}, Instructions: []instructions.Instructions{ordinary}})
+	environment := hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{first, second}, Instructions: []instructions.Instructions{ordinary}})
 	file := payloadDocumentLock(t, root, environment)
 	var subjects []topology.SubjectID
 	for _, contract := range file.Locked.Subjects() {
@@ -293,8 +293,8 @@ func TestNativeDocumentPayloadRejectsChangedSourceExecutableClass(t *testing.T) 
 	writeHostOutputTestFile(t, root, "source.md", "# same bytes\n")
 	path := filepath.Join(root, "source.md")
 	spec := sourcetest.Local(t, path, source.LocalSourceModeVendor)
-	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.SyntaxDefault)
-	environment := hostOutputEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+	config := payloadDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.SyntaxDefault)
+	environment := hostOutputEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 	file := payloadDocumentLock(t, root, environment)
 	if err := os.Chmod(path, 0o700); err != nil {
 		t.Fatal(err)

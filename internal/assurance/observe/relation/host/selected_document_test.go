@@ -89,7 +89,7 @@ func selectedPiFixture(t *testing.T, root, namespace, content string) OrderObser
 func selectedNativeProjection(t *testing.T, original aggregate.Document, name, desired string) compose.ProjectionEdit {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	id, found := aggregate.HostConfigCodecForSyntax("json")
+	id, found := aggregate.AgentConfigCodecForSyntax("json")
 	if !found {
 		t.Fatal("JSON codec unavailable")
 	}
@@ -109,7 +109,7 @@ func selectedNativeProjection(t *testing.T, original aggregate.Document, name, d
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,11 +137,11 @@ func selectedNativeProjection(t *testing.T, original aggregate.Document, name, d
 	if err != nil {
 		t.Fatal(err)
 	}
-	declaration, err := entity.New(entity.KindHostConfig, "settings")
+	declaration, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(declaration, target.TargetPi, target.ScopeProject, path)
+	subject, err := topologyprojection.AgentConfigKeySubject(declaration, target.TargetPi, target.ScopeProject, path)
 	if err != nil {
 		t.Fatal(err)
 	}

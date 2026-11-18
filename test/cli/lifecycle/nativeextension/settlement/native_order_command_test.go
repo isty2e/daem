@@ -148,7 +148,7 @@ func TestNativePiOrderCommandSelectsBothScopeMutationVariants(t *testing.T) {
 					fixture.Require(t, "apply", "--manage-existing", "--yes")
 					manifest := string(testkit.ReadFile(t, fixture.Manifest))
 					for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-						manifest += fmt.Sprintf("\n[[host_config]]\nid=%q\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", "preferences-"+string(scope), scope, filepath.Join(workspace, "preferences.json"))
+						manifest += fmt.Sprintf("\n[[agent_config]]\nid=%q\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", "preferences-"+string(scope), scope, filepath.Join(workspace, "preferences.json"))
 					}
 					testkit.WriteFile(t, workspace, "daem.toml", manifest)
 					testkit.WriteFile(t, workspace, "preferences.json", `{"theme":"fixture-theme"}`)

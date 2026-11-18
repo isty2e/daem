@@ -25,7 +25,7 @@ func TestNativeProjectRetirementSurvivesProtectedHostRouteContinuation(t *testin
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(storage, "claude"))
 	root, manifestPath, _, _, previous, _ := writeApplyPiPackageCarrierCommandFixtureForScope(t, target.ScopeProject)
 	retiring := seedApplyCarrierClaim(t, root, manifestPath, previous, target.ScopeProject)
-	writeApplyFile(t, manifestPath, "version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n[[extension]]\nid='new-tools'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='git:github.com/acme/pi-new-tools@v1'}\n")
+	writeApplyFile(t, manifestPath, "version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n[[extension]]\nid='new-tools'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='git:github.com/acme/pi-new-tools@v1'}\n")
 	writeApplyFile(t, filepath.Join(root, "preferences.json"), `{"theme":"native-retirement"}`)
 	bin := filepath.Join(storage, "bin")
 	script := "#!/bin/sh\nset -eu\nif [ \"$1\" = --version ]; then printf '1.0.2\\n'; exit 0; fi\n[ \"$1\" = install ] && [ \"$2\" = 'git:github.com/acme/pi-new-tools@v1' ] && [ \"$3\" = -l ] || exit 91\n[ -f .pi/settings.json ] || exit 92\nprintf '%s\\n' '{\"theme\":\"native-retirement\",\"packages\":[\"git:github.com/acme/pi-new-tools@v1\"]}' > .pi/settings.json\n"
@@ -88,7 +88,7 @@ func TestNativeOrderSuffixUsesPostInstallReconciliation(t *testing.T) {
 		t.Setenv(key, filepath.Join(storage, directory))
 	}
 	root, manifestPath, _, _, _, _ := writeApplyPiPackageCarrierCommandFixtureForScope(t, target.ScopeProject)
-	writeApplyFile(t, manifestPath, "version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n[[extension]]\nid='alpha'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='npm:alpha@1'}\n[[extension]]\nid='beta'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='npm:beta@1'}\n")
+	writeApplyFile(t, manifestPath, "version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n[[extension]]\nid='alpha'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='npm:alpha@1'}\n[[extension]]\nid='beta'\ncarrier='pi-package'\ntargets=['pi']\nscope='project'\nsource={host_source='npm:beta@1'}\n")
 	writeApplyFile(t, filepath.Join(root, "preferences.json"), `{"theme":"native-order"}`)
 	bin := filepath.Join(storage, "bin")
 	script := `#!/bin/sh

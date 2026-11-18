@@ -18,13 +18,13 @@ func nativeOwnershipDocumentFixture(t *testing.T, currentText, destination strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecID, _ := aggregate.HostConfigCodecForSyntax("json")
+	codecID, _ := aggregate.AgentConfigCodecForSyntax("json")
 	limits := configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}
 	codec, err := nativecodec.New(t.Context(), codecID, limits, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func nativeOwnershipDocumentFixture(t *testing.T, currentText, destination strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codecID)
+		contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codecID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +62,7 @@ func nativeOwnershipDocumentFixture(t *testing.T, currentText, destination strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, state.Contract().Address().KeyPath())
+		subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, state.Contract().Address().KeyPath())
 		if err != nil {
 			t.Fatal(err)
 		}

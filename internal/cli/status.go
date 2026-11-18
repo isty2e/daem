@@ -101,7 +101,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 		}
 		clipresent.PrintDiagnosticsWithOptions(stdout, result.Diagnostics, humanOptions)
-		if clipresent.PrintReconciliationGuidance(stdout, result.Reconciliation, result.ManifestPath, result.HostConfigDeclarations) && !*verbose {
+		if clipresent.PrintReconciliationGuidance(stdout, result.Reconciliation, result.ManifestPath, result.AgentConfigDeclarations) && !*verbose {
 			printReconciliationInspectionHint(stdout, result.ManifestPath, *manifestPath, targetValues, *verbose)
 		}
 		return statusCheckExitCode(checkClean, *checkOutput)

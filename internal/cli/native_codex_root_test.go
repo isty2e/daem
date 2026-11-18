@@ -42,7 +42,7 @@ func TestCodexLiteralRootWorksAcrossPlanningPublicationAndInventory(t *testing.T
 		t.Fatal(err)
 	}
 	manifest := filepath.Join(home, "daem.toml")
-	body := fmt.Sprintf("version=1\ntargets=['codex']\n[[host_config]]\nid='settings'\nscope='global'\npath='config.toml'\nsource=%q\nownership='keys'\n", filepath.ToSlash(settings))
+	body := fmt.Sprintf("version=1\ntargets=['codex']\n[[agent_config]]\nid='settings'\nscope='global'\npath='config.toml'\nsource=%q\nownership='keys'\n", filepath.ToSlash(settings))
 	if err := os.WriteFile(manifest, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

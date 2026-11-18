@@ -31,7 +31,7 @@ type lockedSubjectDTO struct {
 	SubjectID               string                        `toml:"subject_id"`
 	ExactSupply             *exactIdentityDTO             `toml:"exact_supply,omitempty"`
 	ExactFileUse            *exactFileUseDTO              `toml:"exact_file_use,omitempty"`
-	HostConfigPlacement     *hostConfigPlacementDTO       `toml:"host_config_placement,omitempty"`
+	AgentConfigPlacement    *agentConfigPlacementDTO      `toml:"agent_config_placement,omitempty"`
 	Realization             *realizationDTO               `toml:"realization,omitempty"`
 	Derivation              *derivationDTO                `toml:"derivation,omitempty"`
 	RepairRecipe            *repairRecipeDTO              `toml:"repair_recipe,omitempty"`
@@ -57,7 +57,7 @@ type exactFileUseDTO struct {
 	Executable *bool  `toml:"executable"`
 }
 
-type hostConfigPlacementDTO struct {
+type agentConfigPlacementDTO struct {
 	Target    string `toml:"target"`
 	Scope     string `toml:"scope"`
 	Path      string `toml:"path"`

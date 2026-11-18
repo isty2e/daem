@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -18,7 +18,7 @@ import (
 // QualifyCaptureOwnership checks selected read facts, not a host mutation or
 // complete same-document ownership transition. The caller retains the evidence.
 // The result identifies an admitted key/recorded-whole narrowing handoff.
-func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessmentInput, config hostconfig.Config, placement configuration.Placement, selected []output.Footprint) (narrowingHandoff bool, err error) {
+func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessmentInput, config agentconfig.Config, placement configuration.Placement, selected []output.Footprint) (narrowingHandoff bool, err error) {
 	if ctx == nil || input.Documents == nil || len(input.Documents.Evidence().Namespaces()) != 1 {
 		return false, fmt.Errorf("capture requires one retained native document")
 	}
@@ -45,10 +45,10 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 	before := input.Documents.Evidence().BeforeState()
 	for _, row := range before.ManagedPaths() {
 		id, present := topologyprojection.EntityID(row.Subject())
-		if !present || id != config.ID() || !aggregate.IsHostConfigDocumentSubject(row.Subject()) {
+		if !present || id != config.ID() || !aggregate.IsAgentConfigDocumentSubject(row.Subject()) {
 			continue
 		}
-		if err := profile.ValidateHostConfigDocumentOccupancy(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(), row.ContentKind(), row.PermissionPolicy(), row.FileMode()); err != nil {
+		if err := profile.ValidateAgentConfigDocumentOccupancy(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(), row.ContentKind(), row.PermissionPolicy(), row.FileMode()); err != nil {
 			return false, err
 		}
 		if row.Destination() != placement.Destination() || row.Scope() != config.Scope() || row.ConsumerTargets()[0] != config.Target() {
@@ -58,12 +58,12 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 		expected = append(expected, output.WholePathFootprint())
 	}
 	for _, row := range before.ManagedAggregates() {
-		id, _, present := topologyprojection.HostConfigKeyIdentity(row.Subject())
+		id, _, present := topologyprojection.AgentConfigKeyIdentity(row.Subject())
 		contract := row.Contribution().Contract()
 		if !present || id != config.ID() || contract.Address().Document().AggregateRoot() != placement.Destination() {
 			continue
 		}
-		grammar, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID())
+		grammar, native := aggregate.AgentConfigSyntaxForCodec(contract.CodecContractID())
 		if !native || grammar != string(placement.Grammar()) || contract.Address().Document().Target() != config.Target() || contract.Address().Document().Scope() != config.Scope() {
 			return false, fmt.Errorf("capture key history differs from selected profile")
 		}
@@ -78,7 +78,7 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := profile.ValidateHostConfigFootprint(placement, footprint); err != nil {
+		if err := profile.ValidateAgentConfigFootprint(placement, footprint); err != nil {
 			return false, err
 		}
 		if comparison.IsZero() {
@@ -109,5 +109,5 @@ func QualifyCaptureOwnership(ctx context.Context, input readiness.NativeAssessme
 			return false, fmt.Errorf("%w: capture history differs from its selected active claims", ownership.ErrClaimMissing)
 		}
 	}
-	return wholeBefore && config.Ownership() == hostconfig.OwnershipKeys, nil
+	return wholeBefore && config.Ownership() == agentconfig.OwnershipKeys, nil
 }

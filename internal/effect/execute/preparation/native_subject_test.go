@@ -23,16 +23,16 @@ func TestNativeProjectionEffectBindsContributionSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecID, _ := aggregate.HostConfigCodecForSyntax("json")
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, codecID)
+	codecID, _ := aggregate.AgentConfigCodecForSyntax("json")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, codecID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := entity.New(entity.KindHostConfig, "settings")
+	owner, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(owner, target.TargetPi, target.ScopeProject, key)
+	subject, err := topologyprojection.AgentConfigKeySubject(owner, target.TargetPi, target.ScopeProject, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,11 +70,11 @@ func TestNativeProjectionEffectBindsContributionSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherOwner, err := entity.New(entity.KindHostConfig, "unselected-settings")
+	otherOwner, err := entity.New(entity.KindAgentConfig, "unselected-settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := topologyprojection.HostConfigKeySubject(otherOwner, target.TargetPi, target.ScopeProject, key)
+	other, err := topologyprojection.AgentConfigKeySubject(otherOwner, target.TargetPi, target.ScopeProject, key)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,7 +32,7 @@ func TestNativeKeyUsageWorkflow(t *testing.T) {
 			manifest := filepath.Join(workspace, "daem.toml")
 			testkit.WriteFile(t, workspace, "daem.toml", fmt.Sprintf(`version = 1
 targets = [%q]
-[[host_config]]
+[[agent_config]]
 id = %q
 targets = [%q]
 scope = "project"

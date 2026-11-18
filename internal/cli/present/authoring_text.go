@@ -23,7 +23,7 @@ type AuthoringResourceKind string
 const (
 	AuthoringResourceExtension    AuthoringResourceKind = "extension"
 	AuthoringResourceHook         AuthoringResourceKind = "hook"
-	AuthoringResourceHostConfig   AuthoringResourceKind = "host_config"
+	AuthoringResourceAgentConfig  AuthoringResourceKind = AuthoringResourceKind(entity.KindAgentConfig)
 	AuthoringResourceInstructions AuthoringResourceKind = "instructions"
 	AuthoringResourceMCPServer    AuthoringResourceKind = "mcp_server"
 	AuthoringResourceSkill        AuthoringResourceKind = "skill"
@@ -119,7 +119,7 @@ func authoringNextStepNote(operation AuthoringOperation, resourceKind AuthoringR
 		switch resourceKind {
 		case AuthoringResourceHook:
 			return "add updates the manifest and lockfile only; host hook config changes only when apply reconciles managed hook aggregates"
-		case AuthoringResourceHostConfig:
+		case AuthoringResourceAgentConfig:
 			return "add updates the manifest and lockfile only; apply reconciles the managed settings"
 		case AuthoringResourceMCPServer:
 			return "add updates the manifest and lockfile only; MCP config changes only when apply reconciles the locked projection"
@@ -132,8 +132,8 @@ func authoringNextStepNote(operation AuthoringOperation, resourceKind AuthoringR
 		switch resourceKind {
 		case AuthoringResourceHook:
 			return "remove updates the manifest and lockfile only; host hook config changes only when apply reconciles managed hook aggregates"
-		case AuthoringResourceHostConfig:
-			return "remove leaves host settings in place; apply --dry-run shows cleanup based on retained management"
+		case AuthoringResourceAgentConfig:
+			return "remove leaves the agent's settings in place; use apply --dry-run to preview cleanup"
 		case AuthoringResourceMCPServer:
 			return "remove updates the manifest and lockfile only; MCP config changes only when apply removes the managed projection"
 		case AuthoringResourceExtension:

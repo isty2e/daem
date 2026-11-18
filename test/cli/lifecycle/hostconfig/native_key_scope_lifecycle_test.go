@@ -185,7 +185,7 @@ func writeNativeKeyScopeDesired(t *testing.T, fixture nativeKeyScopeFixture, mod
 	}
 	manifest := fmt.Sprintf(`version = 1
 targets = [%q]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 scope = %q
 path = %q

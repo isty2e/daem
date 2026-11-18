@@ -83,20 +83,21 @@ func (builder *editorSchemaBuilder) node(typ reflect.Type) (*editorSchemaNode, e
 
 	projector, custom := reflect.New(typ).Interface().(editorSchemaProjector)
 	if custom || typ.Kind() == reflect.Struct {
-		if typ.Name() == "" {
+		name := typ.Name()
+		if name == "" {
 			return builder.object(typ)
 		}
-		if previous, exists := builder.names[typ.Name()]; exists && previous != typ {
+		if previous, exists := builder.names[name]; exists && previous != typ {
 			return nil, fmt.Errorf("editor schema definition name collision: %s and %s", previous, typ)
 		}
 		if builder.active[typ] {
 			return nil, fmt.Errorf("recursive editor schema type %s needs an explicit projection", typ)
 		}
-		if _, exists := builder.definitions[typ.Name()]; exists {
-			return &editorSchemaNode{Ref: "#/definitions/" + typ.Name()}, nil
+		if _, exists := builder.definitions[name]; exists {
+			return &editorSchemaNode{Ref: "#/definitions/" + name}, nil
 		}
 
-		builder.names[typ.Name()] = typ
+		builder.names[name] = typ
 		builder.active[typ] = true
 		var definition *editorSchemaNode
 		var err error
@@ -111,8 +112,8 @@ func (builder *editorSchemaBuilder) node(typ reflect.Type) (*editorSchemaNode, e
 		if err != nil {
 			return nil, err
 		}
-		builder.definitions[typ.Name()] = definition
-		return &editorSchemaNode{Ref: "#/definitions/" + typ.Name()}, nil
+		builder.definitions[name] = definition
+		return &editorSchemaNode{Ref: "#/definitions/" + name}, nil
 	}
 	if editorSchemaCustomDecoder(typ) {
 		return nil, fmt.Errorf("custom decoder %s needs an editor schema projection", typ)
@@ -201,7 +202,7 @@ func (builder *editorSchemaBuilder) field(owner reflect.Type, field reflect.Stru
 		if !manifest {
 			property.Description = "Omission or an empty array inherits the manifest target set."
 		}
-		if owner == reflect.TypeFor[HostConfig]() {
+		if owner == reflect.TypeFor[AgentConfig]() {
 			property.MaxItems = 1
 		}
 	case (resource || owner == reflect.TypeFor[Defaults]()) && field.Name == "Scope":
@@ -211,9 +212,9 @@ func (builder *editorSchemaBuilder) field(owner reflect.Type, field reflect.Stru
 		}
 		property.Enum = editorSchemaStringEnum(values...)
 		property.Description = "Omission or an empty string uses the applicable default scope."
-	case owner == reflect.TypeFor[HostConfig]() && field.Name == "Ownership":
+	case owner == reflect.TypeFor[AgentConfig]() && field.Name == "Ownership":
 		property.Enum = editorSchemaStringEnum("", "keys", "document")
-	case owner == reflect.TypeFor[HostConfig]() && field.Name == "Syntax":
+	case owner == reflect.TypeFor[AgentConfig]() && field.Name == "Syntax":
 		property.Enum = editorSchemaStringEnum("", "json", "jsonc", "json-line-comments", "toml")
 	case owner == reflect.TypeFor[HookTargetOverride]() && field.Name == "Target":
 		property.Enum = editorSchemaTargetEnum()
@@ -238,7 +239,7 @@ func editorSchemaResource(typ reflect.Type) bool {
 	switch typ {
 	case reflect.TypeFor[Skill](), reflect.TypeFor[SkillGroup](), reflect.TypeFor[Hook](),
 		reflect.TypeFor[HookAsset](), reflect.TypeFor[MCPServer](), reflect.TypeFor[Instructions](),
-		reflect.TypeFor[Extension](), reflect.TypeFor[HostConfig]():
+		reflect.TypeFor[Extension](), reflect.TypeFor[AgentConfig]():
 		return true
 	default:
 		return false
@@ -253,7 +254,7 @@ func editorSchemaRequired(typ reflect.Type) []string {
 		return []string{"name", "source"}
 	case reflect.TypeFor[SkillGroup](), reflect.TypeFor[Instructions]():
 		return []string{"source"}
-	case reflect.TypeFor[HostConfig]():
+	case reflect.TypeFor[AgentConfig]():
 		return []string{"id", "path", "source"}
 	case reflect.TypeFor[Hook]():
 		return []string{"name", "event", "command"}

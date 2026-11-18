@@ -96,7 +96,7 @@ func TestCodexMCPAndNativeKeysShareOnlyTheirSelectedPhysicalDocument(t *testing.
 			}
 			const header = "version=1\ntargets=['codex']\n"
 			mcp := fmt.Sprintf("[[mcp_server]]\nname='search'\nscope=%q\ntransport='stdio'\ncommand='node'\nargs=['search.js']\n", scope)
-			native := fmt.Sprintf("[[host_config]]\nid='preferences'\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", scope, source)
+			native := fmt.Sprintf("[[agent_config]]\nid='preferences'\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", scope, source)
 			apply := func(contents string) CommandResult {
 				t.Helper()
 				if err := os.WriteFile(manifest, []byte(header+contents), 0o600); err != nil {
@@ -169,7 +169,7 @@ func TestCodexMCPAndNativeKeysShareOnlyTheirSelectedPhysicalDocument(t *testing.
 				}
 				defer prepared.Close()
 				selected := prepared.lifecycle.planned.context
-				nativeOnly, err := selected.RuntimeEnvironment.HostConfigsOnly()
+				nativeOnly, err := selected.RuntimeEnvironment.AgentConfigsOnly()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -288,7 +288,7 @@ func TestCodexMCPAndNativeKeysShareOnlyTheirSelectedPhysicalDocument(t *testing.
 
 				var request mutation.PhysicalAuthorityRequest
 				for _, decision := range prepared.lifecycle.planned.assessment.Reconciliation.Aggregates() {
-					if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
+					if _, native := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID()); native {
 						continue
 					}
 					if decision.MutatesHost() || decision.MutatesState() {

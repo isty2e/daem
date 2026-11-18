@@ -23,5 +23,5 @@ func applyWorkflowGuidance(manifestPath string, result applyworkflow.CommandResu
 		selectedManifest = manifestPath
 	}
 	return append(applyInputWorkflowGuidance(manifestPath, result, err),
-		clipresent.HostConfigReconciliationGuidance(result.Reconciliation, selectedManifest, result.HostConfigDeclarations)...)
+		clipresent.AgentConfigReconciliationGuidance(result.Reconciliation, selectedManifest, result.AgentConfigDeclarations)...)
 }

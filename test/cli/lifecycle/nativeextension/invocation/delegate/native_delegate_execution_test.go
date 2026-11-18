@@ -24,7 +24,7 @@ func nativeDelegateFixture(t *testing.T, scope target.Scope, mode, fault string)
 	t.Helper()
 	f := nativefixture.NewPiInvocationAtScope(t, "", scope)
 	base := fmt.Sprintf("version=1\ntargets=['pi','claude-code']\n[[extension]]\nid='tools'\ncarrier='pi-package'\ntargets=['pi']\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n", scope)
-	keys := fmt.Sprintf("\n[[host_config]]\nid='preferences'\ntargets=['pi']\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(f.Workspace, "preferences.json"))
+	keys := fmt.Sprintf("\n[[agent_config]]\nid='preferences'\ntargets=['pi']\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(f.Workspace, "preferences.json"))
 	testkit.WriteFile(t, f.Workspace, "daem.toml", base+keys)
 	f.Require(t, "lock")
 	if mode != "new" {
@@ -39,7 +39,7 @@ func nativeDelegateFixture(t *testing.T, scope target.Scope, mode, fault string)
 	body := base + keys
 	if mode == "whole" {
 		testkit.WriteFile(t, f.Workspace, "dedicated.json", `{"enabled":true}`)
-		body += fmt.Sprintf("\n[[host_config]]\nid='whole'\ntargets=['pi']\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "dedicated.json"))
+		body += fmt.Sprintf("\n[[agent_config]]\nid='whole'\ntargets=['pi']\nscope=%q\npath='dedicated.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "dedicated.json"))
 		testkit.WriteFile(t, f.Workspace, "daem.toml", body)
 		f.Require(t, "lock")
 		f.Require(t, "apply", "--yes")
@@ -111,7 +111,7 @@ func nativeDelegateLaunch(t *testing.T, f nativefixture.PiInvocation, index int,
 	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, filepath.Join(capture, fmt.Sprintf("state-%d.json", index))))
 	ordinary := 0
 	for _, row := range state.ManagedPaths() {
-		if !aggregate.IsHostConfigDocumentSubject(row.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(row.Subject()) {
 			ordinary++
 		}
 	}
@@ -152,7 +152,7 @@ func TestNativeDelegatesProtectDistinctActorsWithIdenticalCommands(t *testing.T)
 				}
 				native := 0
 				for _, row := range state.ManagedAggregates() {
-					if _, selected := aggregate.HostConfigSyntaxForCodec(row.Contribution().Contract().CodecContractID()); selected {
+					if _, selected := aggregate.AgentConfigSyntaxForCodec(row.Contribution().Contract().CodecContractID()); selected {
 						native++
 					}
 				}
@@ -278,7 +278,7 @@ func TestNativeBlockedDelegatePersistsWithoutFabricatingInvocation(t *testing.T)
 		t.Fatal("blocked delegate launched a runner", err)
 	}
 	state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.Workspace, ".daem", "state.json"))
-	if err != nil || !state.ContainsHostConfig() || len(state.DelegateAttempts()) != 2 {
+	if err != nil || !state.ContainsAgentConfig() || len(state.DelegateAttempts()) != 2 {
 		t.Fatal("blocked diagnostic checkpoint lost complete native state", err)
 	}
 	f.Require(t, "apply", "--dry-run", "--json")
@@ -307,7 +307,7 @@ func TestNativeDelegatesPreserveCodexValuesUntilLateRetirement(t *testing.T) {
 			t.Setenv("DAEM_TEST_SETTINGS", f.Settings)
 			f.Require(t, "lock")
 			f.Require(t, "apply", "--yes")
-			before, rest, found := strings.Cut(body, "\n[[host_config]]")
+			before, rest, found := strings.Cut(body, "\n[[agent_config]]")
 			_, mcp, next := strings.Cut(rest, "\n[[mcp_server]]")
 			if !found || !next {
 				t.Fatal("invalid Codex delegate fixture")

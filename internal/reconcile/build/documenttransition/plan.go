@@ -23,7 +23,7 @@ func BuildNativeNarrowingPlan(observation aggregate.DocumentObservation, desired
 	if err != nil {
 		return aggregate.Plan{}, err
 	}
-	if _, native := aggregate.HostConfigSyntaxForCodec(selection.CodecContractID()); !native ||
+	if _, native := aggregate.AgentConfigSyntaxForCodec(selection.CodecContractID()); !native ||
 		len(selection.Contracts()) != len(desired) {
 		return aggregate.Plan{}, fmt.Errorf("native narrowing requires an existing document and exact correlated selection")
 	}
@@ -38,7 +38,7 @@ func BuildNativeNarrowingPlan(observation aggregate.DocumentObservation, desired
 		baseline.Destination() != document.AggregateRoot() {
 		return aggregate.Plan{}, fmt.Errorf("native narrowing baseline differs from observed document")
 	}
-	expectedSubject, err := aggregate.HostConfigDocumentSubject(owner, document.Target(), document.Scope())
+	expectedSubject, err := aggregate.AgentConfigDocumentSubject(owner, document.Target(), document.Scope())
 	if err != nil || expectedSubject != baseline.Subject() {
 		return aggregate.Plan{}, fmt.Errorf("native narrowing baseline has a different placement identity")
 	}
@@ -49,7 +49,7 @@ func BuildNativeNarrowingPlan(observation aggregate.DocumentObservation, desired
 			return aggregate.Plan{}, err
 		}
 		for _, item := range canonical.Contributions() {
-			id, _, native := topologyprojection.HostConfigKeyIdentity(item.SubjectID())
+			id, _, native := topologyprojection.AgentConfigKeyIdentity(item.SubjectID())
 			if !native || id != owner {
 				return aggregate.Plan{}, fmt.Errorf("native narrowing changes the managed declaration")
 			}

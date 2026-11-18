@@ -115,7 +115,7 @@ printf '{}\n'
 		t.Fatal(err)
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model='native-model'\n")
-	declaration := string(testkit.ReadFile(t, fixture.manifest)) + fmt.Sprintf("\n[[host_config]]\nid='preferences'\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.toml"))
+	declaration := string(testkit.ReadFile(t, fixture.manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='preferences'\nscope=%q\npath='config.toml'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.toml"))
 	testkit.WriteFile(t, workspace, "daem.toml", declaration)
 	if scope == target.ScopeGlobal {
 		fixture.withoutPlugin = "model = 'native-model'\n" + fixture.withoutPlugin
@@ -317,7 +317,7 @@ func TestNativeCodexPluginRemovalRetainsOrRetiresManagedKeys(t *testing.T) {
 					t.Fatal(err)
 				}
 				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
-				if err != nil || after.ContainsHostConfig() == retire {
+				if err != nil || after.ContainsAgentConfig() == retire {
 					t.Fatal("native key settlement was lost during removal", err)
 				}
 				if _, err := os.Stat(filepath.Join(os.Getenv("CODEX_HOME"), "plugins/cache/openai-primary-runtime/documents")); !os.IsNotExist(err) {

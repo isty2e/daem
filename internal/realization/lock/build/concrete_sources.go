@@ -36,7 +36,7 @@ func resolveConcreteSources(
 		tasks = append(tasks, newInstructionsResolveTask(ordinal, instruction))
 	}
 	for ordinal, document := range documents {
-		tasks = append(tasks, newHostConfigResolveTask(ordinal, document.config))
+		tasks = append(tasks, newAgentConfigResolveTask(ordinal, document.config))
 	}
 
 	results, err := sourceTaskResults(ctx, resolver, tasks, options)

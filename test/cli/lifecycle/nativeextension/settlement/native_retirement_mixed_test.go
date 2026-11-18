@@ -72,7 +72,7 @@ func TestNativePiChangedRetiringKeyStopsSuffixWithoutRepair(t *testing.T) {
 	fixture.LaunchProtection(t)
 	nativefixture.RequireSharedValues(t, configdocument.JSON, testkit.ReadFile(t, fixture.Settings), `{"theme":"changed"}`, true)
 	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, filepath.Join(fixture.Workspace, ".daem", "state.json")))
-	if err != nil || !state.ContainsHostConfig() {
+	if err != nil || !state.ContainsAgentConfig() {
 		t.Fatal("failed retirement discarded its managed baseline", err)
 	}
 	testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)

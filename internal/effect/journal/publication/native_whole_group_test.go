@@ -377,7 +377,7 @@ func wholeGroupFixtureAtPath(t *testing.T, selected target.Target, scope target.
 	} else {
 		roots = namespacetest.WithLegacyRoot(t, roots, output.RootCodexHome, host)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: nativePath, Ownership: "document"})
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: nativePath, Ownership: "document"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,11 +402,11 @@ func wholeGroupFixtureAtPath(t *testing.T, selected target.Target, scope target.
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "document")
+	id, err := entity.New(entity.KindAgentConfig, "document")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, selected, scope)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, selected, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

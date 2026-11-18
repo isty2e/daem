@@ -40,11 +40,11 @@ func prepareNativeRelease(t *testing.T) nativeReleaseFixture {
 	t.Helper()
 	input := nativeCaptureInput(t, false, target.ScopeProject)
 	before := input.batch.Evidence().BeforeState()
-	id, _, present := topologyprojection.HostConfigKeyIdentity(before.ManagedAggregates()[0].Subject())
+	id, _, present := topologyprojection.AgentConfigKeyIdentity(before.ManagedAggregates()[0].Subject())
 	if !present {
-		t.Fatal("fixture has no host-config membership")
+		t.Fatal("fixture has no agent-config membership")
 	}
-	managements, err := journaldocument.HostConfigManagements(t.Context(), before, id)
+	managements, err := journaldocument.AgentConfigManagements(t.Context(), before, id)
 	if err != nil || len(managements) != 1 {
 		t.Fatal(managements, err)
 	}

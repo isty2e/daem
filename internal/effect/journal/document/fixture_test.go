@@ -49,7 +49,7 @@ func documentClaimsForTest(t *testing.T) documentClaimFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, found := aggregate.HostConfigCodecForSyntax("json")
+	id, found := aggregate.AgentConfigCodecForSyntax("json")
 	if !found {
 		t.Fatal("native JSON codec is unavailable")
 	}
@@ -61,7 +61,7 @@ func documentClaimsForTest(t *testing.T) documentClaimFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, footprint, id)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, footprint, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,11 +83,11 @@ func documentKeyFootprint(t *testing.T, parts ...string) output.Footprint {
 
 func nativeWholeFileJournalBaseline(t *testing.T, selectedTarget target.Target, scope target.Scope) durable.ManagedPathState {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, selectedTarget, scope)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, selectedTarget, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

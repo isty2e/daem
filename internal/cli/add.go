@@ -30,8 +30,8 @@ func prepareAddInvocation(ctx context.Context, subject string, args []string, st
 		return prepareAddInstructionInvocation(ctx, args, stdout, stderr)
 	case "hook":
 		return prepareAddHookInvocation(ctx, args, stdout, stderr)
-	case "host-config":
-		return prepareHostConfigAuthoring(ctx, clipresent.AuthoringOperationAdd, args, stdout, stderr)
+	case agentConfigSubject:
+		return prepareAgentConfigAuthoring(ctx, clipresent.AuthoringOperationAdd, args, stdout, stderr)
 	case "mcp-server":
 		return prepareAddMCPInvocation(ctx, args, stdout, stderr)
 	case "skill":

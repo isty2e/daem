@@ -149,7 +149,7 @@ func projectionIdentityLabel(subject topology.SubjectID) (string, string) {
 	if entityID, ok := topologyprojection.EntityID(subject); ok {
 		return "resource", ResourceReference(entityID.Kind(), entityID.Name())
 	}
-	if id, _, native := topologyprojection.HostConfigKeyIdentity(subject); native {
+	if id, _, native := topologyprojection.AgentConfigKeyIdentity(subject); native {
 		return "resource", ResourceReference(id.Kind(), id.Name())
 	}
 	return "subject", subjectString(*planJSONSubjectFor(subject))

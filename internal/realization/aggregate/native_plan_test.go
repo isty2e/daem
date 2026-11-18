@@ -197,11 +197,11 @@ func TestLegacyRemovalStillRequiresAbsentExpectedProjection(t *testing.T) {
 func nativePlanDesired(t testing.TB, segments ...string) ContributionSet {
 	t.Helper()
 	contract := blockedReadContract(t, segments...)
-	id, err := entity.New(entity.KindHostConfig, "plan")
+	id, err := entity.New(entity.KindAgentConfig, "plan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, contract.Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, contract.Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

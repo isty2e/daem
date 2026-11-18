@@ -90,7 +90,11 @@ func TestNativeDocumentCodecRefusesUncorrelatedAndReservedBaselines(t *testing.T
 		name string
 		edit func(*managedPathDTO)
 	}{
-		{"placement", func(row *managedPathDTO) { row.Subject.Namespace = "pi-host-config-project-v1" }},
+		{"placement", func(row *managedPathDTO) { row.Subject.Namespace = "pi-agent-config-project-v1" }},
+		{"unreleased entity kind", func(row *managedPathDTO) {
+			row.Subject.Namespace = "pi-host-config-global-v1"
+			row.Subject.Name = "host_config:native"
+		}},
 		{"target", func(row *managedPathDTO) { row.ConsumerTargets = []string{"codex"} }},
 		{"multiple targets", func(row *managedPathDTO) { row.ConsumerTargets = []string{"codex", "pi"} }},
 		{"unsupported target", func(row *managedPathDTO) { row.ConsumerTargets = []string{"claude-code"} }},
@@ -98,7 +102,7 @@ func TestNativeDocumentCodecRefusesUncorrelatedAndReservedBaselines(t *testing.T
 		{"foreign root", func(row *managedPathDTO) { row.Destination = "@codex-home/configs/native.data" }},
 		{"ordinary root", func(row *managedPathDTO) { row.Destination = "~/configs/native.data" }},
 		{"project prefix", func(row *managedPathDTO) {
-			row.Scope, row.Subject.Namespace = "project", "pi-host-config-project-v1"
+			row.Scope, row.Subject.Namespace = "project", "pi-agent-config-project-v1"
 			row.Destination = ".codex/configs/native.data"
 		}},
 		{"legacy native alias", func(row *managedPathDTO) { row.Destination = "~/.pi/agent/configs/native.data" }},
@@ -234,11 +238,11 @@ func TestNativeDocumentCodecKeepsStrictFrameAndSelectedValueAdmission(t *testing
 
 func nativeDocumentCodecBaseline(t *testing.T, selectedTarget target.Target, scope target.Scope, mode os.FileMode) durable.ManagedPathState {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, selectedTarget, scope)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, selectedTarget, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

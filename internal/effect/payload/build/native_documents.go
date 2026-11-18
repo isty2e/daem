@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -16,7 +16,7 @@ import (
 )
 
 type nativeDocumentPayloadInput struct {
-	config  hostconfig.Config
+	config  agentconfig.Config
 	locked  lock.LockedSubjectContract
 	subject topology.SubjectID
 }
@@ -51,7 +51,7 @@ func preflightNativeDocumentPayloads(ctx context.Context, input Input) (Input, [
 			return Input{}, nil, err
 		}
 		id, present := topologyprojection.EntityID(subject)
-		if !present || id.Kind() != entity.KindHostConfig {
+		if !present || id.Kind() != entity.KindAgentConfig {
 			ordinary.ManagedPathPayloadSubjects = append(ordinary.ManagedPathPayloadSubjects, subject)
 			continue
 		}
@@ -61,7 +61,7 @@ func preflightNativeDocumentPayloads(ctx context.Context, input Input) (Input, [
 		required[id] = subject
 	}
 	inputs := make([]nativeDocumentPayloadInput, 0, len(required))
-	for _, config := range input.Environment.HostConfigs() {
+	for _, config := range input.Environment.AgentConfigs() {
 		subject, selected := required[config.ID()]
 		if !selected {
 			continue
@@ -69,13 +69,13 @@ func preflightNativeDocumentPayloads(ctx context.Context, input Input) (Input, [
 		if err := ctx.Err(); err != nil {
 			return Input{}, nil, err
 		}
-		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
 		if err != nil {
 			return Input{}, nil, err
 		}
-		expected, err := lock.NewHostConfigDocumentSubjectContract(config.ID(), placement)
+		expected, err := lock.NewAgentConfigDocumentSubjectContract(config.ID(), placement)
 		if err != nil {
 			return Input{}, nil, err
 		}
@@ -87,7 +87,7 @@ func preflightNativeDocumentPayloads(ctx context.Context, input Input) (Input, [
 		if !present {
 			return Input{}, nil, fmt.Errorf("native document %q exact source is missing", config.ID())
 		}
-		lockedPlacement, present := locked.HostConfigPlacement()
+		lockedPlacement, present := locked.AgentConfigPlacement()
 		if !present || lockedPlacement != placement {
 			return Input{}, nil, fmt.Errorf("native document %q placement does not match declaration", config.ID())
 		}

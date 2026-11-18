@@ -1,0 +1,98 @@
+package declaration
+
+import (
+	"testing"
+)
+
+func TestDecodeManifestAgentConfigRowsAndIdentity(t *testing.T) {
+	content := []byte(`version = 1
+targets = ["pi"]
+
+[[agent_config]]
+id = "native-settings"
+path = "settings.json"
+source = "/workbench/settings.json"
+
+[[agent_config]]
+id = "remote-settings"
+targets = ["codex"]
+scope = "global"
+path = "config.toml"
+source = { git = "https://github.com/example/settings.git", path = "config.toml", ref = "main" }
+ownership = "document"
+syntax = "toml"
+`)
+
+	manifest, err := DecodeManifest(content)
+	if err != nil {
+		t.Fatalf("DecodeManifest() error = %v", err)
+	}
+	if len(manifest.AgentConfigs) != 2 {
+		t.Fatalf("len(HostConfigs) = %d, want 2", len(manifest.AgentConfigs))
+	}
+	local := manifest.AgentConfigs[0]
+	if local.ID != "native-settings" || local.Path != "settings.json" ||
+		!local.Source.Set || local.Source.Source.Path != "/workbench/settings.json" ||
+		local.Source.Source.Mode != "vendor" {
+		t.Fatalf("local host config = %#v, want decoded local source with vendor mode", local)
+	}
+	if key := local.Key(); key != (Key{Kind: KindAgentConfig, Name: "native-settings"}) {
+		t.Fatalf("Key() = %#v, want agent-config/native-settings", key)
+	}
+	remote := manifest.AgentConfigs[1]
+	if remote.Source.Source.Git != "https://github.com/example/settings.git" ||
+		remote.Source.Source.Path != "config.toml" || remote.Source.Source.Ref != "main" ||
+		remote.Ownership != "document" || remote.Syntax != "toml" {
+		t.Fatalf("remote host config = %#v, want its structured source and selectors", remote)
+	}
+}
+
+func TestDecodeManifestRejectsUnknownAgentConfigFields(t *testing.T) {
+	for _, content := range []string{
+		`version = 1
+targets = ["pi"]
+[[agent_config]]
+id = "settings"
+path = "settings.json"
+source = "/workbench/settings.json"
+unknown = "value"
+`,
+		`version = 1
+targets = ["pi"]
+[[agent_config]]
+id = "settings"
+path = "settings.json"
+source = { path = "/workbench/settings.json", future = "value" }
+`,
+		`version = 1
+targets = ["pi"]
+[[agent_config]]
+id = "settings"
+path = "settings.json"
+source = { path = "/workbench/settings.json", Path = "/other/settings.json" }
+`,
+	} {
+		if _, err := DecodeManifest([]byte(content)); err == nil {
+			t.Fatalf("DecodeManifest() accepted unknown or conflicting agent_config syntax:\n%s", content)
+		}
+	}
+}
+
+func TestDecodeManifestKeepsManifestVersionOne(t *testing.T) {
+	manifest, err := DecodeManifest([]byte(`version = 1
+targets = ["pi"]
+[[agent_config]]
+id = "settings"
+path = "settings.json"
+source = "/workbench/settings.json"
+`))
+	if err != nil {
+		t.Fatalf("DecodeManifest() error = %v", err)
+	}
+	if CurrentManifestVersion != 1 {
+		t.Fatalf("CurrentManifestVersion = %d, want unchanged version 1", CurrentManifestVersion)
+	}
+	if manifest.Version != CurrentManifestVersion {
+		t.Fatalf("manifest version = %d, want current version %d", manifest.Version, CurrentManifestVersion)
+	}
+}

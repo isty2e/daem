@@ -31,7 +31,7 @@ type Input struct {
 // PayloadSet materializes selected instruction, skill, and hook host payloads.
 func PayloadSet(ctx context.Context, input Input) (result payload.PayloadSet, resultErr error) {
 	for _, subject := range input.ManagedPathPayloadSubjects {
-		if id, present := topologyprojection.EntityID(subject); present && id.Kind() == entity.KindHostConfig {
+		if id, present := topologyprojection.EntityID(subject); present && id.Kind() == entity.KindAgentConfig {
 			return payload.PayloadSet{}, fmt.Errorf("native document payload requires explicit native preparation")
 		}
 	}

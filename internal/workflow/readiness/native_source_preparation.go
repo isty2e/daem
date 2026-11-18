@@ -10,8 +10,8 @@ import (
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -90,7 +90,7 @@ func PrepareNativeSources(ctx context.Context, input NativeSourcePreparationInpu
 	}
 
 	var sources []lockobserve.NativeSourceObservation
-	for _, config := range input.Environment.HostConfigs() {
+	for _, config := range input.Environment.AgentConfigs() {
 		if !input.Selection.Includes(config.Target()) {
 			continue
 		}
@@ -107,7 +107,7 @@ func PrepareNativeSources(ctx context.Context, input NativeSourcePreparationInpu
 	before := input.Documents.Evidence().BeforeState().ManagedPaths()
 	byDeclaration := make(map[entity.ID][]durable.ManagedPathState)
 	for _, state := range before {
-		if !aggregate.IsHostConfigDocumentSubject(state.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(state.Subject()) {
 			continue
 		}
 		id, entityBacked := topologyprojection.EntityID(state.Subject())
@@ -118,8 +118,8 @@ func PrepareNativeSources(ctx context.Context, input NativeSourcePreparationInpu
 	consumed := make(map[topology.SubjectID]struct{})
 	var actions []reconcile.NativeNarrowingAction
 	for _, source := range sources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
-		if placement.Ownership() != hostconfig.OwnershipKeys {
+		placement, _ := source.SourceContract().AgentConfigPlacement()
+		if placement.Ownership() != agentconfig.OwnershipKeys {
 			continue
 		}
 		baselines := byDeclaration[source.SourceContract().EntityID()]
@@ -161,9 +161,9 @@ func PrepareNativeSources(ctx context.Context, input NativeSourcePreparationInpu
 	retiredKeys := make(map[topology.SubjectID]struct{})
 	var adoptions []projection.NativeWholeAdoptionPlan
 	for _, source := range sources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
-		if placement.Ownership() != hostconfig.OwnershipDocument || !slices.ContainsFunc(beforeKeys, func(state durable.ManagedAggregateState) bool {
-			owner, _, native := topologyprojection.HostConfigKeyIdentity(state.Subject())
+		placement, _ := source.SourceContract().AgentConfigPlacement()
+		if placement.Ownership() != agentconfig.OwnershipDocument || !slices.ContainsFunc(beforeKeys, func(state durable.ManagedAggregateState) bool {
+			owner, _, native := topologyprojection.AgentConfigKeyIdentity(state.Subject())
 			return native && owner == source.SourceContract().EntityID()
 		}) {
 			continue

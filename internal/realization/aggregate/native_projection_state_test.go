@@ -112,7 +112,7 @@ func TestBlockedNativeStatePreservesLiteralKeyAncestry(t *testing.T) {
 
 func blockedReadContract(t testing.TB, segments ...string) ProjectionContract {
 	t.Helper()
-	contract, err := NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, segments...), "native-json-v1")
+	contract, err := NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, segments...), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}

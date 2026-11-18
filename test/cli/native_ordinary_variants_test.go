@@ -18,7 +18,7 @@ func TestNativeOrdinarySkillLifecycle(t *testing.T) {
 	workspace := filepath.Dir(fixture.Manifest)
 	source := filepath.Join(workspace, "skills", "sample")
 	installed := filepath.Join(workspace, ".agents", "skills", "sample")
-	native := "[[host_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+	native := "[[agent_config]]\nid='preferences'\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 	manifest := "version=1\ntargets=['codex']\n" + native
 	testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest+"[[skill]]\nname='sample'\nsource={path='skills/sample',mode='vendor'}\n")
 	for _, version := range []string{"one", "two"} {
@@ -48,7 +48,7 @@ func TestNativeOrdinaryTargetFilteringAndLastRemoval(t *testing.T) {
 		t.Helper()
 		manifest := "version=1\ntargets=['codex','claude-code']\n[instructions.project]\nsource='./instructions.md'\n"
 		if native {
-			manifest += "[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+			manifest += "[[agent_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 		}
 		testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest)
 		nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
@@ -88,7 +88,7 @@ func TestNativeOrdinaryGlobalFirstApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	testkit.WriteFile(t, workspace, "instructions.md", "global instructions\n")
-	manifest := fmt.Sprintf("version=1\ntargets=['codex']\n[instructions.global]\nsource=%q\n[[host_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource=%q\nownership='keys'\n", filepath.Join(workspace, "instructions.md"), filepath.Join(workspace, "preferences.toml"))
+	manifest := fmt.Sprintf("version=1\ntargets=['codex']\n[instructions.global]\nsource=%q\n[[agent_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource=%q\nownership='keys'\n", filepath.Join(workspace, "instructions.md"), filepath.Join(workspace, "preferences.toml"))
 	testkit.WriteFile(t, workspace, filepath.Base(fixture.Manifest), manifest)
 	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
@@ -105,7 +105,7 @@ func TestNativeOrdinaryIndependentMCPLifecycle(t *testing.T) {
 	workspace := filepath.Dir(fixture.Manifest)
 	destination := filepath.Join(workspace, "opencode.json")
 	testkit.WriteFile(t, workspace, "opencode.json", `{"foreign":true}`)
-	manifest := "version=1\ntargets=['codex','opencode']\n[[host_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
+	manifest := "version=1\ntargets=['codex','opencode']\n[[agent_config]]\nid='preferences'\ntargets=['codex']\npath='config.toml'\nsource='./preferences.toml'\nownership='keys'\n"
 	for _, script := range []string{"one.js", "two.js", ""} {
 		content := manifest
 		if script != "" {

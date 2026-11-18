@@ -138,7 +138,7 @@ func BuildDryRunDiffs(
 			currentLimit := min(MaximumDryRunDiffInputBytes, budget.remainingBytes)
 			var omitted bool
 			var readErr error
-			if aggregate.IsHostConfigDocumentSubject(decision.Subject()) {
+			if aggregate.IsAgentConfigDocumentSubject(decision.Subject()) {
 				currentContent, omitted, readErr = readNativeWholeFileForDiff(ctx, native, decision, currentLimit, physicalBudget)
 			} else {
 				currentContent, omitted, readErr = readManagedFileForDiff(

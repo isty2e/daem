@@ -36,7 +36,7 @@ func RequireLifecycleMetadataForScope(t *testing.T, manifest string, managed boo
 
 	budget := physicalwork.NewCaptureBudget(nil)
 	state, err := statefile.LoadOptionalWithOptions(t.Context(), paths.StatefilePath, statefile.ReadOptions{Codec: stateimage.Physical(t, codec), PhysicalPathBudget: budget})
-	if err != nil || state.ContainsHostConfig() != managed {
+	if err != nil || state.ContainsAgentConfig() != managed {
 		t.Fatal("persisted native ownership does not match the applied lifecycle", err)
 	}
 	reader, err := ownershipstore.NewRecoveryReader(paths.OwnershipRegistryPath)
@@ -53,13 +53,13 @@ func RequireLifecycleMetadataForScope(t *testing.T, manifest string, managed boo
 		wantBindings = 1
 	}
 	for _, row := range state.ManagedAggregates() {
-		_, native := aggregate.HostConfigSyntaxForCodec(row.Contribution().CodecContractID())
+		_, native := aggregate.AgentConfigSyntaxForCodec(row.Contribution().CodecContractID())
 		if native || row.Contribution().Contract().Address().Document().Scope() == target.ScopeGlobal {
 			wantClaims++
 		}
 	}
 	for _, row := range state.ManagedPaths() {
-		if aggregate.IsHostConfigDocumentSubject(row.Subject()) || row.Scope() == target.ScopeGlobal {
+		if aggregate.IsAgentConfigDocumentSubject(row.Subject()) || row.Scope() == target.ScopeGlobal {
 			wantClaims++
 		}
 	}

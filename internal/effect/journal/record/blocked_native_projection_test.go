@@ -70,15 +70,15 @@ func TestLegacyJournalRefusesBlockedReadBeforeProjection(t *testing.T) {
 
 func blockedJournalDesiredSet(t testing.TB, segments ...string) aggregate.ContributionSet {
 	t.Helper()
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, segments...), "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, segments...), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "blocked")
+	id, err := entity.New(entity.KindAgentConfig, "blocked")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, contract.Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, contract.Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

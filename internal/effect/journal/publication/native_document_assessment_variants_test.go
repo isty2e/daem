@@ -81,12 +81,12 @@ func TestNativeDocumentAssessmentLateRefusalDiscardsEveryEarlierStage(t *testing
 	if !found {
 		t.Fatal("second real file did not provide exact evidence")
 	}
-	id, err := entity.New(entity.KindHostConfig, "other-document")
+	id, err := entity.New(entity.KindAgentConfig, "other-document")
 	if err != nil {
 		t.Fatal(err)
 	}
 	key := stateGroupContract(t, alias, "model")
-	subject, err := topologyprojection.HostConfigKeySubject(id, alias.Target(), alias.Scope(), key.Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, alias.Target(), alias.Scope(), key.Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,11 +227,11 @@ func TestNativeDocumentAssessmentRestoresRemovedWholeFileBeforeCommit(t *testing
 	fixture := &setup.fixture
 	original := aggregate.ExistingDocument([]byte("opaque actual original\x00\xff\n"))
 	setup.withImages(original, aggregate.AbsentDocument())
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

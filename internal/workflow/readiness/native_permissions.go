@@ -72,7 +72,7 @@ func requireNativeSourcePermissions(sources []lockobserve.NativeSourceObservatio
 	byAddress := nativeClaimNamespaces(documents)
 	history := recordedNativeFootprints(before)
 	for _, source := range sources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
+		placement, _ := source.SourceContract().AgentConfigPlacement()
 		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
 		if err != nil {
 			return err
@@ -103,7 +103,7 @@ func requireNativeSourcePermissions(sources []lockobserve.NativeSourceObservatio
 			for _, role := range namespace.PhysicalRoles() {
 				err := role.RequireWriterGrammar(placement.Grammar())
 				if err == nil {
-					err = profile.ValidatePhysicalHostConfigFootprint(role, footprint)
+					err = profile.ValidatePhysicalAgentConfigFootprint(role, footprint)
 				}
 				if err != nil {
 					failure := &NativeClaimRefusal{kind: NativeClaimPhysicalRole, resource: source.SourceContract().EntityID().String(), address: address, role: role, cause: err}

@@ -49,7 +49,7 @@ func TestNativeBindingMembershipRetainsUnchangedSiblingsAndRetiresLastMember(t *
 func TestNativeBindingMembershipCountsWholeAndKeyedStateAcrossModeChanges(t *testing.T) {
 	fixture := documentClaimsForTest(t)
 	whole := nativeWholeFileJournalBaseline(t, target.TargetPi, target.ScopeGlobal)
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, whole.Destination(), documentKeyFootprint(t, "selected"), "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, whole.Destination(), documentKeyFootprint(t, "selected"), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,18 +112,18 @@ func TestNativeBindingMembershipUsesOwnerKeyAndAllDeclaredDestinations(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, documentKeyFootprint(t, "selected"), "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, documentKeyFootprint(t, "selected"), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	other.alias = contract.Address().Document()
 	firstRow := membershipNativeRow(t, fixture.alias, "native-json-v1", "selected")
 	otherRow := membershipNativeRow(t, other.alias, "native-json-v1", "other")
-	otherID, err := entity.New(entity.KindHostConfig, "other-declaration")
+	otherID, err := entity.New(entity.KindAgentConfig, "other-declaration")
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherSubject, err := topologyprojection.HostConfigKeySubject(otherID, other.alias.Target(), other.alias.Scope(), otherRow.Contribution().Contract().Address().KeyPath())
+	otherSubject, err := topologyprojection.AgentConfigKeySubject(otherID, other.alias.Target(), other.alias.Scope(), otherRow.Contribution().Contract().Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestNativeBindingMembershipEmptyAndCanceledOperations(t *testing.T) {
 
 func membershipNativeRow(t *testing.T, alias aggregate.DocumentAddress, codec aggregate.CodecContractID, parts ...string) durable.ManagedAggregateState {
 	t.Helper()
-	contract, err := aggregate.NewHostConfigProjectionContract(alias.Target(), alias.Scope(), alias.AggregateRoot(), documentKeyFootprint(t, parts...), codec)
+	contract, err := aggregate.NewAgentConfigProjectionContract(alias.Target(), alias.Scope(), alias.AggregateRoot(), documentKeyFootprint(t, parts...), codec)
 	if err != nil {
 		t.Fatal(err)
 	}

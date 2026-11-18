@@ -15,7 +15,7 @@ func classifyAggregateProjection(
 	projection aggregateProjectionDecision,
 	modeCurrent bool,
 	manageUnmanagedMatches bool,
-	replacement *topologyprojection.HostConfigKeySelection,
+	replacement *topologyprojection.AgentConfigKeySelection,
 ) (aggregateProjectionDecision, error) {
 	previous := make(map[topology.SubjectID]aggregate.ManagedContribution, len(projection.previous))
 	for _, state := range projection.previous {

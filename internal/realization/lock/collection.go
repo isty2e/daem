@@ -19,10 +19,10 @@ type File struct {
 	Locked  LockedSection
 }
 
-// ContainsHostConfig reports native source or projection contracts, not execution authority.
-func (file File) ContainsHostConfig() bool {
+// ContainsAgentConfig reports native source or projection contracts, not execution authority.
+func (file File) ContainsAgentConfig() bool {
 	for _, subject := range file.Locked.subjects {
-		if subject.EntityID().Kind() == entity.KindHostConfig {
+		if subject.EntityID().Kind() == entity.KindAgentConfig {
 			return true
 		}
 	}

@@ -110,7 +110,7 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 		}
 		paths[mutation.Subject()] = struct{}{}
 		previous, hasPrevious := mutation.PreviousSubject()
-		if mutation.Kind() == journalrecord.CaptureRecord && !hasPrevious && aggregate.IsHostConfigDocumentSubject(mutation.Subject()) {
+		if mutation.Kind() == journalrecord.CaptureRecord && !hasPrevious && aggregate.IsAgentConfigDocumentSubject(mutation.Subject()) {
 			consumers := mutation.ConsumerTargets()
 			for _, state := range after.ManagedPaths() {
 				if state.Subject() != mutation.Subject() || len(state.ConsumerTargets()) != 1 || state.Scope() != mutation.Scope() || state.Destination() != mutation.Destination() || !slices.Equal(state.ConsumerTargets(), consumers) {
@@ -140,7 +140,7 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 			unchangedPaths[row.Subject()] = row
 		}
 		for _, row := range snapshot.ManagedPaths() {
-			if _, retained := unchangedPaths[row.Subject()]; side == 0 && !retained && aggregate.IsHostConfigDocumentSubject(row.Subject()) {
+			if _, retained := unchangedPaths[row.Subject()]; side == 0 && !retained && aggregate.IsAgentConfigDocumentSubject(row.Subject()) {
 				continue
 			}
 			if previous, found := unchangedPaths[row.Subject()]; found && previous.Equal(row) {
@@ -160,7 +160,7 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 			}
 			contract := row.Contribution().Contract()
 			if whole, present := wholeRecords[contract.Address().Document()]; side == 0 && present {
-				keyOwner, _, key := topologyprojection.HostConfigKeyIdentity(row.Subject())
+				keyOwner, _, key := topologyprojection.AgentConfigKeyIdentity(row.Subject())
 				wholeOwner, entityBacked := topologyprojection.EntityID(whole)
 				if key && entityBacked && keyOwner == wholeOwner {
 					continue

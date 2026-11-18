@@ -528,7 +528,7 @@ backend='adapter'
 transport='stdio'
 command='node'
 args=['updated-server.js']
-[[host_config]]
+[[agent_config]]
 id='preferences'
 scope=%q
 path='settings.json'

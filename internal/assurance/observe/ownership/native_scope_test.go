@@ -24,13 +24,13 @@ func TestBuildKeepsNativeScopesDistinctForVisibleAndFutureDocuments(t *testing.T
 		outputtest.KeyFootprint(t, "a", "b"), outputtest.KeyFootprint(t, "a~1b"),
 		outputtest.KeyFootprint(t, ".."), outputtest.KeyFootprint(t, "line\n\x00key"),
 	}
-	codec, admitted := aggregate.HostConfigCodecForSyntax("json")
+	codec, admitted := aggregate.AgentConfigCodecForSyntax("json")
 	if !admitted {
 		t.Fatal("JSON native projection grammar was not admitted")
 	}
 	addresses := make([]aggregate.ProjectionAddress, 0, len(scopes)+1)
 	for _, scope := range scopes {
-		contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, scope, codec)
+		contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, scope, codec)
 		if err != nil {
 			t.Fatal(err)
 		}

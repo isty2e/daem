@@ -44,14 +44,14 @@ type nativeRefreshObservation struct {
 }
 
 func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, before durable.Snapshot) (result *nativeRefreshObservation, returnErr error) {
-	if len(environment.HostConfigs()) == 0 && !locked.ContainsHostConfig() && !before.ContainsHostConfig() {
+	if len(environment.AgentConfigs()) == 0 && !locked.ContainsAgentConfig() && !before.ContainsAgentConfig() {
 		return nil, nil
 	}
 	selection, err := targetselection.ForDiagnostics(nil)
 	if err != nil {
 		return nil, err
 	}
-	nativeOnly, err := environment.HostConfigsOnly()
+	nativeOnly, err := environment.AgentConfigsOnly()
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func observeNativeRefresh(ctx context.Context, paths daempaths.Paths, environmen
 		return nil, err
 	}
 	var sources []lockobserve.NativeSourceObservation
-	for _, config := range nativeOnly.HostConfigs() {
+	for _, config := range nativeOnly.AgentConfigs() {
 		source, err := epoch.NativeSource(ctx, config)
 		if err != nil {
 			return nil, err

@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -34,9 +34,9 @@ func nativeDocumentLimits() configdocument.Limits {
 	return configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}
 }
 
-func nativeDocumentConfig(t *testing.T, name string, spec source.Source, selected target.Target, scope target.Scope, path string, ownership hostconfig.Ownership, syntax hostconfig.Syntax) hostconfig.Config {
+func nativeDocumentConfig(t *testing.T, name string, spec source.Source, selected target.Target, scope target.Scope, path string, ownership agentconfig.Ownership, syntax agentconfig.Syntax) agentconfig.Config {
 	t.Helper()
-	config, err := hostconfig.New(hostconfig.Spec{
+	config, err := agentconfig.New(agentconfig.Spec{
 		Name: name, Source: spec, Target: selected, Scope: scope, Path: path, Ownership: ownership, Syntax: syntax,
 	})
 	if err != nil {
@@ -80,21 +80,21 @@ func TestNativeDocumentProducerUsesExactSourcesAndNativeWholeIdentity(t *testing
 		target  target.Target
 		scope   target.Scope
 		path    string
-		syntax  hostconfig.Syntax
+		syntax  agentconfig.Syntax
 		payload []byte
 		mode    os.FileMode
 	}{
-		{"pi-opaque", target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.SyntaxDefault, []byte("# Review\r\n\x00literal \xff bytes\n"), 0o755},
-		{"codex-empty", target.TargetCodex, target.ScopeGlobal, "prompts/review.md", hostconfig.SyntaxDefault, nil, 0o644},
-		{"known-json", target.TargetPi, target.ScopeGlobal, "themes/custom.json", hostconfig.SyntaxDefault, []byte("[ 1, true, null ]\n"), 0o600},
-		{"known-line-comments", target.TargetPi, target.ScopeGlobal, "models.json", hostconfig.SyntaxDefault, []byte("// retained\n{\"models\": []}\n"), 0o644},
-		{"explicit-toml", target.TargetCodex, target.ScopeProject, "custom.conf", hostconfig.SyntaxTOML, []byte("# keep\nanswer = 42\n"), 0o644},
+		{"pi-opaque", target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.SyntaxDefault, []byte("# Review\r\n\x00literal \xff bytes\n"), 0o755},
+		{"codex-empty", target.TargetCodex, target.ScopeGlobal, "prompts/review.md", agentconfig.SyntaxDefault, nil, 0o644},
+		{"known-json", target.TargetPi, target.ScopeGlobal, "themes/custom.json", agentconfig.SyntaxDefault, []byte("[ 1, true, null ]\n"), 0o600},
+		{"known-line-comments", target.TargetPi, target.ScopeGlobal, "models.json", agentconfig.SyntaxDefault, []byte("// retained\n{\"models\": []}\n"), 0o644},
+		{"explicit-toml", target.TargetCodex, target.ScopeProject, "custom.conf", agentconfig.SyntaxTOML, []byte("# keep\nanswer = 42\n"), 0o644},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			directory := t.TempDir()
 			spec := nativeLocalSource(t, directory, "source", fixture.payload, fixture.mode)
-			config := nativeDocumentConfig(t, "document", spec, fixture.target, fixture.scope, fixture.path, hostconfig.OwnershipDocument, fixture.syntax)
-			environment := lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+			config := nativeDocumentConfig(t, "document", spec, fixture.target, fixture.scope, fixture.path, agentconfig.OwnershipDocument, fixture.syntax)
+			environment := lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 			var events []Event
 			file, err := BuildNativeDocumentsWithOptions(context.Background(), environment, nativeDocumentResolver(t, directory), Options{Events: func(event Event) { events = append(events, event) }}, nativeDocumentLimits())
 			if err != nil {
@@ -107,11 +107,11 @@ func TestNativeDocumentProducerUsesExactSourcesAndNativeWholeIdentity(t *testing
 			if !ok {
 				t.Fatal("source resource was omitted")
 			}
-			placement, ok := resource.HostConfigPlacement()
-			if !ok || placement.NativePath() != fixture.path || placement.RequestedSyntax() != fixture.syntax || placement.Target() != fixture.target || placement.Scope() != fixture.scope || placement.Ownership() != hostconfig.OwnershipDocument {
+			placement, ok := resource.AgentConfigPlacement()
+			if !ok || placement.NativePath() != fixture.path || placement.RequestedSyntax() != fixture.syntax || placement.Target() != fixture.target || placement.Scope() != fixture.scope || placement.Ownership() != agentconfig.OwnershipDocument {
 				t.Fatalf("declaration intent lost: %#v", placement)
 			}
-			whole, err := aggregate.HostConfigDocumentSubject(config.ID(), fixture.target, fixture.scope)
+			whole, err := aggregate.AgentConfigDocumentSubject(config.ID(), fixture.target, fixture.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -174,7 +174,7 @@ func assertNativeDocumentRoundtrip(t *testing.T, directory string, file lock.Fil
 	for _, change := range []struct{ before, after string }{
 		{`path = "`, `path = "other/`},
 		{"exact_permission_mode = 384", "exact_permission_mode = 420"},
-		{"[locked.subject.host_config_placement]", "[locked.subject.host_config_placement]\nunknown = true"},
+		{"[locked.subject.agent_config_placement]", "[locked.subject.agent_config_placement]\nunknown = true"},
 	} {
 		corrupted := strings.Replace(string(encoded), change.before, change.after, 1)
 		if corrupted == string(encoded) {
@@ -192,21 +192,21 @@ func assertNativeDocumentRoundtrip(t *testing.T, directory string, file lock.Fil
 func TestNativeDocumentBuildRefusesBeforeSourceEffectsAndNoLatePrefix(t *testing.T) {
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte("not JSON"), 0o600)
-	for _, config := range []hostconfig.Config{
-		nativeDocumentConfig(t, "missing-grammar", spec, target.TargetPi, target.ScopeProject, "custom.bin", hostconfig.OwnershipKeys, hostconfig.SyntaxDefault),
-		nativeDocumentConfig(t, "shared", spec, target.TargetPi, target.ScopeProject, "settings.json", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault),
+	for _, config := range []agentconfig.Config{
+		nativeDocumentConfig(t, "missing-grammar", spec, target.TargetPi, target.ScopeProject, "custom.bin", agentconfig.OwnershipKeys, agentconfig.SyntaxDefault),
+		nativeDocumentConfig(t, "shared", spec, target.TargetPi, target.ScopeProject, "settings.json", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault),
 	} {
 		calls := 0
 		resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &calls}
-		file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), resolver, Options{}, nativeDocumentLimits())
+		file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), resolver, Options{}, nativeDocumentLimits())
 		if err == nil || file.Version != 0 || calls != 0 {
 			t.Fatalf("static refusal started source session or returned lock: sessions=%d err=%v", calls, err)
 		}
 	}
-	good := nativeDocumentConfig(t, "a-good", spec, target.TargetPi, target.ScopeProject, "prompts/good.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
-	bad := nativeDocumentConfig(t, "z-invalid", spec, target.TargetPi, target.ScopeProject, "themes/bad.json", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
+	good := nativeDocumentConfig(t, "a-good", spec, target.TargetPi, target.ScopeProject, "prompts/good.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
+	bad := nativeDocumentConfig(t, "z-invalid", spec, target.TargetPi, target.ScopeProject, "themes/bad.json", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
 	var successes int
-	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{good, bad}}), nativeDocumentResolver(t, directory), Options{Events: func(event Event) {
+	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{good, bad}}), nativeDocumentResolver(t, directory), Options{Events: func(event Event) {
 		if event.Kind == EventSnapshotValidated {
 			successes++
 		}
@@ -228,11 +228,11 @@ func TestNativeDocumentDuplicateDestinationRefusesBeforeSourceSession(t *testing
 				directory := t.TempDir()
 				firstSource := nativeLocalSource(t, directory, "first", []byte("# first\n"), 0o600)
 				secondSource := nativeLocalSource(t, directory, "second", []byte("# second\n"), 0o600)
-				configs := []hostconfig.Config{
-					nativeDocumentConfig(t, "first", firstSource, selected, scope, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault),
-					nativeDocumentConfig(t, "second", secondSource, selected, scope, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault),
+				configs := []agentconfig.Config{
+					nativeDocumentConfig(t, "first", firstSource, selected, scope, "prompts/review.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault),
+					nativeDocumentConfig(t, "second", secondSource, selected, scope, "prompts/review.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault),
 				}
-				environment := lockEnvironment(t, desired.Spec{HostConfigs: configs})
+				environment := lockEnvironment(t, desired.Spec{AgentConfigs: configs})
 				sessions, events := 0, 0
 				resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &sessions}
 				file, err := BuildNativeDocumentsWithOptions(context.Background(), environment, resolver, Options{Events: func(Event) { events++ }}, nativeDocumentLimits())
@@ -247,17 +247,17 @@ func TestNativeDocumentDuplicateDestinationRefusesBeforeSourceSession(t *testing
 func TestNativeDocumentDestinationPreflightSeparatesTargetScopeAndPath(t *testing.T) {
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte("# content\n"), 0o600)
-	var configs []hostconfig.Config
+	var configs []agentconfig.Config
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 			for _, name := range []string{"review", "reviewer"} {
-				configs = append(configs, nativeDocumentConfig(t, string(selected)+"-"+string(scope)+"-"+name, spec, selected, scope, "prompts/"+name+".md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault))
+				configs = append(configs, nativeDocumentConfig(t, string(selected)+"-"+string(scope)+"-"+name, spec, selected, scope, "prompts/"+name+".md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault))
 			}
 		}
 	}
 	sessions := 0
 	resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &sessions}
-	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{HostConfigs: configs}), resolver, Options{}, nativeDocumentLimits())
+	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{AgentConfigs: configs}), resolver, Options{}, nativeDocumentLimits())
 	if err != nil || sessions != 1 || file.Version != lock.CurrentVersion || file.Locked.Len() != 2*len(configs) {
 		t.Fatalf("disjoint logical destinations conflated: sessions=%d len=%d err=%v", sessions, file.Locked.Len(), err)
 	}
@@ -275,9 +275,9 @@ func (counter *nativeSessionCounter) Resolve(context.Context, source.Source, acq
 func TestNativeDocumentBuildSharesSessionWithOrdinarySourcesAndKeepsEmptyProfile(t *testing.T) {
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte("# both\n"), 0o600)
-	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
+	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
 	instruction := projectInstructions(t, "ordinary", spec, []target.Target{target.TargetClaudeCode})
-	environment := lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}, Instructions: []instructions.Instructions{instruction}})
+	environment := lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}, Instructions: []instructions.Instructions{instruction}})
 	sessions := 0
 	resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, directory), sessions: &sessions}
 	file, err := BuildNativeDocumentsWithOptions(context.Background(), environment, resolver, Options{}, nativeDocumentLimits())
@@ -302,20 +302,20 @@ func TestNativeDocumentBuildSharesSessionWithOrdinarySourcesAndKeepsEmptyProfile
 func TestNativeDocumentCollectionRejectsMissingOrRetargetedMembers(t *testing.T) {
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte("# content\n"), 0o600)
-	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
-	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), nativeDocumentResolver(t, directory), Options{}, nativeDocumentLimits())
+	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
+	file, err := BuildNativeDocumentsWithOptions(context.Background(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), nativeDocumentResolver(t, directory), Options{}, nativeDocumentLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
 	resource, _ := file.Locked.ExactSupplySubject(config.ID())
-	placement, _ := resource.HostConfigPlacement()
-	retarget, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+	placement, _ := resource.AgentConfigPlacement()
+	retarget, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 		Target: placement.Target(), Scope: placement.Scope(), Path: "prompts/other.md", Ownership: placement.Ownership(), Syntax: placement.RequestedSyntax(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongProjection, err := lock.NewHostConfigDocumentSubjectContract(config.ID(), retarget)
+	wrongProjection, err := lock.NewAgentConfigDocumentSubjectContract(config.ID(), retarget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestNativeDocumentCollectionRejectsMissingOrRetargetedMembers(t *testing.T)
 	if _, err := lock.NewLockedSection(file.Locked.Subjects(), nil); err != nil {
 		t.Fatalf("common family admission refused complete native contracts: %v", err)
 	}
-	if resource.EntityID().Kind() != entity.KindHostConfig {
+	if resource.EntityID().Kind() != entity.KindAgentConfig {
 		t.Fatal("fixture is not native")
 	}
 }
@@ -346,9 +346,9 @@ func TestNativeDocumentProducerSharesRealGitSnapshotAndRefreshes(t *testing.T) {
 		}
 	}
 	first := commitBuildGit(t, repository, "initial exact files")
-	config := nativeDocumentConfig(t, "native", mustGitSource(t, repository, "document.md", "main"), target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
+	config := nativeDocumentConfig(t, "native", mustGitSource(t, repository, "document.md", "main"), target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
 	ordinary := projectInstructions(t, "ordinary", mustGitSource(t, repository, "instructions.md", "main"), []target.Target{target.TargetClaudeCode})
-	environment := lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}, Instructions: []instructions.Instructions{ordinary}})
+	environment := lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}, Instructions: []instructions.Instructions{ordinary}})
 	resolver := nativeDocumentResolver(t, directory)
 	check := func(commit string) lock.File {
 		t.Helper()
@@ -381,20 +381,20 @@ func TestNativeDocumentProducerSharesRealGitSnapshotAndRefreshes(t *testing.T) {
 func TestNativeDocumentProducerBoundsAndMidAssemblyCancellation(t *testing.T) {
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte(`{"deep":{"value":1}}`), 0o600)
-	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "themes/review.json", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
-	environment := lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "themes/review.json", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
+	environment := lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 	for _, limits := range []configdocument.Limits{{MaximumBytes: 2, MaximumDepth: 64}, {MaximumBytes: 1 << 20, MaximumDepth: 1}} {
 		file, err := BuildNativeDocumentsWithOptions(context.Background(), environment, nativeDocumentResolver(t, directory), Options{}, limits)
 		if !errors.Is(err, configdocument.ErrLimitExceeded) || file.Version != 0 {
 			t.Fatalf("document admission budget bypassed: %v", err)
 		}
 	}
-	other := nativeDocumentConfig(t, "second", spec, target.TargetPi, target.ScopeProject, "themes/second.json", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
+	other := nativeDocumentConfig(t, "second", spec, target.TargetPi, target.ScopeProject, "themes/second.json", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var successes int
-	file, err := BuildNativeDocumentsWithOptions(ctx, lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config, other}}), nativeDocumentResolver(t, directory), Options{Events: func(event Event) {
-		if event.Stage == EventStageHostConfig && event.Kind == EventResourceLocked {
+	file, err := BuildNativeDocumentsWithOptions(ctx, lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config, other}}), nativeDocumentResolver(t, directory), Options{Events: func(event Event) {
+		if event.Stage == EventStageAgentConfig && event.Kind == EventResourceLocked {
 			cancel()
 		}
 		if event.Kind == EventSnapshotValidated {
@@ -425,12 +425,12 @@ func TestNativeDocumentLockReaderChecksVersionBeforeNestedDecode(t *testing.T) {
 func TestNativeDocumentProducerCancellationAfterLastResourceHasNoSuccess(t *testing.T) {
 	directory := t.TempDir()
 	spec := nativeLocalSource(t, directory, "source", []byte("# content\n"), 0o600)
-	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", hostconfig.OwnershipDocument, hostconfig.SyntaxDefault)
+	config := nativeDocumentConfig(t, "native", spec, target.TargetPi, target.ScopeProject, "prompts/review.md", agentconfig.OwnershipDocument, agentconfig.SyntaxDefault)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	successes := 0
-	file, err := BuildNativeDocumentsWithOptions(ctx, lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), nativeDocumentResolver(t, directory), Options{Events: func(event Event) {
-		if event.Stage == EventStageHostConfig && event.Kind == EventResourceLocked {
+	file, err := BuildNativeDocumentsWithOptions(ctx, lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), nativeDocumentResolver(t, directory), Options{Events: func(event Event) {
+		if event.Stage == EventStageAgentConfig && event.Kind == EventResourceLocked {
 			cancel()
 		}
 		if event.Kind == EventSnapshotValidated {

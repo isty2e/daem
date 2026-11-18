@@ -119,7 +119,7 @@ func TestApplyConvertsEligibleMetadataBeforeItsExistingReplan(t *testing.T) {
 				source = filepath.Join(workspace, "preferences.toml")
 				before, after = "[tui]\nnotifications=false\n", "[tui]\nnotifications=true\n"
 				output = filepath.Join(workspace, ".codex", "config.toml")
-				manifest = fmt.Sprintf("version=1\ntargets=['codex']\n[[host_config]]\nid='preferences'\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", source)
+				manifest = fmt.Sprintf("version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", source)
 			}
 			writeApplyFile(t, paths.ManifestPath, manifest)
 			writeApplyFile(t, source, before)
@@ -128,7 +128,7 @@ func TestApplyConvertsEligibleMetadataBeforeItsExistingReplan(t *testing.T) {
 				foreign := filepath.Join(root, "foreign")
 				foreignManifest := filepath.Join(foreign, "daem.toml")
 				foreignSource := filepath.Join(foreign, "preferences.toml")
-				writeApplyFile(t, foreignManifest, fmt.Sprintf("version=1\ntargets=['codex']\n[[host_config]]\nid='preferences'\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", foreignSource))
+				writeApplyFile(t, foreignManifest, fmt.Sprintf("version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", foreignSource))
 				writeApplyFile(t, foreignSource, "[tui]\nnotifications=false\n")
 				if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: foreignManifest}); err != nil {
 					t.Fatal(err)

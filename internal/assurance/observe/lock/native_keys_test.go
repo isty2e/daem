@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	lockmodel "github.com/isty2e/daem/internal/realization/lock"
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
@@ -115,14 +115,14 @@ func TestNativeKeyEpochRetainedViewFailureReturnsNoUsableBundle(t *testing.T) {
 func TestNativeKeyEpochLimitAndCancellationDiscardEarlierSourceFacts(t *testing.T) {
 	root := t.TempDir()
 	paths := resolveTestPaths(t, filepath.Join(root, "daem.toml"))
-	var configs []hostconfig.Config
+	var configs []agentconfig.Config
 	for _, input := range []struct{ name, payload string }{{"a-empty", `{}`}, {"z-large", `{"long":"not admitted by the later observation limit"}`}} {
 		writeTestFile(t, root, input.name, input.payload)
 		spec, err := source.NewLocalSource(filepath.Join(root, input.name), source.LocalSourceModeVendor)
 		if err != nil {
 			t.Fatal(err)
 		}
-		config, err := hostconfig.New(hostconfig.Spec{Name: input.name, Source: spec, Target: target.TargetPi, Scope: target.ScopeProject, Path: input.name + ".json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+		config, err := agentconfig.New(agentconfig.Spec{Name: input.name, Source: spec, Target: target.TargetPi, Scope: target.ScopeProject, Path: input.name + ".json", Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -170,11 +170,11 @@ func newNativeKeyObservationFixture(t *testing.T, payload string) nativeObservat
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, err := hostconfig.New(hostconfig.Spec{Name: "native", Source: spec, Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	resource, err := agentconfig.New(agentconfig.Spec{Name: "native", Source: spec, Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment := nativeObservationEnvironment(t, []hostconfig.Config{resource}, nil)
+	environment := nativeObservationEnvironment(t, []agentconfig.Config{resource}, nil)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
 		t.Fatal(err)

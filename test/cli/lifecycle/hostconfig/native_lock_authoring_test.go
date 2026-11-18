@@ -22,13 +22,13 @@ func TestNativeLockAuthoringLifecycle(t *testing.T) {
 	lockPath := filepath.Join(workspace, "daem.lock.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
 targets = ["codex", "pi"]
-[[host_config]]
+[[agent_config]]
 id = "preferences"
 targets = ["codex"]
 path = "config.toml"
 source = "./preferences.toml"
 ownership = "keys"
-[[host_config]]
+[[agent_config]]
 id = "pi-preferences"
 targets = ["pi"]
 path = "settings.json"
@@ -66,7 +66,7 @@ ownership = "keys"
 			t.Fatalf("authoring selected a different schema: %d", after.Version)
 		}
 		for _, subject := range before.Locked.Subjects() {
-			if subject.EntityID().Kind() != entity.KindHostConfig {
+			if subject.EntityID().Kind() != entity.KindAgentConfig {
 				continue
 			}
 			actual, found := after.Locked.Subject(subject.SubjectID())

@@ -17,9 +17,9 @@ func TestRunRemoveMCPServerDryRunPlansWithoutHostWrites(t *testing.T) {
 	project := newMCPCLIProject(t)
 	original := mcpAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
-	hostConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"},"existing":{"command":"node"}}}`
-	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, hostConfig)
+	agentConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
+	agentConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"},"existing":{"command":"node"}}}`
+	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -50,7 +50,7 @@ func TestRunRemoveMCPServerDryRunPlansWithoutHostWrites(t *testing.T) {
 		t.Fatalf("manifest = %q, want original", string(tomlContent))
 	}
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *testing.T) {
@@ -58,9 +58,9 @@ func TestRunRemoveAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *tes
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := antigravityMCPAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -91,15 +91,15 @@ func TestRunRemoveAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *tes
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	testkit.WriteFile(t, project.root, "daem.toml", mcpAuthoringManifest())
-	hostConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
-	hostConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"},"existing":{"command":"node"}}}`
-	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, hostConfig)
+	agentConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
+	agentConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"},"existing":{"command":"node"}}}`
+	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -134,16 +134,16 @@ func TestRunRemoveMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(locked.Locked.Subjects()) != 0 {
 		t.Fatalf("locked subjects = %#v, want none", locked.Locked.Subjects())
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	original := codexMCPAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, aggregate.CodexProjectMCPConfigPath)
-	hostConfig := `mcp_servers = [`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, aggregate.CodexProjectMCPConfigPath)
+	agentConfig := `mcp_servers = [`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -179,7 +179,7 @@ func TestRunRemoveCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(locked.Locked.Subjects()) != 0 {
 		t.Fatalf("locked subjects = %#v, want none", locked.Locked.Subjects())
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
@@ -187,9 +187,9 @@ func TestRunRemoveCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := codexGlobalMCPAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".codex", "config.toml")
-	hostConfig := `mcp_servers = [`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".codex", "config.toml")
+	agentConfig := `mcp_servers = [`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -226,7 +226,7 @@ func TestRunRemoveCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 	if len(locked.Locked.Subjects()) != 0 {
 		t.Fatalf("locked subjects = %#v, want none", locked.Locked.Subjects())
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
@@ -234,9 +234,9 @@ func TestRunRemoveClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := claudeGlobalMCPAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".claude.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".claude.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -273,16 +273,16 @@ func TestRunRemoveClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T
 	if len(locked.Locked.Subjects()) != 0 {
 		t.Fatalf("locked subjects = %#v, want none", locked.Locked.Subjects())
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	testkit.WriteFile(t, project.root, "daem.toml", antigravityMCPAuthoringManifest())
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -319,15 +319,15 @@ func TestRunRemoveAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 	if len(locked.Locked.Subjects()) != 0 {
 		t.Fatalf("locked subjects = %#v, want none", locked.Locked.Subjects())
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
-func TestRunRemoveMCPServerYesDoesNotReadMalformedHostConfig(t *testing.T) {
+func TestRunRemoveMCPServerYesDoesNotReadMalformedAgentConfig(t *testing.T) {
 	project := newMCPCLIProject(t)
 	testkit.WriteFile(t, project.root, "daem.toml", mcpAuthoringManifest())
-	hostConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, hostConfig)
+	agentConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -338,7 +338,7 @@ func TestRunRemoveMCPServerYesDoesNotReadMalformedHostConfig(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveAntigravityMCPServerCanRemoveNonAdmittedExistingShape(t *testing.T) {
@@ -357,9 +357,9 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 `
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -382,7 +382,7 @@ env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, testkit.AuthoringTransactionDir(filepath.Join(project.root, ".daem")))
 
 	stdout.Reset()
@@ -410,7 +410,7 @@ env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 	if got := locked.Locked.Subjects(); len(got) != 0 {
 		t.Fatalf("repaired locked subjects = %#v, want none", got)
 	}
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, testkit.AuthoringTransactionDir(filepath.Join(project.root, ".daem")))
 }
 
@@ -419,9 +419,9 @@ func TestRunRemoveAntigravityMCPServerInfersUniqueRow(t *testing.T) {
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := antigravityMCPAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -438,7 +438,7 @@ func TestRunRemoveAntigravityMCPServerInfersUniqueRow(t *testing.T) {
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveMCPServerDryRunJSONDescribesManifestAndLockOnly(t *testing.T) {
@@ -504,9 +504,9 @@ func TestRunRemoveAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := antigravityMCPAuthoringManifest()
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -561,7 +561,7 @@ func TestRunRemoveAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
@@ -596,9 +596,9 @@ func TestRunRemoveMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
 			project := newMCPCLIProject(t)
 			original := mcpAuthoringManifest()
 			testkit.WriteFile(t, project.root, "daem.toml", original)
-			hostConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
-			hostConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"}}}`
-			testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, hostConfig)
+			agentConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
+			agentConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"}}}`
+			testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, agentConfig)
 			args := append([]string{}, test.args...)
 			args = append(args, "--manifest", project.manifestPath)
 
@@ -613,7 +613,7 @@ func TestRunRemoveMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
 			}
 			testkit.AssertFileContent(t, project.manifestPath, original)
 			testkit.AssertPathMissing(t, project.lockfilePath)
-			testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+			testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 			testkit.AssertPathMissing(t, testkit.AuthoringTransactionDir(filepath.Join(project.root, ".daem")))
 			if test.name == "missing resource" && !strings.Contains(stderr.String(), "next: inspect declared [[mcp_server]] entries") {
 				t.Fatalf("stderr = %q, want not-found next-step hint", stderr.String())
@@ -632,9 +632,9 @@ targets = ["claude-code"]
 `
 	testkit.WriteFile(t, project.root, "daem.toml", original)
 	testkit.WriteFile(t, project.root, "daem.lock.toml", "lock stays\n")
-	hostConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
-	hostConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"}}}`
-	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, hostConfig)
+	agentConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
+	agentConfig := `{"mcpServers":{"context7":{"type":"stdio","command":"npx"}}}`
+	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -650,7 +650,7 @@ targets = ["claude-code"]
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertFileContent(t, project.lockfilePath, "lock stays\n")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunRemoveAntigravityMCPServerYesLeavesFilesUnchangedWhenProspectiveLockFails(t *testing.T) {
@@ -664,9 +664,9 @@ targets = ["antigravity-cli"]
 `
 	testkit.WriteFile(t, project.root, "daem.toml", original)
 	testkit.WriteFile(t, project.root, "daem.lock.toml", "lock stays\n")
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -684,7 +684,7 @@ targets = ["antigravity-cli"]
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertFileContent(t, project.lockfilePath, "lock stays\n")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, testkit.AuthoringTransactionDir(filepath.Join(project.root, ".daem")))
 }
 

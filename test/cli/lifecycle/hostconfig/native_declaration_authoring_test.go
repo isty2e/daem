@@ -17,14 +17,14 @@ import (
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
-func TestHostConfigDeclarationAuthoringSharedLifecycle(t *testing.T) {
+func TestAgentConfigDeclarationAuthoringSharedLifecycle(t *testing.T) {
 	root := t.TempDir()
 	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace := filepath.Join(root, "workspace")
 	manifest := filepath.Join(workspace, "daem.toml")
 	const original = `version = 1
 targets = ["codex"]
-host_config = [{ id = "retained", path = "config.toml", source = "retained.toml" }]
+agent_config = [{ id = "retained", path = "config.toml", source = "retained.toml" }]
 `
 	const unmanaged = "# kept by the user\nmanual = true\n"
 	const retained = "other = 'unchanged'\n"
@@ -39,8 +39,8 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 	}
 	destination := filepath.Join(workspace, ".codex", "config.toml")
 	add := []string{
-		"add", "host-config", "preferences", filepath.Join(workspace, "selected.toml"),
-		"--manifest", manifest, "--target", "codex", "--scope", "project", "--host-path", "config.toml",
+		"add", "agent-config", "preferences", filepath.Join(workspace, "selected.toml"),
+		"--manifest", manifest, "--target", "codex", "--scope", "project", "--config-path", "config.toml",
 	}
 	diff := nativefixture.RunLifecycleCommand(t, append(slices.Clone(add), "--dry-run", "--diff")...)
 	if !strings.Contains(diff, `id = "preferences"`) {
@@ -52,7 +52,7 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 
 	added := clijson.DecodeManifestAuthoring(t, []byte(nativefixture.RunLifecycleCommand(t, append(slices.Clone(add), "--json")...)))
 	if added.Operation != "add" || added.Lockfile == nil || added.Lockfile.Status != "written" || len(added.Changes) != 1 ||
-		added.Changes[0].Resource.Kind != "host_config" || added.Changes[0].ResourceID != "host_config/preferences" || added.Host != nil ||
+		added.Changes[0].Resource.Kind != "agent-config" || added.Changes[0].ResourceID != "agent-config/preferences" || added.Host != nil ||
 		!strings.HasPrefix(added.Changes[0].ManifestBlock, "{") {
 		t.Fatalf("unexpected add result: %+v", added)
 	}
@@ -88,19 +88,19 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 			t.Fatal(err)
 		}
 	}
-	remove := []string{"remove", "host-config", "preferences", "--manifest", manifest, "--json"}
+	remove := []string{"remove", "agent-config", "preferences", "--manifest", manifest, "--json"}
 	if exit, stdout, stderr := testkit.RunCapturedCLI(remove...); exit != 1 || stderr != "" {
 		t.Fatalf("remove with an unavailable retained source: %d %s %s", exit, stdout, stderr)
 	} else {
-		clijson.DecodeFailure(t, stdout, "remove host-config", "operation")
+		clijson.DecodeFailure(t, stdout, "remove agent-config", "operation")
 	}
 	for path, expected := range map[string][]byte{manifest: before, project.LockfilePath: locked, destination: drifted} {
 		testkit.AssertFileContent(t, path, string(expected))
 	}
 	testkit.WriteFile(t, workspace, "retained.toml", retained)
 	removed := clijson.DecodeManifestAuthoring(t, []byte(nativefixture.RunLifecycleCommand(t, remove...)))
-	if removed.Operation != "remove" || len(removed.Changes) != 1 || removed.Changes[0].ResourceID != "host_config/preferences" ||
-		removed.Changes[0].ChangeKind != "remove selected-keys host-config declaration" || removed.Management != nil || removed.Host != nil {
+	if removed.Operation != "remove" || len(removed.Changes) != 1 || removed.Changes[0].ResourceID != "agent-config/preferences" ||
+		removed.Changes[0].ChangeKind != "remove selected-keys agent-config declaration" || removed.Management != nil || removed.Host != nil {
 		t.Fatalf("remove did not report an authoring-only change: %+v", removed)
 	}
 	for path, expected := range map[string][]byte{destination: drifted, project.StatefilePath: state, project.OwnershipRegistryPath: registry} {
@@ -111,7 +111,7 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 		t.Fatal(err)
 	}
 	for _, subject := range afterRemove.Locked.Subjects() {
-		if subject.EntityID().Kind() != entity.KindHostConfig || subject.EntityID().Name() != "retained" {
+		if subject.EntityID().Kind() != entity.KindAgentConfig || subject.EntityID().Name() != "retained" {
 			t.Fatalf("remove kept an unexpected lock subject: %s", subject.EntityID())
 		}
 	}
@@ -149,7 +149,7 @@ host_config = [{ id = "retained", path = "config.toml", source = "retained.toml"
 	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
 }
 
-func TestHostConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
+func TestAgentConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	root := t.TempDir()
 	nativefixture.SetRecoveryEnvironment(t, root)
 	workspace := filepath.Join(root, "workspace")
@@ -161,15 +161,15 @@ func TestHostConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	manifest := filepath.Join(workspace, "daem.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = ['pi']\n")
 	destination := filepath.Join(workspace, ".codex", "prefs.toml")
-	nativefixture.RunLifecycleCommand(t, "add", "host-config", "dedicated", repository, "--path", "settings/prefs.toml", "--ref", commit,
-		"--manifest", manifest, "--target", "codex", "--scope", "project", "--host-path", "prefs.toml", "--ownership", "document")
+	nativefixture.RunLifecycleCommand(t, "add", "agent-config", "dedicated", repository, "--path", "settings/prefs.toml", "--ref", commit,
+		"--manifest", manifest, "--target", "codex", "--scope", "project", "--config-path", "prefs.toml", "--ownership", "document")
 	testkit.AssertPathMissing(t, destination)
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 	testkit.AssertFileContent(t, destination, content)
 	nativefixture.RequireLifecycleMetadata(t, manifest, true)
 
-	removed := nativefixture.RunLifecycleCommand(t, "remove", "host-config", "dedicated", "--manifest", manifest)
-	if !strings.Contains(removed, "change: remove whole-file host-config declaration") {
+	removed := nativefixture.RunLifecycleCommand(t, "remove", "agent-config", "dedicated", "--manifest", manifest)
+	if !strings.Contains(removed, "change: remove whole-file agent-config declaration") {
 		t.Fatalf("whole-file declaration removal was not identified: %s", removed)
 	}
 	testkit.AssertFileContent(t, destination, content)
@@ -188,7 +188,7 @@ func TestHostConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	assertRetainedDocumentAdvice := func() {
 		t.Helper()
 		code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--manifest", manifest, "--target", "codex")
-		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage host-config dedicated") {
+		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage agent-config dedicated") {
 			t.Errorf("blocked whole-file removal must point to management release: %d\n%s%s", code, stdout, stderr)
 		}
 	}
@@ -197,7 +197,7 @@ func TestHostConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRetainedDocumentAdvice()
-	nativefixture.RunLifecycleCommand(t, "unmanage", "host-config", "dedicated", "--manifest", manifest, "--target", "codex", "--scope", "project", "--dry-run")
+	nativefixture.RunLifecycleCommand(t, "unmanage", "agent-config", "dedicated", "--manifest", manifest, "--target", "codex", "--scope", "project", "--dry-run")
 	nativefixture.RequireLifecycleMetadata(t, manifest, true)
 	if err := os.WriteFile(destination, []byte(content), info.Mode().Perm()); err != nil {
 		t.Fatal(err)

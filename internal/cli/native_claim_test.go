@@ -59,7 +59,7 @@ func requireNativeNamedCodexProfileLifecycle(t *testing.T, literalParent bool, p
 	if err := os.WriteFile(source, []byte("model = 'fixture-model'\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	body := fmt.Sprintf("version = 1\ntargets = [\"codex\"]\n[[host_config]]\nid = \"work-profile\"\nscope = \"global\"\npath = %q\nsource = %q\nownership = \"keys\"\n", profile, filepath.ToSlash(source))
+	body := fmt.Sprintf("version = 1\ntargets = [\"codex\"]\n[[agent_config]]\nid = \"work-profile\"\nscope = \"global\"\npath = %q\nsource = %q\nownership = \"keys\"\n", profile, filepath.ToSlash(source))
 	if err := os.WriteFile(manifest, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestNativePlanningExplainsProjectGlobalRefusalAndKeepsReservedDataFirst(t *
 				t.Fatal(err)
 			}
 			manifest := filepath.Join(home, "daem.toml")
-			body := "version = 1\ntargets = [\"pi\"]\n[[host_config]]\nid = \"preferences\"\nscope = \"project\"\npath = \"agent/" + endpoint + "\"\nsource = \"./preferences.json\"\nownership = \"keys\"\n"
+			body := "version = 1\ntargets = [\"pi\"]\n[[agent_config]]\nid = \"preferences\"\nscope = \"project\"\npath = \"agent/" + endpoint + "\"\nsource = \"./preferences.json\"\nownership = \"keys\"\n"
 			if err := os.WriteFile(manifest, []byte(body), 0o600); err != nil {
 				t.Fatal(err)
 			}

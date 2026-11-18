@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/test/testkit/stateimage"
@@ -70,7 +70,7 @@ func newNativePlanningFixture(t *testing.T, scope target.Scope, path string) nat
 	fixture := nativePlanningFixture{nativePreparationFixture: base}
 	fixture.persistBefore(t, state.AfterState(), nil)
 	requireNativePreparationFile(t, fixture.sourcePath, fixture.original)
-	fixture.config, err = hostconfig.New(hostconfig.Spec{Name: "settings", Source: fixture.config.Source(), Target: fixture.config.Target(), Scope: scope, Path: path, Ownership: hostconfig.OwnershipDocument})
+	fixture.config, err = agentconfig.New(agentconfig.Spec{Name: "settings", Source: fixture.config.Source(), Target: fixture.config.Target(), Scope: scope, Path: path, Ownership: agentconfig.OwnershipDocument})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func (fixture *nativePlanningFixture) persistBefore(t *testing.T, before durable
 	var bindings []ownership.DocumentBinding
 	seen := make(map[output.Destination]struct{})
 	for _, row := range before.ManagedAggregates() {
-		if _, native := aggregate.HostConfigSyntaxForCodec(row.Contribution().CodecContractID()); !native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(row.Contribution().CodecContractID()); !native {
 			continue
 		}
 		destination := row.Contribution().AggregateRoot()

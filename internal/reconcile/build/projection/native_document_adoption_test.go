@@ -16,11 +16,11 @@ import (
 )
 
 func TestNativeDocumentWideningReusesExactExplicitRecordOnlyAdoption(t *testing.T) {
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := aggregate.HostConfigPlacementID(target.TargetPi, target.ScopeGlobal)
+	placement, err := aggregate.AgentConfigPlacementID(target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -26,8 +26,8 @@ func TestMCPPublicCLIManageExistingAdoptsExactCodexGlobalEntry(t *testing.T) {
 		Args:    []string{"-y", "@example/mcp-server"},
 		Env:     map[string]string{"CODEX_TOKEN": "CODEX_TOKEN"},
 	})
-	hostConfigPath := filepath.Join(homeDir, ".codex", "config.toml")
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `
+	agentConfigPath := filepath.Join(homeDir, ".codex", "config.toml")
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `
 model = "keep"
 
 [mcp_servers.context7]
@@ -40,7 +40,7 @@ command = "node"
 args = ["manual.js"]
 env = { MANUAL_TOKEN = "keep-literal" }
 `)
-	beforeConfig := testkit.ReadFile(t, hostConfigPath)
+	beforeConfig := testkit.ReadFile(t, agentConfigPath)
 	runMCPLock(t, project)
 
 	exitCode, stdout, stderr := runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--target", "codex", "--dry-run", "--json")
@@ -67,7 +67,7 @@ env = { MANUAL_TOKEN = "keep-literal" }
 		contentPath: mcpcodec.CodexGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "Codex global manage-existing dry-run config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "Codex global manage-existing dry-run config")
 	assertMCPStatefileMissing(t, project.root, "Codex global manage-existing dry-run")
 	assertNoPublicMCPOutputLeaks(t, stdout)
 
@@ -82,7 +82,7 @@ env = { MANUAL_TOKEN = "keep-literal" }
 		contentPath: mcpcodec.CodexGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "Codex global manage-existing yes config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "Codex global manage-existing yes config")
 	assertGlobalMCPStateSubject(t, loadMCPStatefile(t, project.root), globalMCPStateWant{
 		namespace:   "codex.global.mcp-server",
 		target:      target.TargetCodex,
@@ -107,8 +107,8 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 		Args:    []string{"-y", "@example/mcp-server"},
 		Env:     map[string]string{"API_TOKEN": sourceName},
 	})
-	hostConfigPath := filepath.Join(homeDir, ".claude.json")
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
+	agentConfigPath := filepath.Join(homeDir, ".claude.json")
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `{
   "mcpServers": {
     "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${DAEM_TEST_CLAUDE_GLOBAL_TOKEN}"}},
     "manual": {"type": "http", "url": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
@@ -123,7 +123,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
   "oauth": {"keep": true},
   "trust": {"keep": true}
 }`)
-	beforeConfig := testkit.ReadFile(t, hostConfigPath)
+	beforeConfig := testkit.ReadFile(t, agentConfigPath)
 	runMCPLock(t, project)
 
 	exitCode, stdout, stderr := runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--manage-existing", "--dry-run", "--json")
@@ -137,7 +137,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 		contentPath: mcpcodec.ClaudeGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "Claude global manage-existing dry-run config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "Claude global manage-existing dry-run config")
 	assertMCPStatefileMissing(t, project.root, "Claude global manage-existing dry-run")
 	assertNoPublicMCPOutputLeaks(t, stdout)
 
@@ -152,7 +152,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 		contentPath: mcpcodec.ClaudeGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "Claude global manage-existing yes config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "Claude global manage-existing yes config")
 	assertGlobalMCPStateSubject(t, loadMCPStatefile(t, project.root), globalMCPStateWant{
 		namespace:   "claude-code.global.mcp-server",
 		target:      target.TargetClaudeCode,
@@ -177,15 +177,15 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 		Args:    []string{"-y", "@example/mcp-server"},
 		Env:     map[string]string{"CHILD_TOKEN": sourceName},
 	})
-	hostConfigPath := filepath.Join(homeDir, ".config", "opencode", "opencode.json")
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
+	agentConfigPath := filepath.Join(homeDir, ".config", "opencode", "opencode.json")
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `{
   "model": "keep",
   "mcp": {
     "context7": {"type": "local", "command": ["npx", "-y", "@example/mcp-server"], "environment": {"CHILD_TOKEN": "{env:DAEM_TEST_OPENCODE_GLOBAL_TOKEN}"}},
     "manual": {"type": "remote", "url": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
   }
 }`)
-	beforeConfig := testkit.ReadFile(t, hostConfigPath)
+	beforeConfig := testkit.ReadFile(t, agentConfigPath)
 	runMCPLock(t, project)
 
 	exitCode, stdout, stderr := runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--target", "opencode", "--dry-run", "--json")
@@ -212,7 +212,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 		contentPath: mcpcodec.OpenCodeGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "OpenCode global manage-existing dry-run config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "OpenCode global manage-existing dry-run config")
 	assertMCPStatefileMissing(t, project.root, "OpenCode global manage-existing dry-run")
 	assertNoPublicMCPOutputLeaks(t, stdout)
 
@@ -227,7 +227,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 		contentPath: mcpcodec.OpenCodeGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "OpenCode global manage-existing yes config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "OpenCode global manage-existing yes config")
 	assertGlobalMCPStateSubject(t, loadMCPStatefile(t, project.root), globalMCPStateWant{
 		namespace:   "opencode.global.mcp-server",
 		target:      target.TargetOpenCode,
@@ -252,15 +252,15 @@ func TestMCPPublicCLIManageExistingAdoptsExactAntigravityGlobalEntry(t *testing.
 		Args:    []string{"-y", "@example/mcp-server"},
 		Env:     map[string]string{sourceName: sourceName},
 	})
-	hostConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
+	agentConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `{
   "mcpServers": {
     "context7": {"command": "npx", "args": ["-y", "@example/mcp-server"]},
     "manual": {"serverUrl": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
   },
   "global": "keep"
 }`)
-	beforeConfig := testkit.ReadFile(t, hostConfigPath)
+	beforeConfig := testkit.ReadFile(t, agentConfigPath)
 	runMCPLock(t, project)
 
 	exitCode, stdout, stderr := runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--target", "antigravity-cli", "--dry-run", "--json")
@@ -287,7 +287,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactAntigravityGlobalEntry(t *testing.
 		contentPath: mcpcodec.AntigravityGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "Antigravity global manage-existing dry-run config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "Antigravity global manage-existing dry-run config")
 	assertMCPStatefileMissing(t, project.root, "Antigravity global manage-existing dry-run")
 	assertNoPublicMCPOutputLeaks(t, stdout)
 
@@ -302,7 +302,7 @@ func TestMCPPublicCLIManageExistingAdoptsExactAntigravityGlobalEntry(t *testing.
 		contentPath: mcpcodec.AntigravityGlobalMCPContentPath("context7"),
 		serverID:    "context7",
 	})
-	assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, "Antigravity global manage-existing yes config")
+	assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, "Antigravity global manage-existing yes config")
 	assertGlobalMCPStateSubject(t, loadMCPStatefile(t, project.root), globalMCPStateWant{
 		namespace:   "antigravity-cli.global.mcp-server",
 		target:      target.TargetAntigravityCLI,
@@ -382,9 +382,9 @@ args = ["manual", "SECRET_CANARY"]
 				Command: "npx",
 				Args:    []string{"-y", "@example/mcp-server"},
 			})
-			hostConfigPath := filepath.Join(homeDir, test.hostRelPath)
-			testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), test.hostContent)
-			beforeConfig := testkit.ReadFile(t, hostConfigPath)
+			agentConfigPath := filepath.Join(homeDir, test.hostRelPath)
+			testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), test.hostContent)
+			beforeConfig := testkit.ReadFile(t, agentConfigPath)
 			runMCPLock(t, project)
 
 			exitCode, stdout, stderr := runMCPCLI(
@@ -407,7 +407,7 @@ args = ["manual", "SECRET_CANARY"]
 				serverID:    "context7",
 			})
 			assertMCPJSONDimension(t, payload, "global_projection", "unmanaged_same_name", "ROUTE_PREEXISTING_UNOWNED")
-			assertBytesEqual(t, testkit.ReadFile(t, hostConfigPath), beforeConfig, test.name+" config")
+			assertBytesEqual(t, testkit.ReadFile(t, agentConfigPath), beforeConfig, test.name+" config")
 			assertMCPStatefileMissing(t, project.root, test.name+" failed manage-existing")
 			assertNoPublicMCPOutputLeaks(t, stdout)
 		})

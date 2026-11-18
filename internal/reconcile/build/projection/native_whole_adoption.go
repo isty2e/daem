@@ -55,13 +55,13 @@ func BuildNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionInpu
 	if err := input.Ownership.Validate(); err != nil {
 		return NativeWholeAdoptionPlan{}, err
 	}
-	placement, native := input.Source.HostConfigPlacement()
+	placement, native := input.Source.AgentConfigPlacement()
 	materialized, supplied := input.Source.MaterializedFileIdentity()
 	fileUse, file := input.Source.ExactFileUse()
 	if !native || !supplied || !file || fileUse.Scope() != placement.Scope() {
 		return NativeWholeAdoptionPlan{}, fmt.Errorf("native whole adoption requires its actual whole-file source")
 	}
-	projection, err := lock.NewHostConfigDocumentSubjectContract(input.Source.EntityID(), placement)
+	projection, err := lock.NewAgentConfigDocumentSubjectContract(input.Source.EntityID(), placement)
 	if err != nil {
 		return NativeWholeAdoptionPlan{}, err
 	}
@@ -105,7 +105,7 @@ func BuildNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionInpu
 	}
 	retired := input.Ownership.BeforeSubjects()
 	for subject, row := range rows {
-		owner, _, native := topologyprojection.HostConfigKeyIdentity(subject)
+		owner, _, native := topologyprojection.AgentConfigKeyIdentity(subject)
 		if native && owner == input.Source.EntityID() && (row.Contribution().Contract().Address().Document() != document || !slices.Contains(retired, subject)) {
 			return block(reconcile.ReasonOwnershipStateConflict, "native whole adoption cannot retarget or omit its prior key ownership")
 		}
@@ -116,7 +116,7 @@ func BuildNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionInpu
 			return NativeWholeAdoptionPlan{}, err
 		}
 		row, present := rows[subject]
-		owner, _, key := topologyprojection.HostConfigKeyIdentity(subject)
+		owner, _, key := topologyprojection.AgentConfigKeyIdentity(subject)
 		if !present || !key || owner != input.Source.EntityID() || row.Contribution().Contract().Address().Document() != document {
 			return block(reconcile.ReasonOwnershipStateConflict, "native whole adoption would consume another declaration or document participant")
 		}

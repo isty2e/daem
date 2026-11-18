@@ -35,7 +35,7 @@ func NativeReplacementJSON(disclosure applyworkflow.NativeReplacementDisclosure,
 		Declaration   string                     `json:"declaration"`
 		ActionCount   int                        `json:"action_count"`
 		Keys          []nativeReplacementKeyJSON `json:"keys"`
-	}{1, "replace host-config", mode, disclosure.Fingerprint, humanErrorDetail(disclosure.Declaration), actionCount, keys}, "", "  ")
+	}{1, "replace " + AgentConfigResourceName, mode, disclosure.Fingerprint, humanErrorDetail(disclosure.Declaration), actionCount, keys}, "", "  ")
 }
 
 func PrintNativeReplacement(output io.Writer, disclosure applyworkflow.NativeReplacementDisclosure) error {

@@ -523,7 +523,7 @@ func narrowedDocumentGroups(journal journalrecord.Native, ctx context.Context, g
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if _, native := aggregate.HostConfigSyntaxForCodec(row.Contribution().CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(row.Contribution().CodecContractID()); native {
 			keyedAfter[row.Contribution().Contract().Address().Document()] = struct{}{}
 		}
 	}
@@ -533,7 +533,7 @@ func narrowedDocumentGroups(journal journalrecord.Native, ctx context.Context, g
 				return nil, err
 			}
 			id, found := topologyprojection.EntityID(row.Subject())
-			if !found || id.Kind() != entity.KindHostConfig {
+			if !found || id.Kind() != entity.KindAgentConfig {
 				continue
 			}
 			for _, target := range row.ConsumerTargets() {

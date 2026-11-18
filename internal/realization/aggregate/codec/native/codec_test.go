@@ -143,7 +143,7 @@ func TestNativeCodecOccupancyAndObstructions(t *testing.T) {
 
 func fixtureCodec(t testing.TB, syntax configdocument.Syntax) aggregate.Codec {
 	t.Helper()
-	id, ok := aggregate.HostConfigCodecForSyntax(syntax.String())
+	id, ok := aggregate.AgentConfigCodecForSyntax(syntax.String())
 	if !ok {
 		t.Fatal("fixture syntax has no native codec identity")
 	}
@@ -173,7 +173,7 @@ func fixtureSet(t testing.TB, codec aggregate.Codec, path output.KeyPath, value 
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,11 +185,11 @@ func fixtureSet(t testing.TB, codec aggregate.Codec, path output.KeyPath, value 
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "fixture")
+	id, err := entity.New(entity.KindAgentConfig, "fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, path)
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, path)
 	if err != nil {
 		t.Fatal(err)
 	}

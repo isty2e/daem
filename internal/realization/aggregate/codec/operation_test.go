@@ -19,7 +19,7 @@ func TestOperationCatalogRunsNativeLifecycleWithoutChangingDefaultAdmission(t *t
 	fixedID := aggregate.ImplementedHookPlacements()[0].CodecContractID()
 	for _, syntax := range []string{"json", "jsonc", "json-line-comments", "toml"} {
 		t.Run(syntax, func(t *testing.T) {
-			id, _ := aggregate.HostConfigCodecForSyntax(syntax)
+			id, _ := aggregate.AgentConfigCodecForSyntax(syntax)
 			required := []aggregate.CodecContractID{id, fixedID, id}
 			operations, err := ForOperation(t.Context(), required, operationTestLimits, operationTestLimits)
 			if err != nil {
@@ -204,11 +204,11 @@ func operationNativeFixture(t *testing.T, id aggregate.CodecContractID) (aggrega
 	key, _ := output.NewKeyPath("choice")
 	footprint, _ := output.NewKeyFootprint(key)
 	root, _ := output.Parse(".codex/extension.data")
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, root, footprint, id)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, root, footprint, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	syntaxName, _ := aggregate.HostConfigSyntaxForCodec(id)
+	syntaxName, _ := aggregate.AgentConfigSyntaxForCodec(id)
 	syntax, err := configdocument.ParseSyntax(syntaxName)
 	if err != nil {
 		t.Fatal(err)
@@ -233,8 +233,8 @@ func operationNativeFixture(t *testing.T, id aggregate.CodecContractID) (aggrega
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, _ := entity.New(entity.KindHostConfig, "native-operation")
-	subject, err := topologyprojection.HostConfigKeySubject(resource, target.TargetCodex, target.ScopeProject, key)
+	resource, _ := entity.New(entity.KindAgentConfig, "native-operation")
+	subject, err := topologyprojection.AgentConfigKeySubject(resource, target.TargetCodex, target.ScopeProject, key)
 	if err != nil {
 		t.Fatal(err)
 	}

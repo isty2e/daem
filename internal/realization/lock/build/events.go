@@ -30,7 +30,7 @@ const (
 	EventStageSkill          EventStage = "skill"
 	EventStageHookAsset      EventStage = "hook_asset"
 	EventStageInstructions   EventStage = "instructions"
-	EventStageHostConfig     EventStage = "host_config"
+	EventStageAgentConfig    EventStage = "agent_config"
 	EventStageSnapshot       EventStage = "snapshot"
 )
 

@@ -159,7 +159,7 @@ func (index SnapshotIndex) NativeDestinations(ctx context.Context) (map[output.D
 			return nil, err
 		}
 		id, entityBacked := topologyprojection.EntityID(row.Subject())
-		if entityBacked && id.Kind() == entity.KindHostConfig {
+		if entityBacked && id.Kind() == entity.KindAgentConfig {
 			destinations[row.Destination()] = struct{}{}
 		}
 	}
@@ -168,7 +168,7 @@ func (index SnapshotIndex) NativeDestinations(ctx context.Context) (map[output.D
 			return nil, err
 		}
 		contribution := row.Contribution()
-		if _, native := aggregate.HostConfigSyntaxForCodec(contribution.CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID()); native {
 			destinations[contribution.AggregateRoot()] = struct{}{}
 		}
 	}

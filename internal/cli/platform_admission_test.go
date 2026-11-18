@@ -80,12 +80,12 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"add", "--help"},
 		{"add", "help", "skill"},
 		{"add", "skill", "--help"},
-		{"add", "host-config", "--help"},
+		{"add", "agent-config", "--help"},
 		{"apply", "--help"},
 		{"import", "--help"},
-		{"import", "host-config", "--help"},
+		{"import", "agent-config", "--help"},
 		{"replace", "--help"},
-		{"replace", "host-config", "--help"},
+		{"replace", "agent-config", "--help"},
 		{"init", "--help"},
 		{"lock", "--help"},
 		{"outdated", "--help"},
@@ -98,12 +98,11 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"remove", "--help"},
 		{"remove", "help", "skill"},
 		{"remove", "skill", "--help"},
-		{"remove", "host-config", "--help"},
+		{"remove", "agent-config", "--help"},
 		{"unmanage", "--help"},
 		{"unmanage", "extension", "--help"},
-		{"unmanage", "host-config", "--help"},
+		{"unmanage", "agent-config", "--help"},
 	}
-
 	for _, args := range tests {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			var stdout bytes.Buffer
@@ -162,15 +161,15 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 		{"recover"},
 		{"refresh"},
 	}
-	for _, subject := range []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill", "skill-group"} {
+	for _, subject := range []string{"extension", "instruction", "hook", "agent-config", "mcp-server", "skill", "skill-group"} {
 		gated = append(gated, []string{"add", subject})
 	}
-	for _, subject := range []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill"} {
+	for _, subject := range []string{"extension", "instruction", "hook", "agent-config", "mcp-server", "skill"} {
 		gated = append(gated, []string{"remove", subject})
 	}
 	gated = append(gated, []string{"unmanage", "extension"})
-	gated = append(gated, []string{"unmanage", "host-config"})
-	gated = append(gated, []string{"import", "host-config"}, []string{"replace", "host-config"}, []string{"migrate", "metadata"})
+	gated = append(gated, []string{"unmanage", "agent-config"})
+	gated = append(gated, []string{"import", "agent-config"}, []string{"replace", "agent-config"}, []string{"migrate", "metadata"})
 	for _, args := range gated {
 		if !requiresPlatformAdmission(args) {
 			t.Errorf("requiresPlatformAdmission(%#v) = false, want true", args)
@@ -521,12 +520,11 @@ func testPlatformAdmission(t *testing.T, goos string, goarch string) platformsup
 }
 
 func platformGatedCommandExamples(manifestPath string) [][]string {
-	return [][]string{
+	examples := [][]string{
+		{"add", "agent-config", "example", "./prefs.toml", "--manifest", manifestPath},
 		{"add", "skill", "example", "./skill", "--manifest", manifestPath},
 		{"apply", "--yes", "--manifest", manifestPath},
 		{"import", "--target", "codex", "--manifest", manifestPath},
-		{"import", "host-config", "example", "--manifest", manifestPath},
-		{"replace", "host-config", "example", "--manifest", manifestPath},
 		{"init", "--manifest", manifestPath},
 		{"lock", "--manifest", manifestPath},
 		{"outdated", "--manifest", manifestPath},
@@ -536,6 +534,9 @@ func platformGatedCommandExamples(manifestPath string) [][]string {
 		{"refresh", "extension", "example", "--yes", "--manifest", manifestPath},
 		{"remove", "skill", "example", "--manifest", manifestPath},
 		{"unmanage", "extension", "example", "--manifest", manifestPath},
-		{"unmanage", "host-config", "example", "--manifest", manifestPath},
 	}
+	for _, verb := range []string{"remove", "import", "unmanage", "replace"} {
+		examples = append(examples, []string{verb, "agent-config", "example", "--manifest", manifestPath})
+	}
+	return examples
 }

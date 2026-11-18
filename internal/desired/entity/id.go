@@ -18,13 +18,13 @@ const (
 	KindInstructions Kind = "instructions"
 	KindMCPServer    Kind = "mcp_server"
 	KindExtension    Kind = "extension"
-	KindHostConfig   Kind = "host_config"
+	KindAgentConfig  Kind = "agent_config"
 )
 
 // ParseKind validates a desired family kind.
 func ParseKind(value string) (Kind, error) {
 	switch Kind(value) {
-	case KindSkill, KindHook, KindHookAsset, KindInstructions, KindMCPServer, KindExtension, KindHostConfig:
+	case KindSkill, KindHook, KindHookAsset, KindInstructions, KindMCPServer, KindExtension, KindAgentConfig:
 		return Kind(value), nil
 	default:
 		return "", fmt.Errorf("unknown desired entity kind %q", value)

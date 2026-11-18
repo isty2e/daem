@@ -38,7 +38,7 @@ func nativeWholeRefreshFixture(t *testing.T, selected target.Target, extensionSc
 	}
 	source := filepath.Join(f.Workspace, "whole"+filepath.Ext(name))
 	testkit.WriteFile(t, f.Workspace, filepath.Base(source), content)
-	body := fmt.Sprintf("version=1\ntargets=['pi','codex']\n[[extension]]\nid='tools'\ntargets=['pi']\ncarrier='pi-package'\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n[[host_config]]\nid='preferences'\ntargets=['pi']\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n\n[[host_config]]\nid='whole'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership='document'\n", extensionScope, extensionScope, filepath.Join(f.Workspace, "preferences.json"), selected, wholeScope, name, source)
+	body := fmt.Sprintf("version=1\ntargets=['pi','codex']\n[[extension]]\nid='tools'\ntargets=['pi']\ncarrier='pi-package'\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n[[agent_config]]\nid='preferences'\ntargets=['pi']\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n\n[[agent_config]]\nid='whole'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership='document'\n", extensionScope, extensionScope, filepath.Join(f.Workspace, "preferences.json"), selected, wholeScope, name, source)
 	testkit.WriteFile(t, f.Workspace, "daem.toml", body)
 	f.Require(t, "lock")
 	paths, err := daempaths.Resolve(f.Manifest)
@@ -234,7 +234,7 @@ func TestNativeWholeRefreshPreservesRetiringAndCrossScopeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Require(t, "refresh", "extension", "tools", "--yes")
-	body, _, present := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[host_config]]\nid='whole'")
+	body, _, present := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[agent_config]]\nid='whole'")
 	if !present {
 		t.Fatal("whole Refresh fixture has no unique declaration")
 	}
@@ -257,7 +257,7 @@ func TestNativeWholeClaimRefusesPhysicalHostSettingsAliasBeforeRefresh(t *testin
 	for _, scope := range []target.Scope{target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			f := newNativePiRefreshFixture(t, scope, "")
-			base, _, present := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[host_config]]")
+			base, _, present := strings.Cut(string(testkit.ReadFile(t, f.Manifest)), "\n[[agent_config]]")
 			if !present {
 				t.Fatal("Pi Refresh fixture has no key declaration")
 			}
@@ -272,7 +272,7 @@ func TestNativeWholeClaimRefusesPhysicalHostSettingsAliasBeforeRefresh(t *testin
 				t.Fatal(err)
 			}
 			testkit.WriteFile(t, f.Workspace, "whole.jsonc", string(testkit.ReadFile(t, f.Settings)))
-			body := base + fmt.Sprintf("\n[[host_config]]\nid='whole'\nscope=%q\npath='alias/settings.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.jsonc"))
+			body := base + fmt.Sprintf("\n[[agent_config]]\nid='whole'\nscope=%q\npath='alias/settings.json'\nsource=%q\nownership='document'\n", scope, filepath.Join(f.Workspace, "whole.jsonc"))
 			testkit.WriteFile(t, f.Workspace, "daem.toml", body)
 			f.Require(t, "lock")
 			paths, err := daempaths.Resolve(f.Manifest)
@@ -352,7 +352,7 @@ func TestNativeWholeRefreshProcessLossKeepsFenceUntilRecovery(t *testing.T) {
 	if err != nil || len(registry.PendingProtections()) != 1 || registry.PendingProtections()[0].Phase() != ownership.ProtectionBound || len(registry.PendingProtections()[0].Documents()) != 2 {
 		t.Fatal("lost whole Refresh did not preserve its complete bound fence", err)
 	}
-	withoutDeclarations, _, present := strings.Cut(body, "\n[[host_config]]")
+	withoutDeclarations, _, present := strings.Cut(body, "\n[[agent_config]]")
 	if !present {
 		t.Fatal("whole Refresh fixture has no native declarations")
 	}

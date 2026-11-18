@@ -91,7 +91,7 @@ func localEntityArtifactSourceAuthorityPaths(
 }
 
 func resolveManagedMutationPath(planned commandPlan, subject topology.SubjectID, destination output.Destination) (string, error) {
-	if aggregate.IsHostConfigDocumentSubject(subject) {
+	if aggregate.IsAgentConfigDocumentSubject(subject) {
 		request, _, err := nativeWholeAuthorityRequestFor(planned.assessment.NativeApproval, subject, destination)
 		return request.Path, err
 	}
@@ -100,12 +100,12 @@ func resolveManagedMutationPath(planned commandPlan, subject topology.SubjectID,
 
 func nativeWholeAuthorityRequestFor(evidence []journalobservation.ApprovalEvidence, subject topology.SubjectID, destination output.Destination) (mutation.PhysicalAuthorityRequest, mutation.DirectoryEntryAuthorityObservation, error) {
 	identity, native := topologyprojection.EntityID(subject)
-	if !native || !aggregate.IsHostConfigDocumentSubject(subject) {
+	if !native || !aggregate.IsAgentConfigDocumentSubject(subject) {
 		return mutation.PhysicalAuthorityRequest{}, mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf("native whole-file authority requires its native subject")
 	}
 	for _, group := range evidence {
 		for _, alias := range group.Aliases {
-			expected, err := aggregate.HostConfigDocumentSubject(identity, alias.Target(), alias.Scope())
+			expected, err := aggregate.AgentConfigDocumentSubject(identity, alias.Target(), alias.Scope())
 			if err == nil && expected == subject && alias.AggregateRoot() == destination {
 				request, err := group.AuthorityRequest(alias)
 				return request, group.Authority, err
@@ -150,7 +150,7 @@ func hostMutationPaths(planned commandPlan) ([]string, error) {
 				}
 			}
 			if !qualified {
-				if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
+				if _, native := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID()); native {
 					return nil, fmt.Errorf("native aggregate mutation has no selected namespace")
 				}
 				path, err = destinationResolver(planned.context.Paths).Resolve(address.AggregateRoot(), planned.context.physicalBudget)

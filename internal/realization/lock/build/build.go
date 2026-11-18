@@ -31,7 +31,7 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 	if err := environment.Validate(); err != nil {
 		return lock.File{}, fmt.Errorf("desired environment: %w", err)
 	}
-	if len(environment.HostConfigs()) > 0 {
+	if len(environment.AgentConfigs()) > 0 {
 		return lock.File{}, fmt.Errorf("host configuration is not supported by this lock builder")
 	}
 	return buildResolved(ctx, environment, resolver, options, nil, configdocument.Limits{})

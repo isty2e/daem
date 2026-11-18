@@ -171,7 +171,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	}
 	nativeOperations := make([]profile.NativeAggregateOperationContract, 0)
 	for _, decision := range input.Aggregates {
-		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); !native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID()); !native {
 			continue
 		}
 		operation, present := decision.NativeOperationContract()
@@ -389,11 +389,11 @@ func validateNativeAggregateStateInputs(before nativeApplyStateIndexes, effects 
 func nativeWholeStateSources(sources []lock.LockedSubjectContract) (map[entity.ID]nativeWholeStateSource, error) {
 	result := make(map[entity.ID]nativeWholeStateSource, len(sources))
 	for _, source := range sources {
-		placement, present := source.HostConfigPlacement()
+		placement, present := source.AgentConfigPlacement()
 		if !present {
 			return nil, fmt.Errorf("native whole source placement is required")
 		}
-		projection, err := lock.NewHostConfigDocumentSubjectContract(source.EntityID(), placement)
+		projection, err := lock.NewAgentConfigDocumentSubjectContract(source.EntityID(), placement)
 		if err != nil {
 			return nil, err
 		}
@@ -421,14 +421,14 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			return nil, err
 		}
 		id, entityBacked := topologyprojection.EntityID(effect.Subject())
-		if !entityBacked || id.Kind() != entity.KindHostConfig || effect.Kind() == ManagedPathEffectRemove {
+		if !entityBacked || id.Kind() != entity.KindAgentConfig || effect.Kind() == ManagedPathEffectRemove {
 			continue
 		}
 		source, present := sources[id]
 		if !present || source.projection.SubjectID() != effect.Subject() {
 			return nil, fmt.Errorf("native whole effect lacks its admitted source projection")
 		}
-		placement, _ := source.source.HostConfigPlacement()
+		placement, _ := source.source.AgentConfigPlacement()
 		materialized, materializedFile := source.source.MaterializedFileIdentity()
 		realization, _ := source.projection.Realization()
 		projection, _ := realization.ManagedPathProjection()
@@ -446,7 +446,7 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			return nil, err
 		}
 		for _, state := range before.documents[document] {
-			owner, _, native := topologyprojection.HostConfigKeyIdentity(state.Subject())
+			owner, _, native := topologyprojection.AgentConfigKeyIdentity(state.Subject())
 			if !native || owner != id {
 				return nil, fmt.Errorf("native whole adoption would cover another projection's ownership")
 			}

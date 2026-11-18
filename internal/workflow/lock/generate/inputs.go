@@ -47,7 +47,7 @@ func ConsumedLocalPaths(input Input) ([]string, error) {
 			return nil, err
 		}
 	}
-	for _, config := range input.Environment.HostConfigs() {
+	for _, config := range input.Environment.AgentConfigs() {
 		if err := addResolvedSource(config.Source()); err != nil {
 			return nil, err
 		}

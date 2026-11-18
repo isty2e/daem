@@ -18,7 +18,7 @@ func reconcileAggregateDocument(
 	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
 	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
-	replacement *topologyprojection.HostConfigKeySelection,
+	replacement *topologyprojection.AgentConfigKeySelection,
 	owner stateauthority.Authority,
 	ownershipEvidence map[ownershipObservationKey]observe.OwnershipObservation,
 	ownershipConflicts map[ownershipObservationKey]struct{},
@@ -50,7 +50,7 @@ func reconcileAggregateDocumentSemantics(
 	failuresByDocument map[aggregate.DocumentCodecKey]observe.AggregateObservationFailure,
 	preconditionsByDocument map[aggregate.DocumentCodecKey][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
-	replacement *topologyprojection.HostConfigKeySelection,
+	replacement *topologyprojection.AgentConfigKeySelection,
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
 	coverage, err := newAggregateDocumentCoverage(groups)
@@ -105,7 +105,7 @@ func reconcileAggregateDocumentSemantics(
 	}
 	var nativeOperation *profile.NativeAggregateOperationContract
 	var operationPreconditions []aggregate.OperationPrecondition
-	if _, native := aggregate.HostConfigSyntaxForCodec(decisionSelection.CodecContractID()); native {
+	if _, native := aggregate.AgentConfigSyntaxForCodec(decisionSelection.CodecContractID()); native {
 		operation, err := profile.NewNativeAggregateOperationContract(codecs, decisionSelection)
 		if err != nil {
 			return aggregateDecision{}, err
@@ -290,7 +290,7 @@ func prepareAggregateProjection(
 	codec aggregate.Codec,
 	group aggregateGroupInput,
 	current aggregate.ProjectionState,
-	replacement *topologyprojection.HostConfigKeySelection,
+	replacement *topologyprojection.AgentConfigKeySelection,
 ) (aggregateProjectionDecision, aggregate.ProjectionIntent, error) {
 	desired, err := aggregateContributionSet(group.desired)
 	if err != nil {
@@ -316,7 +316,7 @@ func prepareAggregateProjection(
 		}
 		projection.managedBaseline = previousProjection
 		projection.hasManagedBaseline = true
-		_, native := aggregate.HostConfigSyntaxForCodec(group.contract.CodecContractID())
+		_, native := aggregate.AgentConfigSyntaxForCodec(group.contract.CodecContractID())
 		if replacement == nil && !current.Present() && (!native || desired != nil) {
 			return blockAggregateProjection(
 				projection,

@@ -65,7 +65,7 @@ func nativeWireRealization(t testing.TB, key output.KeyPath) realization.Realiza
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}

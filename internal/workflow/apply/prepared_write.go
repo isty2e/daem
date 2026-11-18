@@ -181,7 +181,7 @@ func cloneCommandResult(result CommandResult) CommandResult {
 	cloned := result
 	cloned.CarrierHandoffProgress = cloneCarrierHandoffProgress(result.CarrierHandoffProgress)
 	cloned.Reconciliation = result.Reconciliation.Clone()
-	cloned.HostConfigDeclarations = slices.Clone(result.HostConfigDeclarations)
+	cloned.AgentConfigDeclarations = slices.Clone(result.AgentConfigDeclarations)
 	cloned.DelegateAttempts = append([]DelegateAttemptResult(nil), result.DelegateAttempts...)
 	cloned.RelationOrderResults = append(
 		[]RelationOrderExecutionResult(nil),

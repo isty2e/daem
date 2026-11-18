@@ -145,25 +145,25 @@ func TestMCPJSONAggregateAlgorithmsRejectMalformedAndDuplicateAggregateKeys(t *t
 	}
 }
 
-func TestMCPJSONAggregateAlgorithmsRejectInvalidServerIDBeforeParsingHostConfig(t *testing.T) {
+func TestMCPJSONAggregateAlgorithmsRejectInvalidServerIDBeforeParsingAgentConfig(t *testing.T) {
 	for _, tc := range mcpJSONAggregateCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
-			malformedHostConfig := fmt.Appendf(nil, `{"%s":`, tc.parentKey)
+			malformedAgentConfig := fmt.Appendf(nil, `{"%s":`, tc.parentKey)
 			canonical := mustMCPJSONCanonicalEntry(t, tc, "context7")
 
-			_, err := tc.merge(malformedHostConfig, "bad/server", canonical)
+			_, err := tc.merge(malformedAgentConfig, "bad/server", canonical)
 			assertMCPProjectionReason(t, err, MCPProjectionReasonProjectionEquivalenceUndefined)
 
-			_, err = tc.remove(malformedHostConfig, "bad/server")
+			_, err = tc.remove(malformedAgentConfig, "bad/server")
 			assertMCPProjectionReason(t, err, MCPProjectionReasonProjectionEquivalenceUndefined)
 
-			_, _, err = tc.restoreRemove(malformedHostConfig, "bad/server", true)
+			_, _, err = tc.restoreRemove(malformedAgentConfig, "bad/server", true)
 			assertMCPProjectionReason(t, err, MCPProjectionReasonProjectionEquivalenceUndefined)
 
-			_, _, err = tc.extractBytes(malformedHostConfig, "bad/server")
+			_, _, err = tc.extractBytes(malformedAgentConfig, "bad/server")
 			assertMCPProjectionReason(t, err, MCPProjectionReasonProjectionEquivalenceUndefined)
 
-			_, err = tc.entryPresent(malformedHostConfig, "bad/server")
+			_, err = tc.entryPresent(malformedAgentConfig, "bad/server")
 			assertMCPProjectionReason(t, err, MCPProjectionReasonProjectionEquivalenceUndefined)
 		})
 	}

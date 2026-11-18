@@ -24,7 +24,7 @@ func DocumentLimits() configdocument.Limits {
 }
 
 func ResolveSourceEpoch(ctx context.Context, paths daempaths.Paths, environment desired.Environment, file lock.File, selection targetselection.Selection) (lockobserve.SourceEpoch, error) {
-	if file.ContainsHostConfig() {
+	if file.ContainsAgentConfig() {
 		return lockobserve.ResolveNativeDocumentSourceEpoch(ctx, paths, environment, file, selection, DocumentLimits())
 	}
 	return lockobserve.ResolveSourceEpoch(ctx, paths, environment, file, selection)

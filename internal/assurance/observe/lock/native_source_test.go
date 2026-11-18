@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	lockmodel "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/target"
@@ -29,12 +29,12 @@ func TestNativeSourceObservationPreservesWholeAndEmptyKeyIntent(t *testing.T) {
 			t.Fatal("actual selected native source did not produce its bound intent", err)
 		}
 		exact, _ := fixture.locked.Locked.ExactSupplySubject(fixture.resource.ID())
-		placement, _ := observed.SourceContract().HostConfigPlacement()
+		placement, _ := observed.SourceContract().AgentConfigPlacement()
 		if !observed.SourceContract().Equal(exact) || observed.SourceContract().EntityID() != fixture.resource.ID() || placement.Ownership() != fixture.resource.Ownership() {
 			t.Fatal("native source identity or explicit ownership mode was lost")
 		}
 		desired, whole, err := observed.DesiredWholeState()
-		if err != nil || whole != (placement.Ownership() == hostconfig.OwnershipDocument) {
+		if err != nil || whole != (placement.Ownership() == agentconfig.OwnershipDocument) {
 			t.Fatal("desired whole-state projection changed the explicit source mode", err)
 		}
 		if whole {
@@ -71,13 +71,13 @@ func TestNativeSourceObservationRefusesOtherEpochInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, spec := range []hostconfig.Spec{
-		{Name: "native", Source: fixture.resource.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "other.json", Ownership: hostconfig.OwnershipKeys},
-		{Name: "native", Source: fixture.resource.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: hostconfig.OwnershipDocument},
-		{Name: "native", Source: otherSource, Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: hostconfig.OwnershipKeys},
-		{Name: "other", Source: fixture.resource.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: hostconfig.OwnershipKeys},
+	for _, spec := range []agentconfig.Spec{
+		{Name: "native", Source: fixture.resource.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "other.json", Ownership: agentconfig.OwnershipKeys},
+		{Name: "native", Source: fixture.resource.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: agentconfig.OwnershipDocument},
+		{Name: "native", Source: otherSource, Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: agentconfig.OwnershipKeys},
+		{Name: "other", Source: fixture.resource.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "custom.json", Ownership: agentconfig.OwnershipKeys},
 	} {
-		resource, err := hostconfig.New(spec)
+		resource, err := agentconfig.New(spec)
 		if err != nil {
 			t.Fatal(err)
 		}

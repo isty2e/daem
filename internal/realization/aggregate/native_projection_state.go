@@ -35,7 +35,7 @@ func (state ProjectionState) Equal(other ProjectionState) bool {
 // SameManagedProjection excludes outer-root presence for native keys and Hooks.
 // Other codecs retain their managed container's presence as selected state.
 func (state ProjectionState) SameManagedProjection(other ProjectionState) bool {
-	_, native := HostConfigSyntaxForCodec(state.contract.codecContractID)
+	_, native := AgentConfigSyntaxForCodec(state.contract.codecContractID)
 	_, hook := HookPlacementForCodec(state.contract.codecContractID)
 	if native || hook {
 		return state.SelectedValueEqual(other)

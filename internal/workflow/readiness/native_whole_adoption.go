@@ -7,7 +7,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile/build/projection"
 )
@@ -25,8 +25,8 @@ func PrepareNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionIn
 		return projection.NativeWholeAdoptionPlan{}, err
 	}
 	source := input.Source.SourceContract()
-	placement, present := source.HostConfigPlacement()
-	if !present || placement.Ownership() != hostconfig.OwnershipDocument {
+	placement, present := source.AgentConfigPlacement()
+	if !present || placement.Ownership() != agentconfig.OwnershipDocument {
 		return projection.NativeWholeAdoptionPlan{}, fmt.Errorf("whole adoption requires an observed whole-file source")
 	}
 	claims, err := input.Documents.Evidence().Ownership(ctx)
@@ -41,7 +41,7 @@ func PrepareNativeWholeAdoption(ctx context.Context, input NativeWholeAdoptionIn
 	if err != nil {
 		return projection.NativeWholeAdoptionPlan{}, err
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(source.EntityID(), placement.Target(), placement.Scope())
+	subject, err := aggregate.AgentConfigDocumentSubject(source.EntityID(), placement.Target(), placement.Scope())
 	if err != nil {
 		return projection.NativeWholeAdoptionPlan{}, err
 	}

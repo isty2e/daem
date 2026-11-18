@@ -21,7 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	"github.com/isty2e/daem/test/testkit/stateimage"
 
@@ -59,7 +59,7 @@ import (
 type nativePreparationFixture struct {
 	input        NativeSourcePreparationInput
 	observation  journalobservation.Input
-	config       hostconfig.Config
+	config       agentconfig.Config
 	paths        daempaths.Paths
 	sourcePath   string
 	hostPath     string
@@ -82,7 +82,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := hostconfig.New(hostconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: nativePath, Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	config, err := agentconfig.New(agentconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: nativePath, Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, HostConfigs: []hostconfig.Config{config}})
+	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, AgentConfigs: []agentconfig.Config{config}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: scope, Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: scope, Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	original := []byte(`{"a":1,"released":9}`)
 	hostPath := filepath.Join(selectedRoot, filepath.FromSlash(placement.Destination().RelativePath()))
 	requireNativePreparationFile(t, hostPath, original)
-	subject, err := aggregate.HostConfigDocumentSubject(config.ID(), config.Target(), scope)
+	subject, err := aggregate.AgentConfigDocumentSubject(config.ID(), config.Target(), scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func newNativePreparationFixtureAt(t *testing.T, scope target.Scope, fragment, n
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecID, _ := aggregate.HostConfigCodecForSyntax("json")
+	codecID, _ := aggregate.AgentConfigCodecForSyntax("json")
 	contributions, err := aggregatecodec.ForContributions(t.Context(), []aggregate.CodecContractID{codecID}, narrowingLimits)
 	if err != nil {
 		t.Fatal(err)
@@ -331,15 +331,15 @@ func TestNativeSourcePreparationFailureHasNoUsablePrefix(t *testing.T) {
 
 func TestNativeSourcePreparationPreservesOtherRowsInCompleteBefore(t *testing.T) {
 	fixture := newNativePreparationFixture(t, target.ScopeProject, `{}`)
-	config, err := hostconfig.New(hostconfig.Spec{Name: "removed-declaration", Source: fixture.config.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "extension-settings/old.json", Ownership: hostconfig.OwnershipDocument})
+	config, err := agentconfig.New(agentconfig.Spec{Name: "removed-declaration", Source: fixture.config.Source(), Target: target.TargetPi, Scope: target.ScopeProject, Path: "extension-settings/old.json", Ownership: agentconfig.OwnershipDocument})
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
+	subject, err := aggregate.AgentConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
 	if err != nil {
 		t.Fatal(err)
 	}

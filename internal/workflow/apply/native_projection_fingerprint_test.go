@@ -12,7 +12,7 @@ import (
 )
 
 func TestAggregateApprovalFactsDistinguishMissingAndBlockingAncestors(t *testing.T) {
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, "a", "b", "c"), "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, "a", "b", "c"), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}

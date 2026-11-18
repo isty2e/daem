@@ -24,7 +24,7 @@ func nativePiLastKeyRetirementFixture(t *testing.T, scope target.Scope, omitted 
 	fixture.Require(t, "apply", "--yes")
 	if omitted {
 		manifest := string(testkit.ReadFile(t, fixture.Manifest))
-		index := strings.LastIndex(manifest, "[[host_config]]")
+		index := strings.LastIndex(manifest, "[[agent_config]]")
 		if index < 0 {
 			t.Fatal("fixture native declaration is missing")
 		}
@@ -58,7 +58,7 @@ func TestNativePiLastKeyRetirementFollowsInvocation(t *testing.T) {
 					t.Fatal(err)
 				}
 				state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
-				if err != nil || state.ContainsHostConfig() {
+				if err != nil || state.ContainsAgentConfig() {
 					t.Fatal("last native key remained managed after its suffix", err)
 				}
 				store, err := ownershipstore.New(paths.OwnershipRegistryPath)
@@ -113,7 +113,7 @@ func TestNativePiRetiringMissingDocumentNeedsNoDummyProtection(t *testing.T) {
 		t.Fatal("an absent retiring document manufactured safety work", err)
 	}
 	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, fixture.LaunchState))
-	if err != nil || len(state.PendingCarrierInstalls()) != 1 || !state.ContainsHostConfig() {
+	if err != nil || len(state.PendingCarrierInstalls()) != 1 || !state.ContainsAgentConfig() {
 		t.Fatal("unprotected invocation lost correlation or its retiring baseline", err)
 	}
 	nativefixture.RequireSharedValues(t, configdocument.JSON, testkit.ReadFile(t, fixture.Settings), `{"theme":"fixture-theme"}`, false)

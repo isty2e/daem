@@ -35,7 +35,7 @@ func buildNativeAggregatePhase(ctx context.Context, decisions []reconcile.Aggreg
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if _, native := aggregate.HostConfigSyntaxForCodec(source.CodecContractID()); !native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(source.CodecContractID()); !native {
 			if !positive {
 				result = append(result, source)
 			}

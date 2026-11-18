@@ -66,7 +66,7 @@ func newNativeDocumentTransitionFixture(t *testing.T, selected target.Target, sc
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.declaration = fmt.Sprintf("version=1\ntargets=[%q]\n[[host_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", selected, selected, scope, name, f.source)
+	f.declaration = fmt.Sprintf("version=1\ntargets=[%q]\n[[agent_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", selected, selected, scope, name, f.source)
 	testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.original)
 	f.writeMode(t, "document")
 	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
@@ -90,8 +90,8 @@ func (f nativeDocumentTransitionFixture) applyWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := declaration.HostConfigs()[0]
-	expected, err := aggregate.HostConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
+	config := declaration.AgentConfigs()[0]
+	expected, err := aggregate.AgentConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
 	if err != nil || snapshot.ManagedPaths()[0].Subject() != expected || snapshot.ManagedPaths()[0].ContentHash() != artifact.HashFileContent([]byte(f.original)) {
 		t.Fatal("real producer lost canonical placement identity or actual hash", err)
 	}

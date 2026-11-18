@@ -92,8 +92,8 @@ func TestMixedDocumentCodecFailureDoesNotEraseOtherCodecEvidence(t *testing.T) {
 func TestMixedDocumentCodecsRejectUnselectedCodecAtKnownDocument(t *testing.T) {
 	input := mixedDocumentCodecsInput(t)
 	base := input.States[0].Contribution().Contract()
-	id, _ := aggregate.HostConfigCodecForSyntax("json")
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, base.Address().Document().AggregateRoot(), base.Address().Footprint(), id)
+	id, _ := aggregate.AgentConfigCodecForSyntax("json")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, base.Address().Document().AggregateRoot(), base.Address().Footprint(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestMixedDocumentCodecsRejectUnselectedCodecAtKnownDocument(t *testing.T) {
 
 func mixedDocumentCodecsInput(t *testing.T) AggregateInput {
 	t.Helper()
-	nativeID, _ := aggregate.HostConfigCodecForSyntax("toml")
+	nativeID, _ := aggregate.AgentConfigCodecForSyntax("toml")
 	limits := configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}
 	catalog, err := aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{nativeID, aggregate.MCPCodecCodexProjectStdioCommand}, limits, limits)
 	if err != nil {
@@ -138,15 +138,15 @@ func mixedDocumentCodecsInput(t *testing.T) AggregateInput {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, outputtest.Parse(t, ".codex/config.toml"), footprint, nativeID)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, outputtest.Parse(t, ".codex/config.toml"), footprint, nativeID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	nativeSubject, err := topologyprojection.HostConfigKeySubject(id, target.TargetCodex, target.ScopeProject, key)
+	nativeSubject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetCodex, target.ScopeProject, key)
 	if err != nil {
 		t.Fatal(err)
 	}

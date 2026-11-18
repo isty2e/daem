@@ -99,11 +99,11 @@ func TestNativeNarrowingPlanUsesBoundWholeDocumentAndRecordedOwner(t *testing.T)
 		t.Fatal("changed document exposed a partial update plan")
 	}
 
-	id, err := entity.New(entity.KindHostConfig, "another-owner")
+	id, err := entity.New(entity.KindAgentConfig, "another-owner")
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := aggregate.HostConfigPlacementID(target.TargetPi, target.ScopeGlobal)
+	placement, err := aggregate.AgentConfigPlacementID(target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestNativeNarrowingPlanUsesBoundWholeDocumentAndRecordedOwner(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherPlacement, err := aggregate.HostConfigPlacementID(target.TargetCodex, target.ScopeGlobal)
+	otherPlacement, err := aggregate.AgentConfigPlacementID(target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,13 +150,13 @@ func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecID, _ := aggregate.HostConfigCodecForSyntax("json")
+	codecID, _ := aggregate.AgentConfigCodecForSyntax("json")
 	limits := configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}
 	codec, err := nativecodec.New(t.Context(), codecID, limits, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codecID)
+		contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, footprint, codecID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +194,7 @@ func nativeNarrowingPlanFixture(t *testing.T, currentText, destination string) (
 		if err != nil {
 			t.Fatal(err)
 		}
-		subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, state.Contract().Address().KeyPath())
+		subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, state.Contract().Address().KeyPath())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,11 +218,11 @@ func nativeNarrowingRecordedState(t *testing.T, observation aggregate.DocumentOb
 		t.Fatal(err)
 	}
 	document := selection.DocumentAddress()
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := aggregate.HostConfigPlacementID(document.Target(), document.Scope())
+	placement, err := aggregate.AgentConfigPlacementID(document.Target(), document.Scope())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -46,7 +46,7 @@ func TestNativePiRefreshUsesBoundProtectionAndPreservesManagedKeys(t *testing.T)
 			testkit.AssertFileContent(t, fixture.Manifest, string(manifestBefore))
 			testkit.AssertFileContent(t, lockPath, string(lockBefore))
 			snapshot, err := statefile.LoadOptional(t.Context(), filepath.Join(fixture.Workspace, ".daem", "state.json"))
-			if err != nil || !snapshot.ContainsHostConfig() {
+			if err != nil || !snapshot.ContainsAgentConfig() {
 				t.Fatal("refresh history discarded native state", err)
 			}
 			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
@@ -277,7 +277,7 @@ func TestNativePiRefreshProtectsBothSettingsLayersAndAllowsItsPackageRows(t *tes
 	testkit.WriteFile(t, agent, "settings.json", `{"foreign":{"retained":true},"packages":["git:github.com/acme/pi-tools@v1"]}`)
 	globalSource := filepath.Join(fixture.Workspace, "global-preferences.json")
 	testkit.WriteFile(t, fixture.Workspace, "global-preferences.json", `{"theme":"global-theme"}`)
-	body := string(testkit.ReadFile(t, fixture.Manifest)) + fmt.Sprintf("\n[[host_config]]\nid='global-preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", globalSource)
+	body := string(testkit.ReadFile(t, fixture.Manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='global-preferences'\nscope='global'\npath='settings.json'\nsource=%q\nownership='keys'\n", globalSource)
 	testkit.WriteFile(t, fixture.Workspace, "daem.toml", body)
 	fixture.Require(t, "lock")
 	fixture.Require(t, "apply", "--yes", "--json")

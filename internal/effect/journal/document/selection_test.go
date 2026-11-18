@@ -138,7 +138,7 @@ func TestDocumentSelectionRejectsInvalidRefsWithoutPartialOutput(t *testing.T) {
 		})
 	}
 
-	changedContract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, row.Contribution().Contract().Address().Document().AggregateRoot(), row.Contribution().Contract().Address().Footprint(), "native-jsonc-v1")
+	changedContract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, row.Contribution().Contract().Address().Document().AggregateRoot(), row.Contribution().Contract().Address().Footprint(), "native-jsonc-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestDocumentSelectionReconstructsNativeAndMCPCodecsIndependently(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	nativeContract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, mcpContract.Address().Document().AggregateRoot(), footprint, "native-toml-v1")
+	nativeContract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, mcpContract.Address().Document().AggregateRoot(), footprint, "native-toml-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +295,7 @@ func piSelectionContract(t *testing.T, destination string, parts ...string) aggr
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, root, footprint, "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, root, footprint, "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,12 +304,12 @@ func piSelectionContract(t *testing.T, destination string, parts ...string) aggr
 
 func selectionNativeRow(t *testing.T, contract aggregate.ProjectionContract, value string) durable.ManagedAggregateState {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
 	address := contract.Address()
-	subject, err := topologyprojection.HostConfigKeySubject(id, address.Document().Target(), address.Document().Scope(), address.KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, address.Document().Target(), address.Document().Scope(), address.KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

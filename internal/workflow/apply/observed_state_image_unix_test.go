@@ -33,7 +33,7 @@ func TestApplyWorkflowsPreserveObservedStateImageAndAlias(t *testing.T) {
 			paths := applyTestPaths(t, root)
 			host := filepath.Join(root, "AGENTS.md")
 			if native {
-				writeApplyFile(t, paths.ManifestPath, "version=1\ntargets=['pi']\n[[host_config]]\nid='preferences'\nscope='project'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n")
+				writeApplyFile(t, paths.ManifestPath, "version=1\ntargets=['pi']\n[[agent_config]]\nid='preferences'\nscope='project'\npath='settings.json'\nsource='./preferences.json'\nownership='keys'\n")
 				writeApplyFile(t, filepath.Join(root, "preferences.json"), `{"theme":"located-state"}`)
 				if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: paths.ManifestPath}); err != nil {
 					t.Fatal(err)
@@ -51,7 +51,7 @@ func TestApplyWorkflowsPreserveObservedStateImageAndAlias(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer prepared.Close()
-			if prepared.Reconciliation.ContainsHostConfig() != native {
+			if prepared.Reconciliation.ContainsAgentConfig() != native {
 				t.Fatal("fixture did not select its intended apply writer")
 			}
 			result, err := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{PlanWasDisclosed: true})

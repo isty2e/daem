@@ -130,7 +130,7 @@ func TestDocumentComparisonJoinsRealMCPAndNativeReaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nativeContract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, destination, footprint, native.ContractID())
+	nativeContract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, destination, footprint, native.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func comparisonParticipant(t *testing.T, parts ...string) compose.Participant {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func comparisonParticipant(t *testing.T, parts ...string) compose.Participant {
 
 func comparisonNativeCodec(t *testing.T, syntax configdocument.Syntax) aggregate.Codec {
 	t.Helper()
-	id, found := aggregate.HostConfigCodecForSyntax(syntax.String())
+	id, found := aggregate.AgentConfigCodecForSyntax(syntax.String())
 	if !found {
 		t.Fatal("fixture native grammar unavailable")
 	}

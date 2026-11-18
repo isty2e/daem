@@ -16,9 +16,9 @@ func Participant(selection aggregate.Selection, codecs aggregate.CodecCatalog) (
 	if !found {
 		return compose.Participant{}, fmt.Errorf("document selection codec is not admitted by the operation")
 	}
-	if _, native := aggregate.HostConfigSyntaxForCodec(selection.CodecContractID()); native {
+	if _, native := aggregate.AgentConfigSyntaxForCodec(selection.CodecContractID()); native {
 		for _, contract := range selection.Contracts() {
-			if _, err := profile.HostConfigPlacementForContract(contract); err != nil {
+			if _, err := profile.AgentConfigPlacementForContract(contract); err != nil {
 				return compose.Participant{}, err
 			}
 		}

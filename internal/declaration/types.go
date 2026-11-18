@@ -11,7 +11,7 @@ const (
 	KindHookAsset    Kind = "hook_asset"
 	KindInstructions Kind = "instructions"
 	KindMCPServer    Kind = "mcp_server"
-	KindHostConfig   Kind = "host_config"
+	KindAgentConfig  Kind = "agent_config"
 )
 
 type Key struct {

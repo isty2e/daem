@@ -4,6 +4,8 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 )
 
+const AgentConfigResourceName = "agent-config"
+
 // ResourceKindName uses authoring vocabulary without implying a command route.
 func ResourceKindName(kind entity.Kind) string {
 	switch kind {
@@ -11,6 +13,8 @@ func ResourceKindName(kind entity.Kind) string {
 		return "instruction"
 	case entity.KindMCPServer:
 		return "mcp-server"
+	case entity.KindAgentConfig:
+		return AgentConfigResourceName
 	default:
 		return string(kind)
 	}

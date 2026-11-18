@@ -26,13 +26,13 @@ func prepareInvocation(args []string, stdout, stderr io.Writer, options commandO
 		}
 		return nil
 	case "replace":
-		if len(args) > 1 && args[1] == "host-config" {
-			return prepareReplaceHostConfigInvocation(args[2:], stdout, stderr, options)
+		if len(args) > 1 && args[1] == agentConfigSubject {
+			return prepareReplaceAgentConfigInvocation(args[2:], stdout, stderr, options)
 		}
 		return nil
 	case "unmanage":
-		if len(args) > 1 && args[1] == "host-config" {
-			return prepareUnmanageHostConfigInvocation(options.context, args[2:], stdout, stderr)
+		if len(args) > 1 && args[1] == agentConfigSubject {
+			return prepareUnmanageAgentConfigInvocation(options.context, args[2:], stdout, stderr)
 		}
 		if len(args) > 1 && args[1] == "extension" {
 			return prepareUnmanageExtensionInvocation(options.context, args[2:], stdout, stderr)

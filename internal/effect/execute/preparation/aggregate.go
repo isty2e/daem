@@ -65,7 +65,7 @@ type AggregateSubjectEffect struct {
 // AggregateEffects admits ordinary executable and state-recording decisions.
 func AggregateEffects(decisions []reconcile.AggregateDecision) ([]AggregateEffect, error) {
 	for _, decision := range decisions {
-		if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID()); native {
 			return nil, ErrNativeOperationRequired
 		}
 	}
@@ -213,7 +213,7 @@ func (effect AggregateEffect) Validate() error {
 		!effect.evidence.Snapshot().Equal(effect.snapshot) {
 		return fmt.Errorf("aggregate effect evidence differs from planned before state")
 	}
-	if _, native := aggregate.HostConfigSyntaxForCodec(effect.codecContractID); native {
+	if _, native := aggregate.AgentConfigSyntaxForCodec(effect.codecContractID); native {
 		if !effect.hasNativeOperation || len(effect.preconditions) != 0 {
 			return fmt.Errorf("native aggregate effect requires its exact static operation contract")
 		}
@@ -273,7 +273,7 @@ func (projection AggregateProjectionEffect) validate(
 	if projection.expected.Present() != (projection.desired != nil) {
 		return fmt.Errorf("aggregate projection desired presence differs from expected state")
 	}
-	if _, native := aggregate.HostConfigSyntaxForCodec(projection.contract.CodecContractID()); native {
+	if _, native := aggregate.AgentConfigSyntaxForCodec(projection.contract.CodecContractID()); native {
 		for _, subject := range projection.subjects {
 			if err := aggregate.ValidateSubjectContract(subject.subject, projection.contract); err != nil {
 				return err
@@ -292,7 +292,7 @@ func (projection AggregateProjectionEffect) validate(
 			}
 		}
 	}
-	if _, native := aggregate.HostConfigSyntaxForCodec(projection.contract.CodecContractID()); native &&
+	if _, native := aggregate.AgentConfigSyntaxForCodec(projection.contract.CodecContractID()); native &&
 		projection.kind == AggregateEffectRecord && !before.Present() && !expected.Present() {
 		if len(projection.previous) == 0 || len(projection.subjects) != len(projection.previous) {
 			return fmt.Errorf("native absent retirement requires exact prior subject coverage")

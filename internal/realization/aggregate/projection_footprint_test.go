@@ -115,7 +115,7 @@ func testNativeProjectionContract(t testing.TB, scope output.Footprint) Projecti
 func testProjectionContractInput(t testing.TB, scope output.Footprint) ProjectionContractInput {
 	t.Helper()
 	return ProjectionContractInput{
-		PlacementID: "pi.host-config", Target: target.TargetPi, Scope: target.ScopeProject,
+		PlacementID: "pi.agent-config", Target: target.TargetPi, Scope: target.ScopeProject,
 		AggregateRoot: outputtest.Parse(t, ".pi/settings.json"), Footprint: scope,
 		MergeUnit: "native-key", Cardinality: ContributionExclusive,
 		SiblingRetention: PreserveUnmanagedSiblings, SiblingPreservation: PreserveSiblingsSemantic,

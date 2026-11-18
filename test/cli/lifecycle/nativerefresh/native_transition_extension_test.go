@@ -41,7 +41,7 @@ func nativeTransitionCommandFixture(t *testing.T, selected target.Target, scope 
 		t.Fatal(err)
 	}
 	g.RecoveryFixture = nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: filepath.Join(root, name), Paths: paths, Kind: "transition-command"}
-	g.declaration = fmt.Sprintf("version=1\ntargets=['pi','codex']\n[[extension]]\nid='tools'\ntargets=['pi']\ncarrier='pi-package'\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n[[host_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", scope, selected, scope, name, g.source)
+	g.declaration = fmt.Sprintf("version=1\ntargets=['pi','codex']\n[[extension]]\nid='tools'\ntargets=['pi']\ncarrier='pi-package'\nscope=%q\nsource={host_source='git:github.com/acme/pi-tools@v1'}\n[[agent_config]]\nid='prefs'\ntargets=[%q]\nscope=%q\npath=%q\nsource=%q\nownership=", scope, selected, scope, name, g.source)
 	testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
 	adoption := strings.HasPrefix(mode, "adopt")
 	if adoption {
