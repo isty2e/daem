@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -302,6 +303,10 @@ func buildManagedPathDecisions(
 		}
 		var decision managedPathDecision
 		switch {
+		case !current.Exists() && len(remaining) == 0 && aggregate.IsAgentConfigDocumentSubject(subject):
+			facts.ConsumerTargets = nil
+			facts.DesiredHash, facts.DesiredFileMode = "", 0
+			decision = newManagedPathDecision(facts, reconcile.ManagedPathRetireAbsent, reconcile.ReasonRemovedFromManifest, "")
 		case !current.Exists():
 			decision = newManagedPathBlocked(facts, reconcile.ReasonMissingOutput, "managed output is missing")
 		case current.ContentHash() != state.ContentHash():

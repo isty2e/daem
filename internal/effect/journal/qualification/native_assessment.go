@@ -142,20 +142,9 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		return Assessment{}, err
 	}
 	removals := append(rollback.ExpectedRemovals(), finalize.ExpectedRemovals()...)
-	var missingHistory []pathauthority.Provisional
-	for index := range qualified.Len() {
-		namespace, present := qualified.NamespaceAt(index)
-		if !present {
-			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
-		}
-		loaded, present := qualified.DocumentAt(index)
-		if !present {
-			return Assessment{}, fmt.Errorf("native recovery document facts are incomplete")
-		}
-		claims := loaded.Claims()
-		if missing, provisional := namespace.Observation().Provisional(); provisional && len(claims.Before())+len(claims.After()) != 0 {
-			missingHistory = append(missingHistory, missing)
-		}
+	missingHistory, err := qualified.MissingClaimNamespaces()
+	if err != nil {
+		return Assessment{}, err
 	}
 	var registry ownership.Registry
 	if len(missingHistory) == 0 {

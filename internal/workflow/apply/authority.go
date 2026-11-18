@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -267,9 +268,9 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		return addResolvedPath(request.Path, document.Scope(), document.AggregateRoot(), []target.Target{document.Target()}, physicalOccupancyAggregate, document.Target(), write)
 	}
 
-	addWholePath := func(scope target.Scope, destination output.Destination, consumers []target.Target, native bool) error {
+	addWholePath := func(scope target.Scope, destination output.Destination, consumers []target.Target, native, write bool) error {
 		if !native {
-			return addManagedPath(scope, destination, consumers, physicalOccupancyWholePath, "", true)
+			return addManagedPath(scope, destination, consumers, physicalOccupancyWholePath, "", write)
 		}
 		if len(consumers) != 1 {
 			return fmt.Errorf("native whole authority requires one consumer")
@@ -278,7 +279,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		if err != nil {
 			return err
 		}
-		return addNativeDocument(document, true)
+		return addNativeDocument(document, write)
 	}
 
 	for _, decision := range planned.assessment.Reconciliation.MutatingManagedPaths() {
@@ -288,11 +289,12 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			consumers = previous.ConsumerTargets()
 		}
 		native := aggregate.IsAgentConfigDocumentSubject(decision.Subject())
-		if err := addWholePath(decision.Scope(), decision.Destination(), consumers, native); err != nil {
+		write := decision.Kind() != reconcile.ManagedPathRetireAbsent
+		if err := addWholePath(decision.Scope(), decision.Destination(), consumers, native, write); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
 		if hasPrevious && (previous.Scope() != decision.Scope() || previous.Destination() != decision.Destination()) {
-			if err := addWholePath(previous.Scope(), previous.Destination(), previous.ConsumerTargets(), native); err != nil {
+			if err := addWholePath(previous.Scope(), previous.Destination(), previous.ConsumerTargets(), native, write); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
 		}

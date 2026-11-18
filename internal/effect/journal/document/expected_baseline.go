@@ -40,7 +40,7 @@ func (index SnapshotIndex) WholePath(subject topology.SubjectID) (durable.Manage
 	return row, found
 }
 
-func (after SnapshotIndex) ValidateExpectedBaselines(ctx context.Context, groups []StateGroup, codecs aggregate.CodecCatalog, images []ImageIdentity) error {
+func (indexes SnapshotIndexes) ValidateExpectedBaselines(ctx context.Context, groups []StateGroup, codecs aggregate.CodecCatalog, images []ImageIdentity) error {
 	if ctx == nil {
 		return fmt.Errorf("document state context is required")
 	}
@@ -50,7 +50,7 @@ func (after SnapshotIndex) ValidateExpectedBaselines(ctx context.Context, groups
 			aliases[alias] = index
 		}
 	}
-	for _, row := range after.aggregates {
+	for _, row := range indexes.after.aggregates {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -77,7 +77,7 @@ func (after SnapshotIndex) ValidateExpectedBaselines(ctx context.Context, groups
 			return fmt.Errorf("selected after baseline differs from the actual expected image")
 		}
 	}
-	for _, row := range after.paths {
+	for _, row := range indexes.after.paths {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -96,6 +96,15 @@ func (after SnapshotIndex) ValidateExpectedBaselines(ctx context.Context, groups
 				}
 				image := images[index]
 				mode, file := image.root.RegularFileMode()
+				comparison := groups[index].comparison
+				if !file && comparison.whole && !comparison.before.Exists() && !comparison.expected.Exists() &&
+					image.root.SameRootMetadata(comparison.expectedState) {
+					// An unchanged row can retain missing-path evidence for recovery.
+					// It does not acquire ownership or advance its content baseline.
+					if previous, found := indexes.before.paths[row.Subject()]; found && previous.Equal(row) {
+						continue
+					}
+				}
 				if !file || image.digest != row.ContentHash() || uint32(mode) != uint32(row.FileMode().Perm()) {
 					return fmt.Errorf("whole after baseline differs from the actual expected image or mode")
 				}

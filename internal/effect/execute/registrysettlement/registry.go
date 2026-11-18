@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -23,14 +25,18 @@ func Read(ctx context.Context, operation *journal.NativeRecoveryOperation, asses
 }
 
 func Converge(ctx context.Context, operation *journal.NativeRecoveryOperation, assessment journalqualification.NativeRecoveryAssessment, store ownershipmutation.RegistryStore, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence) error {
-	if len(assessment.MissingDocuments()) == 0 {
-		_, err := store.ConvergeRegistry(ctx, claims, bindings)
+	return ConvergeDocuments(ctx, store, operation.Owner(), assessment.MissingDocuments(), operation.Budget(), claims, bindings)
+}
+
+func ConvergeDocuments(ctx context.Context, store ownershipmutation.RegistryStore, owner stateauthority.Authority, missing []pathauthority.Provisional, budget *physicalwork.Budget, claims ownership.ClaimConvergence, bindings ownership.DocumentBindingConvergence, references ...pathauthority.Reference) error {
+	if len(missing) == 0 {
+		_, err := store.ConvergeRegistry(ctx, claims, bindings, references...)
 		return err
 	}
 	selected, admitted := store.(ownershipmutation.DocumentRegistryStore)
 	if !admitted {
-		return fmt.Errorf("joint recovery requires combined Registry convergence")
+		return fmt.Errorf("missing native history requires document-qualified Registry convergence")
 	}
-	_, err := selected.ConvergeForDocuments(ctx, claims, bindings, operation.Owner(), assessment.MissingDocuments(), physicalwork.MaximumPhysicalPathDepth, operation.Budget())
+	_, err := selected.ConvergeForDocuments(ctx, claims, bindings, owner, missing, physicalwork.MaximumPhysicalPathDepth, budget, references...)
 	return err
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -21,10 +22,11 @@ import (
 type ManagedPathEffectKind string
 
 const (
-	ManagedPathEffectCreate  ManagedPathEffectKind = "create"
-	ManagedPathEffectReplace ManagedPathEffectKind = "replace"
-	ManagedPathEffectRemove  ManagedPathEffectKind = "remove"
-	ManagedPathEffectRecord  ManagedPathEffectKind = "record"
+	ManagedPathEffectCreate       ManagedPathEffectKind = "create"
+	ManagedPathEffectReplace      ManagedPathEffectKind = "replace"
+	ManagedPathEffectRemove       ManagedPathEffectKind = "remove"
+	ManagedPathEffectRetireAbsent ManagedPathEffectKind = "retire_absent"
+	ManagedPathEffectRecord       ManagedPathEffectKind = "record"
 )
 
 type managedPathEffectFacts struct {
@@ -42,19 +44,21 @@ type managedPathEffectFacts struct {
 }
 
 type (
-	managedPathCreateEffect  struct{ facts managedPathEffectFacts }
-	managedPathReplaceEffect struct{ facts managedPathEffectFacts }
-	managedPathRemoveEffect  struct{ facts managedPathEffectFacts }
-	managedPathRecordEffect  struct{ facts managedPathEffectFacts }
+	managedPathCreateEffect       struct{ facts managedPathEffectFacts }
+	managedPathReplaceEffect      struct{ facts managedPathEffectFacts }
+	managedPathRemoveEffect       struct{ facts managedPathEffectFacts }
+	managedPathRetireAbsentEffect struct{ facts managedPathEffectFacts }
+	managedPathRecordEffect       struct{ facts managedPathEffectFacts }
 )
 
 // ManagedPathEffect is an execution-owned closed union. It contains only
 // authority already established by a mutating managed-path decision.
 type ManagedPathEffect struct {
-	create  *managedPathCreateEffect
-	replace *managedPathReplaceEffect
-	remove  *managedPathRemoveEffect
-	record  *managedPathRecordEffect
+	create       *managedPathCreateEffect
+	replace      *managedPathReplaceEffect
+	remove       *managedPathRemoveEffect
+	retireAbsent *managedPathRetireAbsentEffect
+	record       *managedPathRecordEffect
 }
 
 // ManagedPathEffects admits executable decisions without translating them to
@@ -112,6 +116,8 @@ func ManagedPathEffects(decisions []reconcile.ManagedPathDecision) ([]ManagedPat
 			effect.replace = &managedPathReplaceEffect{facts: facts}
 		case reconcile.ManagedPathRemove:
 			effect.remove = &managedPathRemoveEffect{facts: facts}
+		case reconcile.ManagedPathRetireAbsent:
+			effect.retireAbsent = &managedPathRetireAbsentEffect{facts: facts}
 		case reconcile.ManagedPathRecord:
 			effect.record = &managedPathRecordEffect{facts: facts}
 		default:
@@ -198,6 +204,16 @@ func (effect ManagedPathEffect) Validate() error {
 		}
 		return nil
 	}
+	if effect.Kind() == ManagedPathEffectRetireAbsent {
+		if !aggregate.IsAgentConfigDocumentSubject(facts.subject) || facts.previous == nil ||
+			facts.previous.Scope() != facts.scope || facts.previous.Destination() != facts.destination ||
+			len(facts.previous.ConsumerTargets()) != 1 || len(facts.consumerTargets) != 0 ||
+			facts.desiredHash != "" || facts.liveHash != "" ||
+			facts.desiredFileMode != 0 || facts.liveFileMode != 0 {
+			return fmt.Errorf("absent retirement requires a prior managed agent configuration file without a live or desired image")
+		}
+		return nil
+	}
 	if len(facts.consumerTargets) == 0 {
 		return fmt.Errorf("effect requires at least one consumer target")
 	}
@@ -251,6 +267,8 @@ func (effect ManagedPathEffect) facts() managedPathEffectFacts {
 		return effect.replace.facts
 	case effect.remove != nil:
 		return effect.remove.facts
+	case effect.retireAbsent != nil:
+		return effect.retireAbsent.facts
 	case effect.record != nil:
 		return effect.record.facts
 	default:
@@ -266,11 +284,17 @@ func (effect ManagedPathEffect) Kind() ManagedPathEffectKind {
 		return ManagedPathEffectReplace
 	case effect.remove != nil:
 		return ManagedPathEffectRemove
+	case effect.retireAbsent != nil:
+		return ManagedPathEffectRetireAbsent
 	case effect.record != nil:
 		return ManagedPathEffectRecord
 	default:
 		return ""
 	}
+}
+
+func (effect ManagedPathEffect) DropsManagedState() bool {
+	return effect.Kind() == ManagedPathEffectRemove || effect.Kind() == ManagedPathEffectRetireAbsent
 }
 
 func (effect ManagedPathEffect) Subject() topology.SubjectID { return effect.facts().subject }

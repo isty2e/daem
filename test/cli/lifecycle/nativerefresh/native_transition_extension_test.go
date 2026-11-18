@@ -226,6 +226,81 @@ func TestNativePositiveNarrowingRecoveryBeforePiCommand(t *testing.T) {
 	}
 }
 
+func TestNativeAbsentWholeRetirementSurvivesInterruptedPrefix(t *testing.T) {
+	f := nativefixture.NewPiInvocation(t, "none")
+	manifest := string(testkit.ReadFile(t, f.Manifest))
+	const obsoleteName = "Café.toml"
+	obsolete := filepath.Join(f.Workspace, ".codex", obsoleteName)
+	const original = "model = 'old'\n"
+	testkit.WriteFile(t, f.Workspace, "obsolete.toml", original)
+	testkit.WriteFile(t, filepath.Dir(obsolete), obsoleteName, original)
+	if err := os.Chmod(obsolete, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, f.Workspace, "daem.toml", manifest+fmt.Sprintf(`
+[[agent_config]]
+id = "obsolete"
+targets = ["codex"]
+path = %q
+source = "obsolete.toml"
+ownership = "document"
+`, obsoleteName))
+	f.Require(t, "lock")
+	f.Require(t, "apply", "--yes", "--manage-existing")
+	testkit.AssertFileContent(t, obsolete, original)
+	paths, err := daempaths.Resolve(f.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
+	if err != nil || len(before.ManagedPaths()) != 1 {
+		t.Fatal("expected one dedicated baseline before removal", err)
+	}
+
+	if err := os.Remove(obsolete); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, f.Workspace, "next.toml", "notify = true\n")
+	testkit.WriteFile(t, f.Workspace, "daem.toml", manifest+`
+[[agent_config]]
+id = "next"
+targets = ["codex"]
+path = "other.toml"
+source = "next.toml"
+`)
+	testkit.WriteFile(t, filepath.Dir(f.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
+	f.Require(t, "lock")
+	added := filepath.Join(f.Workspace, ".codex", "other.toml")
+	fixture := nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: added, Paths: paths}
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "native-ordinary-state", "apply", "--yes", "--verbose")
+	if code != nativefixture.RecoveryExit {
+		t.Fatalf("did not reach the earlier State commit: %d %s %s", code, stdout, stderr)
+	}
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+	nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, added), "notify = true\n", true)
+	nativefixture.RequireRecoveryDryRun(t, fixture, "needs_finalize", "clean_after")
+	f.Require(t, "recover", "--yes")
+	retained, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
+	if err != nil || len(retained.ManagedPaths()) != 1 || !retained.ManagedPaths()[0].Equal(before.ManagedPaths()[0]) {
+		t.Fatal("earlier recovery altered the deferred dedicated baseline", err)
+	}
+	testkit.AssertPathMissing(t, obsolete)
+
+	f.Require(t, "apply", "--yes")
+	launch, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.LaunchState))
+	if err != nil || len(launch.ManagedPaths()) != 1 || !launch.ManagedPaths()[0].Equal(before.ManagedPaths()[0]) {
+		t.Fatal("retirement happened before the interposed command", err)
+	}
+	final, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
+	if err != nil || len(final.ManagedPaths()) != 0 || len(final.ManagedAggregates()) != 2 {
+		t.Fatal("final phase did not retire exactly the dedicated file", err)
+	}
+	testkit.AssertPathMissing(t, obsolete)
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\ninstall\n")
+	f.Require(t, "status", "--check")
+	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
+}
+
 func TestNativeWholeAdoptionRecoveryAfterPiCommand(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {

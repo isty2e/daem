@@ -55,7 +55,8 @@ func planJSONManagedPathAction(decision reconcile.ManagedPathDecision) planJSONA
 		DesiredHash:      string(decision.DesiredHash()), LiveHash: string(decision.LiveHash()), Detail: decision.Detail(),
 		ResourceID: resourceID, Resource: resourceValue,
 	}
-	if decision.ContentKind() == realization.PathProjectionFile && decision.PermissionPolicy() != realization.PathPermissionsNone {
+	if decision.ContentKind() == realization.PathProjectionFile && decision.PermissionPolicy() != realization.PathPermissionsNone &&
+		decision.Kind() != reconcile.ManagedPathRetireAbsent {
 		row.DesiredFileMode = fileModeJSONPointer(decision.DesiredFileMode())
 	}
 	if decision.ContentKind() == realization.PathProjectionFile && decision.LiveHash() != "" {

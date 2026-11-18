@@ -542,6 +542,52 @@ func TestNativeDocumentWholeRecovery(t *testing.T) {
 	}
 }
 
+func TestNativeAbsentWholeRetirementRecovery(t *testing.T) {
+	for _, boundary := range []string{"before-state", "state"} {
+		t.Run(boundary, func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeGlobal)
+			f.applyWhole(t)
+			if err := os.Remove(f.Destination); err != nil {
+				t.Fatal(err)
+			}
+			testkit.WriteFile(t, f.workspace, "daem.toml", "version=1\ntargets=['codex']\n")
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			before := nativefixture.SnapshotRecoveryPaths(t, f.Destination, f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath)
+			code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, boundary, "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
+				t.Fatalf("could not interrupt retirement at %s: %d %s %s", boundary, code, stdout, stderr)
+			}
+			testkit.AssertPathMissing(t, f.Destination)
+			if boundary == "state" {
+				nativefixture.RequireRecoveryDryRun(t, f.RecoveryFixture, "needs_finalize")
+				testkit.WriteFile(t, filepath.Dir(f.Destination), filepath.Base(f.Destination), "new setting from the agent\n")
+				evidence := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+				code, stdout, stderr := testkit.RunCapturedCLI("recover", "--manifest", f.Manifest, "--yes")
+				if code == 0 || !reflect.DeepEqual(evidence, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+					t.Fatalf("recovery did not preserve the reappearing file and pending records: %d %s %s", code, stdout, stderr)
+				}
+				if err := os.Remove(f.Destination); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				nativefixture.RequireRecoveryDryRun(t, f.RecoveryFixture, "clean_before")
+			}
+
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+			testkit.AssertPathMissing(t, f.Destination)
+			if boundary == "before-state" {
+				if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryPaths(t, f.Destination, f.Paths.StatefilePath, f.Paths.OwnershipRegistryPath)) {
+					t.Fatal("recovery changed unchanged Before state or ownership")
+				}
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			}
+			nativefixture.RequireLifecycleMetadataForScope(t, f.Manifest, false, target.ScopeGlobal)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check", "--json"))
+			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+		})
+	}
+}
+
 func prepareNativeKeyToWholeFixture(t *testing.T, selected target.Target, scope target.Scope) nativeDocumentTransitionFixture {
 	t.Helper()
 	f := newNativeDocumentTransitionFixture(t, selected, scope)

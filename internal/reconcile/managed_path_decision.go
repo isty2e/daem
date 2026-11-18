@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -19,12 +20,13 @@ import (
 type ManagedPathDecisionKind string
 
 const (
-	ManagedPathCreate  ManagedPathDecisionKind = "create"
-	ManagedPathReplace ManagedPathDecisionKind = "replace"
-	ManagedPathRemove  ManagedPathDecisionKind = "remove"
-	ManagedPathRecord  ManagedPathDecisionKind = "record"
-	ManagedPathNoOp    ManagedPathDecisionKind = "noop"
-	ManagedPathBlocked ManagedPathDecisionKind = "blocked"
+	ManagedPathCreate       ManagedPathDecisionKind = "create"
+	ManagedPathReplace      ManagedPathDecisionKind = "replace"
+	ManagedPathRemove       ManagedPathDecisionKind = "remove"
+	ManagedPathRetireAbsent ManagedPathDecisionKind = "retire_absent"
+	ManagedPathRecord       ManagedPathDecisionKind = "record"
+	ManagedPathNoOp         ManagedPathDecisionKind = "noop"
+	ManagedPathBlocked      ManagedPathDecisionKind = "blocked"
 )
 
 type managedPathDecisionClassification struct {
@@ -47,7 +49,7 @@ func (kind ManagedPathDecisionKind) classification() managedPathDecisionClassifi
 		return managedPathDecisionClassification{
 			actionKind: ActionKindDelete, mutatesHost: true, mutatesState: true,
 		}
-	case ManagedPathRecord:
+	case ManagedPathRecord, ManagedPathRetireAbsent:
 		return managedPathDecisionClassification{
 			actionKind: ActionKindRecord, mutatesState: true,
 		}
@@ -115,22 +117,24 @@ type ManagedPathDecisionInput struct {
 }
 
 type (
-	managedPathCreateDecision  struct{ facts managedPathDecisionFacts }
-	managedPathReplaceDecision struct{ facts managedPathDecisionFacts }
-	managedPathRemoveDecision  struct{ facts managedPathDecisionFacts }
-	managedPathRecordDecision  struct{ facts managedPathDecisionFacts }
-	managedPathNoOpDecision    struct{ facts managedPathDecisionFacts }
-	managedPathBlockedDecision struct{ facts managedPathDecisionFacts }
+	managedPathCreateDecision       struct{ facts managedPathDecisionFacts }
+	managedPathReplaceDecision      struct{ facts managedPathDecisionFacts }
+	managedPathRemoveDecision       struct{ facts managedPathDecisionFacts }
+	managedPathRetireAbsentDecision struct{ facts managedPathDecisionFacts }
+	managedPathRecordDecision       struct{ facts managedPathDecisionFacts }
+	managedPathNoOpDecision         struct{ facts managedPathDecisionFacts }
+	managedPathBlockedDecision      struct{ facts managedPathDecisionFacts }
 )
 
 // ManagedPathDecision is a closed union. Exactly one private variant is present.
 type ManagedPathDecision struct {
-	create  *managedPathCreateDecision
-	replace *managedPathReplaceDecision
-	remove  *managedPathRemoveDecision
-	record  *managedPathRecordDecision
-	noOp    *managedPathNoOpDecision
-	blocked *managedPathBlockedDecision
+	create       *managedPathCreateDecision
+	replace      *managedPathReplaceDecision
+	remove       *managedPathRemoveDecision
+	retireAbsent *managedPathRetireAbsentDecision
+	record       *managedPathRecordDecision
+	noOp         *managedPathNoOpDecision
+	blocked      *managedPathBlockedDecision
 }
 
 // NewManagedPathDecision constructs one validated closed managed-path variant.
@@ -165,6 +169,8 @@ func NewManagedPathDecision(input ManagedPathDecisionInput) (ManagedPathDecision
 		decision = ManagedPathDecision{replace: &managedPathReplaceDecision{facts: facts}}
 	case ManagedPathRemove:
 		decision = ManagedPathDecision{remove: &managedPathRemoveDecision{facts: facts}}
+	case ManagedPathRetireAbsent:
+		decision = ManagedPathDecision{retireAbsent: &managedPathRetireAbsentDecision{facts: facts}}
 	case ManagedPathRecord:
 		decision = ManagedPathDecision{record: &managedPathRecordDecision{facts: facts}}
 	case ManagedPathNoOp:
@@ -217,6 +223,8 @@ func (decision ManagedPathDecision) facts() managedPathDecisionFacts {
 		return decision.replace.facts
 	case decision.remove != nil:
 		return decision.remove.facts
+	case decision.retireAbsent != nil:
+		return decision.retireAbsent.facts
 	case decision.record != nil:
 		return decision.record.facts
 	case decision.noOp != nil:
@@ -236,6 +244,8 @@ func (decision ManagedPathDecision) Kind() ManagedPathDecisionKind {
 		return ManagedPathReplace
 	case decision.remove != nil:
 		return ManagedPathRemove
+	case decision.retireAbsent != nil:
+		return ManagedPathRetireAbsent
 	case decision.record != nil:
 		return ManagedPathRecord
 	case decision.noOp != nil:
@@ -319,6 +329,7 @@ func validateManagedPathDecision(decision ManagedPathDecision) error {
 		decision.create != nil,
 		decision.replace != nil,
 		decision.remove != nil,
+		decision.retireAbsent != nil,
 		decision.record != nil,
 		decision.noOp != nil,
 		decision.blocked != nil,
@@ -375,6 +386,18 @@ func validateManagedPathDecision(decision ManagedPathDecision) error {
 		}
 		if !slices.Equal(facts.previous.ConsumerTargets(), facts.consumerTargets) {
 			return fmt.Errorf("cross-subject previous state consumers do not match")
+		}
+	}
+	if decision.Kind() == ManagedPathRetireAbsent {
+		previous := facts.previous
+		if !aggregate.IsAgentConfigDocumentSubject(facts.subject) || previous == nil ||
+			previous.Scope() != facts.scope || previous.Destination() != facts.destination ||
+			previous.ContentKind() != realization.PathProjectionFile || facts.contentKind != previous.ContentKind() ||
+			previous.PermissionPolicy() != realization.PathPermissionsExact || facts.permissionPolicy != previous.PermissionPolicy() ||
+			len(previous.ConsumerTargets()) != 1 || len(facts.consumerTargets) != 0 ||
+			facts.reason != ReasonRemovedFromManifest || facts.placementMode != "" ||
+			facts.desiredHash != "" || facts.liveHash != "" || facts.desiredFileMode != 0 || facts.liveFileMode != 0 {
+			return fmt.Errorf("absent retirement requires a removed, previously owned agent configuration file and no live or desired image")
 		}
 	}
 	return nil

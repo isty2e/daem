@@ -217,7 +217,7 @@ func decisionKey(decision Decision) decisionOrderKey {
 		entityID, _ := topologyprojection.EntityID(managedPath.Subject())
 		operation := string(managedPath.Kind().actionKind())
 		phaseRank := 0
-		if managedPath.Kind() == ManagedPathRemove {
+		if managedPath.Kind() == ManagedPathRemove || managedPath.Kind() == ManagedPathRetireAbsent {
 			phaseRank = 3
 		}
 		return decisionOrderKey{

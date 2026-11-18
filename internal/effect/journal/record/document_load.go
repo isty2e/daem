@@ -18,7 +18,7 @@ func (journal Native) completeDocuments(ctx context.Context, indexes journaldocu
 	if err != nil {
 		return LoadedDocuments{}, err
 	}
-	if err := journal.validateExpectedBaselines(ctx, indexes.After(), groups, codecs); err != nil {
+	if err := journal.validateExpectedBaselines(ctx, indexes, groups, codecs); err != nil {
 		return LoadedDocuments{}, err
 	}
 	documentWork := false
@@ -33,7 +33,7 @@ func (journal Native) completeDocuments(ctx context.Context, indexes journaldocu
 	return result, nil
 }
 
-func (journal Native) validateExpectedBaselines(ctx context.Context, after journaldocument.SnapshotIndex, groups []journaldocument.StateGroup, codecs aggregate.CodecCatalog) error {
+func (journal Native) validateExpectedBaselines(ctx context.Context, indexes journaldocument.SnapshotIndexes, groups []journaldocument.StateGroup, codecs aggregate.CodecCatalog) error {
 	images := make([]journaldocument.ImageIdentity, 0, len(journal.record.DocumentGroups))
 	for _, group := range journal.record.DocumentGroups {
 		identity, err := group.Expected.identity()
@@ -42,7 +42,7 @@ func (journal Native) validateExpectedBaselines(ctx context.Context, after journ
 		}
 		images = append(images, identity)
 	}
-	return after.ValidateExpectedBaselines(ctx, groups, codecs, images)
+	return indexes.ValidateExpectedBaselines(ctx, groups, codecs, images)
 }
 
 func (journal Native) documentBindings(ctx context.Context) ([][]ownership.DocumentBindingIntent, error) {

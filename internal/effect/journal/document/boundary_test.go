@@ -18,7 +18,7 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := IndexSnapshot(t.Context(), state)
+	index, err := IndexSnapshotsForClaims(t.Context(), state, state, NativeClaims)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +47,36 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 	for _, invalid := range [][]ImageIdentity{nil, {{}}, {wrongDigest}, {wrongMode}, {absent}} {
 		if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, invalid); err == nil {
 			t.Fatal("whole baseline accepted missing, zero, absent, changed-content or changed-mode evidence")
+		}
+	}
+
+	missing := aggregate.AbsentDocument()
+	comparison, err := NewWholeComparison(t.Context(), ComparisonInput{
+		Before: missing, Expected: missing, Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups[0].comparison = comparison
+	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{absent}); err != nil {
+		t.Fatal("an unchanged whole row lost its observed absence", err)
+	}
+	changed, err := durable.NewManagedPathState(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(),
+		artifact.HashFileContent([]byte("another baseline")), row.ContentKind(), row.PermissionPolicy(), row.FileMode())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeChange, err := state.WithManagedPaths([]durable.ManagedPathState{changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, before := range []durable.Snapshot{durable.EmptySnapshot(), beforeChange} {
+		index, err := IndexSnapshotsForClaims(t.Context(), before, state, NativeClaims)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{absent}); err == nil {
+			t.Fatal("absence supplied a new or changed whole baseline")
 		}
 	}
 }

@@ -136,10 +136,7 @@ func agentConfigKeyRetirementGuidance(group agentConfigKeyConflicts, manifestPat
 }
 
 func blockedRetainedAgentConfigDocument(decision reconcile.ManagedPathDecision) (entity.ID, bool) {
-	if !decision.IsBlocked() {
-		return entity.ID{}, false
-	}
-	if decision.Reason() != reconcile.ReasonDriftedOutput && decision.Reason() != reconcile.ReasonMissingOutput {
+	if !decision.IsBlocked() || decision.Reason() != reconcile.ReasonDriftedOutput {
 		return entity.ID{}, false
 	}
 	if _, retained := decision.PreviousState(); !retained {
@@ -150,25 +147,14 @@ func blockedRetainedAgentConfigDocument(decision reconcile.ManagedPathDecision) 
 }
 
 func agentConfigDocumentRetirementGuidance(decision reconcile.ManagedPathDecision, id entity.ID, manifestPath string) []Guidance {
-	missing := decision.Reason() == reconcile.ReasonMissingOutput
-	detail := "removal is blocked because the file differs from its recorded contents or permissions"
-	if missing {
-		detail = "the file is already missing, but apply cannot retire its management"
-	}
-	guidance := []Guidance{agentConfigFileNote(id, decision.Destination(), detail)}
+	guidance := []Guidance{agentConfigFileNote(id, decision.Destination(), "removal is blocked because the file differs from its recorded contents or permissions")}
 	previous, _ := decision.PreviousState()
 	targets := previous.ConsumerTargets()
 	if len(targets) == 1 {
-		instruction := "to keep the file and release management, preview unmanage"
-		if missing {
-			instruction = "to release the missing file's management, preview unmanage"
-		}
-		guidance = append(guidance, agentConfigReleaseGuidance(id, targets[0], decision.Scope(), manifestPath, instruction)...)
+		guidance = append(guidance, agentConfigReleaseGuidance(id, targets[0], decision.Scope(), manifestPath,
+			"to keep the file and release management, preview unmanage")...)
 	}
-	if !missing {
-		guidance = append(guidance, InstructionGuidance("to delete the file yourself, save any needed changes and release its management before deleting it"))
-	}
-	return guidance
+	return append(guidance, InstructionGuidance("to remove the file, save any changes you need, delete it, then preview apply again"))
 }
 
 func agentConfigFileNote(id entity.ID, destination output.Destination, message string) Guidance {

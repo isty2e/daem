@@ -219,10 +219,14 @@ func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.Managed
 	for _, decision := range decisions {
 		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
 		targetLabel, targetValue := managedPathTargetLabel(decision)
+		label := managedPathPublicKind(decision)
+		if decision.Kind() == reconcile.ManagedPathRetireAbsent {
+			label = absentRetirementLabel
+		}
 		fmt.Fprintf(
 			output,
 			"%s %s=%s %s=%s scope=%s destination=%s mode=%s reason=%s",
-			managedPathPublicKind(decision),
+			label,
 			identityLabel,
 			Quote(identityValue),
 			targetLabel,
@@ -240,7 +244,7 @@ func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.Managed
 		}
 		if decision.PermissionPolicy() != "" {
 			fmt.Fprintf(output, " permission_policy=%s", decision.PermissionPolicy())
-			if decision.PermissionPolicy() != "none" {
+			if decision.PermissionPolicy() != "none" && decision.Kind() != reconcile.ManagedPathRetireAbsent {
 				fmt.Fprintf(
 					output,
 					" desired_file_mode=%04o live_file_mode=%04o",
@@ -261,6 +265,8 @@ func managedPathPublicKind(decision reconcile.ManagedPathDecision) string {
 		return "update"
 	case reconcile.ManagedPathRemove:
 		return "delete"
+	case reconcile.ManagedPathRetireAbsent:
+		return "record"
 	default:
 		return string(decision.Kind())
 	}
@@ -291,6 +297,8 @@ func managedPathLabel(decision reconcile.ManagedPathDecision) string {
 		return "update managed output"
 	case reconcile.ManagedPathRemove:
 		return "remove managed output"
+	case reconcile.ManagedPathRetireAbsent:
+		return absentRetirementLabel
 	case reconcile.ManagedPathRecord:
 		return "record managed output"
 	case reconcile.ManagedPathNoOp:
