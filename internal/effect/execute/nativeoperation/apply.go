@@ -76,77 +76,38 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		return nativeApplyWork{}, err
 	}
 	namespaces := documents.Evidence().Namespaces()
+	aliases := make([][]aggregate.DocumentAddress, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		aliases = append(aliases, namespace.Addresses())
+	}
+	whole, err := wholeDocumentWorkFor(input.Preparation, aliases)
+	if err != nil {
+		return nativeApplyWork{}, err
+	}
+
 	promoting := make([]bool, len(members))
 	for index, member := range members {
 		promoting[index] = member.RequiresPromotion()
 	}
 	work := nativeApplyWork{
 		documents: documents, promoting: promoting, mutating: make([]bool, len(namespaces)),
-		managed: input.Preparation.ManagedPathEffects(), changed: input.Preparation.StateChanged(),
+		managed: whole.ordinary, whole: whole.whole, wholeMutations: whole.mutations,
+		changed: input.Preparation.StateChanged(),
 	}
 	var registryAliases []aggregate.DocumentAddress
-	wholeGroups := make(map[int]struct{})
-	registerWhole := func(address aggregate.DocumentAddress, writes bool) error {
-		for index, namespace := range namespaces {
-			if !slices.Contains(namespace.Addresses(), address) {
-				continue
+	for _, group := range whole.groups {
+		if group.retireAbsent {
+			original, _, observed := documents.Evidence().Document(group.address)
+			if !observed || original.Exists() {
+				return nativeApplyWork{}, fmt.Errorf("native whole retirement requires observed absence at the recorded destination")
 			}
-			if _, duplicate := wholeGroups[index]; duplicate {
-				return fmt.Errorf("native document has multiple whole effects")
-			}
-			wholeGroups[index] = struct{}{}
-			work.mutating[index] = writes
-			registryAliases = append(registryAliases, address)
-			return nil
 		}
-		return fmt.Errorf("native whole effect has no retained namespace")
+		work.mutating[group.index] = group.writes
+		registryAliases = append(registryAliases, group.address)
 	}
-	ordinaryManaged := work.managed[:0:0]
-	var wholeCaptureEffects []effectpreparation.ManagedPathEffect
-	for _, effect := range work.managed {
-		if !aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
-			ordinaryManaged = append(ordinaryManaged, effect)
-			continue
-		}
-		work.whole = append(work.whole, effect)
-		if effect.Kind() != effectpreparation.ManagedPathEffectRetireAbsent {
-			wholeCaptureEffects = append(wholeCaptureEffects, effect)
-			continue
-		}
-		previous, _ := effect.PreviousState()
-		address, err := aggregate.NewDocumentAddress(previous.ConsumerTargets()[0], effect.Scope(), effect.Destination())
-		if err != nil {
-			return nativeApplyWork{}, err
-		}
-		original, _, observed := documents.Evidence().Document(address)
-		if !observed || original.Exists() {
-			return nativeApplyWork{}, fmt.Errorf("native whole retirement requires observed absence at the recorded destination")
-		}
-		if err := registerWhole(address, false); err != nil {
-			return nativeApplyWork{}, err
-		}
-	}
-	work.managed = ordinaryManaged
-	work.wholeMutations, err = effectpreparation.ManagedPathJournalMutations(wholeCaptureEffects)
-	if err != nil {
-		return nativeApplyWork{}, err
-	}
-	for _, mutation := range work.wholeMutations {
-		consumers := mutation.ConsumerTargets()
-		if len(consumers) != 1 {
-			return nativeApplyWork{}, fmt.Errorf("native whole effect requires one consumer")
-		}
-		address, err := aggregate.NewDocumentAddress(consumers[0], mutation.Scope(), mutation.Destination())
-		if err != nil {
-			return nativeApplyWork{}, err
-		}
-		if err := registerWhole(address, mutation.Kind() != journalrecord.CaptureRecord); err != nil {
-			return nativeApplyWork{}, err
-		}
-	}
+
 	for _, action := range input.Preparation.Narrowings() {
-		placement, _ := action.SourceContract().AgentConfigPlacement()
-		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+		address, err := narrowingDocumentAddress(action)
 		if err != nil {
 			return nativeApplyWork{}, err
 		}
@@ -176,33 +137,19 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		if failure != nil {
 			return nativeApplyWork{}, failure
 		}
-		for index, namespace := range namespaces {
-			if slices.Contains(namespace.Addresses(), address) {
-				if _, whole := wholeGroups[index]; whole {
-					return nativeApplyWork{}, fmt.Errorf("whole document overlaps ownership narrowing")
-				}
-				work.mutating[index] = !rendered.Document().Equal(action.CurrentDocument())
-			}
+		if index, observed := whole.indexByAlias[address]; observed {
+			work.mutating[index] = !rendered.Document().Equal(action.CurrentDocument())
 		}
 	}
 	for _, effect := range input.Preparation.AggregateEffects() {
-		group := -1
-		for index, namespace := range namespaces {
-			if slices.Contains(namespace.Addresses(), effect.DocumentAddress()) {
-				group = index
-				break
-			}
-		}
-		if group < 0 {
+		group, observed := whole.indexByAlias[effect.DocumentAddress()]
+		if !observed {
 			if _, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID()); native {
 				return nativeApplyWork{}, fmt.Errorf("native effect has no retained namespace")
 			}
 			work.ordinaryAggregates = append(work.ordinaryAggregates, effect)
 			work.changed = true
 			continue
-		}
-		if _, whole := wholeGroups[group]; whole {
-			return nativeApplyWork{}, fmt.Errorf("whole document overlaps selected effects")
 		}
 		registryAliases = append(registryAliases, effect.DocumentAddress())
 		selection, err := effect.BeforeSnapshot().Selection()
@@ -231,19 +178,12 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	work.changed = work.changed || len(work.managed) != 0
 	for _, order := range input.Preparation.SequenceEdits() {
 		alias := order.DocumentAddress()
-		found := false
-		for index, namespace := range namespaces {
-			if slices.Contains(namespace.Addresses(), alias) {
-				if _, whole := wholeGroups[index]; whole {
-					return nativeApplyWork{}, fmt.Errorf("whole document overlaps package ordering")
-				}
-				work.mutating[index], work.changed, found = true, true, true
-				registryAliases = append(registryAliases, alias)
-			}
-		}
-		if !found {
+		index, observed := whole.indexByAlias[alias]
+		if !observed {
 			return nativeApplyWork{}, fmt.Errorf("Pi order has no retained native settings member")
 		}
+		work.mutating[index], work.changed = true, true
+		registryAliases = append(registryAliases, alias)
 	}
 	work.registryScope, err = documents.Evidence().RegistryScopeFor(registryAliases)
 	if err != nil {

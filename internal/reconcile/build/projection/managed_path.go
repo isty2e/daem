@@ -8,7 +8,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -27,6 +26,9 @@ type ManagedPathInput struct {
 	ManageUnmanagedMatches bool
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
+	// RemovedAgentConfigDocuments lists previously managed dedicated files
+	// whose declaration IDs are absent from the complete manifest.
+	RemovedAgentConfigDocuments map[topology.SubjectID]struct{}
 }
 
 // ManagedPathInventoryInput contains only the static lock, durable state, live
@@ -117,6 +119,7 @@ func buildManagedPathDecisions(
 		return nil, err
 	}
 	addressConflicts := managedPathAddressConflicts(canonicalExpectations, states)
+
 	desiredSubjects := make(map[topology.SubjectID]struct{}, len(expectations))
 	decisions := make([]managedPathDecision, 0, len(expectations)+input.Locked.Len()+len(states))
 	for _, expectation := range canonicalExpectations {
@@ -301,9 +304,10 @@ func buildManagedPathDecisions(
 		if facts.ContentKind == realization.PathProjectionFile {
 			facts.LiveFileMode = current.FileMode()
 		}
+		_, declarationRemoved := input.RemovedAgentConfigDocuments[subject]
 		var decision managedPathDecision
 		switch {
-		case !current.Exists() && len(remaining) == 0 && aggregate.IsAgentConfigDocumentSubject(subject):
+		case !current.Exists() && len(remaining) == 0 && declarationRemoved:
 			facts.ConsumerTargets = nil
 			facts.DesiredHash, facts.DesiredFileMode = "", 0
 			decision = newManagedPathDecision(facts, reconcile.ManagedPathRetireAbsent, reconcile.ReasonRemovedFromManifest, "")

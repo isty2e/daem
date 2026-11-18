@@ -228,6 +228,17 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 			return err
 		}
 	}
+	aliases := make([][]aggregate.DocumentAddress, 0, len(assessment.NativeApproval))
+	for _, evidence := range assessment.NativeApproval {
+		aliases = append(aliases, evidence.Aliases)
+	}
+	if err := nativeoperation.ValidateWholeDocumentWork(state, aliases); err != nil {
+		if errors.Is(err, nativeoperation.ErrOverlappingWholeDocumentWork) {
+			return errors.Join(nativeSupportError{nativeSupportWholeDocumentOverlap}, err)
+		}
+		return err
+	}
+
 	_, handoff := assessment.Reconciliation.CarrierHandoff()
 	opaque := handoff || nativeDelegatesScheduled(assessment.Reconciliation.Delegates())
 	for _, action := range assessment.Reconciliation.Relations() {

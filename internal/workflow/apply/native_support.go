@@ -19,6 +19,7 @@ const (
 	nativeSupportCarrierState
 	nativeSupportNamespace
 	nativeSupportWholeRewrite
+	nativeSupportWholeDocumentOverlap
 )
 
 type nativeSupportError struct{ reason nativeSupportReason }
@@ -37,6 +38,8 @@ func (reason nativeSupportReason) detail() string {
 		return "selected settings overlap the plugin host's private namespace without a supported rewrite contract"
 	case nativeSupportWholeRewrite:
 		return "whole-file ownership overlaps settings rewritten by an extension command"
+	case nativeSupportWholeDocumentOverlap:
+		return "whole-file management and selected settings changes overlap in the same configuration file"
 	default:
 		return "the selected settings-key execution is not supported"
 	}
@@ -108,6 +111,8 @@ func (reason nativeSupportReason) repairInstruction() string {
 		return "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before apply"
 	case nativeSupportWholeRewrite:
 		return "use key ownership for the shared settings file, or choose a separate dedicated file"
+	case nativeSupportWholeDocumentOverlap:
+		return "use separate configuration files, or remove the old declaration and apply before adding its replacement"
 	default:
 		return ""
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
@@ -54,6 +55,7 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 		States:             input.managedPathStates, Evidence: input.managedPathEvidence,
 		ManageUnmanagedMatches: input.manageUnmanagedMatches,
 		Owner:                  input.owner, Ownership: input.ownership,
+		RemovedAgentConfigDocuments: removedAgentConfigDocuments(input.environment, input.managedPathStates),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build managed path decisions: %w", err)
@@ -128,6 +130,27 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 		return nil, nil, fmt.Errorf("build managed aggregate decisions: %w", err)
 	}
 	return managedPaths, aggregates, nil
+}
+
+func removedAgentConfigDocuments(environment desired.Environment, paths []durable.ManagedPathState) map[topology.SubjectID]struct{} {
+	ids := environment.AgentConfigIDs()
+	declared := make(map[entity.ID]struct{}, len(ids))
+	for _, id := range ids {
+		declared[id] = struct{}{}
+	}
+
+	removed := make(map[topology.SubjectID]struct{})
+	for _, path := range paths {
+		subject := path.Subject()
+		id, entityBacked := topologyprojection.EntityID(subject)
+		if !entityBacked || id.Kind() != entity.KindAgentConfig {
+			continue
+		}
+		if _, present := declared[id]; !present {
+			removed[subject] = struct{}{}
+		}
+	}
+	return removed
 }
 
 func managedPathExpectations(

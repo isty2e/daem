@@ -588,6 +588,92 @@ func TestNativeAbsentWholeRetirementRecovery(t *testing.T) {
 	}
 }
 
+func TestNativeMissingWholeRetargetDoesNotRetireManagement(t *testing.T) {
+	f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
+	f.applyWhole(t)
+	if err := os.Remove(f.Destination); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf(`version=1
+targets=['claude-code']
+[[agent_config]]
+id='prefs'
+path='prefs.toml'
+source=%q
+ownership='document'
+`, f.source))
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+	before := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+
+	for _, flags := range [][]string{{"--dry-run"}, {"--yes", "--target", "codex"}} {
+		args := append([]string{"apply", "--manifest", f.Manifest, "--verbose"}, flags...)
+		code, stdout, stderr := testkit.RunCapturedCLI(args...)
+		if code != 1 || !strings.Contains(stdout+stderr, "reason=missing_output") {
+			t.Errorf("%q did not block removal of the old placement: %d\n%s%s", flags, code, stdout, stderr)
+		}
+		if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+			t.Fatal("retarget changed the previous output, State, ownership or recovery evidence")
+		}
+		testkit.AssertPathMissing(t, filepath.Join(f.workspace, ".claude", "prefs.toml"))
+	}
+}
+
+func TestNativeApplyRejectsOverlappingWholeAndKeyChangesInPreview(t *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		missing bool
+		alias   bool
+	}{
+		{name: "missing whole file", missing: true},
+		{name: "missing whole file through an alias", missing: true, alias: true},
+		{name: "present whole file"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
+			f.applyWhole(t)
+			if scenario.missing {
+				if err := os.Remove(f.Destination); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := filepath.Base(f.Destination)
+			if scenario.alias {
+				if err := os.Symlink(".", filepath.Join(filepath.Dir(f.Destination), "alias")); err != nil {
+					t.Fatal(err)
+				}
+				path = "alias/" + path
+			}
+			testkit.WriteFile(t, f.workspace, "new.toml", "notify = true\n")
+			testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf(`version=1
+targets=['codex']
+[[agent_config]]
+id='new'
+path=%q
+source='new.toml'
+`, path))
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			before := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+
+			code, stdout, stderr := testkit.RunCapturedCLI("apply", "--manifest", f.Manifest, "--dry-run", "--json")
+			if code != 1 {
+				t.Fatalf("preview admitted conflicting whole and key changes: %d\n%s%s", code, stdout, stderr)
+			}
+			failure := clijson.DecodeFailure(t, stdout, "apply", "operation")
+			if !strings.Contains(failure.Error.Message, "same configuration file") {
+				t.Fatalf("preview did not explain the overlap: %s", failure.Error.Message)
+			}
+
+			code, stdout, stderr = testkit.RunCapturedCLI("apply", "--manifest", f.Manifest, "--yes")
+			if code != 1 || !strings.Contains(stderr, "same configuration file") {
+				t.Fatalf("apply did not report the same overlap: %d\n%s%s", code, stdout, stderr)
+			}
+			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+				t.Fatal("refused overlap changed the output, State, ownership or recovery evidence")
+			}
+		})
+	}
+}
+
 func prepareNativeKeyToWholeFixture(t *testing.T, selected target.Target, scope target.Scope) nativeDocumentTransitionFixture {
 	t.Helper()
 	f := newNativeDocumentTransitionFixture(t, selected, scope)
