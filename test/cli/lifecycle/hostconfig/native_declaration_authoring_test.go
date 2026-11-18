@@ -61,6 +61,9 @@ source = "new.toml"
 				t.Fatal("preview changed output or recovery evidence")
 			}
 			applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			if !strings.Contains(applied, "retire management of missing output: 1") {
+				t.Fatalf("the result did not count the retired key: %s", applied)
+			}
 
 			for _, result := range []string{preview, applied} {
 				if !strings.Contains(result, "key: model: retire management of missing output") {

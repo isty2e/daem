@@ -1,7 +1,6 @@
 package nativeoperation
 
 import (
-	"errors"
 	"fmt"
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -10,13 +9,41 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
-var ErrOverlappingWholeDocumentWork = errors.New("whole-file and selected effects overlap")
+type WholeDocumentConflictKind string
+
+const (
+	DuplicateWholeDocumentWork   WholeDocumentConflictKind = "multiple whole-file operations"
+	OverlappingWholeDocumentWork WholeDocumentConflictKind = "whole-file and selected operations"
+	AbsentWholeRetirementAndKeys WholeDocumentConflictKind = "whole-file retirement and key operations"
+	WholeDocumentRemovalAndKeys  WholeDocumentConflictKind = "whole-file removal and key operations"
+)
+
+type WholeDocumentConflict struct {
+	Kind    WholeDocumentConflictKind
+	address aggregate.DocumentAddress
+}
+
+func (conflict *WholeDocumentConflict) Error() string {
+	return fmt.Sprintf("%s resolve to the same document at %q", conflict.Kind, conflict.address.AggregateRoot())
+}
+
+type wholeDocumentAction uint8
+
+const (
+	recordWholeDocument wholeDocumentAction = iota
+	writeWholeDocument
+	removeWholeDocument
+	retireAbsentWholeDocument
+)
+
+func (action wholeDocumentAction) writesFile() bool {
+	return action == writeWholeDocument || action == removeWholeDocument
+}
 
 type wholeDocumentGroup struct {
-	index        int
-	address      aggregate.DocumentAddress
-	writes       bool
-	retireAbsent bool
+	index   int
+	address aggregate.DocumentAddress
+	action  wholeDocumentAction
 }
 
 type wholeDocumentWork struct {
@@ -45,17 +72,17 @@ func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparat
 		}
 	}
 
-	wholeGroups := make(map[int]struct{})
-	registerWhole := func(address aggregate.DocumentAddress, writes, retireAbsent bool) error {
+	wholeGroups := make(map[int]wholeDocumentAction)
+	registerWhole := func(address aggregate.DocumentAddress, action wholeDocumentAction) error {
 		index, observed := work.indexByAlias[address]
 		if !observed {
 			return fmt.Errorf("native whole effect has no retained namespace")
 		}
 		if _, duplicate := wholeGroups[index]; duplicate {
-			return fmt.Errorf("native document has multiple whole effects")
+			return &WholeDocumentConflict{Kind: DuplicateWholeDocumentWork, address: address}
 		}
-		wholeGroups[index] = struct{}{}
-		work.groups = append(work.groups, wholeDocumentGroup{index: index, address: address, writes: writes, retireAbsent: retireAbsent})
+		wholeGroups[index] = action
+		work.groups = append(work.groups, wholeDocumentGroup{index: index, address: address, action: action})
 		return nil
 	}
 
@@ -75,7 +102,7 @@ func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparat
 		if err != nil {
 			return wholeDocumentWork{}, err
 		}
-		if err := registerWhole(address, false, true); err != nil {
+		if err := registerWhole(address, retireAbsentWholeDocument); err != nil {
 			return wholeDocumentWork{}, err
 		}
 	}
@@ -93,20 +120,38 @@ func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparat
 		if err != nil {
 			return wholeDocumentWork{}, err
 		}
-		if err := registerWhole(address, mutation.Kind() != journalrecord.CaptureRecord, false); err != nil {
+		action := writeWholeDocument
+		switch mutation.Kind() {
+		case journalrecord.CaptureRecord:
+			action = recordWholeDocument
+		case journalrecord.CaptureRemove:
+			action = removeWholeDocument
+		}
+		if err := registerWhole(address, action); err != nil {
 			return wholeDocumentWork{}, err
 		}
 	}
 
-	checkSelected := func(address aggregate.DocumentAddress) error {
+	checkSelected := func(address aggregate.DocumentAddress, agentConfigKeys bool) error {
 		index, observed := work.indexByAlias[address]
-		if _, whole := wholeGroups[index]; observed && whole {
-			return fmt.Errorf("%w at %q", ErrOverlappingWholeDocumentWork, address.AggregateRoot())
+		action, whole := wholeGroups[index]
+		if !observed || !whole {
+			return nil
 		}
-		return nil
+		kind := OverlappingWholeDocumentWork
+		if agentConfigKeys {
+			switch action {
+			case retireAbsentWholeDocument:
+				kind = AbsentWholeRetirementAndKeys
+			case removeWholeDocument:
+				kind = WholeDocumentRemovalAndKeys
+			}
+		}
+		return &WholeDocumentConflict{Kind: kind, address: address}
 	}
 	for _, effect := range preparation.AggregateEffects() {
-		if err := checkSelected(effect.DocumentAddress()); err != nil {
+		_, agentConfigKeys := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID())
+		if err := checkSelected(effect.DocumentAddress(), agentConfigKeys); err != nil {
 			return wholeDocumentWork{}, err
 		}
 	}
@@ -118,12 +163,12 @@ func wholeDocumentWorkFor(preparation effectpreparation.NativeApplyStatePreparat
 		if err != nil {
 			return wholeDocumentWork{}, err
 		}
-		if err := checkSelected(address); err != nil {
+		if err := checkSelected(address, false); err != nil {
 			return wholeDocumentWork{}, err
 		}
 	}
 	for _, edit := range preparation.SequenceEdits() {
-		if err := checkSelected(edit.DocumentAddress()); err != nil {
+		if err := checkSelected(edit.DocumentAddress(), false); err != nil {
 			return wholeDocumentWork{}, err
 		}
 	}

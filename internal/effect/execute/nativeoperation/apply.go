@@ -96,13 +96,13 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	}
 	var registryAliases []aggregate.DocumentAddress
 	for _, group := range whole.groups {
-		if group.retireAbsent {
+		if group.action == retireAbsentWholeDocument {
 			original, _, observed := documents.Evidence().Document(group.address)
 			if !observed || original.Exists() {
 				return nativeApplyWork{}, fmt.Errorf("native whole retirement requires observed absence at the recorded destination")
 			}
 		}
-		work.mutating[group.index] = group.writes
+		work.mutating[group.index] = group.action.writesFile()
 		registryAliases = append(registryAliases, group.address)
 	}
 

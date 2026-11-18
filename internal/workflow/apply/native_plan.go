@@ -233,8 +233,9 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		aliases = append(aliases, evidence.Aliases)
 	}
 	if err := nativeoperation.ValidateWholeDocumentWork(state, aliases); err != nil {
-		if errors.Is(err, nativeoperation.ErrOverlappingWholeDocumentWork) {
-			return errors.Join(nativeSupportError{nativeSupportWholeDocumentOverlap}, err)
+		var conflict *nativeoperation.WholeDocumentConflict
+		if errors.As(err, &conflict) {
+			return errors.Join(nativeSupportError{nativeDocumentConflictReason(conflict.Kind)}, err)
 		}
 		return err
 	}

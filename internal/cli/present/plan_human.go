@@ -30,7 +30,7 @@ func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, o
 	}
 	for _, label := range []string{
 		"add managed output", "update managed output", "remove managed output",
-		"manage existing matching output", "update managed ownership", "record managed output", "blocked",
+		"manage existing matching output", "update managed ownership", "record managed output", absentRetirementLabel, "blocked",
 	} {
 		if counts[label] != 0 {
 			fmt.Fprintf(output, "  %s: %d\n", label, counts[label])

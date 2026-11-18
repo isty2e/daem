@@ -662,15 +662,57 @@ source='new.toml'
 			if !strings.Contains(failure.Error.Message, "same configuration file") {
 				t.Fatalf("preview did not explain the overlap: %s", failure.Error.Message)
 			}
+			if len(failure.Guidance) != 1 || !strings.Contains(failure.Guidance[0].Message, "daem lock") {
+				t.Fatalf("preview did not tell the user to relock when separating the changes: %+v", failure.Guidance)
+			}
+			advice := failure.Guidance[0].Message
+			if scenario.missing && strings.Contains(advice, "deletes the existing managed file") {
+				t.Fatalf("preview warned of deleting a file that is already absent: %s", advice)
+			}
+			if !scenario.missing && (!strings.Contains(advice, "change ownership to keys") || !strings.Contains(advice, "deletes the existing managed file")) {
+				t.Fatalf("preview did not distinguish preserving the file from deleting it: %s", advice)
+			}
 
 			code, stdout, stderr = testkit.RunCapturedCLI("apply", "--manifest", f.Manifest, "--yes")
-			if code != 1 || !strings.Contains(stderr, "same configuration file") {
+			if code != 1 || !strings.Contains(stderr, strings.TrimPrefix(failure.Error.Message, "apply preview failed: ")) || !strings.Contains(stderr, advice) {
 				t.Fatalf("apply did not report the same overlap: %d\n%s%s", code, stdout, stderr)
 			}
 			if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
 				t.Fatal("refused overlap changed the output, State, ownership or recovery evidence")
 			}
 		})
+	}
+}
+
+func TestNativeApplyReportsTwoWholeFileOperationsAtOneDestination(t *testing.T) {
+	f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
+	nativeRoot := filepath.Dir(f.Destination)
+	if err := os.MkdirAll(nativeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".", filepath.Join(nativeRoot, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf(`version=1
+targets=['codex']
+agent_config=[
+  {id='one', path='prefs.toml', source=%[1]q, ownership='document'},
+  {id='two', path='alias/prefs.toml', source=%[1]q, ownership='document'},
+]
+`, f.source))
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+	before := nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)
+
+	code, stdout, stderr := testkit.RunCapturedCLI("apply", "--manifest", f.Manifest, "--dry-run", "--json")
+	if code != 1 {
+		t.Fatalf("preview admitted multiple whole-file operations: %d\n%s%s", code, stdout, stderr)
+	}
+	failure := clijson.DecodeFailure(t, stdout, "apply", "operation")
+	if !strings.Contains(failure.Error.Message, "whole-file operations resolve to the same") || len(failure.Guidance) != 1 {
+		t.Fatalf("preview did not explain the duplicate whole-file placement: %+v", failure)
+	}
+	if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, f.RecoveryFixture)) {
+		t.Fatal("refused overlap changed the output, State, ownership or recovery evidence")
 	}
 }
 
