@@ -3,8 +3,8 @@ package lock
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -12,24 +12,24 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
-// NewHostConfigDocumentSubjectContract projects static declaration intent into its whole-file subject.
-func NewHostConfigDocumentSubjectContract(id entity.ID, placement configuration.Placement) (LockedSubjectContract, error) {
-	if id.Kind() != entity.KindHostConfig {
+// NewAgentConfigDocumentSubjectContract projects static declaration intent into its whole-file subject.
+func NewAgentConfigDocumentSubjectContract(id entity.ID, placement configuration.Placement) (LockedSubjectContract, error) {
+	if id.Kind() != entity.KindAgentConfig {
 		return LockedSubjectContract{}, fmt.Errorf("native document requires a host configuration entity")
 	}
-	spec, err := profile.HostConfigDocumentProjection(placement)
+	spec, err := profile.AgentConfigDocumentProjection(placement)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, placement.Target(), placement.Scope())
+	subject, err := aggregate.AgentConfigDocumentSubject(id, placement.Target(), placement.Scope())
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	write, err := profile.HostConfigOperationRoute(placement, profile.OperationWrite)
+	write, err := profile.AgentConfigOperationRoute(placement, profile.OperationWrite)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
-	remove, err := profile.HostConfigOperationRoute(placement, profile.OperationRemove)
+	remove, err := profile.AgentConfigOperationRoute(placement, profile.OperationRemove)
 	if err != nil {
 		return LockedSubjectContract{}, err
 	}
@@ -40,11 +40,11 @@ func NewHostConfigDocumentSubjectContract(id entity.ID, placement configuration.
 }
 
 func validateNativeLockedSubject(contract LockedSubjectContract) error {
-	if contract.EntityID().Kind() != entity.KindHostConfig {
+	if contract.EntityID().Kind() != entity.KindAgentConfig {
 		return validateAdmittedLockedSubject(contract)
 	}
 	if _, supplied := contract.ExactSupply(); supplied {
-		shape := exactSupplyFamilyShape{kind: entity.KindHostConfig, label: "HostConfig", artifactKind: artifact.ArtifactKindFile, requiresExactFileUse: true}
+		shape := exactSupplyFamilyShape{kind: entity.KindAgentConfig, label: "HostConfig", artifactKind: artifact.ArtifactKindFile, requiresExactFileUse: true}
 		if _, err := shape.validate(contract); err != nil {
 			return err
 		}
@@ -68,17 +68,17 @@ func validateNativeLockedCollection(index lockedCollectionIndex) error {
 	}
 	whole := make(map[managedPathOccupancy]struct{})
 	for id, source := range index.exactSupplyByEntity {
-		if id.Kind() != entity.KindHostConfig {
+		if id.Kind() != entity.KindAgentConfig {
 			continue
 		}
-		placement, _ := source.HostConfigPlacement()
-		if placement.Ownership() == hostconfig.OwnershipKeys {
+		placement, _ := source.AgentConfigPlacement()
+		if placement.Ownership() == agentconfig.OwnershipKeys {
 			if index.pathProjectionCountByEntity[id] != 0 {
 				return fmt.Errorf("native key source %q cannot supply a whole-document projection", id)
 			}
 			continue
 		}
-		expected, err := NewHostConfigDocumentSubjectContract(id, placement)
+		expected, err := NewAgentConfigDocumentSubjectContract(id, placement)
 		if err != nil {
 			return err
 		}
@@ -91,14 +91,14 @@ func validateNativeLockedCollection(index lockedCollectionIndex) error {
 	keys := make(map[managedPathOccupancy][]output.KeyPath)
 	for id, contracts := range index.nativeKeyProjections {
 		source, supplied := index.exactSupplyByEntity[id]
-		placement, placed := source.HostConfigPlacement()
-		if !supplied || !placed || placement.Ownership() != hostconfig.OwnershipKeys {
+		placement, placed := source.AgentConfigPlacement()
+		if !supplied || !placed || placement.Ownership() != agentconfig.OwnershipKeys {
 			return fmt.Errorf("native key projections for %q require their key-mode exact source", id)
 		}
 		for _, contract := range contracts {
 			spec, _ := contract.Realization()
 			contribution, _ := spec.ManagedAggregateContribution()
-			expected, err := profile.HostConfigProjectionContract(placement, contribution.Footprint())
+			expected, err := profile.AgentConfigProjectionContract(placement, contribution.Footprint())
 			if err != nil || !expected.Equal(contribution.Contract()) {
 				return fmt.Errorf("native key projection for %q does not match its source placement", id)
 			}

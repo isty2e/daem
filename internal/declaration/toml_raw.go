@@ -17,7 +17,7 @@ type Manifest struct {
 	Instructions map[string]Instructions `toml:"instructions"`
 	MCPServers   []MCPServer             `toml:"mcp_server"`
 	Extensions   []Extension             `toml:"extension"`
-	HostConfigs  []HostConfig            `toml:"host_config"`
+	AgentConfigs []AgentConfig           `toml:"host_config"`
 }
 
 type Defaults struct {
@@ -178,22 +178,22 @@ func (source ExtensionSource) Ref() string {
 	return source.Marketplace
 }
 
-type HostConfig struct {
-	ID        string           `toml:"id"`
-	Targets   []string         `toml:"targets"`
-	Scope     string           `toml:"scope"`
-	Path      string           `toml:"path"`
-	Source    HostConfigSource `toml:"source"`
-	Ownership string           `toml:"ownership"`
-	Syntax    string           `toml:"syntax"`
+type AgentConfig struct {
+	ID        string            `toml:"id"`
+	Targets   []string          `toml:"targets"`
+	Scope     string            `toml:"scope"`
+	Path      string            `toml:"path"`
+	Source    AgentConfigSource `toml:"source"`
+	Ownership string            `toml:"ownership"`
+	Syntax    string            `toml:"syntax"`
 }
 
-type HostConfigSource struct {
+type AgentConfigSource struct {
 	Source Source
 	Set    bool
 }
 
-func (source *HostConfigSource) decodeTOMLValue(value any) error {
+func (source *AgentConfigSource) decodeTOMLValue(value any) error {
 	source.Set = true
 
 	raw, err := SourceFromTOMLValue(value)

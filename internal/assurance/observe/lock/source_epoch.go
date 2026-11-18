@@ -72,7 +72,7 @@ func resolveSourceEpochWithResolver(
 }
 
 func admitOrdinarySourceEpoch(environment desired.Environment) error {
-	if len(environment.HostConfigs()) != 0 {
+	if len(environment.AgentConfigs()) != 0 {
 		return fmt.Errorf("native source observation requires explicit native selection")
 	}
 	return nil

@@ -12,12 +12,12 @@ import (
 
 func selectionNativeRow(t *testing.T, contract aggregate.ProjectionContract, value string) durable.ManagedAggregateState {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
 	address := contract.Address()
-	subject, err := topologyprojection.HostConfigKeySubject(id, address.Document().Target(), address.Document().Scope(), address.KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, address.Document().Target(), address.Document().Scope(), address.KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func selectionState(t *testing.T, rows ...durable.ManagedAggregateState) durable
 
 func membershipNativeRow(t *testing.T, alias aggregate.DocumentAddress, codec aggregate.CodecContractID, parts ...string) durable.ManagedAggregateState {
 	t.Helper()
-	contract, err := aggregate.NewHostConfigProjectionContract(alias.Target(), alias.Scope(), alias.AggregateRoot(), documentKeyFootprint(t, parts...), codec)
+	contract, err := aggregate.NewAgentConfigProjectionContract(alias.Target(), alias.Scope(), alias.AggregateRoot(), documentKeyFootprint(t, parts...), codec)
 	if err != nil {
 		t.Fatal(err)
 	}

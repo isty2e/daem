@@ -26,11 +26,11 @@ func TestNativeDocumentClaimsPreserveFactsAndRefuseInvalidFragments(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -111,7 +111,7 @@ func nativeDelegateLaunch(t *testing.T, f nativefixture.PiInvocation, index int,
 	state, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, filepath.Join(capture, fmt.Sprintf("state-%d.json", index))))
 	ordinary := 0
 	for _, row := range state.ManagedPaths() {
-		if !aggregate.IsHostConfigDocumentSubject(row.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(row.Subject()) {
 			ordinary++
 		}
 	}
@@ -152,7 +152,7 @@ func TestNativeDelegatesProtectDistinctActorsWithIdenticalCommands(t *testing.T)
 				}
 				native := 0
 				for _, row := range state.ManagedAggregates() {
-					if _, selected := aggregate.HostConfigSyntaxForCodec(row.Contribution().Contract().CodecContractID()); selected {
+					if _, selected := aggregate.AgentConfigSyntaxForCodec(row.Contribution().Contract().CodecContractID()); selected {
 						native++
 					}
 				}
@@ -278,7 +278,7 @@ func TestNativeBlockedDelegatePersistsWithoutFabricatingInvocation(t *testing.T)
 		t.Fatal("blocked delegate launched a runner", err)
 	}
 	state, err := statefile.LoadOptional(t.Context(), filepath.Join(f.Workspace, ".daem", "state.json"))
-	if err != nil || !state.ContainsHostConfig() || len(state.DelegateAttempts()) != 2 {
+	if err != nil || !state.ContainsAgentConfig() || len(state.DelegateAttempts()) != 2 {
 		t.Fatal("blocked diagnostic checkpoint lost complete native state", err)
 	}
 	f.Require(t, "apply", "--dry-run", "--json")

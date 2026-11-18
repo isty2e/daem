@@ -66,7 +66,7 @@ ownership = "keys"
 			t.Fatalf("authoring selected a different schema: %d", after.Version)
 		}
 		for _, subject := range before.Locked.Subjects() {
-			if subject.EntityID().Kind() != entity.KindHostConfig {
+			if subject.EntityID().Kind() != entity.KindAgentConfig {
 				continue
 			}
 			actual, found := after.Locked.Subject(subject.SubjectID())

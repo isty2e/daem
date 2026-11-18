@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
@@ -30,12 +30,12 @@ import (
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
-func nativeActionPreparationInput(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership) readiness.NativeNarrowingActionInput {
+func nativeActionPreparationInput(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership agentconfig.Ownership) readiness.NativeNarrowingActionInput {
 	t.Helper()
 	return nativeActionPreparationInputForScope(t, syntax, baseline, current, fragment, ownership, target.ScopeGlobal)
 }
 
-func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership hostconfig.Ownership, scope target.Scope) readiness.NativeNarrowingActionInput {
+func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Syntax, baseline, current, fragment string, ownership agentconfig.Ownership, scope target.Scope) readiness.NativeNarrowingActionInput {
 	t.Helper()
 	root := t.TempDir()
 	path := filepath.Join(root, "fragment")
@@ -46,7 +46,7 @@ func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Sy
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, err := hostconfig.New(hostconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: "extension-settings/test.json", Ownership: ownership, Syntax: hostconfig.Syntax(syntax.String())})
+	resource, err := agentconfig.New(agentconfig.Spec{Name: "settings", Source: spec, Target: target.TargetPi, Scope: scope, Path: "extension-settings/test.json", Ownership: ownership, Syntax: agentconfig.Syntax(syntax.String())})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Sy
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, HostConfigs: []hostconfig.Config{resource}})
+	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, AgentConfigs: []agentconfig.Config{resource}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +82,8 @@ func nativeActionPreparationInputForScope(t *testing.T, syntax configdocument.Sy
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, _ := observed.SourceContract().HostConfigPlacement()
-	subject, err := aggregate.HostConfigDocumentSubject(resource.ID(), placement.Target(), placement.Scope())
+	placement, _ := observed.SourceContract().AgentConfigPlacement()
+	subject, err := aggregate.AgentConfigDocumentSubject(resource.ID(), placement.Target(), placement.Scope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestNativeNarrowingActionUsesActualSourceAndRetainsItsBaseline(t *testing.T
 			} else if syntax == configdocument.TOML {
 				current, fragment = "# keep\na=1\nreleased=9\n", "a=2\nnew=true\n"
 			}
-			input := nativeActionPreparationInput(t, syntax, current, current, fragment, hostconfig.OwnershipKeys)
+			input := nativeActionPreparationInput(t, syntax, current, current, fragment, agentconfig.OwnershipKeys)
 			action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 			if err != nil || action.Validate() != nil {
 				t.Fatal("real key source did not prepare its narrowing action", err)
@@ -157,7 +157,7 @@ func TestNativeNarrowingActionDistinguishesEmptyReleaseAndCaptureRequired(t *tes
 		{name: "capture required", current: `{"a":1,"released":9}`, fragment: `{"a":2}`, captureRequired: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, test.current, test.fragment, hostconfig.OwnershipKeys)
+			input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, test.current, test.fragment, agentconfig.OwnershipKeys)
 			action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 			if test.captureRequired {
 				if !errors.Is(err, documenttransition.ErrNativeNarrowingNeedsCapture) || action.Validate() == nil {
@@ -177,7 +177,7 @@ func TestNativeNarrowingActionDistinguishesEmptyReleaseAndCaptureRequired(t *tes
 }
 
 func TestNativeNarrowingActionEmptyScopeStillRefusesUnsafeInputs(t *testing.T) {
-	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"local":9}`, `{}`, hostconfig.OwnershipKeys)
+	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"local":9}`, `{}`, agentconfig.OwnershipKeys)
 	for _, test := range []struct {
 		name string
 		edit func(*readiness.NativeNarrowingActionInput)
@@ -208,7 +208,7 @@ func TestNativeNarrowingActionEmptyScopeStillRefusesUnsafeInputs(t *testing.T) {
 			}
 		})
 	}
-	whole := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{}`, hostconfig.OwnershipDocument)
+	whole := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{}`, agentconfig.OwnershipDocument)
 	if action, err := readiness.BuildNativeNarrowingAction(t.Context(), whole); err == nil || action.Validate() == nil {
 		t.Fatal("whole-mode source was inferred to be empty key-mode intent")
 	}
@@ -220,13 +220,13 @@ func TestNativeNarrowingActionEmptyScopeStillRefusesUnsafeInputs(t *testing.T) {
 }
 
 func TestNativeNarrowingActionCanonicalPlanMustEqualItsWholeSource(t *testing.T) {
-	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":2}`, hostconfig.OwnershipKeys)
+	input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":2}`, agentconfig.OwnershipKeys)
 	action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan, _ := action.KeyPlan()
-	otherInput := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":99}`, hostconfig.OwnershipKeys)
+	otherInput := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":99}`, agentconfig.OwnershipKeys)
 	other, err := readiness.BuildNativeNarrowingAction(t.Context(), otherInput)
 	if err != nil {
 		t.Fatal(err)

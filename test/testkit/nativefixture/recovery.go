@@ -522,7 +522,7 @@ func (store *nativeRecoveryStore) acceptsStatePublication(content []byte) bool {
 		return false
 	}
 	for _, record := range state.ManagedPaths() {
-		if aggregate.IsHostConfigDocumentSubject(record.Subject()) {
+		if aggregate.IsAgentConfigDocumentSubject(record.Subject()) {
 			return true
 		}
 	}

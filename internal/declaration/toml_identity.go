@@ -37,10 +37,10 @@ func (instructions Instructions) TargetValues() Targets {
 }
 
 // Key returns the document-local identity of the host configuration declaration.
-func (hostConfig HostConfig) Key() Key {
-	return Key{Kind: KindHostConfig, Name: hostConfig.ID}
+func (agentConfig AgentConfig) Key() Key {
+	return Key{Kind: KindAgentConfig, Name: agentConfig.ID}
 }
 
-func (hostConfig HostConfig) TargetValues() Targets {
-	return Targets(hostConfig.Targets).Values()
+func (agentConfig AgentConfig) TargetValues() Targets {
+	return Targets(agentConfig.Targets).Values()
 }

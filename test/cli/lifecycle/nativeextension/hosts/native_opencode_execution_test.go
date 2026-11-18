@@ -159,7 +159,7 @@ func TestNativeOpenCodeInstallAndRefresh(t *testing.T) {
 					t.Fatal("consumer ran before selected keys")
 				}
 				snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, f.launchState))
-				if err != nil || len(snapshot.PendingCarrierInstalls()) != 1 || !snapshot.ContainsHostConfig() {
+				if err != nil || len(snapshot.PendingCarrierInstalls()) != 1 || !snapshot.ContainsAgentConfig() {
 					t.Fatal("invocation lost pending correlation or complete native state", err)
 				}
 				f.require(t, "refresh", "extension", "alpha", "--yes", "--json")
@@ -285,7 +285,7 @@ func TestNativeOpenCodeRemovalRetainsPendingUntilVerified(t *testing.T) {
 	}
 	f.requireSources(t, "@acme/foreign@1")
 	snapshot, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, filepath.Join(f.workspace, ".daem", "state.json")))
-	if err != nil || len(snapshot.PendingCarrierRemovals()) != 1 || !snapshot.ContainsHostConfig() {
+	if err != nil || len(snapshot.PendingCarrierRemovals()) != 1 || !snapshot.ContainsAgentConfig() {
 		t.Fatalf("pending removal or native state was lost: %v", err)
 	}
 	f.require(t, "apply", "--yes", "--json")

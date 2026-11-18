@@ -55,15 +55,15 @@ func prospectiveLayoutFixture(t *testing.T, fixture ownershiptest.PermissionReco
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := aggregate.NewHostConfigProjectionContract(selectedTarget, target.ScopeProject, binding.Destination(), footprint, codec)
+		contract, err := aggregate.NewAgentConfigProjectionContract(selectedTarget, target.ScopeProject, binding.Destination(), footprint, codec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, err := entity.New(entity.KindHostConfig, fmt.Sprintf("fixture-%d", index))
+		id, err := entity.New(entity.KindAgentConfig, fmt.Sprintf("fixture-%d", index))
 		if err != nil {
 			t.Fatal(err)
 		}
-		subject, err := topologyprojection.HostConfigKeySubject(id, selectedTarget, target.ScopeProject, key)
+		subject, err := topologyprojection.AgentConfigKeySubject(id, selectedTarget, target.ScopeProject, key)
 		if err != nil {
 			t.Fatal(err)
 		}

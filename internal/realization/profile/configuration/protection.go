@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/text/cases"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -481,7 +481,7 @@ func KnownRootDocuments(reference output.RootReference, names []string) ([]Docum
 		if selected != reference {
 			continue
 		}
-		spec, err := alias.anchorDocumentSpec(hostconfig.SyntaxDefault)
+		spec, err := alias.anchorDocumentSpec(agentconfig.SyntaxDefault)
 		if err != nil {
 			return nil, err
 		}

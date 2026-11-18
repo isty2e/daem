@@ -312,13 +312,13 @@ func assertMCPPublicExampleHostProjection(
 ) {
 	t.Helper()
 	placement := operations.Placement()
-	hostConfigPath := mcpPublicExampleHostConfigPath(t, projectRoot, home, placement)
-	content, err := os.ReadFile(hostConfigPath)
+	agentConfigPath := mcpPublicExampleAgentConfigPath(t, projectRoot, home, placement)
+	content, err := os.ReadFile(agentConfigPath)
 	if err != nil {
-		t.Fatalf("read host config %q: %v", hostConfigPath, err)
+		t.Fatalf("read host config %q: %v", agentConfigPath, err)
 	}
 	if strings.Contains(string(content), mcpPublicExampleSecretCanary) {
-		t.Fatalf("host config %q contains resolved secret canary", hostConfigPath)
+		t.Fatalf("host config %q contains resolved secret canary", agentConfigPath)
 	}
 	assertMCPPublicExampleFileExcludesSecret(t, filepath.Join(projectRoot, ".daem", "state.json"))
 	extracted, present, err := mcptest.ExtractCanonicalEntry(operations, content, mcpPublicExampleServerID)
@@ -348,7 +348,7 @@ func assertMCPPublicExampleFileExcludesSecret(t *testing.T, filename string) {
 	}
 }
 
-func mcpPublicExampleHostConfigPath(
+func mcpPublicExampleAgentConfigPath(
 	t *testing.T,
 	projectRoot string,
 	home string,

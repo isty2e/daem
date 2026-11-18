@@ -251,11 +251,11 @@ func (indexes SnapshotIndexes) validateNativeGroupCoverage(ctx context.Context, 
 				return err
 			}
 			id, entityBacked := topologyprojection.EntityID(subject)
-			if !entityBacked || id.Kind() != entity.KindHostConfig {
+			if !entityBacked || id.Kind() != entity.KindAgentConfig {
 				continue
 			}
 			targets := row.ConsumerTargets()
-			if err := profile.ValidateHostConfigDocumentOccupancy(subject, targets, row.Scope(), row.Destination(), row.ContentKind(), row.PermissionPolicy(), row.FileMode()); err != nil {
+			if err := profile.ValidateAgentConfigDocumentOccupancy(subject, targets, row.Scope(), row.Destination(), row.ContentKind(), row.PermissionPolicy(), row.FileMode()); err != nil {
 				return err
 			}
 			address := documentStateAddress{targets[0], row.Scope(), row.Destination()}
@@ -283,7 +283,7 @@ func (indexes SnapshotIndexes) validateNativeGroupCoverage(ctx context.Context, 
 				return err
 			}
 			contract := row.Contribution().Contract()
-			if _, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID()); !native {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(contract.CodecContractID()); !native {
 				continue
 			}
 			groupIndex, declared := aliases[contract.Address().Document()]

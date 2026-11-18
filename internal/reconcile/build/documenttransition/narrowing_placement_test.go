@@ -23,7 +23,7 @@ func TestNativeDocumentNarrowingRefusesSameOwnerWrongPlacement(t *testing.T) {
 			if !ok {
 				t.Fatal("fixture baseline is not entity-backed")
 			}
-			placement, err := aggregate.HostConfigPlacementID(target.TargetCodex, target.ScopeGlobal)
+			placement, err := aggregate.AgentConfigPlacementID(target.TargetCodex, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}

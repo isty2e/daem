@@ -37,7 +37,7 @@ func documentClaimsForTest(t *testing.T) documentClaimFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, found := aggregate.HostConfigCodecForSyntax("json")
+	id, found := aggregate.AgentConfigCodecForSyntax("json")
 	if !found {
 		t.Fatal("native JSON codec is unavailable")
 	}
@@ -49,7 +49,7 @@ func documentClaimsForTest(t *testing.T) documentClaimFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, footprint, id)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, footprint, id)
 	if err != nil {
 		t.Fatal(err)
 	}

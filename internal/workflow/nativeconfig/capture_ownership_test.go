@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -58,7 +58,7 @@ func TestCaptureHistoryRequiresSelectedActiveClaims(t *testing.T) {
 
 type captureHistoryFixture struct {
 	paths     daempaths.Paths
-	config    hostconfig.Config
+	config    agentconfig.Config
 	placement configuration.Placement
 	address   aggregate.DocumentAddress
 	footprint output.Footprint
@@ -96,8 +96,8 @@ ownership = %q
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := environment.HostConfigs()[0]
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+	config := environment.AgentConfigs()[0]
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 		Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 	})
 	if err != nil {
@@ -125,7 +125,7 @@ ownership = %q
 	var input durable.SnapshotInput
 	footprint := output.WholePathFootprint()
 	if ownershipKind == "document" {
-		subject, err := aggregate.HostConfigDocumentSubject(config.ID(), config.Target(), scope)
+		subject, err := aggregate.AgentConfigDocumentSubject(config.ID(), config.Target(), scope)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +143,7 @@ ownership = %q
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := aggregate.NewHostConfigProjectionContract(config.Target(), scope, placement.Destination(), footprint, "native-json-v1")
+		contract, err := aggregate.NewAgentConfigProjectionContract(config.Target(), scope, placement.Destination(), footprint, "native-json-v1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +163,7 @@ ownership = %q
 		if err != nil {
 			t.Fatal(err)
 		}
-		subject, err := topologyprojection.HostConfigKeySubject(config.ID(), config.Target(), scope, key)
+		subject, err := topologyprojection.AgentConfigKeySubject(config.ID(), config.Target(), scope, key)
 		if err != nil {
 			t.Fatal(err)
 		}

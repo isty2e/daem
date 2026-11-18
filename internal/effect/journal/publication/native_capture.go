@@ -239,7 +239,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		if err != nil {
 			return journalrecord.Native{}, nil, err
 		}
-		if !aggregate.IsHostConfigDocumentSubject(facts.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(facts.Subject()) {
 			return journalrecord.Native{}, nil, fmt.Errorf("whole capture requires its canonical native subject")
 		}
 		address, err := aggregate.NewDocumentAddress(facts.ConsumerTargets()[0], facts.Scope(), facts.Destination())

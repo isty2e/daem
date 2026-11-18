@@ -25,9 +25,9 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/desired/hookasset"},
 	},
 	{
-		id:        "desired.family.hostconfig",
-		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "HostConfig"),
-		packages:  []string{"internal/desired/hostconfig"},
+		id:        "desired.family.agentconfig",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "AgentConfig"),
+		packages:  []string{"internal/desired/agentconfig"},
 	},
 	{
 		id:        "desired.family.instructions",
@@ -229,7 +229,7 @@ var packagePlacementRows = []packagePlacementRow{
 	},
 	{
 		id:        "realization.codec.native-fragment",
-		placement: specializedPlacement(affinityRealization, roleCodec, specializationFamily, "HostConfig"),
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationFamily, "AgentConfig"),
 		packages:  []string{"internal/realization/lock/nativefragment"},
 	},
 	{

@@ -16,7 +16,7 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -47,7 +47,7 @@ func nativeTransportAction(t *testing.T, name, fragment string) reconcile.Native
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, err := hostconfig.New(hostconfig.Spec{Name: name, Source: spec, Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "extension-settings/" + name + ".json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	resource, err := agentconfig.New(agentconfig.Spec{Name: name, Source: spec, Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "extension-settings/" + name + ".json", Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func nativeTransportAction(t *testing.T, name, fragment string) reconcile.Native
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, HostConfigs: []hostconfig.Config{resource}})
+	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi}, Defaults: defaults, AgentConfigs: []agentconfig.Config{resource}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +84,8 @@ func nativeTransportAction(t *testing.T, name, fragment string) reconcile.Native
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, _ := observed.SourceContract().HostConfigPlacement()
-	subject, err := aggregate.HostConfigDocumentSubject(resource.ID(), placement.Target(), placement.Scope())
+	placement, _ := observed.SourceContract().AgentConfigPlacement()
+	subject, err := aggregate.AgentConfigDocumentSubject(resource.ID(), placement.Target(), placement.Scope())
 	if err != nil {
 		t.Fatal(err)
 	}

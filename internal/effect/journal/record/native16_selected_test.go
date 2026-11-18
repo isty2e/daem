@@ -252,7 +252,7 @@ func assertNative16SelectedValue(t *testing.T, image aggregate.Document, field, 
 func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired string) compose.ProjectionEdit {
 	t.Helper()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
-	id, found := aggregate.HostConfigCodecForSyntax(configdocument.JSON.String())
+	id, found := aggregate.AgentConfigCodecForSyntax(configdocument.JSON.String())
 	if !found {
 		t.Fatal("fixture native grammar unavailable")
 	}
@@ -272,7 +272,7 @@ func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired 
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,11 +284,11 @@ func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired 
 	if err != nil {
 		t.Fatal(err)
 	}
-	entityID, err := entity.New(entity.KindHostConfig, "preferences")
+	entityID, err := entity.New(entity.KindAgentConfig, "preferences")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(entityID, target.TargetPi, target.ScopeProject, contract.Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(entityID, target.TargetPi, target.ScopeProject, contract.Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

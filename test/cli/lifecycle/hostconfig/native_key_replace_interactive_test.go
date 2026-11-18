@@ -25,7 +25,7 @@ func TestNativeKeyReplacementInteractiveConsent(t *testing.T) {
 			before := nativefixture.SnapshotRecoveryEvidence(t, fixture)
 			var stdout, stderr bytes.Buffer
 			prompts := 0
-			code := clipkg.RunWithOptions([]string{"replace", "host-config", "preferences", "--manifest", fixture.Manifest}, clipkg.RunOptions{
+			code := clipkg.RunWithOptions([]string{"replace", "agent-config", "preferences", "--manifest", fixture.Manifest}, clipkg.RunOptions{
 				Context: t.Context(), Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr,
 				StdinIsTerminal: true, StdoutIsTerminal: true, StderrIsTerminal: true,
 				ReadConfirmationLine: func(context.Context, io.Reader, int) (string, error) {
@@ -46,7 +46,7 @@ func TestNativeKeyReplacementInteractiveConsent(t *testing.T) {
 			if approve {
 				nativefixture.RequireSharedValues(t, configdocument.TOML, testkit.ReadFile(t, fixture.Destination), "model='after-model'\n", true)
 			} else {
-				if !strings.Contains(stderr.String(), "replace host-config canceled") {
+				if !strings.Contains(stderr.String(), "replace agent-config canceled") {
 					t.Fatalf("declined replacement has no cancellation diagnostic: %s", stderr.String())
 				}
 				if !reflect.DeepEqual(before, nativefixture.SnapshotRecoveryEvidence(t, fixture)) {

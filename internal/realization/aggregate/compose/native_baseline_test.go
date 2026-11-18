@@ -14,7 +14,7 @@ import (
 
 func TestLoadedBaselineRoundTripAcrossNativeGrammars(t *testing.T) {
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.JSONC, configdocument.JSONLineComments, configdocument.TOML} {
-		id, found := aggregate.HostConfigCodecForSyntax(syntax.String())
+		id, found := aggregate.AgentConfigCodecForSyntax(syntax.String())
 		if !found {
 			t.Fatal("fixture syntax has no native codec")
 		}

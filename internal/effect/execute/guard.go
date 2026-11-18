@@ -13,16 +13,16 @@ import (
 var ErrNativeOperationRequired = effectpreparation.ErrNativeOperationRequired
 
 func rejectUnsupportedNativeInput(input ApplyInput) error {
-	if len(input.NativeNarrowings) != 0 || input.CurrentState.ContainsHostConfig() {
+	if len(input.NativeNarrowings) != 0 || input.CurrentState.ContainsAgentConfig() {
 		return ErrNativeOperationRequired
 	}
 	for _, effect := range input.ManagedPathEffects {
-		if aggregate.IsHostConfigDocumentSubject(effect.Subject()) {
+		if aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
 			return ErrNativeOperationRequired
 		}
 	}
 	for _, effect := range input.AggregateEffects {
-		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID()); native {
 			return ErrNativeOperationRequired
 		}
 	}
@@ -63,7 +63,7 @@ func rejectPlanErrorActions(planResult reconcile.Result) error {
 
 // RejectUnsupportedExecutableActions rejects work outside the ordinary execution contract.
 func RejectUnsupportedExecutableActions(planResult reconcile.Result) error {
-	if planResult.ContainsHostConfig() {
+	if planResult.ContainsAgentConfig() {
 		return ErrNativeOperationRequired
 	}
 

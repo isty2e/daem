@@ -46,7 +46,7 @@ func TestNativePiRefreshUsesBoundProtectionAndPreservesManagedKeys(t *testing.T)
 			testkit.AssertFileContent(t, fixture.Manifest, string(manifestBefore))
 			testkit.AssertFileContent(t, lockPath, string(lockBefore))
 			snapshot, err := statefile.LoadOptional(t.Context(), filepath.Join(fixture.Workspace, ".daem", "state.json"))
-			if err != nil || !snapshot.ContainsHostConfig() {
+			if err != nil || !snapshot.ContainsAgentConfig() {
 				t.Fatal("refresh history discarded native state", err)
 			}
 			testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)

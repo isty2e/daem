@@ -11,8 +11,8 @@ import (
 )
 
 // PrintReconciliationGuidance reports whether selected recovery guidance was emitted.
-func PrintReconciliationGuidance(output io.Writer, result reconcile.Result, manifestPath string, hostConfigDeclarations []entity.ID) bool {
-	native := HostConfigReconciliationGuidance(result, manifestPath, hostConfigDeclarations)
+func PrintReconciliationGuidance(output io.Writer, result reconcile.Result, manifestPath string, agentConfigDeclarations []entity.ID) bool {
+	native := AgentConfigReconciliationGuidance(result, manifestPath, agentConfigDeclarations)
 	for _, guidance := range native {
 		fmt.Fprintln(output, guidance.HumanText())
 	}
@@ -20,12 +20,12 @@ func PrintReconciliationGuidance(output io.Writer, result reconcile.Result, mani
 	for _, decision := range result.Decisions() {
 		var reason reconcile.ActionReason
 		if managed, ok := decision.ManagedPath(); ok && managed.IsBlocked() {
-			if id, retained := blockedRetainedHostConfigDocument(managed); retained && hostConfigDeclarations != nil && !slices.Contains(hostConfigDeclarations, id) {
+			if id, retained := blockedRetainedAgentConfigDocument(managed); retained && agentConfigDeclarations != nil && !slices.Contains(agentConfigDeclarations, id) {
 				continue
 			}
 			reason = managed.Reason()
 		} else if aggregate, ok := decision.Aggregate(); ok && aggregate.IsBlocked() {
-			if _, _, native := topologyprojection.HostConfigKeyIdentity(aggregate.Subject()); native {
+			if _, _, native := topologyprojection.AgentConfigKeyIdentity(aggregate.Subject()); native {
 				continue
 			}
 			reason = aggregate.Reason()
@@ -68,7 +68,7 @@ func PrintReconciliationGuidance(output io.Writer, result reconcile.Result, mani
 
 // PrintReconciliationFailureGuidance keeps inspection available even when the
 // failed command's reconciliation predates a pin reservation or completion.
-func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Result, manifestPath string, hostConfigDeclarations []entity.ID) bool {
+func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Result, manifestPath string, agentConfigDeclarations []entity.ID) bool {
 	for _, action := range result.Relations() {
 		if _, planned := action.PinTransition(); !planned {
 			continue
@@ -77,5 +77,5 @@ func PrintReconciliationFailureGuidance(output io.Writer, result reconcile.Resul
 		fmt.Fprintln(output, "help: https://github.com/isty2e/daem/blob/main/docs/troubleshooting.md")
 		return true
 	}
-	return PrintReconciliationGuidance(output, result, manifestPath, hostConfigDeclarations)
+	return PrintReconciliationGuidance(output, result, manifestPath, agentConfigDeclarations)
 }

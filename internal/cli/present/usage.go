@@ -48,7 +48,7 @@ func PrintUsage(output io.Writer, context UsageContext) {
 		"Usage: daem <command> [options]",
 		"Start",
 		"  init       Create a starter manifest.",
-		"  import     Build desired state from existing agent configuration.",
+		"  import     Build desired state from existing agent files.",
 		"Author",
 		"  add        Add a resource and refresh the lockfile.",
 		"  remove     Remove desired state and refresh the lockfile.",
@@ -245,7 +245,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			{"extension", "Host-native extension row."},
 			{"instruction", "Instruction source rendered for selected agents."},
 			{"hook", "Lifecycle hook command."},
-			{"host-config", "Native configuration from a prepared source file."},
+			{"agent-config", "Coding-agent settings from a prepared source file."},
 			{"mcp-server", "Standalone stdio MCP server."},
 			{"skill", "One local or Git-backed skill."},
 			{"skill-group", "Selected skills from one source root."},
@@ -254,18 +254,18 @@ func helpPages(context UsageContext) map[string]helpPage {
 			{"extension", "Remove an extension row."},
 			{"instruction", "Remove an instruction declaration."},
 			{"hook", "Remove a hook declaration."},
-			{"host-config", "Remove a native configuration declaration."},
+			{"agent-config", "Remove an agent configuration declaration."},
 			{"mcp-server", "Remove an MCP server row."},
 			{"skill", "Remove a skill or skill-group resource."},
 		}, "Omitted selectors remove an unambiguous whole resource. Remove writes by default; use --dry-run to preview."),
-		"replace": groupPage("daem replace", "explicitly replace selected configuration values", []helpRow{{"host-config", "Set selected native keys to their locked declaration values."}}, "Ordinary apply never gains replacement authority."),
-		"replace host-config": leaf("daem replace host-config", "daem replace host-config <id> [--manifest <path>] [--key <pointer> ...] [options]", "replace selected native keys using explicit consent", nil,
+		"replace": groupPage("daem replace", "explicitly replace selected configuration values", []helpRow{{"agent-config", "Set selected agent configuration keys to their locked values."}}, "Ordinary apply never gains replacement authority."),
+		"replace agent-config": leaf("daem replace agent-config", "daem replace agent-config <id> [--manifest <path>] [--key <pointer> ...] [options]", "replace selected agent configuration keys using explicit consent", nil,
 			[]helpRow{workspace, {"--key <pointer>", "Narrow the current declared atomic key set using RFC 6901; repeatable."}, dryRun, {"--yes", "Execute only with --expect-plan from a reviewed dry-run."}, {"--expect-plan <fingerprint>", "Require the exact versioned semantic plan; requires --yes."}, diff, jsonOutputWithDiff, verbose},
 			[]helpRow{{"", "Interactive execution shows selected current and declared values, then asks once. Noninteractive execution requires --yes --expect-plan."}, {"", "Replacement does not run host CLIs or modify other resources. --key cannot add undeclared keys or array elements."}},
-			[]string{"daem replace host-config preferences --dry-run --json", "daem replace host-config preferences --key /tui/theme"}, cliDocumentReference),
+			[]string{"daem replace agent-config preferences --dry-run --json", "daem replace agent-config preferences --key /tui/theme"}, cliDocumentReference),
 		"unmanage": groupPage("daem unmanage", "release daem management while retaining host state", []helpRow{
 			{"extension", "Release one exact extension relation."},
-			{"host-config", "Release a whole native configuration declaration's management."},
+			{"agent-config", "Stop managing a complete agent configuration declaration."},
 		}, "Unmanage writes metadata by default and never invokes a host route. Target and scope are safety filters."),
 		"migrate": {
 			Path: "daem migrate", Usage: "daem migrate <subject>",
@@ -300,14 +300,14 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]helpRow{workspace, {"--force", "Replace a regular file after entry-identity revalidation."}, dryRun, jsonOutput, verbose},
 			[]helpRow{{"", "Without --manifest, create ./daem.toml; never fall back to the user manifest."}, {"", "Writes by default. --dry-run previews the exact destination and content."}},
 			[]string{"daem init", "daem init --manifest ~/.config/daem/daem.toml"}, cliDocumentReference),
-		"import": leaf("daem import", "daem import --target <target> [--target <target> ...] [options]", "build desired state from existing agent configuration", nil,
+		"import": leaf("daem import", "daem import --target <target> [--target <target> ...] [options]", "build desired state from existing agent files", nil,
 			[]helpRow{workspace, target, scope, {"--source-dir <path>", "Destination for copied instruction sources."}, {"--merge", "Merge into an existing selected manifest instead of creating a new one."}, dryRun, diff, jsonOutputWithDiff, verbose},
-			[]helpRow{{"", "At least one --target is required. Import targets: " + context.ImportTargets + "."}, {"", "Extensions are imported only when daem can recover their exact install source; other observed extensions are reported and skipped."}, {"", "Without --manifest, non-merge import creates ./daem.toml; --merge uses existing-workspace selection."}, {"", "Use daem import host-config <id> for explicit native-value capture. Ordinary import never discovers generic settings."}},
+			[]helpRow{{"", "At least one --target is required. Import targets: " + context.ImportTargets + "."}, {"", "Extensions are imported only when daem can recover their exact install source; other observed extensions are reported and skipped."}, {"", "Without --manifest, non-merge import creates ./daem.toml; --merge uses existing-workspace selection."}, {"", "To capture selected values from a configuration file, use daem import agent-config <id>."}},
 			[]string{"daem import --target codex", "daem import --target codex --target claude-code --dry-run --diff"}, cliDocumentReference),
-		"import host-config": leaf("daem import host-config", "daem import host-config <id> [--update-source | --target <target> --scope <scope> --host-path <path>] [options]", "capture explicitly selected physical settings into a local source", nil,
-			[]helpRow{workspace, {"--update-source", "Update only existing declared source keys; missing values release keys."}, {"--target <target>", "One supported host for initial capture."}, {"--scope <scope>", "Initial capture: a scope supported by the selected host."}, {"--host-path <path>", "Initial host-root-relative document path."}, {"--key <pointer>", "RFC 6901 selector; repeatable. Initial objects expand to atomic leaves."}, {"--ownership keys|document", "Initial keys (default) or explicit raw whole-document capture."}, {"--syntax <grammar>", "Initial profile-supported grammar override."}, {"--source-dir <path>", "Initial local source directory (default: manifest-name.d)."}, {"--merge", "Required for initial capture into an existing manifest."}, {"--source <path>", "Update into a new local source and switch reference; never overwrite a destination."}, dryRun, diff, jsonOutputWithDiff, verbose, {"--yes --expect-plan <fingerprint>", "Approve the named-file and plaintext-risk disclosure from the reviewed dry-run."}},
+		"import agent-config": leaf("daem import agent-config", "daem import agent-config <id> [--update-source | --target <target> --scope <scope> --config-path <path>] [options]", "capture selected settings from one configuration file into a local source", nil,
+			[]helpRow{workspace, {"--update-source", "Update only existing declared source keys; missing values release keys."}, {"--target <target>", "One coding agent for initial capture."}, {"--scope <scope>", "Initial capture: a scope supported by the selected agent."}, {"--config-path <path>", "Initial file path relative to the agent's configuration root."}, {"--key <pointer>", "RFC 6901 selector; repeatable. Initial objects expand to atomic leaves."}, {"--ownership keys|document", "Initial keys (default) or explicit raw whole-document capture."}, {"--syntax <grammar>", "Initial profile-supported grammar override."}, {"--source-dir <path>", "Initial local source directory (default: manifest-name.d)."}, {"--merge", "Required for initial capture into an existing manifest."}, {"--source <path>", "Update into a new local source and switch reference; never overwrite a destination."}, dryRun, diff, jsonOutputWithDiff, verbose, {"--yes --expect-plan <fingerprint>", "Approve the named-file and plaintext-risk disclosure from the reviewed dry-run."}},
 			[]helpRow{{"", "Only source/declaration artifacts change; host files, lock, state and ownership records do not."}, {"", "In-place updates edit a named source file, including its other readers. Only known selected-manifest readers are listed."}, {"", "Pending capture publication is previewed/recovered instead of starting a new capture. Recovery is terminal; review another dry-run afterward."}},
-			[]string{"daem import host-config pi-ui --target pi --scope global --host-path settings.json --key /quietStartup --merge --dry-run --diff", "daem import host-config pi-ui --update-source --dry-run --json"}, cliDocumentReference),
+			[]string{"daem import agent-config pi-ui --target pi --scope global --config-path settings.json --key /quietStartup --merge --dry-run --diff", "daem import agent-config pi-ui --update-source --dry-run --json"}, cliDocumentReference),
 		"lock": leaf("daem lock", "daem lock [--manifest <path>] [--dry-run] [--json|--verbose]", "resolve the manifest into an exact lockfile", nil,
 			[]helpRow{workspace, dryRun, jsonOutput, verbose},
 			[]helpRow{{"", "The lockfile is always daem.lock.toml beside the selected manifest."}, {"", "Writes by default; the same floating manifest may resolve differently over time."}},
@@ -368,11 +368,11 @@ func helpPages(context UsageContext) map[string]helpPage {
 		[]helpRow{workspace, {"--target <target>", "Require the selected extension to use this exact target."}, {"--scope <scope>", "Require the selected extension to use this exact scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
 		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Unmanage refuses while apply recovery or journal cleanup remains."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
 		[]string{"daem unmanage extension context7 --dry-run --diff", "daem unmanage extension formatter --target opencode --scope project"}, cliDocumentReference)
-	pages["unmanage host-config"] = leaf("daem unmanage host-config", "daem unmanage host-config <id> [--manifest <path>] [--target <target>] [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]", "release complete native configuration management without changing host bytes",
+	pages["unmanage agent-config"] = leaf("daem unmanage agent-config", "daem unmanage agent-config <id> [--manifest <path>] [--target <target>] [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]", "stop managing a declaration and keep the agent's configuration intact",
 		[]helpRow{{"<id>", "Exact declaration or retained management identity; no per-key release."}},
 		[]helpRow{workspace, {"--target <target>", "Select one exact retained target."}, {"--scope <scope>", "Select one exact retained scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
 		[]helpRow{{"", "Removes any remaining declaration and locked outputs, then releases only its own recorded management."}, {"", "Sources and a current lock are not required. Missing declaration/lock files remain absent; conflicting or ambiguous identities refuse."}, {"", "Host bytes, including drift, and other owners are preserved. Writes by default; interrupted management release is completed with daem recover."}},
-		[]string{"daem unmanage host-config preferences --dry-run --diff", "daem unmanage host-config preferences --target codex --scope global"}, cliDocumentReference)
+		[]string{"daem unmanage agent-config preferences --dry-run --diff", "daem unmanage agent-config preferences --target codex --scope global"}, cliDocumentReference)
 	return pages
 }
 
@@ -390,23 +390,23 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 		[]helpRow{{"<name>", "Stable hook name."}, {"<event>", "Canonical hook lifecycle event."}, {"<command>", "One opaque shell-command string."}}, append([]helpRow{{"--matcher <matcher>", "Optional hook matcher."}, {"--timeout <duration>", "Positive duration; must be representable as whole seconds."}}, common...),
 		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Status messages and target overrides are manifest-only. Writes by default."}},
 		[]string{"daem add hook format PostToolUse 'make fmt'", "daem add hook test Stop 'go test ./...' --timeout 2m --dry-run"}, reference)
-	pages["add host-config"] = leaf("daem add host-config", "daem add host-config <id> <source> --target <target> --scope <scope> --host-path <path> [options]", "add a native configuration declaration and refresh the lockfile",
-		[]helpRow{{"<id>", "Unique host configuration declaration ID."}, {"<source>", "Prepared local file, Git file, or S3 file object."}},
+	pages["add agent-config"] = leaf("daem add agent-config", "daem add agent-config <id> <source> --target <target> --scope <scope> --config-path <path> [options]", "add an agent configuration declaration and refresh the lockfile",
+		[]helpRow{{"<id>", "Unique agent configuration declaration ID."}, {"<source>", "Prepared local file, Git file, or S3 file object."}},
 		[]helpRow{
 			workspace,
-			{"--target <target>", "Required: one host target."},
+			{"--target <target>", "Required: one coding agent, such as codex or pi."},
 			{"--scope <scope>", "Required: project or global."},
-			{"--host-path <path>", "Required: path relative to the selected host configuration root."},
+			{"--config-path <path>", "Required: destination relative to the selected agent's configuration root."},
 			{"--ownership <mode>", "Use keys (default) for selected values or document for a dedicated file."},
-			{"--syntax <syntax>", "Configuration grammar; omit to use the host/path default."},
+			{"--syntax <syntax>", "Configuration grammar; omit to use the target and path default."},
 			{"--path <repo-path>", "Git file path; may be supplied by owner/repo/path instead."},
 			{"--ref <git-ref>", "Required for Git: branch, tag, or full object ID."},
 			{"--version-id <id>", "S3 object version ID."},
 			{"--region <region>", "S3 region override."},
 			dryRun, diff, jsonOutput, verbose,
 		},
-		[]helpRow{{"", "Only edits the manifest and lockfile. Use apply to change host configuration."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID and source."}},
-		[]string{"daem add host-config preferences ./prefs.toml --target codex --scope project --host-path config.toml --dry-run --diff"}, reference)
+		[]helpRow{{"", "Only edits the manifest and lockfile. Use apply to change the agent's configuration."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID and source."}},
+		[]string{"daem add agent-config preferences ./prefs.toml --target codex --scope project --config-path config.toml --dry-run --diff"}, reference)
 	pages["add skill"] = leaf("daem add skill", "daem add skill <source> [--path <repo-path>] [--ref <git-ref>] [--name <installed-name>] [options]", "add one skill and refresh the lockfile",
 		[]helpRow{{"<source>", "Local path or Git repository locator."}}, append([]helpRow{{"--path <repo-path>", "Skill directory within a Git repository."}, {"--ref <git-ref>", "Strict branch, tag, or full object id."}, {"--name <installed-name>", "Target-visible installed directory name."}}, common...),
 		[]helpRow{{"", "Omitted target and scope preserve manifest inheritance."}, {"", "Resource ids, install modes, repair policy, and advanced sources are manifest-only. Writes by default."}},
@@ -419,11 +419,11 @@ func addAuthoringPages(pages map[string]helpPage, workspace helpRow, target help
 
 func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRow, scope helpRow, dryRun helpRow, diff helpRow, jsonOutput helpRow, verbose helpRow, reference string) {
 	common := []helpRow{workspace, target, scope, dryRun, diff, jsonOutput, verbose}
-	pages["remove host-config"] = leaf("daem remove host-config", "daem remove host-config <id> [--target <target>] [--scope <scope>] [options]", "remove a native configuration declaration and refresh the lockfile",
+	pages["remove agent-config"] = leaf("daem remove agent-config", "daem remove agent-config <id> [--target <target>] [--scope <scope>] [options]", "remove an agent configuration declaration and refresh the lockfile",
 		[]helpRow{{"<id>", "Exact host_config.id in the manifest."}},
 		[]helpRow{workspace, {"--target <target>", "Require this declaration to have the selected target."}, {"--scope <scope>", "Require this declaration to have the selected scope."}, dryRun, diff, jsonOutput, verbose},
-		[]helpRow{{"", "Removes a whole declaration; no per-key removal. Writes by default."}, {"", "Use apply --dry-run to preview cleanup. To keep host settings and release management, use unmanage host-config instead."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID."}},
-		[]string{"daem remove host-config preferences --dry-run --diff"}, reference)
+		[]helpRow{{"", "Removes a whole declaration; no per-key removal. Writes by default."}, {"", "Use apply --dry-run to preview cleanup. To keep the agent's settings and release management, use unmanage agent-config instead."}, {"", "For an ID beginning with '-', put all options before --, followed by the ID."}},
+		[]string{"daem remove agent-config preferences --dry-run --diff"}, reference)
 	resources := []struct {
 		kind, operand, summary string
 	}{

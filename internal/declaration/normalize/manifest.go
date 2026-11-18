@@ -53,7 +53,7 @@ func Manifest(raw declaration.Manifest) (desired.Environment, error) {
 		return desired.Environment{}, err
 	}
 
-	hostConfigs, err := normalizeHostConfigs(raw.HostConfigs, targets, defaults)
+	agentConfigs, err := normalizeAgentConfigs(raw.AgentConfigs, targets, defaults)
 	if err != nil {
 		return desired.Environment{}, err
 	}
@@ -68,7 +68,7 @@ func Manifest(raw declaration.Manifest) (desired.Environment, error) {
 		Instructions: instructions,
 		MCPServers:   mcpServers,
 		Extensions:   extensions,
-		HostConfigs:  hostConfigs,
+		AgentConfigs: agentConfigs,
 	})
 	if err != nil {
 		return desired.Environment{}, fmt.Errorf("desired environment: %w", err)

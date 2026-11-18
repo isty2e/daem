@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/desired/hookasset"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/desired/skill"
@@ -57,7 +57,7 @@ type Spec struct {
 	Instructions []instructions.Instructions
 	MCPServers   []mcp.Server
 	Extensions   []extension.Extension
-	HostConfigs  []hostconfig.Config
+	AgentConfigs []agentconfig.Config
 }
 
 // Environment is the immutable canonical desired aggregate root.
@@ -71,7 +71,7 @@ type Environment struct {
 	instructions []instructions.Instructions
 	mcpServers   []mcp.Server
 	extensions   []extension.Extension
-	hostConfigs  []hostconfig.Config
+	agentConfigs []agentconfig.Config
 }
 
 // New constructs and validates one canonical desired environment.
@@ -94,7 +94,7 @@ func New(spec Spec) (Environment, error) {
 		instructions: append([]instructions.Instructions(nil), spec.Instructions...),
 		mcpServers:   append([]mcp.Server(nil), spec.MCPServers...),
 		extensions:   append([]extension.Extension(nil), spec.Extensions...),
-		hostConfigs:  append([]hostconfig.Config(nil), spec.HostConfigs...),
+		agentConfigs: append([]agentconfig.Config(nil), spec.AgentConfigs...),
 	}
 	if err := environment.validateFamilies(); err != nil {
 		return Environment{}, err
@@ -181,7 +181,7 @@ func (environment Environment) validateFamilies() error {
 		}
 		extensionCarriers[key] = value.ID().Name()
 	}
-	for index, value := range environment.hostConfigs {
+	for index, value := range environment.agentConfigs {
 		if err := value.Validate(); err != nil {
 			return fmt.Errorf("host_configs[%d]: %w", index, err)
 		}
@@ -271,7 +271,7 @@ func (environment Environment) spec() Spec {
 		Skills: environment.skills, SkillSets: environment.skillSets,
 		Hooks: environment.hooks, HookAssets: environment.hookAssets,
 		Instructions: environment.instructions, MCPServers: environment.mcpServers,
-		Extensions: environment.extensions, HostConfigs: environment.hostConfigs,
+		Extensions: environment.extensions, AgentConfigs: environment.agentConfigs,
 	}
 }
 
@@ -291,20 +291,20 @@ func (environment Environment) WithExtensions(values []extension.Extension) (Env
 	return New(spec)
 }
 
-// HostConfigOnly selects one declaration without introducing other resource work.
-func (environment Environment) HostConfigOnly(id entity.ID) (Environment, error) {
-	for _, config := range environment.hostConfigs {
+// AgentConfigOnly selects one declaration without introducing other resource work.
+func (environment Environment) AgentConfigOnly(id entity.ID) (Environment, error) {
+	for _, config := range environment.agentConfigs {
 		if config.ID() == id {
-			return New(Spec{Targets: []target.Target{config.Target()}, Defaults: environment.defaults, HostConfigs: []hostconfig.Config{config}})
+			return New(Spec{Targets: []target.Target{config.Target()}, Defaults: environment.defaults, AgentConfigs: []agentconfig.Config{config}})
 		}
 	}
-	return Environment{}, fmt.Errorf("host-config declaration %q was not found", id)
+	return Environment{}, fmt.Errorf("agent configuration declaration %q was not found", id)
 }
 
-// HostConfigsOnly retains native declarations and canonical defaults without
+// AgentConfigsOnly retains native declarations and canonical defaults without
 // introducing source work for another resource family.
-func (environment Environment) HostConfigsOnly() (Environment, error) {
-	return New(Spec{Targets: environment.Targets(), Defaults: environment.defaults, HostConfigs: environment.HostConfigs()})
+func (environment Environment) AgentConfigsOnly() (Environment, error) {
+	return New(Spec{Targets: environment.Targets(), Defaults: environment.defaults, AgentConfigs: environment.AgentConfigs()})
 }
 
 // Targets returns normalized top-level targets in authored order.
@@ -339,7 +339,7 @@ func (environment Environment) Instructions() []instructions.Instructions {
 // source-backed entities. Selector roots and non-artifact relations are not
 // entity artifact inputs.
 func (environment Environment) EntityArtifactSources() []source.Source {
-	result := make([]source.Source, 0, len(environment.skills)+len(environment.hookAssets)+len(environment.instructions)+len(environment.hostConfigs))
+	result := make([]source.Source, 0, len(environment.skills)+len(environment.hookAssets)+len(environment.instructions)+len(environment.agentConfigs))
 	for _, value := range environment.skills {
 		result = append(result, value.Source())
 	}
@@ -349,7 +349,7 @@ func (environment Environment) EntityArtifactSources() []source.Source {
 	for _, value := range environment.instructions {
 		result = append(result, value.Source())
 	}
-	for _, value := range environment.hostConfigs {
+	for _, value := range environment.agentConfigs {
 		result = append(result, value.Source())
 	}
 	return result
@@ -365,16 +365,16 @@ func (environment Environment) Extensions() []extension.Extension {
 	return append([]extension.Extension(nil), environment.extensions...)
 }
 
-// HostConfigs returns a defensive copy of canonical configuration intent.
-func (environment Environment) HostConfigs() []hostconfig.Config {
-	return append([]hostconfig.Config(nil), environment.hostConfigs...)
+// AgentConfigs returns a defensive copy of canonical configuration intent.
+func (environment Environment) AgentConfigs() []agentconfig.Config {
+	return append([]agentconfig.Config(nil), environment.agentConfigs...)
 }
 
-// HostConfigIDs returns the complete declaration membership, including an empty
-// slice when the manifest has no host configuration declarations.
-func (environment Environment) HostConfigIDs() []entity.ID {
-	ids := make([]entity.ID, len(environment.hostConfigs))
-	for index, config := range environment.hostConfigs {
+// AgentConfigIDs returns the complete declaration membership, including an empty
+// slice when the manifest has no agent configuration declarations.
+func (environment Environment) AgentConfigIDs() []entity.ID {
+	ids := make([]entity.ID, len(environment.agentConfigs))
+	for index, config := range environment.agentConfigs {
 		ids[index] = config.ID()
 	}
 	return ids

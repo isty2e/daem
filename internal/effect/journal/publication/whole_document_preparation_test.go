@@ -228,15 +228,15 @@ type wholePreparationFixture struct {
 
 func newWholePreparationFixture(t *testing.T, selected target.Target, scope target.Scope) wholePreparationFixture {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "document")
+	id, err := entity.New(entity.KindAgentConfig, "document")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, selected, scope)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, selected, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: "prompts/review.md", Ownership: "document"})
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: selected, Scope: scope, Path: "prompts/review.md", Ownership: "document"})
 	if err != nil {
 		t.Fatal(err)
 	}

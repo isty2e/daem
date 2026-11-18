@@ -48,7 +48,7 @@ func TestAuthoringPreviewsRefuseInterruptedMetadataTransaction(t *testing.T) {
 		{
 			name: "remove host-config",
 			run: func() error {
-				_, err := RemoveHostConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, RemoveHostConfigRequest{ID: "preferences"})
+				_, err := RemoveAgentConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, RemoveAgentConfigRequest{ID: "preferences"})
 				return err
 			},
 		},
@@ -198,7 +198,7 @@ func TestAuthoringWriteRefusesIncompleteEvidenceBeforeManifestRead(t *testing.T)
 	}
 }
 
-func TestHostConfigAuthoringWriteRefusesActiveApplyJournal(t *testing.T) {
+func TestAgentConfigAuthoringWriteRefusesActiveApplyJournal(t *testing.T) {
 	root := t.TempDir()
 	configureUnmanageTestHomes(t, root)
 	paths := unmanageTestPaths(t, root)
@@ -206,14 +206,14 @@ func TestHostConfigAuthoringWriteRefusesActiveApplyJournal(t *testing.T) {
 	writeUnmanageFile(t, paths.ManifestPath, original)
 	writeUnmanageFile(t, filepath.Join(root, "preferences.toml"), []byte("enabled = true\n"))
 	captureUnmanageActiveJournal(t, paths)
-	request := AddHostConfigRequest{
+	request := AddAgentConfigRequest{
 		ID: "preferences", SourceArg: filepath.Join(root, "preferences.toml"),
-		HostPath: "config.toml", Target: target.TargetCodex, Scope: target.ScopeProject,
+		ConfigPath: "config.toml", Target: target.TargetCodex, Scope: target.ScopeProject,
 	}
-	if _, err := AddHostConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, request); err != nil {
+	if _, err := AddAgentConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeDryRun}, request); err != nil {
 		t.Fatalf("preview should use the ordinary authoring file-set fence: %v", err)
 	}
-	if _, err := AddHostConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeWrite}, request); !errors.Is(err, journal.ErrInterruptedApply) {
+	if _, err := AddAgentConfig(t.Context(), ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeWrite}, request); !errors.Is(err, journal.ErrInterruptedApply) {
 		t.Fatalf("write = %v, want interrupted apply refusal", err)
 	}
 	if actual, err := os.ReadFile(paths.ManifestPath); err != nil || !bytes.Equal(actual, original) {

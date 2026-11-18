@@ -13,7 +13,7 @@ import (
 // retain their own limits. It does not widen the default product catalog.
 func ForOperation(ctx context.Context, required []aggregate.CodecContractID, nativeDocumentLimits, nativeValueLimits configdocument.Limits) (aggregate.CodecCatalog, error) {
 	codecs, err := collectRequired(ctx, required, func(id aggregate.CodecContractID) (aggregate.Codec, error) {
-		if _, native := aggregate.HostConfigSyntaxForCodec(id); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(id); native {
 			return nativecodec.New(ctx, id, nativeDocumentLimits, nativeValueLimits)
 		}
 		codec, admitted := catalog.Lookup(id)
@@ -31,7 +31,7 @@ func ForOperation(ctx context.Context, required []aggregate.CodecContractID, nat
 // ForContributions admits selected values without document or effect capabilities.
 func ForContributions(ctx context.Context, required []aggregate.CodecContractID, nativeValueLimits configdocument.Limits) (aggregate.ContributionCatalog, error) {
 	validators, err := collectRequired(ctx, required, func(id aggregate.CodecContractID) (aggregate.ContributionValidator, error) {
-		if _, native := aggregate.HostConfigSyntaxForCodec(id); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(id); native {
 			return nativecodec.NewContributionValidator(ctx, id, nativeValueLimits)
 		}
 		validator, admitted := catalog.Contributions().Lookup(id)
@@ -56,7 +56,7 @@ func ContractIDs() []aggregate.CodecContractID {
 		required = append(required, placement.CodecContractID())
 	}
 	for _, syntax := range []string{"json", "jsonc", "json-line-comments", "toml"} {
-		id, _ := aggregate.HostConfigCodecForSyntax(syntax)
+		id, _ := aggregate.AgentConfigCodecForSyntax(syntax)
 		required = append(required, id)
 	}
 	return required

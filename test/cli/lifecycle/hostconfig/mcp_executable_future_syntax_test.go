@@ -157,9 +157,9 @@ args = ["serve", "--mcp"]
 		t.Fatalf("apply changed missing prerequisite path: %v", err)
 	}
 
-	hostConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
+	agentConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
 	entry, present, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjection(
-		testkit.ReadFile(t, hostConfigPath),
+		testkit.ReadFile(t, agentConfigPath),
 		"codegraph",
 	)
 	if err != nil {
@@ -180,7 +180,7 @@ args = ["serve", "--mcp"]
 	)
 
 	otherPath := filepath.Join(project.root, "other", "codegraph")
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `{
   "mcpServers": {
     "codegraph": {
       "command": `+strconv.Quote(otherPath)+`,

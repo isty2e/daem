@@ -430,7 +430,7 @@ func planAtPathsWithBarrier(
 		if errors.Is(err, nativeconfig.ErrOpaqueNamespaceOverlap) {
 			return refusedPlan(result, ReasonRefreshUnsupported, err, "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before refresh")
 		}
-		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve host-value drift through explicit replace host-config")
+		return refusedPlan(result, ReasonNativeSettings, err, "run daem status and daem recover --dry-run; apply selected settings before refresh; resolve drifted settings with daem replace agent-config")
 	}
 	planned.protectionFence, err = observeRefreshProtectionFence(ctx, paths, settingsProfile)
 	if err != nil {

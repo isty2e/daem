@@ -19,7 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -96,9 +96,9 @@ func TestNativeAssessmentRequiresRetainedStateDocumentsBeforeRetirementPlanning(
 func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 	fixture := newNativePlanningFixture(t, target.ScopeProject, "extension-settings/test.json")
 	var err error
-	fixture.config, err = hostconfig.New(hostconfig.Spec{
+	fixture.config, err = agentconfig.New(agentconfig.Spec{
 		Name: fixture.config.ID().Name(), Source: fixture.config.Source(), Target: fixture.config.Target(),
-		Scope: fixture.config.Scope(), Path: fixture.config.Path(), Ownership: hostconfig.OwnershipKeys,
+		Scope: fixture.config.Scope(), Path: fixture.config.Path(), Ownership: agentconfig.OwnershipKeys,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestNativeAssessmentBorrowsLiveBatchAndOriginalAllocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	epoch := NewPersistenceEpochWithBudget(fixture.observation.Before, claims, fixture.observation.Budget)
-	id, _ := aggregate.HostConfigCodecForSyntax("json")
+	id, _ := aggregate.AgentConfigCodecForSyntax("json")
 	codecs, err := aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{id}, narrowingLimits, narrowingLimits)
 	if err != nil {
 		t.Fatal(err)

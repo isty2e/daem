@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
@@ -34,7 +34,7 @@ func TestPlacementRetainsIntentWithoutDuplicatingSelectedKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input.Syntax = hostconfig.SyntaxJSON
+	input.Syntax = agentconfig.SyntaxJSON
 	explicit, err := NewPlacement(input, facts)
 	if err != nil {
 		t.Fatal(err)
@@ -50,14 +50,14 @@ func TestPlacementRetainsIntentWithoutDuplicatingSelectedKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 		key := placement.SurfaceKey()
-		if key.Kind() != entity.KindHostConfig || key.Variant() != hostsurface.VariantDefault || key.Target() != input.Target || key.Scope() != input.Scope {
+		if key.Kind() != entity.KindAgentConfig || key.Variant() != hostsurface.VariantDefault || key.Target() != input.Target || key.Scope() != input.Scope {
 			t.Fatalf("native placement lost stable surface identity: %+v", key)
 		}
 		if placement.NativePath() != input.Path || placement.Document().Destination() != placement.Destination() {
 			t.Fatal("native path/destination differs from the document reference")
 		}
 	}
-	input.Ownership = hostconfig.OwnershipDocument
+	input.Ownership = agentconfig.OwnershipDocument
 	document, err := NewPlacement(input, facts)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestPlacementValidateRejectsZeroAndInconsistentOwnedFacts(t *testing.T) {
 	}
 	forged := placement
 	forged.document, err = NewDocumentSpec(DocumentInput{
-		Target: input.Target, Scope: input.Scope, Path: input.Path, Syntax: hostconfig.SyntaxJSONC,
+		Target: input.Target, Scope: input.Scope, Path: input.Path, Syntax: agentconfig.SyntaxJSONC,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,14 +95,14 @@ func TestPlacementValidateRejectsZeroAndInconsistentOwnedFacts(t *testing.T) {
 	if forged.Validate() == nil {
 		t.Fatal("another resource kind became a native placement")
 	}
-	forged.surface, err = hostsurface.NewSurfaceKey(input.Target, input.Scope, entity.KindHostConfig, "alternate")
+	forged.surface, err = hostsurface.NewSurfaceKey(input.Target, input.Scope, entity.KindAgentConfig, "alternate")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if forged.Validate() == nil {
 		t.Fatal("an unrecorded native surface variant was accepted")
 	}
-	forged.surface, err = hostsurface.NewSurfaceKey(input.Target, target.ScopeProject, entity.KindHostConfig, hostsurface.VariantDefault)
+	forged.surface, err = hostsurface.NewSurfaceKey(input.Target, target.ScopeProject, entity.KindAgentConfig, hostsurface.VariantDefault)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestPlacementConstructorRetainsNativeExclusionsAndScope(t *testing.T) {
 	} {
 		t.Run(string(test.selected)+"/"+string(test.scope)+"/"+test.path, func(t *testing.T) {
 			placement, err := NewPlacement(PlacementInput{
-				Target: test.selected, Scope: test.scope, Path: test.path, Syntax: hostconfig.SyntaxJSON,
+				Target: test.selected, Scope: test.scope, Path: test.path, Syntax: agentconfig.SyntaxJSON,
 			}, placementFacts(t, test.selected, test.scope))
 			if test.reserved {
 				if !errors.Is(err, ErrReserved) {

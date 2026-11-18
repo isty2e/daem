@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -34,7 +34,7 @@ func nativeAggregatePlanningInput(t *testing.T, kind reconcile.AggregateDecision
 	if kind == reconcile.AggregateNoOp || kind == reconcile.AggregateRecord {
 		current = `{"theme":2}`
 	}
-	observed := nativeActionPreparationInputForScope(t, configdocument.JSON, current, current, `{"theme":2}`, hostconfig.OwnershipKeys, target.ScopeProject).Source
+	observed := nativeActionPreparationInputForScope(t, configdocument.JSON, current, current, `{"theme":2}`, agentconfig.OwnershipKeys, target.ScopeProject).Source
 	projections := observed.Projections()
 	if len(projections) != 1 {
 		t.Fatal("fixture does not have one actual source-produced key")
@@ -129,7 +129,7 @@ func TestNativeOperationAdmitsStaticPlanningAndStateButNotOrdinaryExecution(t *t
 				t.Fatal("native decision lost exact static admission", selectionErr)
 			}
 			result, err := reconcile.NewResult(reconcile.ResultInput{Context: reconcile.ContextApply, Aggregates: decisions})
-			if err != nil || !result.ContainsHostConfig() {
+			if err != nil || !result.ContainsAgentConfig() {
 				t.Fatal(err)
 			}
 			withOrders, err := result.WithRelationOrders(nil)
@@ -168,7 +168,7 @@ func TestNativeOperationAdmitsStaticPlanningAndStateButNotOrdinaryExecution(t *t
 					t.Fatal("Effect conversion lost the selected codec/placement contract")
 				}
 			}
-			if before.ContainsHostConfig() != (kind != reconcile.AggregateCreate && kind != reconcile.AggregateRecord) {
+			if before.ContainsAgentConfig() != (kind != reconcile.AggregateCreate && kind != reconcile.AggregateRecord) {
 				t.Fatal("native membership query lost before-state meaning")
 			}
 			for _, guard := range []func(reconcile.Result) error{execute.RejectUnsupportedActions, execute.RejectUnsupportedExecutableActions} {
@@ -268,7 +268,7 @@ func TestNativeOperationDecisionRejectsMissingOrMismatchedContract(t *testing.T)
 	}
 	key, _ := output.NewKeyPath("other")
 	footprint, _ := output.NewKeyFootprint(key)
-	other, err := profile.HostConfigProjectionContract(operation.Placement(), footprint)
+	other, err := profile.AgentConfigProjectionContract(operation.Placement(), footprint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestNativeOperationDecisionRejectsMissingOrMismatchedContract(t *testing.T)
 }
 
 func TestNativeOperationWholeNoOpCannotBecomeOrdinaryWork(t *testing.T) {
-	facts := nativeActionPreparationInput(t, configdocument.JSON, `{"theme":1}`, `{"theme":1}`, `{"theme":1}`, hostconfig.OwnershipDocument)
+	facts := nativeActionPreparationInput(t, configdocument.JSON, `{"theme":1}`, `{"theme":1}`, `{"theme":1}`, agentconfig.OwnershipDocument)
 	baseline := facts.Baseline
 	decision, err := reconcile.NewManagedPathDecision(reconcile.ManagedPathDecisionInput{
 		Kind: reconcile.ManagedPathNoOp, Subject: baseline.Subject(), ConsumerTargets: baseline.ConsumerTargets(), Scope: baseline.Scope(), Destination: baseline.Destination(),
@@ -302,11 +302,11 @@ func TestNativeOperationWholeNoOpCannotBecomeOrdinaryWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := reconcile.NewResult(reconcile.ResultInput{Context: reconcile.ContextApply, ManagedPaths: []reconcile.ManagedPathDecision{decision}})
-	if err != nil || !result.ContainsHostConfig() {
+	if err != nil || !result.ContainsAgentConfig() {
 		t.Fatal("native whole Result lost its family identity", err)
 	}
 	before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedPaths: []durable.ManagedPathState{baseline}})
-	if err != nil || !before.ContainsHostConfig() {
+	if err != nil || !before.ContainsAgentConfig() {
 		t.Fatal("native whole before-state lost its family identity", err)
 	}
 	if err := execute.RejectUnsupportedExecutableActions(result); !errors.Is(err, effectpreparation.ErrNativeOperationRequired) {

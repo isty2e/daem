@@ -14,7 +14,7 @@ func (plan Plan) RetainsStructuralContainer(address ProjectionAddress) bool {
 }
 
 func (plan *Plan) indexNativeTreeRelations() error {
-	if _, native := HostConfigSyntaxForCodec(plan.intents[0].before.contract.CodecContractID()); !native {
+	if _, native := AgentConfigSyntaxForCodec(plan.intents[0].before.contract.CodecContractID()); !native {
 		return nil
 	}
 	desired := make([]output.KeyPath, 0, len(plan.intents))

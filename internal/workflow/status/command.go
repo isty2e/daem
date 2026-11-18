@@ -38,18 +38,18 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
-	PermissionProtection   ownershipobserve.ProtectionObservation
-	ManifestPath           string
-	LockfilePath           string
-	LockfileExplicit       bool
-	StatefilePath          string
-	LockfileMissing        bool
-	Reconciliation         reconcile.Result
-	HostConfigDeclarations []entity.ID // nil until a complete assessment is available
-	Diagnostics            []findings.Diagnostic
-	LockOnly               []readiness.UnsupportedProjection
-	MCPProjections         []mcpobserve.LockedProjectionObservation
-	HostRouteAttempts      []durableattempt.HostRouteAttempt
+	PermissionProtection    ownershipobserve.ProtectionObservation
+	ManifestPath            string
+	LockfilePath            string
+	LockfileExplicit        bool
+	StatefilePath           string
+	LockfileMissing         bool
+	Reconciliation          reconcile.Result
+	AgentConfigDeclarations []entity.ID // nil until a complete assessment is available
+	Diagnostics             []findings.Diagnostic
+	LockOnly                []readiness.UnsupportedProjection
+	MCPProjections          []mcpobserve.LockedProjectionObservation
+	HostRouteAttempts       []durableattempt.HostRouteAttempt
 }
 
 // CheckClean evaluates the status --check predicate for this observation.
@@ -101,7 +101,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		return result, err
 	}
 	result.Reconciliation = assessment.Reconciliation
-	result.HostConfigDeclarations = loaded.RuntimeEnvironment.HostConfigIDs()
+	result.AgentConfigDeclarations = loaded.RuntimeEnvironment.AgentConfigIDs()
 	result.Diagnostics = append(
 		loaded.Diagnostics,
 		diagnose.RetainedSkillDiscoveryDiagnostics(

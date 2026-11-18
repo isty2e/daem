@@ -32,8 +32,8 @@ func TestMCPIndexRetainsItsCodecBesideNativeObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nativeID, _ := aggregate.HostConfigCodecForSyntax("toml")
-	native, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, mcp.Address().Document().AggregateRoot(), footprint, nativeID)
+	nativeID, _ := aggregate.AgentConfigCodecForSyntax("toml")
+	native, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, mcp.Address().Document().AggregateRoot(), footprint, nativeID)
 	if err != nil {
 		t.Fatal(err)
 	}

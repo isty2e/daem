@@ -92,11 +92,11 @@ func TestJournalV15RetainsOrdinaryWholeFileSnapshotsWithSelectedStateCodec(t *te
 
 func nativeWholeFileJournalBaseline(t *testing.T, selectedTarget target.Target, scope target.Scope) durable.ManagedPathState {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, selectedTarget, scope)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, selectedTarget, scope)
 	if err != nil {
 		t.Fatal(err)
 	}

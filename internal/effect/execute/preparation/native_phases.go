@@ -27,7 +27,7 @@ func (preparation NativeApplyStatePreparation) ValidateAggregatePhaseSplit(prefi
 		return fmt.Errorf("native prefix does not cover its positive ownership transitions")
 	}
 	for _, effect := range prefix.aggregates {
-		if _, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID()); !native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID()); !native {
 			return fmt.Errorf("positive native prefix contains ordinary aggregate work")
 		}
 	}
@@ -60,10 +60,10 @@ func (preparation NativeApplyStatePreparation) DelegatePrerequisites(baseline du
 		return NativeApplyStatePreparation{}, err
 	}
 	preparation.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect ManagedPathEffect) bool {
-		return aggregate.IsHostConfigDocumentSubject(effect.Subject())
+		return aggregate.IsAgentConfigDocumentSubject(effect.Subject())
 	})
 	preparation.aggregates = slices.DeleteFunc(slices.Clone(preparation.aggregates), func(effect AggregateEffect) bool {
-		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
+		_, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID())
 		return native
 	})
 	preparation.narrowings, preparation.adoptions, preparation.orders, preparation.projectCompletions, preparation.nativeOperations = nil, nil, nil, nil, nil
@@ -92,10 +92,10 @@ func (preparation NativeApplyStatePreparation) DelegatePhases(prefix NativeApply
 	}
 	late := preparation
 	late.managed = slices.DeleteFunc(slices.Clone(preparation.managed), func(effect ManagedPathEffect) bool {
-		return !aggregate.IsHostConfigDocumentSubject(effect.Subject())
+		return !aggregate.IsAgentConfigDocumentSubject(effect.Subject())
 	})
 	late.aggregates = slices.DeleteFunc(slices.Clone(residual), func(effect AggregateEffect) bool {
-		_, native := aggregate.HostConfigSyntaxForCodec(effect.CodecContractID())
+		_, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID())
 		return !native
 	})
 	late.narrowings, late.orders = preparation.narrowingPhase(false), nil

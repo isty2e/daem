@@ -210,13 +210,13 @@ func contributionCodecState(t *testing.T, syntax configdocument.Syntax) durable.
 	if err != nil || len(leaves) != 1 {
 		t.Fatalf("native fixture does not have one atomic value: %v", err)
 	}
-	id, found := aggregate.HostConfigCodecForSyntax(syntax.String())
+	id, found := aggregate.AgentConfigCodecForSyntax(syntax.String())
 	if !found {
 		t.Fatal("native fixture syntax unavailable")
 	}
 	root := outputtest.Parse(t, "@pi-agent/extensions/"+syntax.String()+"/config.data")
 	key := outputtest.KeyFootprint(t, "", "a/b", "~")
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, key, id)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, root, key, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,12 +224,12 @@ func contributionCodecState(t *testing.T, syntax configdocument.Syntax) durable.
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, err := entity.New(entity.KindHostConfig, "native-"+strings.ReplaceAll(syntax.String(), "-", "_"))
+	resource, err := entity.New(entity.KindAgentConfig, "native-"+strings.ReplaceAll(syntax.String(), "-", "_"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	path, _ := key.Key()
-	subject, err := topologyprojection.HostConfigKeySubject(resource, target.TargetPi, target.ScopeGlobal, path)
+	subject, err := topologyprojection.AgentConfigKeySubject(resource, target.TargetPi, target.ScopeGlobal, path)
 	if err != nil {
 		t.Fatal(err)
 	}

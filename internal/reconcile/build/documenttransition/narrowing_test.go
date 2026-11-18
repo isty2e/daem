@@ -214,11 +214,11 @@ func TestNativeDocumentNarrowingHandlesGeneralAndAtomicKeys(t *testing.T) {
 
 func narrowingInput(t *testing.T, syntax configdocument.Syntax, baseline, current, desired string) NativeDocumentNarrowingInput {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, "settings")
+	id, err := entity.New(entity.KindAgentConfig, "settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	placement, err := aggregate.HostConfigPlacementID(target.TargetPi, target.ScopeGlobal)
+	placement, err := aggregate.AgentConfigPlacementID(target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func narrowingInput(t *testing.T, syntax configdocument.Syntax, baseline, curren
 	if err != nil {
 		t.Fatal(err)
 	}
-	codecID, ok := aggregate.HostConfigCodecForSyntax(syntax.String())
+	codecID, ok := aggregate.AgentConfigCodecForSyntax(syntax.String())
 	if !ok {
 		t.Fatal("fixture syntax lacks native codec")
 	}
@@ -249,7 +249,7 @@ func narrowingInput(t *testing.T, syntax configdocument.Syntax, baseline, curren
 		if err != nil {
 			t.Fatal(err)
 		}
-		contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, footprint, codecID)
+		contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, footprint, codecID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -261,7 +261,7 @@ func narrowingInput(t *testing.T, syntax configdocument.Syntax, baseline, curren
 		if err != nil {
 			t.Fatal(err)
 		}
-		keySubject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, leaf.Path)
+		keySubject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, leaf.Path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -316,14 +316,14 @@ func TestNativeDocumentNarrowingRefusesForeignDeclarationAndPlacement(t *testing
 	for _, misplaced := range []bool{false, true} {
 		input := narrowingInput(t, configdocument.JSON, `{"model":"balanced"}`, `{"model":"balanced"}`, `{"model":"fast"}`)
 		item := input.Desired[0].Contributions()[0]
-		id, _, _ := topologyprojection.HostConfigKeyIdentity(item.SubjectID())
+		id, _, _ := topologyprojection.AgentConfigKeyIdentity(item.SubjectID())
 		body := item.Contribution()
 		if misplaced {
 			other, err := output.Parse("@pi-agent/extension-settings/other.json")
 			if err != nil {
 				t.Fatal(err)
 			}
-			contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, other,
+			contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, other,
 				body.Address().Footprint(), input.CodecID)
 			if err != nil {
 				t.Fatal(err)
@@ -334,12 +334,12 @@ func TestNativeDocumentNarrowingRefusesForeignDeclarationAndPlacement(t *testing
 			}
 		} else {
 			var err error
-			id, err = entity.New(entity.KindHostConfig, "different-declaration")
+			id, err = entity.New(entity.KindAgentConfig, "different-declaration")
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-		subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, body.Address().KeyPath())
+		subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeGlobal, body.Address().KeyPath())
 		if err != nil {
 			t.Fatal(err)
 		}

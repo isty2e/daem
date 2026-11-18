@@ -169,7 +169,7 @@ func TestCodexMCPAndNativeKeysShareOnlyTheirSelectedPhysicalDocument(t *testing.
 				}
 				defer prepared.Close()
 				selected := prepared.lifecycle.planned.context
-				nativeOnly, err := selected.RuntimeEnvironment.HostConfigsOnly()
+				nativeOnly, err := selected.RuntimeEnvironment.AgentConfigsOnly()
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -288,7 +288,7 @@ func TestCodexMCPAndNativeKeysShareOnlyTheirSelectedPhysicalDocument(t *testing.
 
 				var request mutation.PhysicalAuthorityRequest
 				for _, decision := range prepared.lifecycle.planned.assessment.Reconciliation.Aggregates() {
-					if _, native := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID()); native {
+					if _, native := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID()); native {
 						continue
 					}
 					if decision.MutatesHost() || decision.MutatesState() {

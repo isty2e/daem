@@ -83,7 +83,7 @@ func AssessOutputInventory(
 			if !present || !selection.Includes(contribution.Contribution().Target()) {
 				continue
 			}
-			if _, nativeCodec := aggregate.HostConfigSyntaxForCodec(contribution.Contribution().CodecContractID()); nativeCodec {
+			if _, nativeCodec := aggregate.AgentConfigSyntaxForCodec(contribution.Contribution().CodecContractID()); nativeCodec {
 				native[0].lockedInventory = append(native[0].lockedInventory, contract)
 			}
 		}

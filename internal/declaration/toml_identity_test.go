@@ -37,10 +37,10 @@ func TestTargetValuesReturnsCopy(t *testing.T) {
 		t.Fatalf("TargetValues mutated skill targets: %#v", skill.Targets)
 	}
 
-	hostConfig := HostConfig{Targets: []string{"codex"}}
-	hostConfigValues := hostConfig.TargetValues()
-	hostConfigValues[0] = "mutated"
-	if hostConfig.Targets[0] != "codex" {
-		t.Fatalf("TargetValues mutated host_config target values: %#v", hostConfig.Targets)
+	agentConfig := AgentConfig{Targets: []string{"codex"}}
+	agentConfigValues := agentConfig.TargetValues()
+	agentConfigValues[0] = "mutated"
+	if agentConfig.Targets[0] != "codex" {
+		t.Fatalf("TargetValues mutated host_config target values: %#v", agentConfig.Targets)
 	}
 }

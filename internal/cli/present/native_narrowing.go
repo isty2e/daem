@@ -19,7 +19,7 @@ type nativeNarrowingActionJSON struct {
 func nativeNarrowingJSONActions(actions []reconcile.NativeNarrowingAction) []nativeNarrowingActionJSON {
 	var rows []nativeNarrowingActionJSON
 	for _, action := range actions {
-		placement, _ := action.SourceContract().HostConfigPlacement()
+		placement, _ := action.SourceContract().AgentConfigPlacement()
 		rows = append(rows, nativeNarrowingActionJSON{
 			Name: action.SourceContract().EntityID().Name(), Target: string(placement.Target()), Scope: string(placement.Scope()),
 			Destination: placement.Destination().String(), DesiredKeyCount: len(action.DesiredContributions()), ValuesOmitted: true,
@@ -34,7 +34,7 @@ func printNativeNarrowingActions(output io.Writer, actions []reconcile.NativeNar
 	}
 	fmt.Fprintf(output, "configuration ownership transitions: %s\n", CountLabel(len(actions), "transition", "transitions"))
 	for _, row := range nativeNarrowingJSONActions(actions) {
-		fmt.Fprintf(output, "  host-config=%s target=%s scope=%s\n", Quote(row.Name), Escape(row.Target), Escape(row.Scope))
+		fmt.Fprintf(output, "  agent-config=%s target=%s scope=%s\n", Quote(row.Name), Escape(row.Target), Escape(row.Scope))
 		fmt.Fprintf(output, "    %s: document -> keys (managed keys=%d; values omitted)\n", Quote(row.Destination), row.DesiredKeyCount)
 	}
 }

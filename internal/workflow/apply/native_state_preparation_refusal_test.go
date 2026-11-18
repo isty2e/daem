@@ -10,7 +10,7 @@ import (
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -19,13 +19,13 @@ import (
 func nativeStateAdoptionFixture(t *testing.T, current string) (nativeProjectSourceFixture, effectpreparation.NativeApplyStateInput, string) {
 	t.Helper()
 	root := t.TempDir()
-	old := nativeProjectStateSource(t, root, "settings", `{"a":1,"b":2}`, hostconfig.OwnershipKeys)
+	old := nativeProjectStateSource(t, root, "settings", `{"a":1,"b":2}`, agentconfig.OwnershipKeys)
 	before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedAggregates: nativeStateFromObservedKeys(t, old.observed)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	whole := nativeProjectStateSource(t, root, "settings", `{"a":1,"b":2}`, hostconfig.OwnershipDocument)
-	placement, _ := whole.observed.SourceContract().HostConfigPlacement()
+	whole := nativeProjectStateSource(t, root, "settings", `{"a":1,"b":2}`, agentconfig.OwnershipDocument)
+	placement, _ := whole.observed.SourceContract().AgentConfigPlacement()
 	hostPath := filepath.Join(root, filepath.FromSlash(placement.Destination().RelativePath()))
 	if err := os.MkdirAll(filepath.Dir(hostPath), 0o700); err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestNativeApplyStateAdoptionRequiresActualMatchingRecordAndSource(t *testin
 			case "missing source":
 				input.WholeSources = nil
 			case "wrong source":
-				other := nativeProjectStateSource(t, t.TempDir(), "settings", `{"a":9}`, hostconfig.OwnershipDocument)
+				other := nativeProjectStateSource(t, t.TempDir(), "settings", `{"a":9}`, agentconfig.OwnershipDocument)
 				input.WholeSources = []lock.LockedSubjectContract{other.observed.SourceContract()}
 			case "duplicate source":
 				input.WholeSources = append(input.WholeSources, input.WholeSources[0])
@@ -109,7 +109,7 @@ func TestNativeApplyStateAdoptionRequiresActualMatchingRecordAndSource(t *testin
 
 func TestNativeApplyStateAdoptionPreservesOtherPlacementAndRefusesForeignKeys(t *testing.T) {
 	whole, input, _ := nativeStateAdoptionFixture(t, `{"a":1,"b":2}`)
-	global := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":1}`, hostconfig.OwnershipKeys)
+	global := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, `{"a":1}`, agentconfig.OwnershipKeys)
 	otherStates := nativeStateFromObservedKeys(t, global.Source)
 	keys := append(input.Before.ManagedAggregates(), otherStates...)
 	before, err := input.Before.WithManagedAggregates(keys)
@@ -124,7 +124,7 @@ func TestNativeApplyStateAdoptionPreservesOtherPlacementAndRefusesForeignKeys(t 
 	if rows := prepared.AfterState().ManagedAggregates(); len(rows) != 1 || !rows[0].Equal(otherStates[0]) {
 		t.Fatal("adoption retired a different placement's prior key state")
 	}
-	foreign := nativeProjectStateSource(t, t.TempDir(), "foreign", `{"z":3}`, hostconfig.OwnershipKeys)
+	foreign := nativeProjectStateSource(t, t.TempDir(), "foreign", `{"z":3}`, agentconfig.OwnershipKeys)
 	foreignRows := append(before.ManagedAggregates(), nativeStateFromObservedKeys(t, foreign.observed)...)
 	input.Before, err = before.WithManagedAggregates(foreignRows)
 	if err != nil {

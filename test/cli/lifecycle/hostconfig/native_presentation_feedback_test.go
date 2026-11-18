@@ -71,7 +71,7 @@ func TestNativeReplacementGuidanceCoversBlockedDeclaration(t *testing.T) {
 	if code == 0 || !bytes.Equal(testkit.ReadFile(t, fixture.Destination), before) {
 		t.Fatal("ordinary apply must refuse all mismatches without effects")
 	}
-	if strings.Count(combined, "daem replace host-config preferences") != 1 || strings.Contains(combined, "--key") {
+	if strings.Count(combined, "daem replace agent-config preferences") != 1 || strings.Contains(combined, "--key") {
 		t.Fatalf("multiple blocked keys need one declaration-wide preview command: %s", combined)
 	}
 	for _, key := range []string{"model", "retry", "tui.theme"} {
@@ -91,7 +91,7 @@ func TestNativeRemovedDeclarationOffersManagementRelease(t *testing.T) {
 	for _, command := range [][]string{{"apply", "--dry-run"}, {"status", "--check"}, {"apply", "--yes"}} {
 		args := append(command, "--manifest", fixture.Manifest)
 		code, stdout, stderr := testkit.RunCapturedCLI(args...)
-		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage host-config preferences") || strings.Contains(stdout+stderr, "daem replace host-config") {
+		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage agent-config preferences") || strings.Contains(stdout+stderr, "daem replace agent-config") {
 			t.Errorf("%v: want release advice and no replacement for a removed declaration, got %d:\n%s%s", command, code, stdout, stderr)
 		}
 	}
@@ -102,7 +102,7 @@ func TestNativeRemovedDeclarationOffersManagementRelease(t *testing.T) {
 	failure := clijson.DecodeFailure(t, stdout, "apply", "operation")
 	var preview []string
 	for _, guidance := range failure.Guidance {
-		if len(guidance.Argv) < 3 || guidance.Argv[2] != "host-config" {
+		if len(guidance.Argv) < 3 || guidance.Argv[2] != "agent-config" {
 			continue
 		}
 		if guidance.Argv[1] != "unmanage" || preview != nil || !slices.Contains(guidance.Argv, "--dry-run") {
@@ -128,7 +128,7 @@ source='./pi-settings.json'
 		testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "pi-settings.json", `{"fixture":true}`)
 		nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
 		code, stdout, stderr := testkit.RunCapturedCLI("apply", "--target", "codex", "--dry-run", "--manifest", fixture.Manifest)
-		if code != 1 || !strings.Contains(stdout+stderr, "drifted output") || strings.Contains(stdout+stderr, "daem unmanage host-config") || strings.Contains(stdout+stderr, "daem replace host-config") {
+		if code != 1 || !strings.Contains(stdout+stderr, "drifted output") || strings.Contains(stdout+stderr, "daem unmanage agent-config") || strings.Contains(stdout+stderr, "daem replace agent-config") {
 			t.Errorf("target filtering must not turn an existing declaration into a removed one: %d\n%s%s", code, stdout, stderr)
 		}
 		testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", "version=1\ntargets=['codex']\n")
@@ -160,17 +160,17 @@ func TestNativePartiallyRemovedDeclarationGuidance(t *testing.T) {
 
 			code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--manifest", fixture.Manifest)
 			combined := stdout + stderr
-			if code != 1 || strings.Contains(combined, "daem unmanage host-config") {
+			if code != 1 || strings.Contains(combined, "daem unmanage agent-config") {
 				t.Fatalf("a still-declared resource must not suggest whole-declaration release: %d %s", code, combined)
 			}
 			if example.wantReplace {
-				argv := []string{"replace", "host-config", "preferences", "--key", "/kept", "--dry-run", "--manifest", fixture.Manifest}
+				argv := []string{"replace", "agent-config", "preferences", "--key", "/kept", "--dry-run", "--manifest", fixture.Manifest}
 				expected, err := clipresent.ShellCommand(append([]string{"daem"}, argv...)...)
-				if err != nil || !strings.Contains(combined, expected) || strings.Count(combined, "daem replace host-config") != 1 || strings.Contains(combined, "--key /obsolete") {
+				if err != nil || !strings.Contains(combined, expected) || strings.Count(combined, "daem replace agent-config") != 1 || strings.Contains(combined, "--key /obsolete") {
 					t.Fatalf("replacement advice must select only the still-desired key: %v\n%s", err, combined)
 				}
 				nativefixture.RunLifecycleCommand(t, argv...)
-			} else if strings.Contains(combined, "daem replace host-config") {
+			} else if strings.Contains(combined, "daem replace agent-config") {
 				t.Fatalf("there are no desired keys to replace: %s", combined)
 			}
 			testkit.AssertFileContent(t, fixture.Destination, drifted)

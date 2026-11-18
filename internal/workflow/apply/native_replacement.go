@@ -82,7 +82,7 @@ func PlanNativeReplacement(ctx context.Context, input NativeReplacementInput) (*
 		for _, projection := range decision.Projections() {
 			before, after := projection.Before(), projection.Expected()
 			row := NativeReplacementKey{Path: projection.Contract().Address().KeyPath(), File: request.Path, CurrentPresent: before.Present()}
-			nativeSyntax, _ := aggregate.HostConfigSyntaxForCodec(decision.CodecContractID())
+			nativeSyntax, _ := aggregate.AgentConfigSyntaxForCodec(decision.CodecContractID())
 			syntax, err := configdocument.ParseSyntax(nativeSyntax)
 			if err != nil {
 				return nil, errors.Join(err, prepared.Close())
@@ -157,7 +157,7 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 	type sourceFacts struct{ Subject, SourceID, ResolvedRef, ContentHash, Profile, Grammar string }
 	observed := planned.assessment.NativeSources[0].SourceContract()
 	supply, _ := observed.ExactSupply()
-	placement, _ := observed.HostConfigPlacement()
+	placement, _ := observed.AgentConfigPlacement()
 	source := sourceFacts{observed.SubjectID().String(), string(supply.SourceID()), string(supply.ResolvedRef()), string(supply.ContentHash()), placement.ID(), string(placement.Grammar())}
 	type protectionFacts struct {
 		Namespace  []ownershipObservationFingerprintFacts
@@ -192,22 +192,22 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 	}{"replace-host-config/v1", identity, source, protections, nativeconfig.DocumentLimits()})
 }
 
-func normalizeNativeReplacementInput(input NativeReplacementInput) (topologyprojection.HostConfigKeySelection, error) {
-	id, err := entity.New(entity.KindHostConfig, input.ID)
+func normalizeNativeReplacementInput(input NativeReplacementInput) (topologyprojection.AgentConfigKeySelection, error) {
+	id, err := entity.New(entity.KindAgentConfig, input.ID)
 	if err != nil {
-		return topologyprojection.HostConfigKeySelection{}, commandInputError{cause: err}
+		return topologyprojection.AgentConfigKeySelection{}, commandInputError{cause: err}
 	}
 	keys := make([]output.KeyPath, 0, len(input.Keys))
 	for _, raw := range input.Keys {
 		key, err := output.ParseKeyPath(raw)
 		if err != nil {
-			return topologyprojection.HostConfigKeySelection{}, commandInputError{cause: err}
+			return topologyprojection.AgentConfigKeySelection{}, commandInputError{cause: err}
 		}
 		keys = append(keys, key)
 	}
-	selection, err := topologyprojection.NewHostConfigKeySelection(id, keys)
+	selection, err := topologyprojection.NewAgentConfigKeySelection(id, keys)
 	if err != nil {
-		return topologyprojection.HostConfigKeySelection{}, commandInputError{cause: err}
+		return topologyprojection.AgentConfigKeySelection{}, commandInputError{cause: err}
 	}
 	return selection, nil
 }

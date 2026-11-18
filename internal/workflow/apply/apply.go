@@ -156,7 +156,7 @@ func runWithOptions(
 	if err := execute.RejectUnsupportedActions(assessment.Reconciliation); err != nil {
 		return runResult{}, err
 	}
-	if assessment.CurrentState.ContainsHostConfig() {
+	if assessment.CurrentState.ContainsAgentConfig() {
 		return runResult{}, effectpreparation.ErrNativeOperationRequired
 	}
 

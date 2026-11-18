@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -117,8 +117,8 @@ func buildManagedAggregatePlanningInputs(
 		expected = append(expected, native[0].lockedInventory...)
 		desiredContributions = append(desiredContributions, inventory...)
 		for _, source := range native[0].sources {
-			placement, _ := source.SourceContract().HostConfigPlacement()
-			if placement.Ownership() != hostconfig.OwnershipKeys {
+			placement, _ := source.SourceContract().AgentConfigPlacement()
+			if placement.Ownership() != agentconfig.OwnershipKeys {
 				continue
 			}
 			narrowed := false
@@ -304,7 +304,7 @@ func observeAggregateDocuments(
 		}
 		var preconditions []aggregate.OperationPrecondition
 		var admitted bool
-		if _, native := aggregate.HostConfigSyntaxForCodec(selected.CodecContractID()); native {
+		if _, native := aggregate.AgentConfigSyntaxForCodec(selected.CodecContractID()); native {
 			if !hasRetained {
 				return aggregateDocumentObservations{}, fmt.Errorf("native aggregate requires its selected document observation")
 			}
@@ -322,7 +322,7 @@ func observeAggregateDocuments(
 				selected.CodecContractID(),
 			)
 		}
-		if _, nativeCodec := aggregate.HostConfigSyntaxForCodec(selected.CodecContractID()); !nativeCodec && hasRetained {
+		if _, nativeCodec := aggregate.AgentConfigSyntaxForCodec(selected.CodecContractID()); !nativeCodec && hasRetained {
 			if err := requireOrdinaryNativeSourceAgreement(ctx, liveDestinationResolver(resolver), native, address.DocumentAddress()); err != nil {
 				return aggregateDocumentObservations{}, err
 			}

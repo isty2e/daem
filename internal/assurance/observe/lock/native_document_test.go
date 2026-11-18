@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -24,28 +24,28 @@ import (
 type nativeObservationFixture struct {
 	root        string
 	paths       daempaths.Paths
-	resource    hostconfig.Config
+	resource    agentconfig.Config
 	environment desired.Environment
 	locked      lockmodel.File
 	selection   targetselection.Selection
 }
 
-func nativeObservationEnvironment(t *testing.T, configs []hostconfig.Config, ordinary []instructions.Instructions) desired.Environment {
+func nativeObservationEnvironment(t *testing.T, configs []agentconfig.Config, ordinary []instructions.Instructions) desired.Environment {
 	t.Helper()
 	defaults, err := desired.NewDefaults(target.ScopeProject, desiredskill.InstallModeCopy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := desired.New(desired.Spec{Targets: target.SupportedTargets(), Defaults: defaults, HostConfigs: configs, Instructions: ordinary})
+	environment, err := desired.New(desired.Spec{Targets: target.SupportedTargets(), Defaults: defaults, AgentConfigs: configs, Instructions: ordinary})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return environment
 }
 
-func nativeObservationConfig(t *testing.T, original hostconfig.Config, spec source.Source, path string, syntax hostconfig.Syntax) hostconfig.Config {
+func nativeObservationConfig(t *testing.T, original agentconfig.Config, spec source.Source, path string, syntax agentconfig.Syntax) agentconfig.Config {
 	t.Helper()
-	config, err := hostconfig.New(hostconfig.Spec{Name: original.ID().Name(), Source: spec, Target: original.Target(), Scope: original.Scope(), Path: path, Ownership: hostconfig.OwnershipDocument, Syntax: syntax})
+	config, err := agentconfig.New(agentconfig.Spec{Name: original.ID().Name(), Source: spec, Target: original.Target(), Scope: original.Scope(), Path: path, Ownership: agentconfig.OwnershipDocument, Syntax: syntax})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func newNativeObservationFixture(t *testing.T, selected target.Target, scope tar
 	if err != nil {
 		t.Fatal(err)
 	}
-	resource, err := hostconfig.New(hostconfig.Spec{Name: "native", Source: spec, Target: selected, Scope: scope, Path: "prompts/review.md", Ownership: hostconfig.OwnershipDocument})
+	resource, err := agentconfig.New(agentconfig.Spec{Name: "native", Source: spec, Target: selected, Scope: scope, Path: "prompts/review.md", Ownership: agentconfig.OwnershipDocument})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func newNativeObservationFixture(t *testing.T, selected target.Target, scope tar
 		}
 		ordinary = append(ordinary, value)
 	}
-	environment := nativeObservationEnvironment(t, []hostconfig.Config{resource}, ordinary)
+	environment := nativeObservationEnvironment(t, []agentconfig.Config{resource}, ordinary)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
 		t.Fatal(err)
@@ -133,12 +133,12 @@ func TestNativeDocumentSourceEpochIncludesDeclarationIntentAndSourceID(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, changed := range []hostconfig.Config{
+	for _, changed := range []agentconfig.Config{
 		nativeObservationConfig(t, fixture.resource, fixture.resource.Source(), "prompts/other.md", fixture.resource.Syntax()),
-		nativeObservationConfig(t, fixture.resource, fixture.resource.Source(), fixture.resource.Path(), hostconfig.SyntaxJSON),
+		nativeObservationConfig(t, fixture.resource, fixture.resource.Source(), fixture.resource.Path(), agentconfig.SyntaxJSON),
 		nativeObservationConfig(t, fixture.resource, other, fixture.resource.Path(), fixture.resource.Syntax()),
 	} {
-		environment := nativeObservationEnvironment(t, []hostconfig.Config{changed}, nil)
+		environment := nativeObservationEnvironment(t, []agentconfig.Config{changed}, nil)
 		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, environment, fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 		if err != nil {
 			t.Fatal(err)
@@ -161,7 +161,7 @@ func TestNativeDocumentSourceEpochSharesBatchAndRetainsRawSiblingWithoutPartialO
 		t.Fatal(err)
 	}
 	recorder := &recordingSourceBatchResolver{inner: resolver}
-	candidates, err := nativeDocumentLockObservationCandidates(t.Context(), fixture.environment.HostConfigs(), fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
+	candidates, err := nativeDocumentLockObservationCandidates(t.Context(), fixture.environment.AgentConfigs(), fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,11 +272,11 @@ func TestNativeDocumentSourceEpochDetectsExecutableAndPlacementChanges(t *testin
 	}{
 		{target.TargetCodex, target.ScopeProject}, {target.TargetPi, target.ScopeGlobal},
 	} {
-		changed, err := hostconfig.New(hostconfig.Spec{Name: fixture.resource.ID().Name(), Source: fixture.resource.Source(), Target: axis.selected, Scope: axis.scope, Path: fixture.resource.Path(), Ownership: fixture.resource.Ownership()})
+		changed, err := agentconfig.New(agentconfig.Spec{Name: fixture.resource.ID().Name(), Source: fixture.resource.Source(), Target: axis.selected, Scope: axis.scope, Path: fixture.resource.Path(), Ownership: fixture.resource.Ownership()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, nativeObservationEnvironment(t, []hostconfig.Config{changed}, nil), fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
+		epoch, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, nativeObservationEnvironment(t, []agentconfig.Config{changed}, nil), fixture.locked, fixture.selection, configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64})
 		if err != nil {
 			t.Fatal(err)
 		}

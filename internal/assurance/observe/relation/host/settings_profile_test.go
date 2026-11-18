@@ -8,8 +8,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -187,7 +187,7 @@ func TestNativeSettingsPiBindingRetainsOperationAndAliasSemantics(t *testing.T) 
 	global, _ := pipackage.SettingsDocumentAddress(target.ScopeGlobal)
 	groups := [][]aggregate.DocumentAddress{{project, global}}
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: hostconfig.OwnershipKeys})
+		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: target.TargetPi, Scope: scope, Path: "settings.json", Ownership: agentconfig.OwnershipKeys})
 		if err != nil {
 			t.Fatal(err)
 		}

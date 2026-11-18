@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -20,7 +20,7 @@ import (
 )
 
 type nativeDocumentInput struct {
-	config    hostconfig.Config
+	config    agentconfig.Config
 	placement configuration.Placement
 }
 
@@ -39,13 +39,13 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 	if err := limits.Validate(); err != nil {
 		return lock.File{}, err
 	}
-	documents := make([]nativeDocumentInput, 0, len(environment.HostConfigs()))
-	destinations := make(map[aggregate.DocumentAddress]entity.ID, len(environment.HostConfigs()))
-	for _, config := range environment.HostConfigs() {
+	documents := make([]nativeDocumentInput, 0, len(environment.AgentConfigs()))
+	destinations := make(map[aggregate.DocumentAddress]entity.ID, len(environment.AgentConfigs()))
+	for _, config := range environment.AgentConfigs() {
 		if err := ctx.Err(); err != nil {
 			return lock.File{}, err
 		}
-		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 			Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax(),
 		})
 		if err != nil {
@@ -55,7 +55,7 @@ func BuildNativeDocumentsWithOptions(ctx context.Context, environment desired.En
 		if err != nil {
 			return lock.File{}, err
 		}
-		if config.Ownership() == hostconfig.OwnershipDocument {
+		if config.Ownership() == agentconfig.OwnershipDocument {
 			if existing, duplicate := destinations[address]; duplicate {
 				return lock.File{}, fmt.Errorf("host configurations %q and %q target the same scope %q destination %q", existing, config.ID(), placement.Scope(), placement.Destination())
 			}
@@ -102,8 +102,8 @@ func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInpu
 	}
 	bytes := content.Bytes()
 	var keys []aggregate.SubjectContribution
-	if document.config.Ownership() == hostconfig.OwnershipKeys {
-		keys, err = nativefragment.HostConfigKeyContributions(ctx, document.config, bytes, limits)
+	if document.config.Ownership() == agentconfig.OwnershipKeys {
+		keys, err = nativefragment.AgentConfigKeyContributions(ctx, document.config, bytes, limits)
 		if err != nil {
 			return nil, err
 		}
@@ -134,7 +134,7 @@ func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInpu
 	}
 	resource, err := lock.NewExactSupplySubjectContract(lock.ExactSupplySubjectInput{
 		EntityID: document.config.ID(), SubjectID: subject, ExactSupply: identity, ExactFileUse: &use,
-		HostConfigPlacement: &document.placement, Derivation: derivation,
+		AgentConfigPlacement: &document.placement, Derivation: derivation,
 	})
 	if err != nil {
 		return nil, err
@@ -142,14 +142,14 @@ func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInpu
 	if err := resource.ValidateFileMaterialization(materialization); err != nil {
 		return nil, err
 	}
-	if document.config.Ownership() == hostconfig.OwnershipKeys {
+	if document.config.Ownership() == agentconfig.OwnershipKeys {
 		members := make([]lock.LockedSubjectContract, 1, len(keys)+1)
 		members[0] = resource
 		for _, key := range keys {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			projection, err := lock.NewHostConfigKeySubjectContract(document.config.ID(), key.SubjectID(), key.Contribution(), document.placement)
+			projection, err := lock.NewAgentConfigKeySubjectContract(document.config.ID(), key.SubjectID(), key.Contribution(), document.placement)
 			if err != nil {
 				return nil, err
 			}
@@ -157,7 +157,7 @@ func lockResolvedNativeDocument(ctx context.Context, document nativeDocumentInpu
 		}
 		return members, ctx.Err()
 	}
-	projection, err := lock.NewHostConfigDocumentSubjectContract(document.config.ID(), document.placement)
+	projection, err := lock.NewAgentConfigDocumentSubjectContract(document.config.ID(), document.placement)
 	if err != nil {
 		return nil, err
 	}

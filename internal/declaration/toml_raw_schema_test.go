@@ -22,7 +22,7 @@ func (HookAssetSource) editorSchema(builder *editorSchemaBuilder) (*editorSchema
 	return sourceValueEditorSchema(builder)
 }
 
-func (HostConfigSource) editorSchema(builder *editorSchemaBuilder) (*editorSchemaNode, error) {
+func (AgentConfigSource) editorSchema(builder *editorSchemaBuilder) (*editorSchemaNode, error) {
 	return sourceValueEditorSchema(builder)
 }
 

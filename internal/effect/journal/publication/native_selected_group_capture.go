@@ -160,7 +160,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 			expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
 		}
 		for _, participant := range participants {
-			if _, native := aggregate.HostConfigSyntaxForCodec(participant.Selection().CodecContractID()); !native {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(participant.Selection().CodecContractID()); !native {
 				expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
 			}
 		}

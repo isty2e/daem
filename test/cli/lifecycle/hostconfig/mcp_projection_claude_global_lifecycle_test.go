@@ -31,8 +31,8 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 		Args:    []string{"-y", "@example/mcp-server"},
 		Env:     map[string]string{"API_TOKEN": sourceName},
 	})
-	hostConfigPath := filepath.Join(homeDir, ".claude.json")
-	writeClaudeGlobalMCPConfigWithSiblings(t, hostConfigPath, "")
+	agentConfigPath := filepath.Join(homeDir, ".claude.json")
+	writeClaudeGlobalMCPConfigWithSiblings(t, agentConfigPath, "")
 	runMCPLock(t, project)
 
 	exitCode, stdout, stderr := runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes", "--json")
@@ -41,13 +41,13 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 	}
 	testkit.AssertClaudeGlobalMCPConfigEquivalent(
 		t,
-		hostConfigPath,
+		agentConfigPath,
 		"context7",
 		"npx",
 		[]string{"-y", "@example/mcp-server"},
 		map[string]string{"API_TOKEN": "${" + sourceName + "}"},
 	)
-	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, hostConfigPath)
+	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, agentConfigPath)
 	assertGlobalMCPStateSubject(t, loadMCPStatefile(t, project.root), globalMCPStateWant{
 		namespace:   "claude-code.global.mcp-server",
 		target:      target.TargetClaudeCode,
@@ -73,7 +73,7 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 
 	writeClaudeGlobalMCPConfigWithSiblings(
 		t,
-		hostConfigPath,
+		agentConfigPath,
 		`"context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${DRIFTED_TOKEN}"}}`,
 	)
 	exitCode, stdout, stderr = runMCPCLI(t, "status", "--manifest", project.manifestPath, "--target", "claude-code", "--check", "--json")
@@ -86,7 +86,7 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 
 	writeClaudeGlobalMCPConfigWithSiblings(
 		t,
-		hostConfigPath,
+		agentConfigPath,
 		`"context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${`+sourceName+`}"}}`,
 	)
 	writeMCPManifest(t, project.root, mcpManifestSpec{
@@ -103,13 +103,13 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 	}
 	testkit.AssertClaudeGlobalMCPConfigEquivalent(
 		t,
-		hostConfigPath,
+		agentConfigPath,
 		"context7",
 		"node",
 		[]string{"server.js"},
 		map[string]string{"API_TOKEN": "${" + sourceName + "}"},
 	)
-	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, hostConfigPath)
+	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, agentConfigPath)
 	assertNoPublicMCPOutputLeaks(t, stdout)
 	if strings.Contains(stdout, secret) {
 		t.Fatal("apply output leaked resolved Claude environment value")
@@ -121,13 +121,13 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("apply removal exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
-	testkit.AssertClaudeGlobalMCPConfigMissing(t, hostConfigPath, "context7")
-	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, hostConfigPath)
+	testkit.AssertClaudeGlobalMCPConfigMissing(t, agentConfigPath, "context7")
+	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, agentConfigPath)
 	assertClaudeGlobalMCPStateSubjectMissing(t, loadMCPStatefile(t, project.root), "context7")
 	assertNoPublicMCPOutputLeaks(t, stdout)
 }
 
-func writeClaudeGlobalMCPConfigWithSiblings(t *testing.T, hostConfigPath string, context7Entry string) {
+func writeClaudeGlobalMCPConfigWithSiblings(t *testing.T, agentConfigPath string, context7Entry string) {
 	t.Helper()
 	entries := []string{
 		`"manual": {"type": "stdio", "command": "manual", "args": ["keep"]}`,
@@ -135,7 +135,7 @@ func writeClaudeGlobalMCPConfigWithSiblings(t *testing.T, hostConfigPath string,
 	if context7Entry != "" {
 		entries = append([]string{context7Entry}, entries...)
 	}
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `{
   "mcpServers": {
     `+strings.Join(entries, ",\n    ")+`
   },
@@ -151,9 +151,9 @@ func writeClaudeGlobalMCPConfigWithSiblings(t *testing.T, hostConfigPath string,
 }`)
 }
 
-func assertClaudeGlobalMCPConfigPreservesSharedUserState(t *testing.T, hostConfigPath string) {
+func assertClaudeGlobalMCPConfigPreservesSharedUserState(t *testing.T, agentConfigPath string) {
 	t.Helper()
-	content := testkit.ReadFile(t, hostConfigPath)
+	content := testkit.ReadFile(t, agentConfigPath)
 	var config map[string]json.RawMessage
 	if err := json.Unmarshal(content, &config); err != nil {
 		t.Fatalf("decode Claude user config: %v", err)

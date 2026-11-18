@@ -349,7 +349,7 @@ func executeWithDependencies(
 			return err
 		}
 		if current.nativePlan != nil {
-			for _, config := range current.context.RuntimeEnvironment.HostConfigs() {
+			for _, config := range current.context.RuntimeEnvironment.AgentConfigs() {
 				if !current.context.Selection.Includes(config.Target()) {
 					continue
 				}

@@ -40,7 +40,7 @@ func TestNativeWholeDiffUsesTheSelectedRootAfterObservationCloses(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			local, _ := environment.HostConfigs()[0].Source().Local()
+			local, _ := environment.AgentConfigs()[0].Source().Local()
 			if err := os.WriteFile(local.Path(), after, 0o600); err != nil {
 				t.Fatal(err)
 			}

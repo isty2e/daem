@@ -352,7 +352,7 @@ ownership = "keys"
 	generation, err := lockgenerate.Build(t.Context(), lockgenerate.Input{
 		Paths: input.Paths, Environment: input.Environment, NativeDocumentLimits: nativeconfig.DocumentLimits(),
 	})
-	if err != nil || !generation.Snapshot().ContainsHostConfig() {
+	if err != nil || !generation.Snapshot().ContainsAgentConfig() {
 		t.Fatalf("shared generation omitted native work: %v", err)
 	}
 	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"second\"\n")

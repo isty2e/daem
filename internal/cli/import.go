@@ -13,8 +13,8 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 }
 
 func prepareImportInvocation(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) *preparedInvocation {
-	if len(args) != 0 && args[0] == "host-config" {
-		return prepareImportHostConfigInvocation(args[1:], stdout, stderr, options)
+	if len(args) != 0 && args[0] == agentConfigSubject {
+		return prepareImportAgentConfigInvocation(args[1:], stdout, stderr, options)
 	}
 	flags := newCommandFlagSet([]string{"import"}, stderr)
 

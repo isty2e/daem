@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
@@ -25,7 +25,7 @@ type NativeSourceObservation struct {
 }
 
 func (observation NativeSourceObservation) Validate() error {
-	_, native := observation.source.HostConfigPlacement()
+	_, native := observation.source.AgentConfigPlacement()
 	if _, supplied := observation.source.ExactSupply(); !supplied || !native {
 		return fmt.Errorf("matched native source is required")
 	}
@@ -45,8 +45,8 @@ func (observation NativeSourceObservation) DesiredWholeState() (durable.ManagedP
 	if err := observation.Validate(); err != nil {
 		return durable.ManagedPathState{}, false, err
 	}
-	placement, _ := observation.source.HostConfigPlacement()
-	if placement.Ownership() != hostconfig.OwnershipDocument {
+	placement, _ := observation.source.AgentConfigPlacement()
+	if placement.Ownership() != agentconfig.OwnershipDocument {
 		return durable.ManagedPathState{}, false, nil
 	}
 	identity, materialized := observation.source.MaterializedFileIdentity()
@@ -67,7 +67,7 @@ func (observation NativeSourceObservation) DesiredWholeState() (durable.ManagedP
 
 // NativeSource rechecks the retained view for the exact selected declaration.
 // Missing selection or a different source/mode is not an empty native fragment.
-func (epoch SourceEpoch) NativeSource(ctx context.Context, resource hostconfig.Config) (NativeSourceObservation, error) {
+func (epoch SourceEpoch) NativeSource(ctx context.Context, resource agentconfig.Config) (NativeSourceObservation, error) {
 	if ctx == nil {
 		return NativeSourceObservation{}, fmt.Errorf("native source observation context is required")
 	}
@@ -80,7 +80,7 @@ func (epoch SourceEpoch) NativeSource(ctx context.Context, resource hostconfig.C
 	if !epoch.initialized {
 		return NativeSourceObservation{}, fmt.Errorf("native source epoch is required")
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 		Target: resource.Target(), Scope: resource.Scope(), Path: resource.Path(),
 		Ownership: resource.Ownership(), Syntax: resource.Syntax(),
 	})
@@ -103,7 +103,7 @@ func (epoch SourceEpoch) NativeSource(ctx context.Context, resource hostconfig.C
 		}
 
 		projections := make([]lock.LockedSubjectContract, 0, len(candidate.keys))
-		if placement.Ownership() == hostconfig.OwnershipKeys {
+		if placement.Ownership() == agentconfig.OwnershipKeys {
 			for _, contract := range candidate.keys {
 				projections = append(projections, contract)
 			}
@@ -111,7 +111,7 @@ func (epoch SourceEpoch) NativeSource(ctx context.Context, resource hostconfig.C
 				return topology.CompareSubjectID(left.SubjectID(), right.SubjectID())
 			})
 		} else {
-			projection, err := lock.NewHostConfigDocumentSubjectContract(resource.ID(), placement)
+			projection, err := lock.NewAgentConfigDocumentSubjectContract(resource.ID(), placement)
 			if err != nil {
 				return NativeSourceObservation{}, err
 			}

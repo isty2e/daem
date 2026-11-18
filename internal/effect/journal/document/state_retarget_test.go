@@ -88,11 +88,11 @@ func TestDocumentStateGroupsKeyRetargetCannotBorrowAnotherSubjectsFrontier(t *te
 	oldRow := selectionNativeRow(t, piSelectionContract(t, ".pi/old.json", "node", "leaf"), "1")
 	newRow := selectionNativeRow(t, piSelectionContract(t, ".pi/new.json", "node", "leaf"), "2")
 	parent := selectionNativeRow(t, piSelectionContract(t, ".pi/new.json", "node"), "true")
-	id, err := entity.New(entity.KindHostConfig, "prior-new-document")
+	id, err := entity.New(entity.KindAgentConfig, "prior-new-document")
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentSubject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeProject, parent.Contribution().Contract().Address().KeyPath())
+	parentSubject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeProject, parent.Contribution().Contract().Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

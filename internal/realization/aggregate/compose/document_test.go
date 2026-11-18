@@ -199,7 +199,7 @@ func nativeSet(t testing.TB, codec aggregate.Codec, scope target.Scope, root str
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, scope, destination, footprint, codec.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, scope, destination, footprint, codec.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,11 +211,11 @@ func nativeSet(t testing.TB, codec aggregate.Codec, scope target.Scope, root str
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "composed")
+	id, err := entity.New(entity.KindAgentConfig, "composed")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetCodex, scope, key)
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetCodex, scope, key)
 	if err != nil {
 		t.Fatal(err)
 	}

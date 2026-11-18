@@ -164,7 +164,7 @@ func (persisted managedPathDTO) canonical() (durable.ManagedPathState, error) {
 }
 
 func (persisted legacyManagedAggregateDTO) canonical() (durable.ManagedAggregateState, error) {
-	if _, native := aggregate.HostConfigSyntaxForCodec(aggregate.CodecContractID(persisted.CodecContractID)); native {
+	if _, native := aggregate.AgentConfigSyntaxForCodec(aggregate.CodecContractID(persisted.CodecContractID)); native {
 		return durable.ManagedAggregateState{}, fmt.Errorf("native host-config family requires statefile v10")
 	}
 	subject, err := persisted.Subject.canonical()
@@ -582,8 +582,8 @@ func (codec snapshotCodec) validateSnapshotForPersistence(snapshot durable.Snaps
 			return fmt.Errorf("managed_paths[%d]: managed path state requires entity-backed projection subject identity", index)
 		}
 		var err error
-		if codec.nativeDocuments && entityID.Kind() == entity.KindHostConfig {
-			err = profile.ValidateHostConfigDocumentOccupancy(state.Subject(), state.ConsumerTargets(), state.Scope(),
+		if codec.nativeDocuments && entityID.Kind() == entity.KindAgentConfig {
+			err = profile.ValidateAgentConfigDocumentOccupancy(state.Subject(), state.ConsumerTargets(), state.Scope(),
 				state.Destination(), state.ContentKind(), state.PermissionPolicy(), state.FileMode())
 		} else {
 			err = profile.ValidateManagedPathOccupancy(entityID, state.Subject().Namespace(), state.ConsumerTargets(),

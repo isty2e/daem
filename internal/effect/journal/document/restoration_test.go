@@ -311,7 +311,7 @@ func restorationMCPParticipants(t *testing.T) []compose.Participant {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetCodex, target.ScopeProject, destination, footprint, native.ContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetCodex, target.ScopeProject, destination, footprint, native.ContractID())
 	if err != nil {
 		t.Fatal(err)
 	}

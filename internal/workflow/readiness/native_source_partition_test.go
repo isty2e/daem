@@ -6,20 +6,20 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
-func nativePreparationEnvironment(t *testing.T, configs ...hostconfig.Config) desired.Environment {
+func nativePreparationEnvironment(t *testing.T, configs ...agentconfig.Config) desired.Environment {
 	t.Helper()
 	defaults, err := desired.NewDefaults(target.ScopeProject, desiredskill.InstallModeCopy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi, target.TargetCodex}, Defaults: defaults, HostConfigs: configs})
+	environment, err := desired.New(desired.Spec{Targets: []target.Target{target.TargetPi, target.TargetCodex}, Defaults: defaults, AgentConfigs: configs})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,13 +34,13 @@ func TestNativeSourcePartitionPreservesActualAbsenceAndOtherIntent(t *testing.T)
 			name, path, mode := "settings", config.Path(), config.Ownership()
 			switch variant {
 			case "whole mode":
-				mode = hostconfig.OwnershipDocument
+				mode = agentconfig.OwnershipDocument
 			case "other declaration":
 				name = "another"
 			case "retargeted":
 				path = "extension-settings/elsewhere.json"
 			}
-			changed, err := hostconfig.New(hostconfig.Spec{Name: name, Source: config.Source(), Target: config.Target(), Scope: config.Scope(), Path: path, Ownership: mode, Syntax: config.Syntax()})
+			changed, err := agentconfig.New(agentconfig.Spec{Name: name, Source: config.Source(), Target: config.Target(), Scope: config.Scope(), Path: path, Ownership: mode, Syntax: config.Syntax()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +89,7 @@ func TestNativeSourcePartitionDiscardsEarlierValidSourceOnLaterFailure(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := hostconfig.New(hostconfig.Spec{Name: "z-second", Source: secondSource, Target: target.TargetPi, Scope: target.ScopeProject, Path: "extension-settings/second.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	second, err := agentconfig.New(agentconfig.Spec{Name: "z-second", Source: secondSource, Target: target.TargetPi, Scope: target.ScopeProject, Path: "extension-settings/second.json", Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}

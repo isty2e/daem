@@ -110,7 +110,7 @@ func IndexSnapshotForClaims(ctx context.Context, snapshot durable.Snapshot, clai
 		}
 		index.paths[row.Subject()] = row
 		id, native := topologyprojection.EntityID(row.Subject())
-		native = native && id.Kind() == entity.KindHostConfig
+		native = native && id.Kind() == entity.KindAgentConfig
 		selected := native && (claims == NativeClaims || row.Scope() == target.ScopeGlobal) || claims == NativeClaims && row.Scope() == target.ScopeGlobal
 		if !selected {
 			continue
@@ -132,7 +132,7 @@ func IndexSnapshotForClaims(ctx context.Context, snapshot durable.Snapshot, clai
 		}
 		index.aggregates[row.Subject()] = row
 		contract := row.Contribution().Contract()
-		_, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID())
+		_, native := aggregate.AgentConfigSyntaxForCodec(contract.CodecContractID())
 		if contract.Address().Document().Scope() == target.ScopeGlobal || claims == NativeClaims && native {
 			index.addClaimFootprint(contract.Address().Document(), contract.Address().Footprint())
 		}

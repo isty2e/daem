@@ -62,11 +62,11 @@ func TestNativeOperationDecisionBindsExactContributionSubjects(t *testing.T) {
 				t.Fatal("actual source-produced transition was refused", err)
 			}
 			contract := input.Projections[0].Contract
-			owner, err := entity.New(entity.KindHostConfig, "another-config")
+			owner, err := entity.New(entity.KindAgentConfig, "another-config")
 			if err != nil {
 				t.Fatal(err)
 			}
-			other, err := topologyprojection.HostConfigKeySubject(owner, contract.Address().Document().Target(), contract.Address().Document().Scope(), contract.Address().KeyPath())
+			other, err := topologyprojection.AgentConfigKeySubject(owner, contract.Address().Document().Target(), contract.Address().Document().Scope(), contract.Address().KeyPath())
 			if err != nil {
 				t.Fatal(err)
 			}

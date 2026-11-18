@@ -20,7 +20,7 @@ type NativeReleaseInput struct {
 	CreatedAt       time.Time
 	Owner           stateauthority.Authority
 	Before          durable.Snapshot
-	Management      journaldocument.HostConfigManagement
+	Management      journaldocument.AgentConfigManagement
 	Namespace       NativeReleaseNamespace
 	OwnClaimsBefore []ownership.Claim
 	BindingBefore   ownership.DocumentBindingValue
@@ -83,7 +83,7 @@ type NativeRelease struct {
 	owner       stateauthority.Authority
 	before      durable.Snapshot
 	after       durable.Snapshot
-	management  journaldocument.HostConfigManagement
+	management  journaldocument.AgentConfigManagement
 	namespace   recoveryDocumentObservation
 	metadata    ownership.OwnDocumentRelease
 	files       []NativeReleaseFileIntent
@@ -100,7 +100,7 @@ func NewNativeRelease(ctx context.Context, input NativeReleaseInput, codec durab
 }
 
 func newNativeRelease(ctx context.Context, operationID string, createdAt time.Time, owner stateauthority.Authority,
-	before durable.Snapshot, management journaldocument.HostConfigManagement, namespace recoveryDocumentObservation,
+	before durable.Snapshot, management journaldocument.AgentConfigManagement, namespace recoveryDocumentObservation,
 	claims []ownership.Claim, binding ownership.DocumentBindingValue, files []NativeReleaseFileIntent,
 	codec durable.SnapshotCodec,
 ) (NativeRelease, error) {
@@ -216,7 +216,7 @@ func (release NativeRelease) OperationID() string             { return release.o
 func (release NativeRelease) Owner() stateauthority.Authority { return release.owner }
 func (release NativeRelease) Before() durable.Snapshot        { return release.before }
 func (release NativeRelease) After() durable.Snapshot         { return release.after }
-func (release NativeRelease) Management() journaldocument.HostConfigManagement {
+func (release NativeRelease) Management() journaldocument.AgentConfigManagement {
 	return release.management
 }
 func (release NativeRelease) Metadata() ownership.OwnDocumentRelease { return release.metadata }

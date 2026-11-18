@@ -95,7 +95,7 @@ type LockedSubjectContractInput struct {
 	SubjectID                 topology.SubjectID
 	ExactSupply               *artifact.ExactIdentity
 	ExactFileUse              *ExactFileUse
-	HostConfigPlacement       *configuration.Placement
+	AgentConfigPlacement      *configuration.Placement
 	Realization               *realization.RealizationSpec
 	Derivation                *DerivationContract
 	RepairRecipe              *skillrepair.Recipe
@@ -117,7 +117,7 @@ type LockedSubjectContract struct {
 	subjectID                 topology.SubjectID
 	exactSupply               *artifact.ExactIdentity
 	exactFileUse              *ExactFileUse
-	hostConfigPlacement       *configuration.Placement
+	agentConfigPlacement      *configuration.Placement
 	realization               *realization.RealizationSpec
 	derivation                *DerivationContract
 	repairRecipe              *skillrepair.Recipe
@@ -152,12 +152,12 @@ func NewLockedSubjectContract(input LockedSubjectContractInput) (LockedSubjectCo
 		}
 		contract.exactFileUse = &use
 	}
-	if input.HostConfigPlacement != nil {
-		placement := *input.HostConfigPlacement
+	if input.AgentConfigPlacement != nil {
+		placement := *input.AgentConfigPlacement
 		if err := placement.Validate(); err != nil {
 			return LockedSubjectContract{}, err
 		}
-		contract.hostConfigPlacement = &placement
+		contract.agentConfigPlacement = &placement
 	}
 	if input.Realization != nil {
 		realization := *input.Realization
@@ -231,12 +231,12 @@ func (contract LockedSubjectContract) ExactFileUse() (ExactFileUse, bool) {
 	return *contract.exactFileUse, true
 }
 
-// HostConfigPlacement returns static declaration intent, not observed host authority.
-func (contract LockedSubjectContract) HostConfigPlacement() (configuration.Placement, bool) {
-	if contract.hostConfigPlacement == nil {
+// AgentConfigPlacement returns static declaration intent, not observed host authority.
+func (contract LockedSubjectContract) AgentConfigPlacement() (configuration.Placement, bool) {
+	if contract.agentConfigPlacement == nil {
 		return configuration.Placement{}, false
 	}
-	return *contract.hostConfigPlacement, true
+	return *contract.agentConfigPlacement, true
 }
 
 // MaterializedFileIdentity returns the exact output identity selected by the
@@ -361,7 +361,7 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 	}
 	return optionalExactIdentityEqual(contract.exactSupply, other.exactSupply) &&
 		optionalExactFileUseEqual(contract.exactFileUse, other.exactFileUse) &&
-		optionalHostConfigPlacementEqual(contract.hostConfigPlacement, other.hostConfigPlacement) &&
+		optionalAgentConfigPlacementEqual(contract.agentConfigPlacement, other.agentConfigPlacement) &&
 		optionalRealizationEqual(contract.realization, other.realization) &&
 		optionalDerivationEqual(contract.derivation, other.derivation) &&
 		optionalSkillRepairRecipeEqual(contract.repairRecipe, other.repairRecipe) &&
@@ -378,7 +378,7 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 		operationContractMapsEqual(contract.operationContracts, other.operationContracts)
 }
 
-func optionalHostConfigPlacementEqual(left, right *configuration.Placement) bool {
+func optionalAgentConfigPlacementEqual(left, right *configuration.Placement) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}

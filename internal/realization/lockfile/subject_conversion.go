@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -63,7 +63,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 	if err != nil {
 		return lock.LockedSubjectContract{}, fmt.Errorf("exact_file_use: %w", err)
 	}
-	placement, err := hostConfigPlacementFromDTO(dto.HostConfigPlacement)
+	placement, err := agentConfigPlacementFromDTO(dto.AgentConfigPlacement)
 	if err != nil {
 		return lock.LockedSubjectContract{}, fmt.Errorf("host_config_placement: %w", err)
 	}
@@ -104,7 +104,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 		SubjectID:                 subjectID,
 		ExactSupply:               exactSupply,
 		ExactFileUse:              exactFileUse,
-		HostConfigPlacement:       placement,
+		AgentConfigPlacement:      placement,
 		Realization:               realization,
 		Derivation:                derivation,
 		RepairRecipe:              recipe,
@@ -129,7 +129,7 @@ func subjectToDTO(contract lock.LockedSubjectContract) (lockedSubjectDTO, error)
 		SubjectID:               contract.SubjectID().String(),
 		ExactSupply:             optionalExactIdentityToDTO(contract.ExactSupply()),
 		ExactFileUse:            exactFileUseToDTO(contract.ExactFileUse()),
-		HostConfigPlacement:     hostConfigPlacementToDTO(contract.HostConfigPlacement()),
+		AgentConfigPlacement:    agentConfigPlacementToDTO(contract.AgentConfigPlacement()),
 		Realization:             realized,
 		Derivation:              derivationToDTO(contract.Derivation()),
 		RepairRecipe:            repairRecipeToDTO(contract.RepairRecipe()),
@@ -206,13 +206,13 @@ func optionalExactIdentityToDTO(identity artifact.ExactIdentity, present bool) *
 	return &dto
 }
 
-func hostConfigPlacementFromDTO(dto *hostConfigPlacementDTO) (*configuration.Placement, error) {
+func agentConfigPlacementFromDTO(dto *agentConfigPlacementDTO) (*configuration.Placement, error) {
 	if dto == nil {
 		return nil, nil
 	}
-	placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+	placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 		Target: target.Target(dto.Target), Scope: target.Scope(dto.Scope), Path: dto.Path,
-		Ownership: hostconfig.Ownership(dto.Ownership), Syntax: hostconfig.Syntax(dto.Syntax),
+		Ownership: agentconfig.Ownership(dto.Ownership), Syntax: agentconfig.Syntax(dto.Syntax),
 	})
 	if err != nil {
 		return nil, err
@@ -220,11 +220,11 @@ func hostConfigPlacementFromDTO(dto *hostConfigPlacementDTO) (*configuration.Pla
 	return &placement, nil
 }
 
-func hostConfigPlacementToDTO(placement configuration.Placement, present bool) *hostConfigPlacementDTO {
+func agentConfigPlacementToDTO(placement configuration.Placement, present bool) *agentConfigPlacementDTO {
 	if !present {
 		return nil
 	}
-	return &hostConfigPlacementDTO{
+	return &agentConfigPlacementDTO{
 		Target: string(placement.Target()), Scope: string(placement.Scope()), Path: placement.NativePath(),
 		Ownership: string(placement.Ownership()), Syntax: string(placement.RequestedSyntax()),
 	}

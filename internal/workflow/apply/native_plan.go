@@ -15,8 +15,8 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -51,7 +51,7 @@ func rejectUnsupportedCommandPlan(planned commandPlan) error {
 	if planned.nativePlan != nil {
 		return nil
 	}
-	if len(planned.assessment.NativeSources) != 0 || planned.assessment.CurrentState.ContainsHostConfig() {
+	if len(planned.assessment.NativeSources) != 0 || planned.assessment.CurrentState.ContainsAgentConfig() {
 		return effectpreparation.ErrNativeOperationRequired
 	}
 	return execute.RejectUnsupportedActions(planned.assessment.Reconciliation)
@@ -81,7 +81,7 @@ func prepareCommandApplyEffectPlan(current commandPlan, ordinary execute.ApplyIn
 
 func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	assessment := planned.assessment
-	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsHostConfig() && !assessment.Reconciliation.ContainsHostConfig() {
+	if len(assessment.NativeSources) == 0 && !assessment.CurrentState.ContainsAgentConfig() && !assessment.Reconciliation.ContainsAgentConfig() {
 		return nil
 	}
 	if err := checkNativeCommandSupport(assessment); err != nil {
@@ -155,8 +155,8 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		Narrowings:               assessment.Reconciliation.NativeNarrowings(),
 	}
 	for _, source := range assessment.NativeSources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
-		if placement.Ownership() == hostconfig.OwnershipDocument {
+		placement, _ := source.SourceContract().AgentConfigPlacement()
+		if placement.Ownership() == agentconfig.OwnershipDocument {
 			stateInput.WholeSources = append(stateInput.WholeSources, source.SourceContract())
 		}
 	}
@@ -373,7 +373,7 @@ func applyOperationFingerprint(planned commandPlan, operationContext reconcile.O
 		}
 		return mutation.NewOperationFingerprint(payload), nil
 	}
-	if planned.nativePlan == nil && (planned.assessment.Reconciliation.ContainsHostConfig() || planned.assessment.CurrentState.ContainsHostConfig()) {
+	if planned.nativePlan == nil && (planned.assessment.Reconciliation.ContainsAgentConfig() || planned.assessment.CurrentState.ContainsAgentConfig()) {
 		return mutation.OperationFingerprint{}, effectpreparation.ErrNativeOperationRequired
 	}
 	identity, err := applyOperationIdentity(planned, operationContext)
@@ -401,7 +401,7 @@ func applyOperationFingerprint(planned commandPlan, operationContext reconcile.O
 		}
 		contract := observed.SourceContract()
 		supply, _ := contract.ExactSupply()
-		placement, _ := contract.HostConfigPlacement()
+		placement, _ := contract.AgentConfigPlacement()
 		sources = append(sources, sourceFacts{
 			Subject: contract.SubjectID(), SourceID: string(supply.SourceID()), ResolvedRef: string(supply.ResolvedRef()), ContentHash: string(supply.ContentHash()),
 			Target: string(placement.Target()), Scope: string(placement.Scope()), Path: placement.NativePath(), Ownership: string(placement.Ownership()), Grammar: string(placement.Grammar()),

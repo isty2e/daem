@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -35,8 +35,8 @@ func (validator cancelAfterNativeKeyValidation) ValidateContributions(set aggreg
 
 func TestNativeKeyCodecCancellationDuringValueValidationReturnsNoResult(t *testing.T) {
 	dir := t.TempDir()
-	config := nativeDocumentConfig(t, "native", nativeLocalSource(t, dir, "source", []byte(`{"a":"literal-value"}`), 0o600), target.TargetPi, target.ScopeProject, "custom.json", hostconfig.OwnershipKeys, hostconfig.SyntaxJSON)
-	file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
+	config := nativeDocumentConfig(t, "native", nativeLocalSource(t, dir, "source", []byte(`{"a":"literal-value"}`), 0o600), target.TargetPi, target.ScopeProject, "custom.json", agentconfig.OwnershipKeys, agentconfig.SyntaxJSON)
+	file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
 	if err != nil {
 		t.Fatal(err)
 	}

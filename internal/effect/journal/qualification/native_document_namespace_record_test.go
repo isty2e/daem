@@ -99,11 +99,11 @@ func TestQualifiedNativeRecordRejectsTwoLogicalGroupsAtOneActualFile(t *testing.
 	}
 	alias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/alias.json")
 	other := selectionNativeRow(t, stateGroupContract(t, alias, "outside"), nativeRecordCanonical(t, "1"))
-	id, err := entity.New(entity.KindHostConfig, "other-document")
+	id, err := entity.New(entity.KindAgentConfig, "other-document")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, alias.Target(), alias.Scope(), other.Contribution().Contract().Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, alias.Target(), alias.Scope(), other.Contribution().Contract().Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

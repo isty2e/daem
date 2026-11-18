@@ -26,7 +26,7 @@ func canonicalJSON(value any) ([]byte, error) {
 	return append(content, '\n'), nil
 }
 
-func decodeHookHostConfig(content []byte) (map[string]json.RawMessage, error) {
+func decodeHookAgentConfig(content []byte) (map[string]json.RawMessage, error) {
 	if len(bytes.TrimSpace(content)) == 0 {
 		return nil, fmt.Errorf("hook config JSON is empty")
 	}
@@ -535,7 +535,7 @@ func decodeHookDocument(content []byte) (map[string]json.RawMessage, aggregate.C
 		}
 		return nil, aggregate.CodecFailureDocumentMalformed
 	}
-	settings, err := decodeHookHostConfig(content)
+	settings, err := decodeHookAgentConfig(content)
 	if err != nil {
 		return nil, aggregate.CodecFailureDocumentMalformed
 	}

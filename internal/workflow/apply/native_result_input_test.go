@@ -7,7 +7,7 @@ import (
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -19,7 +19,7 @@ import (
 
 func TestNativeResultInputSurvivesPlanningAndRefusesLegacyExecution(t *testing.T) {
 	for _, fragment := range []string{`{}`, `{"a":2}`} {
-		input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, fragment, hostconfig.OwnershipKeys)
+		input := nativeActionPreparationInput(t, configdocument.JSON, `{"a":1}`, `{"a":1}`, fragment, agentconfig.OwnershipKeys)
 		action, err := readiness.BuildNativeNarrowingAction(t.Context(), input)
 		if err != nil {
 			t.Fatal(err)

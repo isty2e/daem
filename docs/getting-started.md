@@ -1,7 +1,7 @@
 # Getting Started
 
 Create a project with one Codex instruction file, using a local source. This
-example needs neither a remote repository nor an existing agent configuration.
+example needs neither a remote repository nor existing agent files.
 If you already have files to keep, start with
 [Use An Existing Environment](migration.md) instead.
 

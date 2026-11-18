@@ -168,11 +168,11 @@ func TestNativeJournalWholeExtentDoesNotParseOpaqueImages(t *testing.T) {
 	original, expected := aggregate.ExistingDocument([]byte("opaque before\x00\n")), aggregate.ExistingDocument([]byte("opaque expected\xff\n"))
 	fixture.withImages(t, original, expected)
 	group.Extent, group.SelectedSubjects = "whole", []persistedSubjectRef{}
-	id, err := entity.New(entity.KindHostConfig, "native")
+	id, err := entity.New(entity.KindAgentConfig, "native")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := aggregate.HostConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
+	subject, err := aggregate.AgentConfigDocumentSubject(id, target.TargetPi, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}

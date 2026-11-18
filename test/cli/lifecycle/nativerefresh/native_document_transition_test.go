@@ -90,8 +90,8 @@ func (f nativeDocumentTransitionFixture) applyWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := declaration.HostConfigs()[0]
-	expected, err := aggregate.HostConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
+	config := declaration.AgentConfigs()[0]
+	expected, err := aggregate.AgentConfigDocumentSubject(config.ID(), config.Target(), config.Scope())
 	if err != nil || snapshot.ManagedPaths()[0].Subject() != expected || snapshot.ManagedPaths()[0].ContentHash() != artifact.HashFileContent([]byte(f.original)) {
 		t.Fatal("real producer lost canonical placement identity or actual hash", err)
 	}

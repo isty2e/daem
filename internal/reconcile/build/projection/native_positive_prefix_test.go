@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -133,9 +133,9 @@ func TestPositiveNativePrefixLeavesRetirementForTheSuffix(t *testing.T) {
 
 func TestPositiveNativePrefixRetainsExplicitReplacementAdmission(t *testing.T) {
 	input := nativePrefixInput(t, `{"foreign":true}`, []nativePrefixKey{{"settings", "a", "1"}}, []nativePrefixKey{{"settings", "a", "2"}})
-	id, _ := entity.New(entity.KindHostConfig, "settings")
+	id, _ := entity.New(entity.KindAgentConfig, "settings")
 	key, _ := output.NewKeyPath("a")
-	selection, err := topologyprojection.NewHostConfigKeySelection(id, []output.KeyPath{key})
+	selection, err := topologyprojection.NewAgentConfigKeySelection(id, []output.KeyPath{key})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ type nativePrefixKey struct{ owner, name, value string }
 
 func nativePrefixInput(t *testing.T, current string, previous, desired []nativePrefixKey) AggregateInput {
 	t.Helper()
-	codecID, _ := aggregate.HostConfigCodecForSyntax("json")
+	codecID, _ := aggregate.AgentConfigCodecForSyntax("json")
 	limits := configdocument.Limits{MaximumBytes: 1 << 20, MaximumDepth: 64}
 	catalog, err := aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{codecID}, limits, limits)
 	if err != nil {
@@ -214,7 +214,7 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 		for _, key := range keys {
 			path := nativePrefixKeyPath(t, key.name)
 			footprint, _ := output.NewKeyFootprint(path)
-			contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, codecID)
+			contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, outputtest.Parse(t, ".pi/settings.json"), footprint, codecID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -228,8 +228,8 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 			if err != nil {
 				t.Fatal(err)
 			}
-			id, _ := entity.New(entity.KindHostConfig, key.owner)
-			subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeProject, path)
+			id, _ := entity.New(entity.KindAgentConfig, key.owner)
+			subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeProject, path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -241,11 +241,11 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 				input.States = append(input.States, aggregateStates(t, item)...)
 				continue
 			}
-			placement, err := profile.HostConfigPlacementForContract(contract)
+			placement, err := profile.AgentConfigPlacementForContract(contract)
 			if err != nil {
 				t.Fatal(err)
 			}
-			entry, err := lock.NewHostConfigKeySubjectContract(id, subject, body, placement)
+			entry, err := lock.NewAgentConfigKeySubjectContract(id, subject, body, placement)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -260,14 +260,14 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 	}
 	for owner, values := range sources {
 		content := nativePrefixSource(t, limits, values)
-		placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{
+		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{
 			Target: target.TargetPi, Scope: target.ScopeProject, Path: "settings.json",
-			Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON,
+			Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		id, _ := entity.New(entity.KindHostConfig, owner)
+		id, _ := entity.New(entity.KindAgentConfig, owner)
 		subject, _ := resourcetopology.Subject(id)
 		identity, err := artifact.NewExactIdentity(artifact.SourceID("local:"+owner+".json"), "", artifact.ArtifactKindFile, artifact.HashFileContent(content))
 		if err != nil {
@@ -280,7 +280,7 @@ func nativePrefixInput(t *testing.T, current string, previous, desired []nativeP
 		}
 		entry, err := lock.NewExactSupplySubjectContract(lock.ExactSupplySubjectInput{
 			EntityID: id, SubjectID: subject, ExactSupply: identity, ExactFileUse: &use,
-			HostConfigPlacement: &placement, Derivation: derivation,
+			AgentConfigPlacement: &placement, Derivation: derivation,
 		})
 		if err != nil {
 			t.Fatal(err)

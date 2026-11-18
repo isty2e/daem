@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -183,7 +183,7 @@ func (facts DedicatedReservations) RequireUnreservedPath(nativePath string) erro
 	if _, err := target.ParseScope(string(facts.scope)); err != nil {
 		return err
 	}
-	if err := hostconfig.ValidateRelativePath(nativePath); err != nil {
+	if err := agentconfig.ValidateRelativePath(nativePath); err != nil {
 		return err
 	}
 	for _, reserved := range facts.paths {

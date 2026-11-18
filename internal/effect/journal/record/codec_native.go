@@ -186,7 +186,7 @@ func validateNativeOrdinaryEntries(entries []recoveryEntry) error {
 		if err != nil {
 			return err
 		}
-		if id, backed := topologyprojection.EntityID(subject); backed && id.Kind() == entity.KindHostConfig {
+		if id, backed := topologyprojection.EntityID(subject); backed && id.Kind() == entity.KindAgentConfig {
 			return fmt.Errorf("native whole-file state cannot be encoded as a legacy entry")
 		}
 		if entry.Aggregate != nil {
@@ -194,7 +194,7 @@ func validateNativeOrdinaryEntries(entries []recoveryEntry) error {
 			if err != nil {
 				return err
 			}
-			if _, native := aggregate.HostConfigSyntaxForCodec(contract.CodecContractID()); native {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(contract.CodecContractID()); native {
 				return fmt.Errorf("native keys cannot be encoded as a legacy entry")
 			}
 		}

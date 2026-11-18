@@ -71,8 +71,8 @@ func missingResourceSelectionGuidance(manifestPath string, err error) []cliprese
 			args = append(args, "--scope", selection.Scope)
 		}
 		command := []string{"remove", kind, selection.Name}
-		if kind == string(clipresent.AuthoringResourceHostConfig) {
-			command = []string{"remove", "host-config"}
+		if kind == string(clipresent.AuthoringResourceAgentConfig) {
+			command = []string{"remove", agentConfigSubject}
 			args = append(args, "--", selection.Name)
 		}
 		guidance = append(guidance, manifestCommandGuidance(command, hintManifestPath, hintOptions, args...).WithHumanPrefix("hint: available selection: "))

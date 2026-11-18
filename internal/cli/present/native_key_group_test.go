@@ -17,7 +17,7 @@ import (
 
 func nativeHumanDecision(t *testing.T, name, path, destination string, selected target.Target, scope target.Scope) reconcile.Decision {
 	t.Helper()
-	id, err := entity.New(entity.KindHostConfig, name)
+	id, err := entity.New(entity.KindAgentConfig, name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func nativeHumanDecision(t *testing.T, name, path, destination string, selected 
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, selected, scope, key)
+	subject, err := topologyprojection.AgentConfigKeySubject(id, selected, scope, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,9 +41,9 @@ func nativeHumanDecision(t *testing.T, name, path, destination string, selected 
 	if selected == target.TargetPi {
 		syntax = "json"
 	}
-	codec, _ := aggregate.HostConfigCodecForSyntax(syntax)
+	codec, _ := aggregate.AgentConfigCodecForSyntax(syntax)
 
-	contract, err := aggregate.NewHostConfigProjectionContract(selected, scope, root, footprint, codec)
+	contract, err := aggregate.NewAgentConfigProjectionContract(selected, scope, root, footprint, codec)
 	if err != nil {
 		t.Fatal(err)
 	}

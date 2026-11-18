@@ -278,11 +278,11 @@ func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 func TestSelectedGroupCaptureKeepsWholeMembershipSeparateFromNarrowedFrontier(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	selected := fixture.after.ManagedAggregates()[0]
-	id, _, found := topologyprojection.HostConfigKeyIdentity(selected.Subject())
+	id, _, found := topologyprojection.AgentConfigKeyIdentity(selected.Subject())
 	if !found {
 		t.Fatal("selected subject has no native key identity")
 	}
-	wholeSubject, err := aggregate.HostConfigDocumentSubject(id, fixture.claims.alias.Target(), fixture.claims.alias.Scope())
+	wholeSubject, err := aggregate.AgentConfigDocumentSubject(id, fixture.claims.alias.Target(), fixture.claims.alias.Scope())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +433,7 @@ func TestDocumentCaptureSubjectIndexKeepsFullRetargetedIdentity(t *testing.T) {
 	fixture := nativeJournalFixture(t)
 	before := fixture.before.ManagedAggregates()[0]
 	nextAlias := nativeNamespaceAddress(t, target.TargetPi, target.ScopeGlobal, "@pi-agent/retargeted.json")
-	nextContract, err := aggregate.NewHostConfigProjectionContract(nextAlias.Target(), nextAlias.Scope(), nextAlias.AggregateRoot(), before.Contribution().Footprint(), before.Contribution().CodecContractID())
+	nextContract, err := aggregate.NewAgentConfigProjectionContract(nextAlias.Target(), nextAlias.Scope(), nextAlias.AggregateRoot(), before.Contribution().Footprint(), before.Contribution().CodecContractID())
 	if err != nil {
 		t.Fatal(err)
 	}

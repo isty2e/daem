@@ -59,7 +59,7 @@ func TestNativeWholeAdoptionRefusesForeignProjectBindingWithoutClaim(t *testing.
 
 func nativeForeignProjectBinding(t *testing.T, fixture nativePlanningFixture, destination output.Destination, physical string) ownership.DocumentBinding {
 	t.Helper()
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, nativePlanningKey(t, "released"), fixture.observation.Before.ManagedAggregates()[0].Contribution().CodecContractID())
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeProject, destination, nativePlanningKey(t, "released"), fixture.observation.Before.ManagedAggregates()[0].Contribution().CodecContractID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +84,11 @@ func nativeForeignProjectBinding(t *testing.T, fixture nativePlanningFixture, de
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := entity.New(entity.KindHostConfig, "foreign-settings")
+	id, err := entity.New(entity.KindAgentConfig, "foreign-settings")
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject, err := topologyprojection.HostConfigKeySubject(id, target.TargetPi, target.ScopeProject, contract.Address().KeyPath())
+	subject, err := topologyprojection.AgentConfigKeySubject(id, target.TargetPi, target.ScopeProject, contract.Address().KeyPath())
 	if err != nil {
 		t.Fatal(err)
 	}

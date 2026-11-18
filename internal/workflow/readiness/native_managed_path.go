@@ -30,7 +30,7 @@ func observeManagedPaths(ctx context.Context, resolver liveobserve.DestinationRe
 	}
 	seen := make(map[requestKey]struct{})
 	for _, request := range requests {
-		if !aggregate.IsHostConfigDocumentSubject(request.Subject) {
+		if !aggregate.IsAgentConfigDocumentSubject(request.Subject) {
 			ordinary = append(ordinary, request)
 			continue
 		}
@@ -70,13 +70,13 @@ func observeManagedPaths(ctx context.Context, resolver liveobserve.DestinationRe
 // subject. Its root lifetime remains borrowed from the containing observation.
 func (input *NativeAssessmentInput) wholeFileAlias(subject topology.SubjectID, destination output.Destination) (journalnamespace.Alias, error) {
 	identity, native := topologyprojection.EntityID(subject)
-	if !native || !aggregate.IsHostConfigDocumentSubject(subject) || input == nil || input.Documents == nil {
+	if !native || !aggregate.IsAgentConfigDocumentSubject(subject) || input == nil || input.Documents == nil {
 		return journalnamespace.Alias{}, fmt.Errorf("native whole-file request requires its selected document batch")
 	}
 	for _, namespace := range input.Documents.Evidence().Namespaces() {
 		for _, alias := range namespace.Aliases() {
 			address := alias.Address()
-			selected, err := aggregate.HostConfigDocumentSubject(identity, address.Target(), address.Scope())
+			selected, err := aggregate.AgentConfigDocumentSubject(identity, address.Target(), address.Scope())
 			if err == nil && selected == subject && address.AggregateRoot() == destination {
 				return alias, nil
 			}

@@ -40,7 +40,7 @@ func TestNativeApplyRetiresAlreadyAbsentCarrierClaim(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !prepared.Reconciliation.ContainsHostConfig() {
+			if !prepared.Reconciliation.ContainsAgentConfig() {
 				t.Fatal("fixture did not select an actual native settings operation")
 			}
 			absences := prepared.Reconciliation.CarrierAbsences()

@@ -114,7 +114,7 @@ func buildLockfileChange(ctx context.Context, input LockfileChangeInput, replaci
 		return LockfileChange{}, fmt.Errorf("invalid prospective manifest: %w", err)
 	}
 	if replacingManifest != nil {
-		if err := rejectHostConfigControlSourceOverlap(ctx, environment.HostConfigs(), paths.ManifestRoot, *replacingManifest, target); err != nil {
+		if err := rejectAgentConfigControlSourceOverlap(ctx, environment.AgentConfigs(), paths.ManifestRoot, *replacingManifest, target); err != nil {
 			return LockfileChange{}, err
 		}
 	}

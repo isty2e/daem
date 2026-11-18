@@ -258,7 +258,7 @@ func TestNativeOpaqueRefreshAndRemovalPreserveLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				after, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, paths.StatefilePath))
-				if err != nil || after.ContainsHostConfig() == retire || len(after.PendingCarrierRemovals()) != 0 {
+				if err != nil || after.ContainsAgentConfig() == retire || len(after.PendingCarrierRemovals()) != 0 {
 					t.Fatal("removal lost the complete native/state settlement", err)
 				}
 				fixture.require(t, "status", "--check", "--json")

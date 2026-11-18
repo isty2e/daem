@@ -39,7 +39,7 @@ func TestAuthoringProjectionKeepsGrammarAxesAndPublicNotesExact(t *testing.T) {
 		{kind: AuthoringResourceSkill, public: "skill", noteText: "host files are written only by apply"},
 		{kind: AuthoringResourceSkillGroup, public: "skill-group", noteText: "host files are written only by apply"},
 		{kind: AuthoringResourceHook, public: "hook", noteText: "managed hook aggregates"},
-		{kind: AuthoringResourceHostConfig, public: "host_config", noteText: "apply reconciles the managed settings"},
+		{kind: AuthoringResourceAgentConfig, public: "host_config", noteText: "apply reconciles the managed settings"},
 		{kind: AuthoringResourceMCPServer, public: "mcp-server", noteText: "locked projection"},
 		{kind: AuthoringResourceExtension, public: "extension", noteText: "separately admitted host route"},
 	}
@@ -93,7 +93,7 @@ func TestAuthoringRemoveProjectionOmitsAddOnlyContent(t *testing.T) {
 		{kind: AuthoringResourceInstructions, noteText: "apply reconciles managed state"},
 		{kind: AuthoringResourceSkill, noteText: "apply reconciles managed state"},
 		{kind: AuthoringResourceHook, noteText: "managed hook aggregates"},
-		{kind: AuthoringResourceHostConfig, noteText: "apply --dry-run shows cleanup"},
+		{kind: AuthoringResourceAgentConfig, noteText: "apply --dry-run"},
 		{kind: AuthoringResourceMCPServer, noteText: "removes the managed projection"},
 		{kind: AuthoringResourceExtension, noteText: "carrier uninstall"},
 	}

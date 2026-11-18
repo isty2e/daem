@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/target"
@@ -98,7 +98,7 @@ func TestRootBindingDoesNotImposePlacementOrGrammarAdmission(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		input := configuration.AliasInput{Target: test.selected, Scope: test.scope, Destination: destination, Syntax: hostconfig.Syntax("not-a-grammar")}
+		input := configuration.AliasInput{Target: test.selected, Scope: test.scope, Destination: destination, Syntax: agentconfig.Syntax("not-a-grammar")}
 		binding, err := configuration.RootBindingForAlias(input)
 		child, directory := binding.Coordinate().DirectoryChild()
 		if err != nil || binding.RootReference().Identity() != test.root || !directory || child != test.relative || binding.PolicyID() == "" {
@@ -230,14 +230,14 @@ func TestKnownGrammarPrecedesHintsAndGenericFallback(t *testing.T) {
 		selected target.Target
 		scope    target.Scope
 		path     string
-		syntax   hostconfig.Syntax
+		syntax   agentconfig.Syntax
 		grammar  configuration.Grammar
 		class    configuration.DocumentClass
 	}{
 		{target.TargetPi, target.ScopeGlobal, "models.json", "", configuration.JSONLineComments, configuration.ModelCatalog},
 		{target.TargetPi, target.ScopeProject, "models.json", "", configuration.JSON, configuration.GenericConfiguration},
 		{target.TargetPi, target.ScopeGlobal, "agents/reviewer.md", "", configuration.Opaque, configuration.GenericConfiguration},
-		{target.TargetCodex, target.ScopeGlobal, "custom.data", hostconfig.SyntaxJSONC, configuration.JSONC, configuration.GenericConfiguration},
+		{target.TargetCodex, target.ScopeGlobal, "custom.data", agentconfig.SyntaxJSONC, configuration.JSONC, configuration.GenericConfiguration},
 		{target.TargetAntigravityCLI, target.ScopeGlobal, "keybindings.json", "", configuration.JSON, configuration.Preferences},
 		{target.TargetOpenCode, target.ScopeProject, "tui.json", "", configuration.JSONC, configuration.SharedConfiguration},
 		{target.TargetOpenCode, target.ScopeProject, ".opencode/agents/reviewer.md", "", configuration.Opaque, configuration.GenericConfiguration},
@@ -248,9 +248,9 @@ func TestKnownGrammarPrecedesHintsAndGenericFallback(t *testing.T) {
 		}
 	}
 	for _, input := range []configuration.DocumentInput{
-		{Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "models.json", Syntax: hostconfig.SyntaxJSONC},
-		{Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "review.config.toml", Syntax: hostconfig.SyntaxJSON},
-		{Target: target.TargetOpenCode, Scope: target.ScopeProject, Path: "opencode.json", Syntax: hostconfig.SyntaxJSON},
+		{Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "models.json", Syntax: agentconfig.SyntaxJSONC},
+		{Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "review.config.toml", Syntax: agentconfig.SyntaxJSON},
+		{Target: target.TargetOpenCode, Scope: target.ScopeProject, Path: "opencode.json", Syntax: agentconfig.SyntaxJSON},
 	} {
 		if _, err := configuration.NewDocumentSpec(input); !errors.Is(err, configuration.ErrGrammar) {
 			t.Errorf("known grammar was weakened: %v", err)
@@ -262,12 +262,12 @@ func TestDocumentIdentityDoesNotRetainDeclarationSyntaxHints(t *testing.T) {
 	for _, test := range []struct {
 		selected target.Target
 		path     string
-		syntax   hostconfig.Syntax
+		syntax   agentconfig.Syntax
 	}{
-		{target.TargetPi, "settings.json", hostconfig.SyntaxJSON},
-		{target.TargetPi, "extension-config.json", hostconfig.SyntaxJSON},
-		{target.TargetCodex, "config.toml", hostconfig.SyntaxTOML},
-		{target.TargetOpenCode, "opencode.json", hostconfig.SyntaxJSONC},
+		{target.TargetPi, "settings.json", agentconfig.SyntaxJSON},
+		{target.TargetPi, "extension-config.json", agentconfig.SyntaxJSON},
+		{target.TargetCodex, "config.toml", agentconfig.SyntaxTOML},
+		{target.TargetOpenCode, "opencode.json", agentconfig.SyntaxJSONC},
 	} {
 		input := configuration.DocumentInput{Target: test.selected, Scope: target.ScopeGlobal, Path: test.path}
 		implicit, err := configuration.NewDocumentSpec(input)

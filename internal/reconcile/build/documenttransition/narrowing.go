@@ -68,7 +68,7 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 		len(input.Baseline.ConsumerTargets()) != 1 || input.Baseline.FileMode()&0o111 != 0 {
 		return NativeDocumentNarrowing{}, ErrNativeDocumentBaseline
 	}
-	expectedSubject, err := aggregate.HostConfigDocumentSubject(owner, input.Baseline.ConsumerTargets()[0], input.Baseline.Scope())
+	expectedSubject, err := aggregate.AgentConfigDocumentSubject(owner, input.Baseline.ConsumerTargets()[0], input.Baseline.Scope())
 	if err != nil || expectedSubject != input.Baseline.Subject() {
 		return NativeDocumentNarrowing{}, ErrNativeDocumentBaseline
 	}
@@ -78,7 +78,7 @@ func BuildNativeDocumentNarrowing(ctx context.Context, input NativeDocumentNarro
 	if !input.Current.Exists() {
 		return NativeDocumentNarrowing{}, fmt.Errorf("narrowing requires an existing native document")
 	}
-	syntaxName, _ := aggregate.HostConfigSyntaxForCodec(input.CodecID)
+	syntaxName, _ := aggregate.AgentConfigSyntaxForCodec(input.CodecID)
 	syntax, err := configdocument.ParseSyntax(syntaxName)
 	if err != nil {
 		return NativeDocumentNarrowing{}, err

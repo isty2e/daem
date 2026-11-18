@@ -24,11 +24,11 @@ func nativeReleasePublicationInput(t *testing.T) (nativeCaptureTestInput, journa
 	t.Helper()
 	input := nativeCaptureInput(t, false, target.ScopeProject)
 	before := input.batch.Evidence().BeforeState()
-	id, _, present := topologyprojection.HostConfigKeyIdentity(before.ManagedAggregates()[0].Subject())
+	id, _, present := topologyprojection.AgentConfigKeyIdentity(before.ManagedAggregates()[0].Subject())
 	if !present {
 		t.Fatal("fixture has no retained native identity")
 	}
-	identities, err := journaldocument.HostConfigManagements(t.Context(), before, id)
+	identities, err := journaldocument.AgentConfigManagements(t.Context(), before, id)
 	if err != nil || len(identities) != 1 {
 		t.Fatal(identities, err)
 	}

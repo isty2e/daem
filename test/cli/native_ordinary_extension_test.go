@@ -231,8 +231,8 @@ func TestNativePendingProjectCompletionAfterInstallInterruption(t *testing.T) {
 				nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
 			}
 			after := nativefixture.ExtensionCompletionState(t, fixture.Paths)
-			if len(after.PendingCarrierInstalls()) != 0 || len(after.ManagedCarrierClaims()) != 1 || after.ContainsHostConfig() != (scenario != "empty fragment") {
-				t.Fatalf("mixed successor lost completion: pending=%d claims=%d native=%t", len(after.PendingCarrierInstalls()), len(after.ManagedCarrierClaims()), after.ContainsHostConfig())
+			if len(after.PendingCarrierInstalls()) != 0 || len(after.ManagedCarrierClaims()) != 1 || after.ContainsAgentConfig() != (scenario != "empty fragment") {
+				t.Fatalf("mixed successor lost completion: pending=%d claims=%d native=%t", len(after.PendingCarrierInstalls()), len(after.ManagedCarrierClaims()), after.ContainsAgentConfig())
 			}
 			claim, pending := after.ManagedCarrierClaims()[0], before.PendingCarrierInstalls()[0]
 			if !claim.Owner().ExactEqual(pending.Owner()) || !claim.Identity().ExactEqual(pending.Identity()) || !claim.InstallRequest().Equal(pending.InstallRequest()) || claim.Provenance() != durablecarrier.ClaimProvenanceInstalledObserved {

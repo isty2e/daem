@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
 	"github.com/isty2e/daem/internal/hostsurface"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -18,32 +18,32 @@ type PlacementInput struct {
 	Target    target.Target
 	Scope     target.Scope
 	Path      string
-	Ownership hostconfig.Ownership
-	Syntax    hostconfig.Syntax
+	Ownership agentconfig.Ownership
+	Syntax    agentconfig.Syntax
 }
 
 // Placement retains declaration intent and document identity, not selected key
 // sets, completed observations or physical mutation authority.
 type Placement struct {
 	surface         hostsurface.SurfaceKey
-	ownership       hostconfig.Ownership
-	requestedSyntax hostconfig.Syntax
+	ownership       agentconfig.Ownership
+	requestedSyntax agentconfig.Syntax
 	document        DocumentSpec
 }
 
 func NewPlacement(input PlacementInput, reservations DedicatedReservations) (Placement, error) {
-	surface, err := hostsurface.NewSurfaceKey(input.Target, input.Scope, entity.KindHostConfig, hostsurface.VariantDefault)
+	surface, err := hostsurface.NewSurfaceKey(input.Target, input.Scope, entity.KindAgentConfig, hostsurface.VariantDefault)
 	if err != nil {
 		return Placement{}, err
 	}
-	if err := hostconfig.ValidateRelativePath(input.Path); err != nil {
+	if err := agentconfig.ValidateRelativePath(input.Path); err != nil {
 		return Placement{}, err
 	}
-	ownership, err := hostconfig.ParseOwnership(string(input.Ownership))
+	ownership, err := agentconfig.ParseOwnership(string(input.Ownership))
 	if err != nil {
 		return Placement{}, err
 	}
-	syntax, err := hostconfig.ParseSyntax(string(input.Syntax))
+	syntax, err := agentconfig.ParseSyntax(string(input.Syntax))
 	if err != nil {
 		return Placement{}, err
 	}
@@ -67,7 +67,7 @@ func NewPlacement(input PlacementInput, reservations DedicatedReservations) (Pla
 	return placement, nil
 }
 
-func placementFromIntent(surface hostsurface.SurfaceKey, nativePath string, ownership hostconfig.Ownership, syntax hostconfig.Syntax) (Placement, error) {
+func placementFromIntent(surface hostsurface.SurfaceKey, nativePath string, ownership agentconfig.Ownership, syntax agentconfig.Syntax) (Placement, error) {
 	document, err := NewDocumentSpec(DocumentInput{
 		Target: surface.Target(), Scope: surface.Scope(), Path: nativePath, Syntax: syntax,
 	})
@@ -77,10 +77,10 @@ func placementFromIntent(surface hostsurface.SurfaceKey, nativePath string, owne
 		}
 		return Placement{}, err
 	}
-	if ownership == hostconfig.OwnershipDocument && document.Class() == SharedConfiguration {
+	if ownership == agentconfig.OwnershipDocument && document.Class() == SharedConfiguration {
 		return Placement{}, fmt.Errorf("%w: %q requires key ownership alongside its dedicated resources", ErrReserved, nativePath)
 	}
-	if ownership == hostconfig.OwnershipKeys && document.Grammar() == Opaque {
+	if ownership == agentconfig.OwnershipKeys && document.Grammar() == Opaque {
 		return Placement{}, fmt.Errorf("%w: key ownership requires an explicit supported syntax for %q", ErrGrammar, nativePath)
 	}
 	return Placement{surface: surface, ownership: ownership, requestedSyntax: syntax, document: document}, nil
@@ -89,11 +89,11 @@ func placementFromIntent(surface hostsurface.SurfaceKey, nativePath string, owne
 func (placement Placement) SurfaceKey() hostsurface.SurfaceKey { return placement.surface }
 func (placement Placement) Target() target.Target              { return placement.surface.Target() }
 func (placement Placement) Scope() target.Scope                { return placement.surface.Scope() }
-func (placement Placement) Ownership() hostconfig.Ownership    { return placement.ownership }
+func (placement Placement) Ownership() agentconfig.Ownership   { return placement.ownership }
 func (placement Placement) Grammar() Grammar                   { return placement.document.Grammar() }
 
 func (placement Placement) UsesKeyOwnership() bool {
-	return placement.ownership == hostconfig.OwnershipKeys
+	return placement.ownership == agentconfig.OwnershipKeys
 }
 
 func (placement Placement) Destination() output.Destination { return placement.document.Destination() }
@@ -104,13 +104,13 @@ func (placement Placement) NativePath() string {
 	return nativePath
 }
 
-func (placement Placement) RequestedSyntax() hostconfig.Syntax { return placement.requestedSyntax }
+func (placement Placement) RequestedSyntax() agentconfig.Syntax { return placement.requestedSyntax }
 
 func (placement Placement) ID() string {
 	if placement.document.RootReference().Validate() != nil {
 		return ""
 	}
-	id, _ := aggregate.HostConfigPlacementID(placement.Target(), placement.Scope())
+	id, _ := aggregate.AgentConfigPlacementID(placement.Target(), placement.Scope())
 	return id
 }
 
@@ -118,14 +118,14 @@ func (placement Placement) Validate() error {
 	if err := placement.surface.Validate(); err != nil {
 		return err
 	}
-	if placement.surface.Kind() != entity.KindHostConfig || placement.surface.Variant() != hostsurface.VariantDefault {
+	if placement.surface.Kind() != entity.KindAgentConfig || placement.surface.Variant() != hostsurface.VariantDefault {
 		return fmt.Errorf("native placement requires the default HostConfig surface")
 	}
-	ownership, err := hostconfig.ParseOwnership(string(placement.ownership))
+	ownership, err := agentconfig.ParseOwnership(string(placement.ownership))
 	if err != nil {
 		return err
 	}
-	syntax, err := hostconfig.ParseSyntax(string(placement.requestedSyntax))
+	syntax, err := agentconfig.ParseSyntax(string(placement.requestedSyntax))
 	if err != nil {
 		return err
 	}

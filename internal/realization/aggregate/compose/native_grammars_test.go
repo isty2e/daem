@@ -14,7 +14,7 @@ import (
 
 func TestNativeProjectionCompositionAcrossAllAdmittedGrammars(t *testing.T) {
 	for _, syntax := range []configdocument.Syntax{configdocument.JSON, configdocument.JSONC, configdocument.JSONLineComments, configdocument.TOML} {
-		id, ok := aggregate.HostConfigCodecForSyntax(syntax.String())
+		id, ok := aggregate.AgentConfigCodecForSyntax(syntax.String())
 		if !ok {
 			t.Fatal("fixture grammar identity unavailable")
 		}

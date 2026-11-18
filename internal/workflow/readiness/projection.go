@@ -100,7 +100,7 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 		}
 		wholeOwner, entityBacked := topologyprojection.EntityID(decision.Subject())
 		for _, state := range input.aggregateStates {
-			keyOwner, _, native := topologyprojection.HostConfigKeyIdentity(state.Subject())
+			keyOwner, _, native := topologyprojection.AgentConfigKeyIdentity(state.Subject())
 			if !entityBacked || !native || keyOwner != wholeOwner {
 				continue
 			}

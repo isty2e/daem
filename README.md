@@ -30,9 +30,9 @@ your executable.
 
 ## Choose A Starting Point
 
-- **No existing agent configuration:** [Getting Started](docs/getting-started.md)
+- **Starting from scratch:** [Getting Started](docs/getting-started.md)
   creates one project instruction file from a local source.
-- **Existing files or agent configuration:** [Use An Existing Environment](docs/migration.md)
+- **Already have agent files to keep:** [Use An Existing Environment](docs/migration.md)
   explains importing live configuration, using local files, and registering
   matching outputs. You do not need a hosted Git repository.
 - **Let your agent manage the manifest:** install the repository's

@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -66,8 +66,8 @@ func PrepareInvocationDocuments(ctx context.Context, input readiness.NativeAsses
 	}
 	var result InvocationDocuments
 	for _, source := range sources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
-		if placement.Ownership() == hostconfig.OwnershipDocument {
+		placement, _ := source.SourceContract().AgentConfigPlacement()
+		if placement.Ownership() == agentconfig.OwnershipDocument {
 			continue
 		}
 		for _, projection := range source.Projections() {
@@ -76,7 +76,7 @@ func PrepareInvocationDocuments(ctx context.Context, input readiness.NativeAsses
 				return InvocationDocuments{}, errors.Join(fmt.Errorf("native invocation requires selected key contributions"), err)
 			}
 			contribution := item.Contribution()
-			name, native := aggregate.HostConfigSyntaxForCodec(contribution.CodecContractID())
+			name, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID())
 			if !native {
 				return InvocationDocuments{}, fmt.Errorf("invocation key is not a native contribution")
 			}
@@ -125,13 +125,13 @@ func PrepareInvocationDocuments(ctx context.Context, input readiness.NativeAsses
 func IsWholeInvocationDocument(aliases []aggregate.DocumentAddress, sources []lockobserve.NativeSourceObservation, before durable.Snapshot) bool {
 	positiveKeys := false
 	for _, source := range sources {
-		placement, present := source.SourceContract().HostConfigPlacement()
+		placement, present := source.SourceContract().AgentConfigPlacement()
 		if !present || !slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
 			return alias.Target() == placement.Target() && alias.Scope() == placement.Scope() && alias.AggregateRoot() == placement.Destination()
 		}) {
 			continue
 		}
-		if placement.Ownership() == hostconfig.OwnershipDocument {
+		if placement.Ownership() == agentconfig.OwnershipDocument {
 			return true
 		}
 		positiveKeys = positiveKeys || len(source.Projections()) != 0
@@ -140,7 +140,7 @@ func IsWholeInvocationDocument(aliases []aggregate.DocumentAddress, sources []lo
 		return false
 	}
 	for _, state := range before.ManagedPaths() {
-		if aggregate.IsHostConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
+		if aggregate.IsAgentConfigDocumentSubject(state.Subject()) && slices.ContainsFunc(aliases, func(alias aggregate.DocumentAddress) bool {
 			return slices.Contains(state.ConsumerTargets(), alias.Target()) && alias.Scope() == state.Scope() && alias.AggregateRoot() == state.Destination()
 		}) {
 			return true
@@ -151,7 +151,7 @@ func IsWholeInvocationDocument(aliases []aggregate.DocumentAddress, sources []lo
 
 func invocationSyntax(aliases []aggregate.DocumentAddress, sources []lockobserve.NativeSourceObservation, before durable.Snapshot) (configdocument.Syntax, error) {
 	for _, source := range sources {
-		placement, _ := source.SourceContract().HostConfigPlacement()
+		placement, _ := source.SourceContract().AgentConfigPlacement()
 		for _, alias := range aliases {
 			if alias.Target() == placement.Target() && alias.Scope() == placement.Scope() && alias.AggregateRoot() == placement.Destination() {
 				return configdocument.ParseSyntax(string(placement.Grammar()))
@@ -159,7 +159,7 @@ func invocationSyntax(aliases []aggregate.DocumentAddress, sources []lockobserve
 		}
 	}
 	for _, state := range before.ManagedAggregates() {
-		name, native := aggregate.HostConfigSyntaxForCodec(state.Contribution().CodecContractID())
+		name, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID())
 		if native && slices.Contains(aliases, state.Contribution().Contract().Address().Document()) {
 			return configdocument.ParseSyntax(name)
 		}
@@ -188,7 +188,7 @@ func (documents InvocationDocuments) RequireManagedState(input readiness.NativeA
 
 	whole := make(map[topology.SubjectID]durable.ManagedPathState)
 	for _, state := range before.ManagedPaths() {
-		if !aggregate.IsHostConfigDocumentSubject(state.Subject()) {
+		if !aggregate.IsAgentConfigDocumentSubject(state.Subject()) {
 			continue
 		}
 		whole[state.Subject()] = state

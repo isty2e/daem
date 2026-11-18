@@ -38,11 +38,11 @@ func (contract LockedSubjectContract) validate() error {
 	if err := contract.validateExactFileUse(); err != nil {
 		return err
 	}
-	if placement, present := contract.HostConfigPlacement(); present {
+	if placement, present := contract.AgentConfigPlacement(); present {
 		if err := placement.Validate(); err != nil {
 			return err
 		}
-		if contract.entityID.Kind() != entity.KindHostConfig || contract.subjectID.Kind() != topology.SubjectResource ||
+		if contract.entityID.Kind() != entity.KindAgentConfig || contract.subjectID.Kind() != topology.SubjectResource ||
 			contract.exactSupply == nil || contract.exactFileUse == nil ||
 			contract.exactSupply.Kind() != artifact.ArtifactKindFile || contract.exactFileUse.Scope() != placement.Scope() ||
 			contract.exactFileUse.Executable() {

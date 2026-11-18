@@ -19,11 +19,11 @@ func nativeReleaseFixture(t *testing.T, claimless, bindingAbsent bool) (NativeRe
 	t.Helper()
 	fixture := nativeJournalFixture(t)
 	row := fixture.before.ManagedAggregates()[0]
-	id, _, present := topologyprojection.HostConfigKeyIdentity(row.Subject())
+	id, _, present := topologyprojection.AgentConfigKeyIdentity(row.Subject())
 	if !present {
 		t.Fatal("native fixture has no host-config identity")
 	}
-	identities, err := journaldocument.HostConfigManagements(t.Context(), fixture.before, id)
+	identities, err := journaldocument.AgentConfigManagements(t.Context(), fixture.before, id)
 	if err != nil || len(identities) != 1 {
 		t.Fatal(identities, err)
 	}

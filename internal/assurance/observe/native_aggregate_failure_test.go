@@ -11,11 +11,11 @@ import (
 )
 
 func TestAggregateFailureObservationRetainsCompleteNativeDiagnostic(t *testing.T) {
-	codec, admitted := aggregate.HostConfigCodecForSyntax("json")
+	codec, admitted := aggregate.AgentConfigCodecForSyntax("json")
 	if !admitted {
 		t.Fatal("native JSON contract was not admitted")
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, "selected"), codec)
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, outputtest.Parse(t, "@pi-agent/settings.json"), outputtest.KeyFootprint(t, "selected"), codec)
 	if err != nil {
 		t.Fatal(err)
 	}

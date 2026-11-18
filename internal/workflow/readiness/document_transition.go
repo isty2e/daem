@@ -6,7 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -28,11 +28,11 @@ func BuildNativeNarrowingAction(ctx context.Context, input NativeNarrowingAction
 		return reconcile.NativeNarrowingAction{}, err
 	}
 	source := input.Source.SourceContract()
-	placement, present := source.HostConfigPlacement()
-	if !present || placement.Ownership() != hostconfig.OwnershipKeys {
+	placement, present := source.AgentConfigPlacement()
+	if !present || placement.Ownership() != agentconfig.OwnershipKeys {
 		return reconcile.NativeNarrowingAction{}, fmt.Errorf("narrowing requires an observed key-mode source")
 	}
-	codecID, native := aggregate.HostConfigCodecForSyntax(string(placement.Grammar()))
+	codecID, native := aggregate.AgentConfigCodecForSyntax(string(placement.Grammar()))
 	if !native {
 		return reconcile.NativeNarrowingAction{}, fmt.Errorf("narrowing source has no native key codec")
 	}

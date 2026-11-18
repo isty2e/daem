@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -25,27 +25,27 @@ import (
 func TestNativeKeySourceProducesAtomicContractsAndExactSource(t *testing.T) {
 	for _, selected := range []target.Target{target.TargetPi, target.TargetCodex} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-			for _, syntax := range []hostconfig.Syntax{hostconfig.SyntaxJSON, hostconfig.SyntaxJSONC, hostconfig.SyntaxJSONLineComments, hostconfig.SyntaxTOML} {
+			for _, syntax := range []agentconfig.Syntax{agentconfig.SyntaxJSON, agentconfig.SyntaxJSONC, agentconfig.SyntaxJSONLineComments, agentconfig.SyntaxTOML} {
 				t.Run(string(selected)+"/"+string(scope)+"/"+string(syntax), func(t *testing.T) {
 					payload := `{"large":9007199254740993,"a/b":{"":true},"empty":{},"array":[1,null]}`
 					want := map[string]bool{"/large": true, "/a~1b/": true, "/empty": true, "/array": true}
-					if syntax == hostconfig.SyntaxTOML {
+					if syntax == agentconfig.SyntaxTOML {
 						payload = "large=9007199254740993\nwhen=2026-10-23\nempty={}\n[[array]]\nname='one'\n"
 						want = map[string]bool{"/large": true, "/when": true, "/empty": true, "/array": true}
-					} else if syntax != hostconfig.SyntaxJSON {
+					} else if syntax != agentconfig.SyntaxJSON {
 						payload = "// retained source comment\n" + payload
 					}
 					dir := t.TempDir()
 					source := nativeLocalSource(t, dir, "source", []byte(payload), 0o755)
-					config := nativeDocumentConfig(t, "native", source, selected, scope, "custom.conf", hostconfig.OwnershipKeys, syntax)
-					environment := lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}})
+					config := nativeDocumentConfig(t, "native", source, selected, scope, "custom.conf", agentconfig.OwnershipKeys, syntax)
+					environment := lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}})
 					file, err := BuildNativeDocumentsWithOptions(t.Context(), environment, nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
 					if err != nil {
 						t.Fatal(err)
 					}
 					resource, present := file.Locked.ExactSupplySubject(config.ID())
-					placement, placed := resource.HostConfigPlacement()
-					if !present || !placed || placement.Ownership() != hostconfig.OwnershipKeys || placement.RequestedSyntax() != syntax || file.Locked.Len() != len(want)+1 {
+					placement, placed := resource.AgentConfigPlacement()
+					if !present || !placed || placement.Ownership() != agentconfig.OwnershipKeys || placement.RequestedSyntax() != syntax || file.Locked.Len() != len(want)+1 {
 						t.Fatal("native source mode/grammar or complete atomic set was lost")
 					}
 					view, err := access.OpenView(filepath.Join(dir, "source"))
@@ -94,19 +94,19 @@ func TestNativeKeySourceProducesAtomicContractsAndExactSource(t *testing.T) {
 
 func TestNativeKeySourceEmptyRootRetainsModeWithoutWholeOwnership(t *testing.T) {
 	for _, input := range []struct {
-		syntax hostconfig.Syntax
+		syntax agentconfig.Syntax
 		text   string
-	}{{hostconfig.SyntaxJSON, `{}`}, {hostconfig.SyntaxTOML, "# empty contribution\n"}} {
+	}{{agentconfig.SyntaxJSON, `{}`}, {agentconfig.SyntaxTOML, "# empty contribution\n"}} {
 		dir := t.TempDir()
 		source := nativeLocalSource(t, dir, "source", []byte(input.text), 0o600)
-		config := nativeDocumentConfig(t, "empty", source, target.TargetPi, target.ScopeProject, "custom.conf", hostconfig.OwnershipKeys, input.syntax)
-		file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
+		config := nativeDocumentConfig(t, "empty", source, target.TargetPi, target.ScopeProject, "custom.conf", agentconfig.OwnershipKeys, input.syntax)
+		file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
 		if err != nil || file.Locked.Len() != 1 {
 			t.Fatal("empty key source disappeared or acquired a root projection", err)
 		}
 		resource, ok := file.Locked.ExactSupplySubject(config.ID())
-		placement, placed := resource.HostConfigPlacement()
-		if !ok || !placed || placement.Ownership() != hostconfig.OwnershipKeys {
+		placement, placed := resource.AgentConfigPlacement()
+		if !ok || !placed || placement.Ownership() != agentconfig.OwnershipKeys {
 			t.Fatal("empty source lost explicit key-mode intent")
 		}
 		assertNativeKeyRoundtrip(t, dir, file)
@@ -127,15 +127,15 @@ func TestNativeKeySourceSharedDocumentUsesActualFootprints(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
-			firstMode := hostconfig.OwnershipKeys
+			firstMode := agentconfig.OwnershipKeys
 			if test.whole {
-				firstMode = hostconfig.OwnershipDocument
+				firstMode = agentconfig.OwnershipDocument
 			}
-			first := nativeDocumentConfig(t, "a", nativeLocalSource(t, dir, "first", []byte(test.first), 0o600), target.TargetPi, target.ScopeProject, "custom.json", firstMode, hostconfig.SyntaxJSON)
-			second := nativeDocumentConfig(t, "b", nativeLocalSource(t, dir, "second", []byte(test.second), 0o600), target.TargetPi, target.ScopeProject, "custom.json", hostconfig.OwnershipKeys, hostconfig.SyntaxJSON)
+			first := nativeDocumentConfig(t, "a", nativeLocalSource(t, dir, "first", []byte(test.first), 0o600), target.TargetPi, target.ScopeProject, "custom.json", firstMode, agentconfig.SyntaxJSON)
+			second := nativeDocumentConfig(t, "b", nativeLocalSource(t, dir, "second", []byte(test.second), 0o600), target.TargetPi, target.ScopeProject, "custom.json", agentconfig.OwnershipKeys, agentconfig.SyntaxJSON)
 			sessions := 0
 			resolver := &nativeSessionCounter{underlying: nativeDocumentResolver(t, dir), sessions: &sessions}
-			file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{first, second}}), resolver, Options{}, nativeDocumentLimits())
+			file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{first, second}}), resolver, Options{}, nativeDocumentLimits())
 			if test.refuse {
 				if err == nil || file.Version != 0 {
 					t.Fatal("conflicting actual key ownership returned a lock")
@@ -151,8 +151,8 @@ func TestNativeKeySourceSharedDocumentUsesActualFootprints(t *testing.T) {
 
 func TestNativeKeyCollectionRejectsOrphanRetargetAndOperationForgery(t *testing.T) {
 	dir := t.TempDir()
-	config := nativeDocumentConfig(t, "native", nativeLocalSource(t, dir, "source", []byte(`{"a":1}`), 0o600), target.TargetPi, target.ScopeProject, "custom.json", hostconfig.OwnershipKeys, hostconfig.SyntaxJSON)
-	file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
+	config := nativeDocumentConfig(t, "native", nativeLocalSource(t, dir, "source", []byte(`{"a":1}`), 0o600), target.TargetPi, target.ScopeProject, "custom.json", agentconfig.OwnershipKeys, agentconfig.SyntaxJSON)
+	file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,11 +165,11 @@ func TestNativeKeyCollectionRejectsOrphanRetargetAndOperationForgery(t *testing.
 	}
 	spec, _ := key.Realization()
 	contribution, _ := spec.ManagedAggregateContribution()
-	retarget, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: "other.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	retarget, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: "other.json", Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherContract, err := profile.HostConfigProjectionContract(retarget, contribution.Footprint())
+	otherContract, err := profile.AgentConfigProjectionContract(retarget, contribution.Footprint())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestNativeKeyCollectionRejectsOrphanRetargetAndOperationForgery(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := lock.NewHostConfigKeySubjectContract(config.ID(), key.SubjectID(), otherValue, retarget)
+	other, err := lock.NewAgentConfigKeySubjectContract(config.ID(), key.SubjectID(), otherValue, retarget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,8 +249,8 @@ func nativeKeyLockCodec(t *testing.T, file lock.File, limits configdocument.Limi
 
 func TestNativeKeyCodecKeepsValueAdmissionExplicitAndBounded(t *testing.T) {
 	dir := t.TempDir()
-	config := nativeDocumentConfig(t, "native", nativeLocalSource(t, dir, "source", []byte(`{"a":"literal-value"}`), 0o600), target.TargetPi, target.ScopeProject, "custom.json", hostconfig.OwnershipKeys, hostconfig.SyntaxJSON)
-	file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{HostConfigs: []hostconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
+	config := nativeDocumentConfig(t, "native", nativeLocalSource(t, dir, "source", []byte(`{"a":"literal-value"}`), 0o600), target.TargetPi, target.ScopeProject, "custom.json", agentconfig.OwnershipKeys, agentconfig.SyntaxJSON)
+	file, err := BuildNativeDocumentsWithOptions(t.Context(), lockEnvironment(t, desired.Spec{AgentConfigs: []agentconfig.Config{config}}), nativeDocumentResolver(t, dir), Options{}, nativeDocumentLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestNativeKeyCodecKeepsValueAdmissionExplicitAndBounded(t *testing.T) {
 		t.Fatal("canceled native loading exposed a lock", err)
 	}
 	resource, _ := file.Locked.ExactSupplySubject(config.ID())
-	placement, _ := resource.HostConfigPlacement()
+	placement, _ := resource.AgentConfigPlacement()
 	var bad lock.LockedSubjectContract
 	for _, contract := range file.Locked.Subjects() {
 		if spec, present := contract.Realization(); present {
@@ -281,7 +281,7 @@ func TestNativeKeyCodecKeepsValueAdmissionExplicitAndBounded(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			bad, err = lock.NewHostConfigKeySubjectContract(config.ID(), contract.SubjectID(), invalid, placement)
+			bad, err = lock.NewAgentConfigKeySubjectContract(config.ID(), contract.SubjectID(), invalid, placement)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -19,7 +19,7 @@ func currentContributions(ctx context.Context) (aggregate.ContributionCatalog, e
 		required = append(required, placement.CodecContractID())
 	}
 	for _, syntax := range []string{"json", "jsonc", "json-line-comments", "toml"} {
-		id, _ := aggregate.HostConfigCodecForSyntax(syntax)
+		id, _ := aggregate.AgentConfigCodecForSyntax(syntax)
 		required = append(required, id)
 	}
 	return aggregatecodec.ForContributions(ctx, required, configdocument.Limits{

@@ -103,6 +103,9 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"unmanage", "extension", "--help"},
 		{"unmanage", "host-config", "--help"},
 	}
+	for _, verb := range []string{"add", "remove", "import", "unmanage", "replace"} {
+		tests = append(tests, []string{verb, "agent-config", "--help"})
+	}
 
 	for _, args := range tests {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
@@ -162,15 +165,15 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 		{"recover"},
 		{"refresh"},
 	}
-	for _, subject := range []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill", "skill-group"} {
+	for _, subject := range []string{"extension", "instruction", "hook", "agent-config", "mcp-server", "skill", "skill-group"} {
 		gated = append(gated, []string{"add", subject})
 	}
-	for _, subject := range []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill"} {
+	for _, subject := range []string{"extension", "instruction", "hook", "agent-config", "mcp-server", "skill"} {
 		gated = append(gated, []string{"remove", subject})
 	}
 	gated = append(gated, []string{"unmanage", "extension"})
-	gated = append(gated, []string{"unmanage", "host-config"})
-	gated = append(gated, []string{"import", "host-config"}, []string{"replace", "host-config"}, []string{"migrate", "metadata"})
+	gated = append(gated, []string{"unmanage", "agent-config"})
+	gated = append(gated, []string{"import", "agent-config"}, []string{"replace", "agent-config"}, []string{"migrate", "metadata"})
 	for _, args := range gated {
 		if !requiresPlatformAdmission(args) {
 			t.Errorf("requiresPlatformAdmission(%#v) = false, want true", args)
@@ -521,12 +524,10 @@ func testPlatformAdmission(t *testing.T, goos string, goarch string) platformsup
 }
 
 func platformGatedCommandExamples(manifestPath string) [][]string {
-	return [][]string{
+	examples := [][]string{
 		{"add", "skill", "example", "./skill", "--manifest", manifestPath},
 		{"apply", "--yes", "--manifest", manifestPath},
 		{"import", "--target", "codex", "--manifest", manifestPath},
-		{"import", "host-config", "example", "--manifest", manifestPath},
-		{"replace", "host-config", "example", "--manifest", manifestPath},
 		{"init", "--manifest", manifestPath},
 		{"lock", "--manifest", manifestPath},
 		{"outdated", "--manifest", manifestPath},
@@ -536,6 +537,12 @@ func platformGatedCommandExamples(manifestPath string) [][]string {
 		{"refresh", "extension", "example", "--yes", "--manifest", manifestPath},
 		{"remove", "skill", "example", "--manifest", manifestPath},
 		{"unmanage", "extension", "example", "--manifest", manifestPath},
-		{"unmanage", "host-config", "example", "--manifest", manifestPath},
 	}
+	for _, subject := range []string{"agent-config", "host-config"} {
+		examples = append(examples, []string{"add", subject, "example", "./prefs.toml", "--manifest", manifestPath})
+		for _, verb := range []string{"remove", "import", "unmanage", "replace"} {
+			examples = append(examples, []string{verb, subject, "example", "--manifest", manifestPath})
+		}
+	}
+	return examples
 }

@@ -51,7 +51,7 @@ func TestApplyWorkflowsPreserveObservedStateImageAndAlias(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer prepared.Close()
-			if prepared.Reconciliation.ContainsHostConfig() != native {
+			if prepared.Reconciliation.ContainsAgentConfig() != native {
 				t.Fatal("fixture did not select its intended apply writer")
 			}
 			result, err := ExecuteWithOptions(t.Context(), prepared, ExecuteOptions{PlanWasDisclosed: true})

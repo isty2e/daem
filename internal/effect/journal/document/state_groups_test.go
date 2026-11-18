@@ -243,7 +243,7 @@ func TestDocumentStateGroupsRejectWrongCodecAndAcceptOrdinaryOnlyOperations(t *t
 	fixture := documentClaimsForTest(t)
 	row := membershipNativeRow(t, fixture.alias, "native-json-v1", "model")
 	input := stateGroupInput(t, fixture, []durable.ManagedAggregateState{row}, `{"model":true}`, `{"model":true}`)
-	otherContract, err := aggregate.NewHostConfigProjectionContract(fixture.alias.Target(), fixture.alias.Scope(), fixture.alias.AggregateRoot(), row.Contribution().Contract().Address().Footprint(), "native-jsonc-v1")
+	otherContract, err := aggregate.NewAgentConfigProjectionContract(fixture.alias.Target(), fixture.alias.Scope(), fixture.alias.AggregateRoot(), row.Contribution().Contract().Address().Footprint(), "native-jsonc-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestDocumentStateGroupsKeepPiOrderSeparateFromNativeMembership(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	contract, err := aggregate.NewHostConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, documentKeyFootprint(t, "model"), "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(target.TargetPi, target.ScopeGlobal, destination, documentKeyFootprint(t, "model"), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func stateGroupComparison(t *testing.T, before, after string, sets ...[]aggregat
 		}
 		var codec aggregate.Codec
 		syntax := configdocument.TOML
-		if name, native := aggregate.HostConfigSyntaxForCodec(selection.CodecContractID()); native {
+		if name, native := aggregate.AgentConfigSyntaxForCodec(selection.CodecContractID()); native {
 			syntax, err = configdocument.ParseSyntax(name)
 			if err != nil {
 				t.Fatal(err)
@@ -393,7 +393,7 @@ func stateGroupWholeComparison(t *testing.T, before, after string) Comparison {
 
 func stateGroupContract(t *testing.T, alias aggregate.DocumentAddress, parts ...string) aggregate.ProjectionContract {
 	t.Helper()
-	contract, err := aggregate.NewHostConfigProjectionContract(alias.Target(), alias.Scope(), alias.AggregateRoot(), documentKeyFootprint(t, parts...), "native-json-v1")
+	contract, err := aggregate.NewAgentConfigProjectionContract(alias.Target(), alias.Scope(), alias.AggregateRoot(), documentKeyFootprint(t, parts...), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func stateGroupContract(t *testing.T, alias aggregate.DocumentAddress, parts ...
 
 func stateGroupWholeAlias(t *testing.T, row durable.ManagedPathState) aggregate.DocumentAddress {
 	t.Helper()
-	key, err := aggregate.NewHostConfigProjectionContract(row.ConsumerTargets()[0], row.Scope(), row.Destination(), documentKeyFootprint(t, "model"), "native-json-v1")
+	key, err := aggregate.NewAgentConfigProjectionContract(row.ConsumerTargets()[0], row.Scope(), row.Destination(), documentKeyFootprint(t, "model"), "native-json-v1")
 	if err != nil {
 		t.Fatal(err)
 	}

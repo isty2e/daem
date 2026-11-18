@@ -76,10 +76,10 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 	"add": {
 		scope: platformAdmissionSelectedSubject,
 		subjects: []string{
-			"extension", "instruction", "hook", "host-config", "mcp-server", "skill", "skill-group",
+			"extension", "instruction", "hook", agentConfigSubject, "mcp-server", "skill", "skill-group",
 		},
 	},
-	"replace":  {scope: platformAdmissionSelectedSubject, subjects: []string{"host-config"}},
+	"replace":  {scope: platformAdmissionSelectedSubject, subjects: []string{agentConfigSubject}},
 	"apply":    {scope: platformAdmissionWholeCommand},
 	"doctor":   {},
 	"help":     {},
@@ -94,12 +94,12 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 	"refresh":  {scope: platformAdmissionWholeCommand},
 	"remove": {
 		scope:    platformAdmissionSelectedSubject,
-		subjects: []string{"extension", "instruction", "hook", "host-config", "mcp-server", "skill"},
+		subjects: []string{"extension", "instruction", "hook", agentConfigSubject, "mcp-server", "skill"},
 	},
 	"status": {},
 	"unmanage": {
 		scope:    platformAdmissionSelectedSubject,
-		subjects: []string{"extension", "host-config"},
+		subjects: []string{"extension", agentConfigSubject},
 	},
 	"version": {},
 }
@@ -212,6 +212,7 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		fmt.Fprintln(stderr, "next: run daem help")
 		return 2
 	}
+	args = canonicalAgentConfigSubject(args)
 	prepared := prepareInvocation(args, stdout, stderr, commandInvocation)
 	if diagnostic, rejected := platformRefusal(args, commandInvocation); rejected {
 		if prepared != nil {
@@ -242,7 +243,7 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 			printCommandUsage([]string{"replace"}, stdout, options.HelpWidth)
 			return 0
 		}
-		fmt.Fprintln(stderr, "replace requires the host-config subject and one declaration id")
+		fmt.Fprintln(stderr, "replace requires the agent-config subject and one declaration id")
 		printCommandHelpHint(stderr, []string{"replace"})
 		return 2
 	case "unmanage":

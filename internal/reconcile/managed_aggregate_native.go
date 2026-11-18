@@ -13,7 +13,7 @@ func (decision AggregateDecision) NativeOperationContract() (profile.NativeAggre
 }
 
 func validateNativeAggregateOperation(decision AggregateDecision) error {
-	_, native := aggregate.HostConfigSyntaxForCodec(decision.codecContractID)
+	_, native := aggregate.AgentConfigSyntaxForCodec(decision.codecContractID)
 	if !native {
 		if decision.hasNativeOperation {
 			return fmt.Errorf("ordinary aggregate decision carries a native operation contract")

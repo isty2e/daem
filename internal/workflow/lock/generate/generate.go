@@ -53,7 +53,7 @@ func (result Result) Content() []byte {
 // Build resolves lockable desired resources into a canonical lock snapshot
 // and lockfile bytes.
 func Build(ctx context.Context, input Input) (Result, error) {
-	if len(input.Environment.HostConfigs()) != 0 {
+	if len(input.Environment.AgentConfigs()) != 0 {
 		if err := input.NativeDocumentLimits.Validate(); err != nil {
 			return Result{}, err
 		}
@@ -89,7 +89,7 @@ func Build(ctx context.Context, input Input) (Result, error) {
 		ExtensionOrderIdentity:  input.ExtensionOrderIdentity,
 	}
 	var lockfileSnapshot lock.File
-	if len(input.Environment.HostConfigs()) != 0 {
+	if len(input.Environment.AgentConfigs()) != 0 {
 		lockfileSnapshot, err = lockbuild.BuildNativeDocumentsWithOptions(ctx, input.Environment, baseResolver, options, input.NativeDocumentLimits)
 	} else {
 		lockfileSnapshot, err = lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, options)

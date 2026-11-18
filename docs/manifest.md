@@ -1387,8 +1387,8 @@ notifications = false
 To add the declaration and refresh `daem.lock.toml` in one step, run:
 
 ```sh
-daem add host-config codex-preferences ./codex-preferences.toml \
-  --target codex --scope project --host-path config.toml
+daem add agent-config codex-preferences ./codex-preferences.toml \
+  --target codex --scope project --config-path config.toml
 ```
 
 Or add this declaration to `daem.toml` by hand and run `daem lock`:
@@ -1415,10 +1415,10 @@ This manages `tui.notifications` in `.codex/config.toml` under the manifest
 directory. It does not copy the source over the entire file or add management
 markers to the host document. Change the source and rerun `lock` and `apply` to
 update or remove individual managed values. To remove the complete declaration
-and refresh the lock, use `daem remove host-config codex-preferences`. Preview
+and refresh the lock, use `daem remove agent-config codex-preferences`. Preview
 and apply to remove the managed values; unrelated settings remain. To leave the
 host values in place and release management, use
-`daem unmanage host-config codex-preferences` instead.
+`daem unmanage agent-config codex-preferences` instead.
 
 For Pi, use `targets = ["pi"]` and a JSON fragment such as
 `{"retry":{"enabled":true}}` with `path = "settings.json"`; project placement
@@ -1484,7 +1484,7 @@ Both sets of changes are applied and recovered together.
 
 Selected-value drift is not silently overwritten. To take over a different
 existing value or replace a changed managed value, use
-[`replace host-config`](cli.md#replace-host-config) with explicit plan-bound
+[`replace agent-config`](cli.md#replace-agent-config) with explicit plan-bound
 consent; ordinary `apply` does not gain replacement authority. Interrupted apply
 can roll back the selected changes before state commit, or finalize a committed operation
 without replaying host writes. A selected value outside both recorded versions

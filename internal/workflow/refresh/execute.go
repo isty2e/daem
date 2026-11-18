@@ -700,7 +700,7 @@ func Execute(
 			result.ResultClass = ResultPartial
 		}
 		result.ReasonCode = ReasonNativeSettings
-		result.Remediation = []string{"run daem status and recover --dry-run; inspect changed settings before retrying; only explicit replace host-config may replace selected values"}
+		result.Remediation = []string{"run daem status and daem recover --dry-run; inspect changed settings before retrying; use daem replace agent-config to replace selected values"}
 		return result, errors.Join(nativeErr, postObservationErr)
 	}
 	if postObservationErr != nil && attempt.Succeeded() && !attempt.WorkDirAuthorityFailed() {

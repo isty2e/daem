@@ -91,7 +91,7 @@ func enforceAggregateProjectionOwnership(
 	}
 	observedAddress, exact := observation.ExactAddress()
 	matches := exact && claim.Address().Equal(observedAddress)
-	if _, native := aggregate.HostConfigSyntaxForCodec(projection.contract.CodecContractID()); native && hasState {
+	if _, native := aggregate.AgentConfigSyntaxForCodec(projection.contract.CodecContractID()); native && hasState {
 		matches = observation.CorrelatesClaimAddress()
 	}
 	if !matches || !claim.OwnedBy(owner) {

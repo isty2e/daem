@@ -63,7 +63,7 @@ func TestRunAddMCPServerDryRunPlansWithoutHostWrites(t *testing.T) {
 func TestRunAddMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"claude-code\"]\n")
-	hostConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
+	agentConfigPath := filepath.Join(project.root, aggregate.ClaudeProjectMCPConfigPath)
 	testkit.WriteFile(t, project.root, aggregate.ClaudeProjectMCPConfigPath, `{"mcpServers":{"existing":{"command":"node"}}}`)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
@@ -100,16 +100,16 @@ func TestRunAddMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
 	assertLockedMCPSubject(t, locked, "context7")
-	testkit.AssertFileContent(t, hostConfigPath, `{"mcpServers":{"existing":{"command":"node"}}}`)
+	testkit.AssertFileContent(t, agentConfigPath, `{"mcpServers":{"existing":{"command":"node"}}}`)
 	testkit.AssertPathMissing(t, probePath)
 }
 
 func TestRunAddCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	hostConfigPath := filepath.Join(project.root, aggregate.CodexProjectMCPConfigPath)
-	hostConfig := `mcp_servers = [`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, aggregate.CodexProjectMCPConfigPath)
+	agentConfig := `mcp_servers = [`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
 	var stdout bytes.Buffer
@@ -149,7 +149,7 @@ func TestRunAddCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
 	assertLockedCodexMCPSubject(t, locked, "context7")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, probePath)
 }
 
@@ -157,9 +157,9 @@ func TestRunAddCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
-	hostConfigPath := filepath.Join(project.root, "home", ".codex", "config.toml")
-	hostConfig := `mcp_servers = [`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".codex", "config.toml")
+	agentConfig := `mcp_servers = [`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
 	var stdout bytes.Buffer
@@ -200,7 +200,7 @@ func TestRunAddCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
 	assertLockedCodexGlobalMCPSubject(t, locked, "context7")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, probePath)
 }
 
@@ -208,9 +208,9 @@ func TestRunAddClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"claude-code\"]\n")
-	hostConfigPath := filepath.Join(project.root, "home", ".claude.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".claude.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
 	var stdout bytes.Buffer
@@ -251,7 +251,7 @@ func TestRunAddClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
 	assertLockedClaudeGlobalMCPSubject(t, locked, "context7")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, probePath)
 }
 
@@ -260,8 +260,8 @@ func TestRunAddAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *testin
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := "version = 1\ntargets = [\"antigravity-cli\"]\n"
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{"mcpServers":`)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), `{"mcpServers":`)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
 	var stdout bytes.Buffer
@@ -302,7 +302,7 @@ func TestRunAddAntigravityMCPServerDryRunPlansWithoutHostReadsOrWrites(t *testin
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, `{"mcpServers":`)
+	testkit.AssertFileContent(t, agentConfigPath, `{"mcpServers":`)
 	testkit.AssertPathMissing(t, probePath)
 }
 
@@ -310,9 +310,9 @@ func TestRunAddAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	project := newMCPCLIProject(t)
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	testkit.WriteFile(t, project.root, "daem.toml", "version = 1\ntargets = [\"antigravity-cli\"]\n")
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
 	var stdout bytes.Buffer
@@ -353,7 +353,7 @@ func TestRunAddAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
 	assertLockedAntigravityMCPSubject(t, locked, "context7")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, probePath)
 }
 
@@ -370,9 +370,9 @@ targets = ["antigravity-cli"]
 `
 	testkit.WriteFile(t, project.root, "daem.toml", original)
 	testkit.WriteFile(t, project.root, "daem.lock.toml", "lock stays\n")
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 	probePath := installMCPProbeCommand(t, project.root, "npx")
 
 	var stdout bytes.Buffer
@@ -393,7 +393,7 @@ targets = ["antigravity-cli"]
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertFileContent(t, project.lockfilePath, "lock stays\n")
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 	testkit.AssertPathMissing(t, probePath)
 	testkit.AssertPathMissing(t, testkit.AuthoringTransactionDir(filepath.Join(project.root, ".daem")))
 }
@@ -433,9 +433,9 @@ func TestRunAddAntigravityMCPServerPreservesFlagLikeAndQuotedArgs(t *testing.T) 
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := "version = 1\ntargets = [\"claude-code\"]\n"
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -465,7 +465,7 @@ func TestRunAddAntigravityMCPServerPreservesFlagLikeAndQuotedArgs(t *testing.T) 
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunAddMCPServerDryRunJSONDescribesManifestAndLockOnly(t *testing.T) {
@@ -520,9 +520,9 @@ func TestRunAddAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *tes
 	t.Setenv("HOME", filepath.Join(project.root, "home"))
 	original := "version = 1\ntargets = [\"antigravity-cli\"]\n"
 	testkit.WriteFile(t, project.root, "daem.toml", original)
-	hostConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
-	hostConfig := `{"mcpServers":`
-	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), hostConfig)
+	agentConfigPath := filepath.Join(project.root, "home", ".gemini", "config", "mcp_config.json")
+	agentConfig := `{"mcpServers":`
+	testkit.WriteFile(t, filepath.Dir(agentConfigPath), filepath.Base(agentConfigPath), agentConfig)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -568,7 +568,7 @@ func TestRunAddAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *tes
 	}
 	testkit.AssertFileContent(t, project.manifestPath, original)
 	testkit.AssertPathMissing(t, project.lockfilePath)
-	testkit.AssertFileContent(t, hostConfigPath, hostConfig)
+	testkit.AssertFileContent(t, agentConfigPath, agentConfig)
 }
 
 func TestRunAddMCPServerWarnsForFloatingPackageIdentity(t *testing.T) {

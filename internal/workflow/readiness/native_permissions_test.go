@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/output"
@@ -98,7 +98,7 @@ func TestProjectNativeClaimCannotBorrowAGlobalAliasEvenWhenItsValueMatches(t *te
 		t.Fatal("retained aggregate state was treated as a desired footprint", err)
 	}
 
-	fixture.config, err = hostconfig.New(hostconfig.Spec{Name: "settings", Source: fixture.config.Source(), Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "settings.json", Ownership: hostconfig.OwnershipKeys, Syntax: hostconfig.SyntaxJSON})
+	fixture.config, err = agentconfig.New(agentconfig.Spec{Name: "settings", Source: fixture.config.Source(), Target: target.TargetPi, Scope: target.ScopeGlobal, Path: "settings.json", Ownership: agentconfig.OwnershipKeys, Syntax: agentconfig.SyntaxJSON})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,17 +145,17 @@ func TestPhysicalSharedRolesConstrainForeignGlobalDeclarationsWithoutRequiringAH
 	}
 	for _, scenario := range []struct {
 		fragment  string
-		ownership hostconfig.Ownership
-		syntax    hostconfig.Syntax
+		ownership agentconfig.Ownership
+		syntax    agentconfig.Syntax
 		refusal   error
 	}{
-		{`{"extensions":["fixture"]}`, hostconfig.OwnershipKeys, hostconfig.SyntaxJSON, configuration.ErrReserved},
-		{`{"theme":"dark"}`, hostconfig.OwnershipKeys, hostconfig.SyntaxJSON, nil},
-		{`{"theme":"dark"}`, hostconfig.OwnershipDocument, hostconfig.SyntaxJSON, configuration.ErrReserved},
-		{`theme = 'dark'`, hostconfig.OwnershipKeys, hostconfig.SyntaxTOML, configuration.ErrGrammar},
+		{`{"extensions":["fixture"]}`, agentconfig.OwnershipKeys, agentconfig.SyntaxJSON, configuration.ErrReserved},
+		{`{"theme":"dark"}`, agentconfig.OwnershipKeys, agentconfig.SyntaxJSON, nil},
+		{`{"theme":"dark"}`, agentconfig.OwnershipDocument, agentconfig.SyntaxJSON, configuration.ErrReserved},
+		{`theme = 'dark'`, agentconfig.OwnershipKeys, agentconfig.SyntaxTOML, configuration.ErrGrammar},
 	} {
 		requireNativePreparationFile(t, fixture.sourcePath, []byte(scenario.fragment))
-		fixture.config, err = hostconfig.New(hostconfig.Spec{Name: "settings", Source: fixture.config.Source(), Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "extra.json", Ownership: scenario.ownership, Syntax: scenario.syntax})
+		fixture.config, err = agentconfig.New(agentconfig.Spec{Name: "settings", Source: fixture.config.Source(), Target: target.TargetCodex, Scope: target.ScopeGlobal, Path: "extra.json", Ownership: scenario.ownership, Syntax: scenario.syntax})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -31,12 +31,12 @@ func TestNativeCaptureWholeRecordCoversOnlyItsOwnExactKeyRetirement(t *testing.T
 				t.Fatal(err)
 			}
 			row := before.ManagedAggregates()[0]
-			owner, _, native := topologyprojection.HostConfigKeyIdentity(row.Subject())
+			owner, _, native := topologyprojection.AgentConfigKeyIdentity(row.Subject())
 			if !native {
 				t.Fatal("fixture has no real native key identity")
 			}
 			if variant == "foreign declaration" {
-				owner, err = entity.New(entity.KindHostConfig, "foreign")
+				owner, err = entity.New(entity.KindAgentConfig, "foreign")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -50,7 +50,7 @@ func TestNativeCaptureWholeRecordCoversOnlyItsOwnExactKeyRetirement(t *testing.T
 			if variant == "other document" {
 				destination = other
 			}
-			subject, err := aggregate.HostConfigDocumentSubject(owner, document.Target(), document.Scope())
+			subject, err := aggregate.AgentConfigDocumentSubject(owner, document.Target(), document.Scope())
 			if err != nil {
 				t.Fatal(err)
 			}

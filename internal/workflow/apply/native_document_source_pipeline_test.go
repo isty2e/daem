@@ -13,7 +13,7 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/desired/hostconfig"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/effect/execute"
 	journal "github.com/isty2e/daem/internal/effect/journal/publication"
@@ -53,7 +53,7 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			config, err := hostconfig.New(hostconfig.Spec{Name: "document", Source: spec, Target: selected, Scope: target.ScopeProject, Path: "prompts/review.md", Ownership: hostconfig.OwnershipDocument})
+			config, err := agentconfig.New(agentconfig.Spec{Name: "document", Source: spec, Target: selected, Scope: target.ScopeProject, Path: "prompts/review.md", Ownership: agentconfig.OwnershipDocument})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,7 +61,7 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			environment, err := desired.New(desired.Spec{Targets: []target.Target{selected}, Defaults: defaults, HostConfigs: []hostconfig.Config{config}})
+			environment, err := desired.New(desired.Spec{Targets: []target.Target{selected}, Defaults: defaults, AgentConfigs: []agentconfig.Config{config}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,11 +97,11 @@ func TestNativeDocumentRealSourceObservationPreparesWholeFileEffect(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			placement, err := profile.ResolveHostConfigPlacement(configuration.PlacementInput{Target: selected, Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
+			placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: selected, Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 			if err != nil {
 				t.Fatal(err)
 			}
-			expected, err := lock.NewHostConfigDocumentSubjectContract(config.ID(), placement)
+			expected, err := lock.NewAgentConfigDocumentSubjectContract(config.ID(), placement)
 			if err != nil {
 				t.Fatal(err)
 			}
