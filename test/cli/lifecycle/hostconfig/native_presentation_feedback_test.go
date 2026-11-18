@@ -3,10 +3,14 @@ package cli_test
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -74,5 +78,102 @@ func TestNativeReplacementGuidanceCoversBlockedDeclaration(t *testing.T) {
 		if !strings.Contains(combined, key) {
 			t.Fatalf("blocked key %s was omitted: %s", key, combined)
 		}
+	}
+}
+
+func TestNativeRemovedDeclarationOffersManagementRelease(t *testing.T) {
+	fixture := nativefixture.NewPresentation(t, "model='declared'\n", "unrelated=true\n")
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+	const drifted = "model='local'\nunrelated=true\n"
+	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), drifted)
+	nativefixture.RunLifecycleCommand(t, "remove", "host-config", "preferences", "--manifest", fixture.Manifest)
+
+	for _, command := range [][]string{{"apply", "--dry-run"}, {"status", "--check"}, {"apply", "--yes"}} {
+		args := append(command, "--manifest", fixture.Manifest)
+		code, stdout, stderr := testkit.RunCapturedCLI(args...)
+		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage host-config preferences") || strings.Contains(stdout+stderr, "daem replace host-config") {
+			t.Errorf("%v: want release advice and no replacement for a removed declaration, got %d:\n%s%s", command, code, stdout, stderr)
+		}
+	}
+	code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--json", "--manifest", fixture.Manifest)
+	if code != 1 || stderr != "" {
+		t.Fatalf("want a structured refusal: %d\n%s%s", code, stdout, stderr)
+	}
+	failure := clijson.DecodeFailure(t, stdout, "apply", "operation")
+	var preview []string
+	for _, guidance := range failure.Guidance {
+		if len(guidance.Argv) < 3 || guidance.Argv[2] != "host-config" {
+			continue
+		}
+		if guidance.Argv[1] != "unmanage" || preview != nil || !slices.Contains(guidance.Argv, "--dry-run") {
+			t.Fatalf("unexpected command guidance: %v", guidance.Argv)
+		}
+		preview = guidance.Argv[1:]
+	}
+	if preview == nil {
+		t.Fatal("no release preview in the structured refusal")
+	}
+	nativefixture.RunLifecycleCommand(t, preview...)
+	testkit.AssertFileContent(t, fixture.Destination, drifted)
+
+	t.Run("same ID on another target", func(t *testing.T) {
+		testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", `version=1
+targets=['codex','pi']
+[[host_config]]
+id='preferences'
+targets=['pi']
+path='settings.json'
+source='./pi-settings.json'
+`)
+		testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "pi-settings.json", `{"fixture":true}`)
+		nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+		code, stdout, stderr := testkit.RunCapturedCLI("apply", "--target", "codex", "--dry-run", "--manifest", fixture.Manifest)
+		if code != 1 || !strings.Contains(stdout+stderr, "drifted output") || strings.Contains(stdout+stderr, "daem unmanage host-config") || strings.Contains(stdout+stderr, "daem replace host-config") {
+			t.Errorf("target filtering must not turn an existing declaration into a removed one: %d\n%s%s", code, stdout, stderr)
+		}
+		testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "daem.toml", "version=1\ntargets=['codex']\n")
+		nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+	})
+
+	// Manually removing the retired key is already enough to settle key absence.
+	testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), "unrelated=true\n")
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+	testkit.AssertFileContent(t, fixture.Destination, "unrelated=true\n")
+	nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, false)
+}
+
+func TestNativePartiallyRemovedDeclarationGuidance(t *testing.T) {
+	for _, example := range []struct {
+		name, source string
+		wantReplace  bool
+	}{
+		{"mixed drift and retirement", "kept='declared'\n", true},
+		{"declared with no keys", "# no keys selected\n", false},
+	} {
+		t.Run(example.name, func(t *testing.T) {
+			fixture := nativefixture.NewPresentation(t, "kept='declared'\nobsolete=true\n", "unrelated=true\n")
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			const drifted = "kept='local'\nobsolete=false\nunrelated=true\n"
+			testkit.WriteFile(t, filepath.Dir(fixture.Destination), filepath.Base(fixture.Destination), drifted)
+			testkit.WriteFile(t, filepath.Dir(fixture.Manifest), "preferences.toml", example.source)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+
+			code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--manifest", fixture.Manifest)
+			combined := stdout + stderr
+			if code != 1 || strings.Contains(combined, "daem unmanage host-config") {
+				t.Fatalf("a still-declared resource must not suggest whole-declaration release: %d %s", code, combined)
+			}
+			if example.wantReplace {
+				argv := []string{"replace", "host-config", "preferences", "--key", "/kept", "--dry-run", "--manifest", fixture.Manifest}
+				expected, err := clipresent.ShellCommand(append([]string{"daem"}, argv...)...)
+				if err != nil || !strings.Contains(combined, expected) || strings.Count(combined, "daem replace host-config") != 1 || strings.Contains(combined, "--key /obsolete") {
+					t.Fatalf("replacement advice must select only the still-desired key: %v\n%s", err, combined)
+				}
+				nativefixture.RunLifecycleCommand(t, argv...)
+			} else if strings.Contains(combined, "daem replace host-config") {
+				t.Fatalf("there are no desired keys to replace: %s", combined)
+			}
+			testkit.AssertFileContent(t, fixture.Destination, drifted)
+		})
 	}
 }

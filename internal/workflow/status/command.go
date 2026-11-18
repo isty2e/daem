@@ -13,6 +13,7 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -37,17 +38,18 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
-	PermissionProtection ownershipobserve.ProtectionObservation
-	ManifestPath         string
-	LockfilePath         string
-	LockfileExplicit     bool
-	StatefilePath        string
-	LockfileMissing      bool
-	Reconciliation       reconcile.Result
-	Diagnostics          []findings.Diagnostic
-	LockOnly             []readiness.UnsupportedProjection
-	MCPProjections       []mcpobserve.LockedProjectionObservation
-	HostRouteAttempts    []durableattempt.HostRouteAttempt
+	PermissionProtection   ownershipobserve.ProtectionObservation
+	ManifestPath           string
+	LockfilePath           string
+	LockfileExplicit       bool
+	StatefilePath          string
+	LockfileMissing        bool
+	Reconciliation         reconcile.Result
+	HostConfigDeclarations []entity.ID // nil until a complete assessment is available
+	Diagnostics            []findings.Diagnostic
+	LockOnly               []readiness.UnsupportedProjection
+	MCPProjections         []mcpobserve.LockedProjectionObservation
+	HostRouteAttempts      []durableattempt.HostRouteAttempt
 }
 
 // CheckClean evaluates the status --check predicate for this observation.
@@ -99,6 +101,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		return result, err
 	}
 	result.Reconciliation = assessment.Reconciliation
+	result.HostConfigDeclarations = loaded.RuntimeEnvironment.HostConfigIDs()
 	result.Diagnostics = append(
 		loaded.Diagnostics,
 		diagnose.RetainedSkillDiscoveryDiagnostics(

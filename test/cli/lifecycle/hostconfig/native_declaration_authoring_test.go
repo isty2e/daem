@@ -178,6 +178,30 @@ func TestHostConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	if err != nil || locked.Locked.Len() != 0 {
 		t.Fatalf("last declaration did not leave an empty lock: %v", err)
 	}
+	info, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte(content+"# locally changed\n"), info.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	assertRetainedDocumentAdvice := func() {
+		t.Helper()
+		code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--manifest", manifest, "--target", "codex")
+		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage host-config dedicated") {
+			t.Errorf("blocked whole-file removal must point to management release: %d\n%s%s", code, stdout, stderr)
+		}
+	}
+	assertRetainedDocumentAdvice()
+	if err := os.Remove(destination); err != nil {
+		t.Fatal(err)
+	}
+	assertRetainedDocumentAdvice()
+	nativefixture.RunLifecycleCommand(t, "unmanage", "host-config", "dedicated", "--manifest", manifest, "--target", "codex", "--scope", "project", "--dry-run")
+	nativefixture.RequireLifecycleMetadata(t, manifest, true)
+	if err := os.WriteFile(destination, []byte(content), info.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
 	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--target", "codex", "--yes")
 	testkit.AssertPathMissing(t, destination)
 	nativefixture.RequireLifecycleMetadata(t, manifest, false)

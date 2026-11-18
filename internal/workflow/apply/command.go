@@ -18,6 +18,7 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
@@ -394,6 +395,7 @@ type CommandResult struct {
 	StatefilePath          string
 	Reconciliation         reconcile.Result
 	ReconciliationReady    bool
+	HostConfigDeclarations []entity.ID // nil until a complete assessment is available
 	DelegateAttempts       []DelegateAttemptResult
 	RelationOrderResults   []RelationOrderExecutionResult
 	HostRouteAttempts      []durableattempt.HostRouteAttempt
@@ -699,6 +701,7 @@ func planReadinessAtPathsWithAssessor(
 
 	result.Reconciliation = planning.Reconciliation
 	result.ReconciliationReady = true
+	result.HostConfigDeclarations = loaded.RuntimeEnvironment.HostConfigIDs()
 	result.Diagnostics = append(
 		result.Diagnostics,
 		diagnose.RetainedSkillDiscoveryDiagnostics(

@@ -3,6 +3,7 @@ package apply
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
@@ -180,6 +181,7 @@ func cloneCommandResult(result CommandResult) CommandResult {
 	cloned := result
 	cloned.CarrierHandoffProgress = cloneCarrierHandoffProgress(result.CarrierHandoffProgress)
 	cloned.Reconciliation = result.Reconciliation.Clone()
+	cloned.HostConfigDeclarations = slices.Clone(result.HostConfigDeclarations)
 	cloned.DelegateAttempts = append([]DelegateAttemptResult(nil), result.DelegateAttempts...)
 	cloned.RelationOrderResults = append(
 		[]RelationOrderExecutionResult(nil),

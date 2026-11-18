@@ -369,3 +369,13 @@ func (environment Environment) Extensions() []extension.Extension {
 func (environment Environment) HostConfigs() []hostconfig.Config {
 	return append([]hostconfig.Config(nil), environment.hostConfigs...)
 }
+
+// HostConfigIDs returns the complete declaration membership, including an empty
+// slice when the manifest has no host configuration declarations.
+func (environment Environment) HostConfigIDs() []entity.ID {
+	ids := make([]entity.ID, len(environment.hostConfigs))
+	for index, config := range environment.hostConfigs {
+		ids[index] = config.ID()
+	}
+	return ids
+}

@@ -980,9 +980,10 @@ whole file. Preview actual cleanup with `daem apply --dry-run`: cleanup follows
 retained management, which can differ from the last declaration edit. Apply
 removes managed keys and keeps unrelated settings, or removes an unchanged
 managed dedicated file.
-Drift or another apply block can prevent cleanup. To keep the host values or
-file and release management, use [`unmanage host-config`](#unmanage-host-config)
-instead of applying the removal.
+If [drift blocks cleanup](troubleshooting.md#host-configuration-removal-is-blocked),
+inspect the changed keys or file before deleting anything. To keep the host
+values or file and release management, use
+[`unmanage host-config`](#unmanage-host-config) instead of applying the removal.
 
 Removing a Pi MCP row retains any explicit provider extension. A later apply
 uses the stored Native or Adapter codec to remove only its config contribution,
