@@ -1,7 +1,6 @@
 package tomlsyntax
 
 import (
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -16,21 +15,27 @@ func Encode(output io.Writer, value any) error { return legacy.NewEncoder(output
 
 func Marshal(value any) ([]byte, error) { return legacy.Marshal(value) }
 
-// QuoteBasicString encodes valid UTF-8 as a single-line TOML basic string.
+// QuoteBasicString encodes valid UTF-8 as a single-line TOML 1.1 basic string.
 func QuoteBasicString(value string) string {
+	// Keep earlier capture spelling wherever the TOML grammar admits it.
+	if !strings.ContainsAny(value, "\a\v") {
+		return strconv.Quote(value)
+	}
 	var builder strings.Builder
 	builder.WriteByte('"')
 	for _, character := range value {
-		switch {
-		case strings.ContainsRune("\\\"\b\t\n\f\r", character):
-			quoted := strconv.Quote(string(character))
-			builder.WriteString(quoted[1 : len(quoted)-1])
-		case strconv.IsPrint(character):
-			builder.WriteRune(character)
-		case character <= 0xFFFF:
-			fmt.Fprintf(&builder, `\u%04x`, character)
+		switch character {
+		case '\a':
+			builder.WriteString(`\u0007`)
+		case '\v':
+			builder.WriteString(`\u000b`)
 		default:
-			fmt.Fprintf(&builder, `\U%08x`, character)
+			if strconv.IsPrint(character) && character != '"' && character != '\\' {
+				builder.WriteRune(character)
+			} else {
+				quoted := strconv.Quote(string(character))
+				builder.WriteString(quoted[1 : len(quoted)-1])
+			}
 		}
 	}
 	builder.WriteByte('"')

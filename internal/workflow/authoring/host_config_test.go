@@ -101,6 +101,30 @@ host_config = [{ id = "sample", path = "config.toml", source = "./prefs.toml" }]
 	}
 }
 
+func TestHostConfigInlineAppendPreservesArrayLayout(t *testing.T) {
+	const row = `{ id = "keep", path = "config.toml", source = "keep.toml" }`
+	for _, example := range []struct{ name, newline, array, want string }{
+		{"compact", "\n", "[" + row + "]", "[" + row + ", %s]"},
+		{"multiline CRLF", "\r\n", "[\r\n\t" + row + ",\r\n]\r\n", "[\r\n\t" + row + ",\r\n\t%s,\r\n]\r\n"},
+	} {
+		t.Run(example.name, func(t *testing.T) {
+			root := t.TempDir()
+			header := "version = 1" + example.newline + "targets = ['codex']" + example.newline + "host_config = "
+			change, err := buildAddHostConfigChange(ManifestDocument{Root: root, Content: []byte(header + example.array)}, AddHostConfigRequest{
+				ID: "added", SourceArg: filepath.Join(root, "prefs.toml"),
+				HostPath: "prefs.toml", Target: target.TargetCodex, Scope: target.ScopeProject,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := header + strings.Replace(example.want, "%s", change.ManifestBlock, 1)
+			if string(change.Content) != want {
+				t.Fatalf("inline add changed layout:\n got: %q\nwant: %q", change.Content, want)
+			}
+		})
+	}
+}
+
 func TestHostConfigAuthoringSourceFamilies(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)

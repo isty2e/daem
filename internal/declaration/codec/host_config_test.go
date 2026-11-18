@@ -15,7 +15,7 @@ import (
 )
 
 func TestHostConfigBlockPreservesPreviouslyAdmittedCaptureEscapes(t *testing.T) {
-	const name = "prefs\b\t\n\f\rwith escapes.toml"
+	const name = "prefs\b\t\n\f\r\x01\x1b\x7fwith escapes.toml"
 	provenance, err := source.NewLocalSource(name, source.LocalSourceModeVendor)
 	if err != nil {
 		t.Fatal(err)
@@ -33,6 +33,10 @@ func TestHostConfigBlockPreservesPreviouslyAdmittedCaptureEscapes(t *testing.T) 
 	// Capture recovery checks the exact previously rendered declaration bytes.
 	if !strings.HasSuffix(block, "source = "+strconv.Quote(name)+"\n") {
 		t.Fatalf("capture source no longer uses its previous spelling: %q", block)
+	}
+	environment, err := manifest.Decode([]byte("version = 1\ntargets = ['codex']\n" + block))
+	if err != nil || len(environment.HostConfigs()) != 1 || environment.HostConfigs()[0] != config {
+		t.Fatalf("previous spelling no longer decodes to the exact declaration: %v", err)
 	}
 }
 
