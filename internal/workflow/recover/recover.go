@@ -311,7 +311,8 @@ func Execute(
 		return result, mutation.StaleSnapshotError{}
 	}
 
-	documentScope, err := recoverygate.DocumentScope(current.authorityEvidence.documentWrites)
+	initialDocumentWrites := current.authorityEvidence.initialDocumentWrites
+	documentScope, err := recoverygate.DocumentScope(initialDocumentWrites)
 	if err != nil {
 		return result, err
 	}
@@ -319,7 +320,7 @@ func Execute(
 	if err != nil {
 		return result, err
 	}
-	namespaces, err := current.authorityEvidence.documentWrites.Namespaces()
+	namespaces, err := initialDocumentWrites.Namespaces()
 	if err != nil {
 		return result, err
 	}
@@ -327,7 +328,7 @@ func Execute(
 		if native, ok := current.plan.(journal.NativeRecoveryPlan); ok {
 			documentView, err = native.ObservedDocuments(documentScope)
 		} else {
-			documentView, err = recoverygate.ObserveDocumentRegistry(ctx, effectPaths.OwnershipRegistryPath, current.authorityEvidence.documentWrites)
+			documentView, err = recoverygate.ObserveDocumentRegistry(ctx, effectPaths.OwnershipRegistryPath, initialDocumentWrites)
 		}
 		if err != nil {
 			return result, err
@@ -336,8 +337,8 @@ func Execute(
 	if err := documentView.RequireProtectionClear(); err != nil {
 		return result, err
 	}
-	validateCurrentAuthority := func(ctx context.Context) error {
-		matches, err := leases.DomainsMatchCurrent(ctx)
+	validateCurrentAuthority := func(ctx context.Context, requests ...mutation.PhysicalAuthorityRequest) error {
+		matches, err := leases.MatchCurrentPhysicalRequests(ctx, requests...)
 		if err != nil {
 			return err
 		}
@@ -358,17 +359,12 @@ func Execute(
 		ctx context.Context,
 		authority mutation.PhysicalAuthoritySet,
 	) error {
-		if err := validateCurrentAuthority(ctx); err != nil {
+		// Restoring a file can promote a missing path under the held
+		// namespace. Requalify the requests, not the pre-effect bindings.
+		if err := validateCurrentAuthority(ctx, current.authorityEvidence.documentWriteRequests...); err != nil {
 			return err
 		}
 		covered, err := leases.CoversPhysicalAuthority(authority)
-		if err != nil {
-			return err
-		}
-		if !covered {
-			return mutation.StaleSnapshotError{}
-		}
-		covered, err = leases.CoversPhysicalAuthority(current.authorityEvidence.documentWrites)
 		if err != nil {
 			return err
 		}
@@ -467,7 +463,7 @@ func Execute(
 		}
 		physicalBudget, _ := execution.physicalPathBudget.(*physicalwork.Budget)
 		err = execute.ExecuteJournalCleanupWithOptions(ctx, cleanup, execute.JournalCleanupPaths{RecoveryDir: effectPaths.RecoveryDir}, execute.JournalCleanupOptions{
-			ValidateBeforeEffects: validateCurrentAuthority, Filesystem: filesystem, InventoryProfile: inventoryProfile, PhysicalBudget: physicalBudget,
+			ValidateBeforeEffects: func(ctx context.Context) error { return validateCurrentAuthority(ctx) }, Filesystem: filesystem, InventoryProfile: inventoryProfile, PhysicalBudget: physicalBudget,
 		})
 		return classifyPostExecutionAuthority(
 			ctx,

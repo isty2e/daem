@@ -126,6 +126,7 @@ type Domain struct {
 	initialProvisional   pathauthority.Provisional
 	provisional          pathauthority.Provisional
 	namespaceLease       namespaceLeaseIntent
+	pairedEntry          bool
 	requestedPath        string
 	effect               PathEffect
 	target               string
@@ -304,7 +305,15 @@ func (domain Domain) visibilityAuthorityMatchesCurrent(observe pathIdentityObser
 	switch domain.kind {
 	case domainLogicalPath, domainPhysicalPath:
 		if !domain.namespaceLease.isZero() {
-			return domain.namespaceLease.matchesCurrent()
+			matches, err := domain.namespaceLease.matchesCurrentUsing(observe)
+			if err != nil || !matches || !domain.pairedEntry {
+				return matches, err
+			}
+			identity, err := observe(domain.requestedPath, domain.effect)
+			if err != nil {
+				return false, err
+			}
+			return domain.matchesPairedEntry(identity)
 		}
 		return domain.matchesCurrentPath(observe)
 	case domainHostRoute:
@@ -348,6 +357,12 @@ func (domain Domain) acceptPathIdentity(identity canonicalPath) (Domain, bool, e
 			return Domain{}, false, err
 		}
 	}
+	if domain.pairedEntry {
+		matches, err := domain.matchesPairedEntry(identity)
+		if err != nil || !matches {
+			return Domain{}, matches, err
+		}
+	}
 	if !pathContains(domain.namespaceLease.key, identity.keyPath) ||
 		domain.namespaceLease.key == identity.keyPath {
 		return Domain{}, false, nil
@@ -356,6 +371,22 @@ func (domain Domain) acceptPathIdentity(identity canonicalPath) (Domain, bool, e
 	domain.pathWitness = identity.witness
 	domain.provisional = identity.provisional
 	return domain, true, nil
+}
+
+func (domain Domain) matchesPairedEntry(identity canonicalPath) (bool, error) {
+	if identity.provisional.IsZero() {
+		return identity.keyPath == domain.initialCanonicalPath && identity.witness == domain.initialPathWitness, nil
+	}
+	missing := identity.provisional
+	parent := missing.Namespace()
+	if parent.Key() != domain.namespaceLease.key || parent.Witness() != string(domain.namespaceLease.witness) {
+		return false, nil
+	}
+	initial, err := pathauthority.NewExact(domain.initialCanonicalPath, string(domain.initialPathWitness))
+	if err != nil {
+		return false, err
+	}
+	return missing.MatchesMissingExact(initial), nil
 }
 
 func (domain Domain) matchesPathIdentity(identity canonicalPath) bool {
