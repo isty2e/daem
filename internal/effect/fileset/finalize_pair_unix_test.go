@@ -35,6 +35,13 @@ func TestFinalizeCommittedPairPreservesSettledTargets(t *testing.T) {
 				t.Fatalf("retired = %t; error = %v", retired, err)
 			}
 			assertMissing(t, transactionDir(stateDir))
+			retired, err = FinalizeCommittedPair(t.Context(), stateDir, manifest, lockfile, func(context.Context) error {
+				t.Fatal("already clear record entered removal")
+				return nil
+			})
+			if err != nil || retired {
+				t.Fatalf("already clear: retired = %t; error = %v", retired, err)
+			}
 			assertContent(t, manifest, "manifest after")
 			wantLock := "lock after"
 			if test.retain {

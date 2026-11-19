@@ -51,19 +51,28 @@ func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companio
 	if err != nil || path != directory {
 		return false, mutation.StaleSnapshotError{}
 	}
+	capability, err := root.AcquireBounded(destination, depth, budget)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if capability != nil {
+			_ = capability.Close()
+		}
+	}()
 	observeInventory := func(ctx context.Context) (mutationfs.DirectorySnapshot, error) {
 		if err := admitFileSetFenceObservation(directory, depth, budget, maximumFileSetTargets+1, 0); err != nil {
-			return mutationfs.DirectorySnapshot{}, err
-		}
-		capability, err := root.Acquire(destination)
-		if err != nil {
 			return mutationfs.DirectorySnapshot{}, err
 		}
 		return storagecommit.SnapshotRootedDirectoryEntries(ctx, capability, maximumFileSetTargets+1)
 	}
 	inventory, err := observeInventory(ctx)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		// A missing child in an unstable inventory does not establish that the
+		// active record is gone.
+		if _, identityErr := storagecommit.CaptureRootedEntryIdentity(ctx, capability); errors.Is(identityErr, fs.ErrNotExist) {
+			return false, nil
+		}
 	}
 	if err != nil {
 		return false, wrapFileSetEvidenceInvalid(err)
@@ -72,16 +81,6 @@ func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companio
 	if err != nil {
 		return false, err
 	}
-	// Acquire the removal capability from the same retained root as the inventory.
-	removalCapability, err := root.Acquire(destination)
-	if err != nil {
-		return false, err
-	}
-	defer func() {
-		if removalCapability != nil {
-			_ = removalCapability.Close()
-		}
-	}()
 	directoryIdentity, ok := inventory.RootIdentity().(storagecommit.EntryIdentity)
 	if !ok {
 		return false, fmt.Errorf("file-set evidence directory identity is unavailable")
@@ -120,11 +119,11 @@ func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companio
 		return false, mutation.StaleSnapshotError{}
 	}
 
-	removal, err := storagecommit.NewRootedLogicalRemoval(removalCapability, directoryIdentity)
+	removal, err := storagecommit.NewRootedLogicalRemoval(capability, directoryIdentity)
 	if err != nil {
 		return false, err
 	}
-	removalCapability = nil // The commit now owns the capability.
+	capability = nil // The commit now owns the capability.
 	outcome, err := storagecommit.CommitLogicalRemovalWithOutcome(ctx, removal)
 	if err != nil {
 		return false, err

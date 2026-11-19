@@ -29,7 +29,11 @@ func TestLockFinalizesOnlyItsSelectedPair(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	testkit.SetDefaultRootEnv(t, filepath.Join(root, "home"))
-	manifest := filepath.Join(root, "other.toml")
+	alias := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(alias, "other.toml")
 	lock := filepath.Join(root, "daem.lock.toml")
 	testkit.WriteFile(t, root, "daem.toml", minimalFinalizationManifest)
 	lockReferent := filepath.Join(root, "linked", "lock.toml")
@@ -40,7 +44,8 @@ func TestLockFinalizesOnlyItsSelectedPair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settledManifest := minimalFinalizationManifest + "# after authoring\n"
+	settledManifest := minimalFinalizationManifest + "\n[instructions.project]\nsource = 'source.md'\n"
+	testkit.WriteFile(t, root, "source.md", "current source content\n")
 	legacyLock := "version = 6\n"
 	marker := seedInterruptedLockPair(t, paths.StateDir, manifest, lockReferent, settledManifest, legacyLock, true)
 
@@ -55,7 +60,7 @@ func TestLockFinalizesOnlyItsSelectedPair(t *testing.T) {
 
 	success := runMetadataLock(t, 0, "--manifest", manifest)
 	result := clijson.DecodeLock(t, []byte(success))
-	if result.PreviousStatus != "legacy" || result.Mode != "write" || result.ManifestPath != manifest {
+	if result.PreviousStatus != "legacy" || result.Mode != "write" || result.ManifestPath != manifest || result.EntryCounts.Subjects == 0 {
 		t.Fatalf("unexpected lock result after retirement: %s", success)
 	}
 	assertRetiredLockMarker(t, marker)
@@ -110,8 +115,12 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 			if test.finished && !test.journal {
 				assertRetiredLockMarker(t, marker)
 				payload := clijson.DecodeFailure(t, failure, "lock", "operation")
-				if !strings.Contains(payload.Error.Message, "source.md") && !test.userDefault {
-					t.Fatalf("expected source resolution cause: %s", payload.Error.Message)
+				wantCause := "source.md"
+				if test.userDefault {
+					wantCause = "requires a project manifest"
+				}
+				if !strings.Contains(payload.Error.Message, wantCause) {
+					t.Fatalf("lock error = %q, want %q", payload.Error.Message, wantCause)
 				}
 			} else if _, err := os.Stat(marker); err != nil {
 				t.Fatalf("refusal did not preserve marker: %v", err)
