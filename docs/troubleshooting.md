@@ -544,6 +544,20 @@ daem lock
 can resolve differently on a later lock; use `daem outdated` when you only want
 to inspect whether locked sources can advance.
 
+## Lockfile Is Damaged
+
+Run `daem lock --dry-run` with the same manifest selection. If the preview
+reports a rebuild, run `daem lock` after checking the newly resolved counts.
+The previous lock could not be compared, and floating sources may resolve to
+different versions. Preview host changes with `daem apply --dry-run --diff`
+after rebuilding if you intend to apply the result.
+
+Rebuilding requires an intact current-version header and a damaged TOML body.
+If the version is unreadable or the contents are valid TOML but do not match
+the lock schema, restore a known-good lockfile instead. For a newer schema,
+use a daem version that reads it. If the lock destination overlaps an input,
+separate the paths before rebuilding.
+
 ## Extension Refresh Was Refused Or Failed
 
 Preview the exact selected host route and its broader effects first:

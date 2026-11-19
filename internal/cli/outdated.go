@@ -44,6 +44,10 @@ func prepareOutdatedInvocation(args []string, stdout io.Writer, stderr io.Writer
 		if err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("outdated failed: ").WithGuidance(lockWorkflowGuidance(*manifestPath, err)...))
 		}
+		delta := result.Comparison()
+		if delta == nil {
+			return response.failure(operationFailure, clipresent.NewFailureDiagnostic("outdated failed: lock comparison is unavailable"))
+		}
 		if err := response.selectOrdinaryResult(); err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err))
 		}
@@ -53,26 +57,18 @@ func prepareOutdatedInvocation(args []string, stdout io.Writer, stderr io.Writer
 			mode = "check"
 		}
 		if plan.output == requestedJSON {
-			if err := clipresent.PrintJSON(stdout, clipresent.JSONInput{
-				Command:       "outdated",
-				Mode:          mode,
-				ManifestPath:  result.ManifestPath,
-				LockfilePath:  result.LockfilePath,
-				PreviousFound: result.PreviousFound,
-				Lockfile:      result.Lockfile,
-				Delta:         result.Delta,
-			}); err != nil {
+			if err := printLockComparisonJSON(stdout, "outdated", mode, result); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("outdated failed: write json: "))
 			}
-			if *check && result.Delta.HasChanges() {
+			if *check && delta.HasChanges() {
 				return 1
 			}
 			return 0
 		}
 
-		if result.Delta.HasChanges() {
+		if delta.HasChanges() {
 			fmt.Fprintf(stdout, "outdated: lockfile can be refreshed: %s\n", humanDiagnosticText(result.LockfilePath))
-			clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: *verbose})
+			clipresent.PrintDeltaSummaryWithOptions(stdout, *delta, clipresent.HumanOptions{Verbose: *verbose})
 			printLockCommandHint(stdout, result.ManifestPath, *manifestPath)
 			if *check {
 				return 1
@@ -80,9 +76,9 @@ func prepareOutdatedInvocation(args []string, stdout io.Writer, stderr io.Writer
 			return 0
 		}
 
-		fmt.Fprintf(stdout, "outdated: lockfile is current: %s (%s)\n", humanDiagnosticText(result.LockfilePath), clipresent.CountLabel(result.Delta.Counts().Unchanged, "lock entry", "lock entries"))
+		fmt.Fprintf(stdout, "outdated: lockfile is current: %s (%s)\n", humanDiagnosticText(result.LockfilePath), clipresent.CountLabel(delta.Counts().Unchanged, "lock entry", "lock entries"))
 		if *verbose {
-			clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: true})
+			clipresent.PrintDeltaSummaryWithOptions(stdout, *delta, clipresent.HumanOptions{Verbose: true})
 		}
 		return 0
 	}}

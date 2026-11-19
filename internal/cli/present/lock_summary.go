@@ -7,20 +7,34 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 )
 
-// DryRunSummaryInput is the stable human-readable lock dry-run summary contract.
-type DryRunSummaryInput struct {
+type LockSummaryInput struct {
+	Heading      string
 	LockfilePath string
 	Lockfile     lock.File
-	Delta        lock.Delta
+	Delta        *lock.Delta
+	Unavailable  string
+	DryRun       bool
 	NextCommand  string
 }
 
-func PrintDryRunSummaryWithOptions(output io.Writer, input DryRunSummaryInput, options HumanOptions) {
+func PrintLockSummary(output io.Writer, input LockSummaryInput, options HumanOptions) {
 	subjects := input.Lockfile.Locked.Subjects()
 
-	fmt.Fprintf(output, "would write lockfile: %s\n", Escape(input.LockfilePath))
-	fmt.Fprintf(output, "lock entries: %d\n", len(subjects))
-	PrintDeltaSummaryWithOptions(output, input.Delta, options)
+	fmt.Fprintf(output, "%s: %s\n", input.Heading, Escape(input.LockfilePath))
+	if input.DryRun || input.Delta == nil {
+		fmt.Fprintf(output, "lock entries: %d\n", len(subjects))
+	}
+	if input.Delta != nil {
+		PrintDeltaSummaryWithOptions(output, *input.Delta, options)
+	} else {
+		if orderCount := input.Lockfile.Locked.OrderLen(); orderCount != 0 {
+			fmt.Fprintf(output, "lock order constraints: %d\n", orderCount)
+		}
+		fmt.Fprintln(output, input.Unavailable)
+	}
+	if !input.DryRun {
+		return
+	}
 	if options.Verbose {
 		printLockedSubjectIDs(output, subjects)
 	}

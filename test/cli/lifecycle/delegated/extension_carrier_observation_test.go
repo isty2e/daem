@@ -588,7 +588,7 @@ enabled = true
 	if payload.EntryCounts.Subjects != 0 {
 		t.Fatalf("entry counts = %#v, want empty lock", payload.EntryCounts)
 	}
-	if payload.ChangeCounts.Added != 0 || payload.ChangeCounts.Changed != 0 || payload.ChangeCounts.Removed != 0 || payload.ChangeCounts.Unchanged != 0 || payload.HasChanges {
+	if payload.ChangeCounts == nil || *payload.ChangeCounts != (clijson.LockChangeCounts{}) || payload.HasChanges == nil || *payload.HasChanges {
 		t.Fatalf("change counts = %#v hasChanges=%v, want no changes", payload.ChangeCounts, payload.HasChanges)
 	}
 	if _, err := os.Stat(lockfilePath); !os.IsNotExist(err) {

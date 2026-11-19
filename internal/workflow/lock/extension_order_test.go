@@ -64,11 +64,11 @@ func TestRunLockPersistsHostIdentitiesAndDetectsManifestReorder(t *testing.T) {
 			secondContent,
 		)
 	}
-	if repeated.Delta.HasChanges() {
+	if delta := requireComparison(t, repeated); delta.HasChanges() {
 		t.Fatalf(
 			"repeated lock delta = subjects %#v, order %#v",
-			repeated.Delta.Counts(),
-			repeated.Delta.OrderCounts(),
+			delta.Counts(),
+			delta.OrderCounts(),
 		)
 	}
 
@@ -80,13 +80,14 @@ func TestRunLockPersistsHostIdentitiesAndDetectsManifestReorder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reordered dry-run returned error: %v", err)
 	}
-	if got := preview.Delta.Counts(); got.Unchanged != 4 ||
+	delta := requireComparison(t, preview)
+	if got := delta.Counts(); got.Unchanged != 4 ||
 		got.Added != 0 ||
 		got.Changed != 0 ||
 		got.Removed != 0 {
 		t.Fatalf("reordered subject counts = %#v, want four unchanged", got)
 	}
-	if got := preview.Delta.OrderCounts(); got.Changed != 1 ||
+	if got := delta.OrderCounts(); got.Changed != 1 ||
 		got.Unchanged != 1 ||
 		got.Added != 0 ||
 		got.Removed != 0 {
@@ -147,7 +148,7 @@ source = { host_source = "./plugins/second.mjs" }
 	if err != nil {
 		t.Fatalf("RunOutdated rejected repairable config-root drift: %v", err)
 	}
-	if got := preview.Delta.OrderCounts(); got.Changed != 1 {
+	if got := requireComparison(t, preview).OrderCounts(); got.Changed != 1 {
 		t.Fatalf("order counts = %#v, want one changed constraint", got)
 	}
 	if _, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath}); err != nil {
@@ -206,7 +207,7 @@ func TestRunLockRegeneratesContextuallyInvalidPriorOrderIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunOutdated rejected regenerable prior identity: %v", err)
 	}
-	if got := preview.Delta.OrderCounts(); got.Changed != 1 {
+	if got := requireComparison(t, preview).OrderCounts(); got.Changed != 1 {
 		t.Fatalf("order counts = %#v, want one changed constraint", got)
 	}
 	if _, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath}); err != nil {

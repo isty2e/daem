@@ -138,7 +138,7 @@ func TestRunOutdatedJSONSuppressesProgressWithTerminalStderr(t *testing.T) {
 	if payload.Command != "outdated" || payload.Mode != "check" {
 		t.Fatalf("payload command/mode = %s/%s", payload.Command, payload.Mode)
 	}
-	if !payload.HasChanges {
+	if payload.HasChanges == nil || !*payload.HasChanges {
 		t.Fatalf("payload HasChanges = false, want true")
 	}
 }

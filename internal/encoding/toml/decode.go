@@ -20,6 +20,28 @@ func Decode(content string, target any) (Metadata, error) {
 	return DecodeAdmitted(context.Background(), []byte(content), target)
 }
 
+// ValidateAdmittedSyntax checks a bounded document without applying a schema.
+// Only a document parse failure is classified as ErrMalformed.
+func ValidateAdmittedSyntax(ctx context.Context, content []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	var document map[string]any
+	err := parser.Unmarshal(bytes.TrimPrefix(content, []byte{0xef, 0xbb, 0xbf}), &document)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	var failure *parser.DecodeError
+	if errors.As(err, &failure) {
+		return fmt.Errorf("%w: %w", ErrMalformed, failure)
+	}
+	return err
+}
+
 // Temporal retains the TOML temporal kind independently of parser-library types.
 type Temporal struct {
 	Kind string

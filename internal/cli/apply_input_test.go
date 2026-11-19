@@ -152,17 +152,12 @@ func TestRunApplyInputDiagnostics(t *testing.T) {
 						t.Errorf("missing executable lock hint: stderr=%q expected=%q", &stderr, &lockHint)
 					}
 				} else if input.lock != "" && hasLockHint {
-					t.Errorf("corrupt lock recommended a command that rereads it: %q", &stderr)
+					t.Errorf("malformed lock was given missing-lock guidance: %q", &stderr)
 				}
 				if after := snapshotApplyInputFiles(t, root); !reflect.DeepEqual(before, after) {
 					t.Errorf("refused input changed files: before=%v after=%v", before, after)
 				}
 				if input.lock != "" {
-					stdout.Reset()
-					stderr.Reset()
-					if code := runWithoutTerminal([]string{"lock", "--dry-run", "--manifest", manifestPath}, &stdout, &stderr); code == 0 {
-						t.Fatal("lock creation unexpectedly repaired malformed input")
-					}
 					if err := os.WriteFile(lockPath, validLock, 0o600); err != nil {
 						t.Fatal(err)
 					}

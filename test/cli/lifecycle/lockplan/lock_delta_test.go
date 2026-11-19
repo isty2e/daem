@@ -119,7 +119,7 @@ func TestRunLockDryRunJSONReportsStructuredDelta(t *testing.T) {
 	if payload.Command != "lock" || payload.Mode != "dry-run" {
 		t.Fatalf("payload header = %#v", payload)
 	}
-	if payload.ManifestPath != manifestPath || payload.LockfilePath != lockfilePath || !payload.PreviousFound {
+	if payload.ManifestPath != manifestPath || payload.LockfilePath != lockfilePath || payload.PreviousStatus != "comparable" {
 		t.Fatalf("payload paths/previous = %#v", payload)
 	}
 	if payload.EntryCounts.Subjects != 6 {
@@ -128,7 +128,7 @@ func TestRunLockDryRunJSONReportsStructuredDelta(t *testing.T) {
 	if payload.ChangeCounts.Added != 2 || payload.ChangeCounts.Changed != 1 || payload.ChangeCounts.Removed != 2 || payload.ChangeCounts.Unchanged != 3 {
 		t.Fatalf("change counts = %#v", payload.ChangeCounts)
 	}
-	if !payload.HasChanges {
+	if payload.HasChanges == nil || !*payload.HasChanges {
 		t.Fatalf("HasChanges = false, want true")
 	}
 

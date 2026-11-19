@@ -31,7 +31,7 @@ func TestLockResourceViewKeepsFixedDistinguishingFieldsAndCanonicalJSON(t *testi
 	encode := func() []byte {
 		t.Helper()
 		var out bytes.Buffer
-		if err := clipresent.PrintJSON(&out, clipresent.JSONInput{Command: "lock", Mode: "dry-run", Lockfile: file, Delta: delta}); err != nil {
+		if err := clipresent.PrintJSON(&out, clipresent.JSONInput{Command: "lock", Mode: "dry-run", PreviousStatus: "missing", Lockfile: file, Delta: &delta}); err != nil {
 			t.Fatal(err)
 		}
 		return bytes.Clone(out.Bytes())

@@ -346,7 +346,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension`, `unmanage agent-config` | Manifest authoring | `7` |
-| `lock`, `outdated` | Lock comparison | `5` |
+| `lock`, `outdated` | Lock comparison | `6` |
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
@@ -1201,7 +1201,18 @@ by default.
 persistent cache. Temporary resolution data is removed before exit. The same
 floating manifest can legitimately resolve to a different exact lock over time.
 
-Default output reports subject counts plus every added, changed, or removed
+If the first non-comment, nonblank line identifies the current lockfile schema
+but the TOML body is damaged, `lock` can rebuild the entire file from the
+current manifest and sources. Preview the rebuild with `--dry-run`. The file
+must remain the one that was checked, and its destination must not overlap the
+manifest or a local source. Unknown or newer versions, unreadable files, and
+valid TOML with unrecognized lock contents are preserved. `apply`, `status`,
+`outdated`, and commands that edit the manifest and lock together do not rebuild
+a damaged lock.
+
+For damaged locks and supported older schemas, output reports the newly
+resolved counts without a comparison. When the old lock can be compared or
+was absent, default output reports subject counts plus every added, changed, or removed
 lock entry under `added lock entries:`, `changed lock entries:`, or
 `removed lock entries:`. Entries use public references such as
 `resource="instruction/project"`, `resource="skill/review"`, and
@@ -1256,10 +1267,23 @@ adds checked current identities and bounded refs. `--check` exits `1` when any
 lock identity would change. Changed entries use the same `changed=` reasons
 as lock.
 
-Lock and outdated JSON schema version is `4`. It includes command/mode,
-manifest and derived lockfile paths, prior-lock presence, subject and order
-constraint entry/change counts, `has_changes`, typed subject changes, and
-ordered before/after extension members for each changed order class.
+Lock and outdated JSON schema version is `6`. It includes command and mode,
+manifest and derived lockfile paths, and `entry_counts` for the newly resolved
+subjects and order constraints. `previous_status` replaces `previous_found`:
+
+| `previous_status` | Meaning |
+| --- | --- |
+| `comparable` | The previous lock was read and compared. |
+| `missing` | There was no previous lockfile; the comparison uses an empty baseline. |
+| `legacy` | `lock` resolves a replacement for a supported older schema without reading its contents. |
+| `damaged` | `lock` resolves a replacement for a current-schema file with damaged TOML. |
+
+For `legacy` and `damaged`, `has_changes`, `change_counts`,
+`order_change_counts`, `subject_changes`, and `order_constraint_changes` are
+all `null`. For `comparable` and `missing`, those fields report the comparison,
+including before/after extension order for changed classes. `outdated` only
+reports `comparable` or `missing` and its `--check` exits are unchanged.
+
 Carrier-derived subject names, source namespaces, relation keys, managed
 instance keys, and host-load identities are emitted unchanged only when the
 carrier grammar proves them public. Otherwise they use deterministic
@@ -1808,9 +1832,10 @@ barriers still take precedence. Unknown internal errors retain the closed
 detail, and no reconciliation summary is shown before a plan exists.
 
 Input-remediation commands use the selected manifest path, including without
-`--verbose`. A missing lockfile may direct lock creation; a malformed existing
-lockfile must be corrected first rather than rerunning the same failing lock
-command. Repair guidance does not perform that operation or bypass its admission.
+`--verbose`. A missing lockfile may direct lock creation. For damage to an
+existing lockfile, see [Lockfile Is Damaged](troubleshooting.md#lockfile-is-damaged)
+for when `lock --dry-run` can preview a rebuild. Repair guidance does not
+perform the operation or bypass its admission.
 
 Host-route attempt rows include the exact operation and bounded
 `effect_postconditions` requirement/state summaries when the route couples

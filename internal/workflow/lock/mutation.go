@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
-	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -103,12 +103,29 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	currentLocalPaths, err := commandLocalPaths(ctx, paths)
+	if err := recoverygate.RequireUserStateMigrated(ctx, paths); err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
+	environment, err := loadLockEnvironment(ctx, paths)
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	if !equalPathLists(optimisticLocalPaths, currentLocalPaths) {
+	generation := lockgenerate.Input{
+		Paths:                paths,
+		Environment:          environment,
+		UsePersistentCache:   true,
+		MaxParallelSourceOps: input.MaxParallelSourceOps,
+		SourceEvents:         input.SourceEvents,
+		Events:               lockBuildProgressSink(input.LockEvents),
+	}
+	currentLocalPaths, err := lockgenerate.ConsumedLocalPaths(generation)
+	if err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
+	if !slices.Equal(optimisticLocalPaths, currentLocalPaths) {
 		errorContext.Err = mutation.StaleSnapshotError{}
 		return Result{}, errorContext
 	}
@@ -116,7 +133,19 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	validateCacheAuthority := func(ctx context.Context) error {
+	publication, previous, err := observeLockPublication(ctx, revisions, outputPath)
+	if err != nil {
+		errorContext.Err = fmt.Errorf("read lockfile: %w", err)
+		return Result{}, errorContext
+	}
+	if previous.status == PreviousDamaged {
+		if err := checkRebuildInputs(ctx, outputPath, paths.ManifestPath, currentLocalPaths, &revisions); err != nil {
+			errorContext.Err = err
+			return Result{}, errorContext
+		}
+	}
+
+	validateAuthority := func(ctx context.Context) error {
 		matches, err := revisions.MatchesCurrent(ctx)
 		if err != nil {
 			return err
@@ -133,27 +162,17 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		}
 		return lockRequireStateDirClear(ctx, paths, stateDirAuthority)
 	}
-	preparePersistentCache := func(ctx context.Context) error {
-		if err := validateCacheAuthority(ctx); err != nil {
+	generation.PreparePersistentCache = func(ctx context.Context) error {
+		if err := validateAuthority(ctx); err != nil {
 			return err
 		}
 		if _, err := stateDirAuthority.EnsureOwnedIncarnation(ctx); err != nil {
 			return lockStateDirError(err)
 		}
-		return validateCacheAuthority(ctx)
+		return validateAuthority(ctx)
 	}
 
-	built, err := buildCommandResult(
-		ctx,
-		input.ManifestPath,
-		input.LockfilePath,
-		true,
-		preparePersistentCache,
-		true,
-		commandMaxParallelSourceOps(input.MaxParallelSourceOps),
-		input.SourceEvents,
-		input.LockEvents,
-	)
+	built, err := buildCommandResult(ctx, errorContext, generation, previous)
 	if err != nil {
 		return Result{}, err
 	}
@@ -164,36 +183,11 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		}
 	}
 
-	lockfileTarget, err := declarationartifact.CaptureMutationTarget(ctx, outputPath)
-	if err != nil {
+	if err := validateAuthority(ctx); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	matches, err := revisions.MatchesCurrent(ctx)
-	if err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
-	}
-	if !matches {
-		errorContext.Err = mutation.StaleSnapshotError{}
-		return Result{}, errorContext
-	}
-	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
-	} else if !matches {
-		errorContext.Err = mutation.StaleSnapshotError{}
-		return Result{}, errorContext
-	}
-	if err := ctx.Err(); err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
-	}
-	if err := lockRequireStateDirClear(ctx, paths, stateDirAuthority); err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
-	}
-	if err := commitLockfile(ctx, lockfileTarget, built.Content, 0o600); err != nil {
+	if err := publication.commit(ctx, built.Content); err != nil {
 		return Result{}, fmt.Errorf("write lockfile: %w", err)
 	}
 	return built.Result, nil
@@ -218,9 +212,9 @@ func lockStateDirError(err error) error {
 }
 
 func commandLocalPaths(ctx context.Context, paths daempaths.Paths) ([]string, error) {
-	environment, err := declarationmanifest.LoadSelected(ctx, paths)
+	environment, err := loadLockEnvironment(ctx, paths)
 	if err != nil {
-		return nil, fmt.Errorf("invalid manifest: %w", err)
+		return nil, err
 	}
 	return lockgenerate.ConsumedLocalPaths(lockgenerate.Input{
 		Paths:       paths,
@@ -267,16 +261,4 @@ func lowerLockDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, 
 		domains = append(domains, domain)
 	}
 	return domains, nil
-}
-
-func equalPathLists(left []string, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }

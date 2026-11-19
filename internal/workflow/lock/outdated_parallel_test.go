@@ -36,10 +36,10 @@ targets = ["codex"]
 	if result.LockfilePath != written.LockfilePath {
 		t.Fatalf("LockfilePath = %q, want %q", result.LockfilePath, written.LockfilePath)
 	}
-	if !result.PreviousFound {
-		t.Fatal("PreviousFound = false, want true")
+	if result.PreviousStatus() != PreviousComparable {
+		t.Fatalf("previous status = %q, want comparable", result.PreviousStatus())
 	}
-	if !result.Delta.HasChanges() {
+	if !requireComparison(t, result).HasChanges() {
 		t.Fatal("Delta.HasChanges() = false, want true")
 	}
 	afterLockfile, err := os.ReadFile(written.LockfilePath)
@@ -112,10 +112,10 @@ targets = ["codex"]
 	if result.LockfilePath != written.LockfilePath {
 		t.Fatalf("LockfilePath = %q, want %q", result.LockfilePath, written.LockfilePath)
 	}
-	if !result.PreviousFound {
-		t.Fatal("PreviousFound = false, want true")
+	if result.PreviousStatus() != PreviousComparable {
+		t.Fatalf("previous status = %q, want comparable", result.PreviousStatus())
 	}
-	if !result.Delta.HasChanges() {
+	if !requireComparison(t, result).HasChanges() {
 		t.Fatal("Delta.HasChanges() = false, want true")
 	}
 	afterLockfile, err := os.ReadFile(written.LockfilePath)

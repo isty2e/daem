@@ -32,6 +32,30 @@ type RevisionSet struct {
 	valid        bool
 }
 
+// CapturedReferent returns the physical path and presence for a captured
+// bounded referent request. Callers still need current mutation authority.
+func (set RevisionSet) CapturedReferent(request RevisionRequest) (path string, present bool, err error) {
+	if !set.valid || request.Effect != PathEffectReferent ||
+		(request.captureMode != revisionCaptureBoundedFile && request.captureMode != revisionCaptureContent) {
+		return "", false, fmt.Errorf("a captured bounded referent is required")
+	}
+	for _, observation := range set.observations {
+		if !observation.request.Equal(request) {
+			continue
+		}
+		revision := observation.revision
+		switch revision.kind {
+		case revisionAbsent:
+			return revision.accessPath, false, nil
+		case revisionFile, revisionDirectory:
+			return revision.accessPath, true, nil
+		default:
+			return "", false, fmt.Errorf("mutation revision request %q did not capture a file or directory referent", request.Path)
+		}
+	}
+	return "", false, fmt.Errorf("mutation revision request %q is not captured", request.Path)
+}
+
 // Subset returns immutable evidence for the requested observations without
 // recapturing filesystem state or resetting the observation-pass budget.
 func (set RevisionSet) Subset(requests ...RevisionRequest) (RevisionSet, error) {

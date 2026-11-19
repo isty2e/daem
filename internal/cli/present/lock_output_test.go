@@ -108,16 +108,17 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
 	}
 	afterSubjects = append(afterSubjects, testInstructionsContracts(t, "project", "AGENTS.md", "project")...)
 	after := snapshottest.File(t, afterSubjects...)
+	delta := lock.BuildDelta(before, after)
 
 	var stdout bytes.Buffer
 	err := clipresent.PrintJSON(&stdout, clipresent.JSONInput{
-		Command:       "lock",
-		Mode:          "dry-run",
-		ManifestPath:  "/repo/daem.toml",
-		LockfilePath:  "/repo/daem.lock.toml",
-		PreviousFound: true,
-		Lockfile:      after,
-		Delta:         lock.BuildDelta(before, after),
+		Command:        "lock",
+		Mode:           "dry-run",
+		ManifestPath:   "/repo/daem.toml",
+		LockfilePath:   "/repo/daem.lock.toml",
+		PreviousStatus: "comparable",
+		Lockfile:       after,
+		Delta:          &delta,
 	})
 	if err != nil {
 		t.Fatalf("PrintJSON returned error: %v", err)
@@ -129,7 +130,7 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
   "mode": "dry-run",
   "manifest_path": "/repo/daem.toml",
   "lockfile_path": "/repo/daem.lock.toml",
-  "previous_found": true,
+  "previous_status": "comparable",
   "entry_counts": {
     "subjects": 4,
     "order_constraints": 0
@@ -298,12 +299,15 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
 
 func TestPrintDryRunSummaryReportsRepairedLocks(t *testing.T) {
 	file := snapshottest.File(t, testRepairedSkillContract(t))
+	delta := lock.BuildDelta(lock.File{Version: lock.CurrentVersion}, file)
 
 	var stdout bytes.Buffer
-	clipresent.PrintDryRunSummaryWithOptions(&stdout, clipresent.DryRunSummaryInput{
+	clipresent.PrintLockSummary(&stdout, clipresent.LockSummaryInput{
+		Heading:      "would write lockfile",
 		LockfilePath: "/repo/daem.lock.toml",
 		Lockfile:     file,
-		Delta:        lock.BuildDelta(lock.File{Version: lock.CurrentVersion}, file),
+		Delta:        &delta,
+		DryRun:       true,
 		NextCommand:  "daem lock --manifest /repo/daem.toml",
 	}, clipresent.HumanOptions{Verbose: true})
 
@@ -327,16 +331,17 @@ func TestPrintDryRunSummaryReportsRepairedLocks(t *testing.T) {
 func TestPrintJSONIncludesMCPSubjectChanges(t *testing.T) {
 	record := testMCPSubjectRecord(t, "context7")
 	after := snapshottest.File(t, record)
+	delta := lock.BuildDelta(lock.File{Version: lock.CurrentVersion}, after)
 
 	var stdout bytes.Buffer
 	err := clipresent.PrintJSON(&stdout, clipresent.JSONInput{
-		Command:       "lock",
-		Mode:          "dry-run",
-		ManifestPath:  "/repo/daem.toml",
-		LockfilePath:  "/repo/daem.lock.toml",
-		PreviousFound: false,
-		Lockfile:      after,
-		Delta:         lock.BuildDelta(lock.File{Version: lock.CurrentVersion}, after),
+		Command:        "lock",
+		Mode:           "dry-run",
+		ManifestPath:   "/repo/daem.toml",
+		LockfilePath:   "/repo/daem.lock.toml",
+		PreviousStatus: "missing",
+		Lockfile:       after,
+		Delta:          &delta,
 	})
 	if err != nil {
 		t.Fatalf("PrintJSON returned error: %v", err)

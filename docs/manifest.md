@@ -1714,6 +1714,10 @@ Current lock behavior:
   authoring may atomically replace them. Schema 3 was published by daem v0.1.0;
   earlier unknown and future schemas are not replacement-authorized, and future
   schemas require newer daem.
+- Standalone `daem lock` can replace a file with an intact current version
+  header and malformed TOML. The rebuild does not relax what lock readers
+  accept. Valid TOML with unrecognized lock contents is kept. Incompatible
+  changes to a released lockfile's grammar or schema require a new version.
 - Schema version 7 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
 - Schema v7 records canonical delegated package inputs recognized from argv and

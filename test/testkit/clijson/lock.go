@@ -10,31 +10,28 @@ import (
 )
 
 type Lock struct {
-	SchemaVersion int    `json:"schema_version"`
-	Command       string `json:"command"`
-	Mode          string `json:"mode"`
-	ManifestPath  string `json:"manifest_path"`
-	LockfilePath  string `json:"lockfile_path"`
-	PreviousFound bool   `json:"previous_found"`
-	EntryCounts   struct {
+	SchemaVersion  int    `json:"schema_version"`
+	Command        string `json:"command"`
+	Mode           string `json:"mode"`
+	ManifestPath   string `json:"manifest_path"`
+	LockfilePath   string `json:"lockfile_path"`
+	PreviousStatus string `json:"previous_status"`
+	EntryCounts    struct {
 		Subjects         int `json:"subjects"`
 		OrderConstraints int `json:"order_constraints"`
 	} `json:"entry_counts"`
-	ChangeCounts struct {
-		Added     int `json:"added"`
-		Changed   int `json:"changed"`
-		Removed   int `json:"removed"`
-		Unchanged int `json:"unchanged"`
-	} `json:"change_counts"`
-	OrderChangeCounts struct {
-		Added     int `json:"added"`
-		Changed   int `json:"changed"`
-		Removed   int `json:"removed"`
-		Unchanged int `json:"unchanged"`
-	} `json:"order_change_counts"`
-	HasChanges             bool                        `json:"has_changes"`
+	ChangeCounts           *LockChangeCounts           `json:"change_counts"`
+	OrderChangeCounts      *LockChangeCounts           `json:"order_change_counts"`
+	HasChanges             *bool                       `json:"has_changes"`
 	SubjectChanges         []LockSubjectChange         `json:"subject_changes"`
 	OrderConstraintChanges []LockOrderConstraintChange `json:"order_constraint_changes"`
+}
+
+type LockChangeCounts struct {
+	Added     int `json:"added"`
+	Changed   int `json:"changed"`
+	Removed   int `json:"removed"`
+	Unchanged int `json:"unchanged"`
 }
 
 type LockOrderConstraintChange struct {
