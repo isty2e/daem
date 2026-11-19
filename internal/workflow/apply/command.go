@@ -45,6 +45,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	"github.com/isty2e/daem/internal/workflow/readiness"
+	"github.com/isty2e/daem/internal/workflow/workspacecleanup"
 )
 
 var (
@@ -84,6 +85,7 @@ const (
 	FailureReasonAbandonedFileSetResidue       FailureReason = "abandoned_file_set_residue"
 	FailureReasonFileSetFenceCensusLimit       FailureReason = "file_set_fence_census_limit"
 	FailureReasonFileSetAccessUnprovable       FailureReason = "file_set_access_unprovable"
+	FailureReasonRecoveryCleanup               FailureReason = "recovery_cleanup_failed"
 	FailureReasonApplyRefused                  FailureReason = "apply_refused"
 	FailureReasonApplyIncomplete               FailureReason = "apply_incomplete"
 )
@@ -115,6 +117,8 @@ type Failure struct {
 	nativeSupport          nativeSupportReason
 	documentAdmission      *nativeoperation.DocumentAdmissionError
 	staleAgentConfigSource entity.ID
+	cleanupAttempted       bool
+	cleanupRecordsCleared  bool
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -134,6 +138,13 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		phase:   phase,
 		outcome: outcome,
 		barrier: recoverygate.StateOf(err),
+	}
+	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
+	for _, step := range result.RecoveryCleanup {
+		if step.Outcome != "" && step.Outcome != workspacecleanup.NotAttempted {
+			failure.cleanupAttempted = true
+		}
+		failure.cleanupRecordsCleared = failure.cleanupRecordsCleared && step.Outcome == workspacecleanup.Retired
 	}
 	switch failure.reason {
 	case FailureReasonMCPBackendTransition:
@@ -203,6 +214,8 @@ func classifyFailureReason(err error, executionAttempted bool) FailureReason {
 		}
 	}
 	switch {
+	case errors.Is(err, errRecoveryCleanupFailed) && !recoverygate.IsGlobalMetadataRefusal(err):
+		return FailureReasonRecoveryCleanup
 	case errors.Is(err, ErrReadLockfile):
 		return FailureReasonLockfileUnavailable
 	case errors.Is(err, ErrRelationActionBlock):
@@ -342,6 +355,9 @@ func (failure Failure) reasonDetail() string {
 		if failure.outcome != FailureOutcomeRefused {
 			return "apply was cancelled after an effect boundary was crossed"
 		}
+		if failure.cleanupAttempted {
+			return "cancelled after recovery cleanup began, before normal apply effects"
+		}
 		return "apply was cancelled before effects"
 	case FailureReasonLockfileUnavailable:
 		return "the selected lockfile is unavailable"
@@ -388,9 +404,17 @@ func (failure Failure) reasonDetail() string {
 		return "the bounded file-set census could not prove the fence clean; inspect or reduce StateDir entries before apply"
 	case FailureReasonFileSetAccessUnprovable:
 		return "StateDir access or identity could not be proven; restore access before apply or recover"
+	case FailureReasonRecoveryCleanup:
+		if failure.cleanupRecordsCleared {
+			return "the approved recovery records were cleared, but cleanup ended with an error; normal apply did not start"
+		}
+		return "approved recovery cleanup did not complete; normal apply did not start"
 	case FailureReasonApplyIncomplete:
 		return "apply did not complete after an effect boundary was crossed"
 	default:
+		if failure.cleanupAttempted {
+			return "normal apply was refused after recovery cleanup began"
+		}
 		return "apply was refused before effects"
 	}
 }
@@ -408,6 +432,7 @@ type CommandInput struct {
 
 type CommandResult struct {
 	CarrierHandoffProgress  *CarrierHandoffProgress
+	RecoveryCleanup         []workspacecleanup.Step
 	PermissionProtection    ownershipobserve.ProtectionObservation
 	ManifestPath            string
 	LockfilePath            string
@@ -457,6 +482,7 @@ type commandPlan struct {
 	assessment         readiness.Assessment
 	projectRoot        *rootedpath.CapturedRoot
 	barrier            recoverygate.EffectAuthority
+	cleanup            *workspacecleanup.Plan
 	nativePlan         *nativePlanInputs
 	nativeOperation    *nativeconfig.AssessmentOperation
 	handoffReservation []carrierabsence.Action
@@ -470,7 +496,14 @@ type DryRunPlan struct {
 }
 
 func PlanDryRun(ctx context.Context, input CommandInput) (DryRunPlan, error) {
-	planned, err := planReadiness(ctx, input, reconcile.ContextDryRun)
+	paths, err := daempaths.Resolve(input.ManifestPath)
+	if err != nil {
+		return DryRunPlan{}, err
+	}
+	planned, err := planReadinessAtPaths(ctx, input, reconcile.ContextDryRun, paths)
+	if !planned.result.ReconciliationReady && canPlanRecoveryCleanup(input, paths, planned.result.LockfilePath) && workspacecleanup.MayQualify(err) {
+		return planDryRunWithRecoveryCleanup(ctx, input, paths, planned, err)
+	}
 	if err != nil {
 		return newDryRunPlan(planned), err
 	}
@@ -560,7 +593,17 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 			commandInputError{cause: err},
 		)
 	}
-	planned, err := planReadinessAtPathsWithBarrier(ctx, input, operationContext, paths, &barrier)
+	var pending *workspacecleanup.Pending
+	var validate func(context.Context) error
+	if canPlanRecoveryCleanup(input, paths, lockfilePath) {
+		validate = func(ctx context.Context) error {
+			fenceErr := barrier.Validate(ctx)
+			var err error
+			pending, err = workspacecleanup.Observe(ctx, barrier, fenceErr)
+			return recoveryCleanupPlanningError(fenceErr, err)
+		}
+	}
+	planned, err := planReadinessAtPathsWithBarrierValidation(ctx, input, operationContext, paths, &barrier, validate)
 	if err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
@@ -583,6 +626,15 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	}
 	if err := retainProjectRootAuthority(&planned, root, rootCaptureErr); err != nil {
 		return unavailablePreparedWrite(planned.result), err
+	}
+	if pending != nil {
+		if rootCaptureErr != nil {
+			return unavailablePreparedWrite(planned.result), rootCaptureErr
+		}
+		if err := root.ValidateSelection(paths.ManifestRoot); err != nil {
+			return unavailablePreparedWrite(planned.result), err
+		}
+		planned.projectRoot = root
 	}
 	if planned.projectRoot != nil {
 		root = nil
@@ -621,6 +673,15 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 			),
 			closeErr,
 		)
+	}
+	if pending != nil {
+		if err := sealRecoveryCleanup(ctx, &planned, pending, authorityEvidence); err != nil {
+			return unavailablePreparedWrite(planned.result), errors.Join(err, closeCommandPlan(&planned))
+		}
+		if err := newApplyExecutionGuard(declarationRevisions, false).requireDeclarationsCurrent(ctx, "seal apply cleanup plan"); err != nil {
+			planned.result.RecoveryCleanup = nil
+			return unavailablePreparedWrite(planned.result), errors.Join(err, closeCommandPlan(&planned))
+		}
 	}
 
 	return newPreparedWrite(

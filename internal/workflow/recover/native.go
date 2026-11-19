@@ -77,15 +77,7 @@ func recoveryLoadOptions(ctx context.Context, paths daempaths.Paths, filesystem 
 }
 
 func recoveryInventoryProfile(ctx context.Context) (journal.RecoveryInventoryProfile, error) {
-	codecs, err := nativeconfig.Codecs(ctx)
-	if err != nil {
-		return journal.RecoveryInventoryProfile{}, err
-	}
-	codec, err := statefile.NewNativeCodec(codecs.Contributions())
-	if err != nil {
-		return journal.RecoveryInventoryProfile{}, err
-	}
-	return journal.NewNativeRecoveryInventoryProfile(statefile.Codec{}, codec)
+	return nativeconfig.RecoveryInventoryProfile(ctx)
 }
 
 func nativeRecoveryOperationFingerprint(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority) (mutation.OperationFingerprint, error) {

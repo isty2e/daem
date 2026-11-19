@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
@@ -18,14 +19,19 @@ import (
 // RecoveryInventoryProfile admits journal families through their own codecs.
 // It contains no host, statefile, Registry or root acquisition capability.
 type RecoveryInventoryProfile struct {
+	legacy  durable.SnapshotCodec
 	decoder journalinventory.JournalDecoder
+}
+
+func (profile RecoveryInventoryProfile) inventoryOptions(filesystem mutationfs.Reader, budget rootedpath.PhysicalTraversalBudget) journalinventory.Options {
+	return journalinventory.Options{Filesystem: filesystem, PhysicalPathBudget: budget, StateCodec: profile.legacy, Decoder: profile.decoder}
 }
 
 func NewNativeRecoveryInventoryProfile(legacy, native durable.SnapshotCodec) (RecoveryInventoryProfile, error) {
 	if legacy == nil || native == nil {
 		return RecoveryInventoryProfile{}, fmt.Errorf("recovery inventory requires both selected family codecs")
 	}
-	return RecoveryInventoryProfile{decoder: nativeRecoveryInventoryDecoder(legacy, native)}, nil
+	return RecoveryInventoryProfile{legacy: legacy, decoder: nativeRecoveryInventoryDecoder(legacy, native)}, nil
 }
 
 func nativeRecoveryInventoryDecoder(legacy, native durable.SnapshotCodec) journalinventory.JournalDecoder {

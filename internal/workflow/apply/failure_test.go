@@ -13,6 +13,7 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/recoverygate"
+	"github.com/isty2e/daem/internal/workflow/workspacecleanup"
 )
 
 func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
@@ -25,6 +26,7 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 		reason  FailureReason
 		phase   FailurePhase
 		outcome FailureOutcome
+		detail  string
 	}{
 		{
 			name:    "stale snapshot",
@@ -123,6 +125,16 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 			outcome: FailureOutcomeRefused,
 		},
 		{
+			name: "final cleanup check fails after both records clear",
+			err:  fmt.Errorf("%w: /private/path", errRecoveryCleanupFailed),
+			result: CommandResult{RecoveryCleanup: []workspacecleanup.Step{
+				{Kind: workspacecleanup.JournalRetirement, Outcome: workspacecleanup.Retired},
+				{Kind: workspacecleanup.DeclarationPair, Outcome: workspacecleanup.Retired},
+			}},
+			reason: FailureReasonRecoveryCleanup, phase: FailurePhasePreflight, outcome: FailureOutcomeRefused,
+			detail: "recovery records were cleared",
+		},
+		{
 			name: "joined stale snapshot does not mask unprovable access after effects",
 			err: errors.Join(
 				mutation.StaleSnapshotError{},
@@ -152,6 +164,9 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 					test.phase,
 					test.outcome,
 				)
+			}
+			if test.detail != "" && !strings.Contains(failure.Detail(), test.detail) {
+				t.Fatalf("detail = %q, want %q", failure.Detail(), test.detail)
 			}
 			for _, private := range []string{"PRIVATE_TOKEN", "token=private", "/private/path", "\x1b"} {
 				if strings.Contains(failure.Detail(), private) {

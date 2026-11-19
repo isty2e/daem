@@ -198,6 +198,27 @@ func Combine(journalErr error, fileSetErr error) error {
 	}
 }
 
+// RefineOwnerRefusal updates one observed recovery axis without discarding
+// its peer. A new joint refusal or cancellation carries its own authority.
+func RefineOwnerRefusal(observed, refusal error) error {
+	if refusal == nil || IsCancellation(refusal) {
+		return refusal
+	}
+	var joint *jointError
+	if !errors.As(observed, &joint) {
+		return refusal
+	}
+	state := StateOf(refusal)
+	switch {
+	case state.JournalObserved() && !state.FileSetObserved():
+		return Combine(refusal, joint.fileSetErr)
+	case state.FileSetObserved() && !state.JournalObserved():
+		return Combine(joint.journalErr, refusal)
+	default:
+		return refusal
+	}
+}
+
 // Observe reads the independent RecoveryDir journal and StateDir file-set facts
 // without allowing a later observation to hide caller cancellation.
 func Observe(ctx context.Context, paths daempaths.Paths) error {

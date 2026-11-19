@@ -303,7 +303,7 @@ with unknown exact work consumes its admitted maximum, not a cheaper fallback.
 
 | Result | Meaning and action |
 | --- | --- |
-| `journal_cleanup_incomplete` | The journal has become retained cleanup residue. Ordinary commands do not finalize it. `daem recover --dry-run` reports `retained_cleanup_residue` and `finalize_journal_cleanup`; confirmed recovery touches only recovery metadata, not host outputs, state, ownership, manifest or lockfile. |
+| `journal_cleanup_incomplete` | The journal has become retained cleanup residue. `daem recover --dry-run` reports `retained_cleanup_residue` and `finalize_journal_cleanup`; confirmed recovery touches only recovery metadata, not host outputs, state, ownership, manifest or lockfile. A qualifying apply or lock write can also finish this cleanup under the conditions below. |
 | GC-only residue after semantic retirement | Recovery is complete; best-effort deletion may leave private control metadata, but not the retired journal or backups. Deletion failure remains a command failure, yet no new recover plan exists and later commands are not blocked. The name alone grants no restart-time deletion authority. |
 
 ### Forward-Operation Barriers
@@ -314,10 +314,21 @@ unexpected first StateDir appearance is `stale_snapshot`; loss or replacement
 of its bound identity/mount is `file_set_access_unprovable`. Operation-owned
 rollback/cleanup remains compensation.
 
-Lockfile-only generation stays available during active recovery, but its
-source-build/publication paths still require stable StateDir identity and a
-clear file-set fence. For metadata markers and old tombstones, follow
-[Troubleshooting](troubleshooting.md), not generic journal recovery advice.
+Confirmed `apply` can finish cleanup of an already-retired journal or remove
+the recovery record for a completed write of its selected manifest and default
+lockfile. If both records are present, it must verify both before clearing
+either. It clears the journal first and rechecks the approved plan after all
+required cleanup. Cleanup cannot restore a file or finish an interrupted
+write. If cleanup stops midway, any completed step stays complete. `apply
+--dry-run` reports qualifying cleanup without performing it.
+
+Lockfile-only generation does not need journal recovery when the file-set
+barrier is clear. A `lock` write facing a completed update of its selected
+manifest and default lockfile can use the same cleanup, including clearing a
+verified already-retired journal first when it blocks the declaration record.
+`lock --dry-run` leaves both records untouched and refuses a pending declaration
+record. See [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
+for records that still need their owning recovery command.
 
 ### Older Tombstones
 

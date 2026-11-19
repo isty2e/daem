@@ -81,6 +81,23 @@ func NewEffectAuthority(ctx context.Context, paths daempaths.Paths) (EffectAutho
 	if err != nil {
 		return EffectAuthority{}, err
 	}
+	return newEffectAuthority(ctx, paths, stateDir)
+}
+
+// NewEffectAuthorityForStateDir retains a command's existing StateDir binding
+// when crossing from a fence observation to file-set recovery.
+func NewEffectAuthorityForStateDir(ctx context.Context, paths daempaths.Paths, stateDir StateDirAuthority) (EffectAuthority, error) {
+	snapshot, ok := stateDir.snapshot()
+	if !ok || snapshot.selectedPath != paths.StateDir || !snapshot.plannedPresent {
+		return EffectAuthority{}, fmt.Errorf("file-set recovery requires the selected, existing state directory")
+	}
+	if err := RequireUserStateMigrated(ctx, paths); err != nil {
+		return EffectAuthority{}, err
+	}
+	return newEffectAuthority(ctx, paths, stateDir)
+}
+
+func newEffectAuthority(ctx context.Context, paths daempaths.Paths, stateDir StateDirAuthority) (EffectAuthority, error) {
 	globalRoot, err := captureGlobalMetadataRoot(ctx, paths, stateDir.workBudget())
 	if err != nil {
 		return EffectAuthority{}, err
@@ -249,6 +266,15 @@ func (authority EffectAuthority) Validate(ctx context.Context) error {
 		return err
 	}
 	return validateBarrier(ctx, authority.paths, authority.globalMetadataRoot, authority.stateDir)
+}
+
+// ExistingStateDir resolves the retained workspace incarnation without
+// capturing a replacement StateDir.
+func (authority EffectAuthority) ExistingStateDir(ctx context.Context) (string, error) {
+	if err := authority.requireInitialized(); err != nil {
+		return "", err
+	}
+	return authority.stateDir.ExistingPath(ctx)
 }
 
 func validateBarrier(

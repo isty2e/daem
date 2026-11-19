@@ -455,6 +455,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/workflow/recover",
 			"internal/workflow/refresh",
 			"internal/workflow/status",
+			"internal/workflow/workspacecleanup",
 		},
 	},
 	{
