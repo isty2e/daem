@@ -53,7 +53,7 @@ source = "source.md"
 		before[path] = read(path)
 	}
 	canonical := read("daem.lock.toml")
-	damaged := fmt.Sprintf("version = %d\n# abandoned bytes\n[[\n", contractversion.LockfileSchema)
+	damaged := fmt.Sprintf("version = %d\n[[\n", contractversion.LockfileSchema)
 	if err := os.WriteFile(lockPath, []byte(damaged), 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -64,12 +64,6 @@ source = "source.md"
 	run(1, "status", "--check")
 	run(1, "outdated")
 	preview := requireUnavailableLockComparison(t, run(0, "lock", "--dry-run", "--json"), "damaged", "dry-run")
-	text := run(0, "lock", "--dry-run", "--verbose")
-	if !strings.Contains(text, "would rebuild damaged lockfile:") ||
-		!strings.Contains(text, "lock changes not compared:") || !strings.Contains(text, "locked.subject:") ||
-		strings.Contains(text, "lock entry changes:") || strings.Contains(text, "abandoned bytes") {
-		t.Fatalf("damaged lock preview = %q", text)
-	}
 	testkit.AssertFileContent(t, lockPath, damaged)
 	if info, err := os.Stat(lockPath); err != nil || info.Mode().Perm() != 0o640 {
 		t.Fatalf("lock mode after preview: %v, %v", info, err)
@@ -100,6 +94,44 @@ source = "source.md"
 		t.Fatal("legacy replacement resolved different facts from the same inputs")
 	}
 	testkit.AssertFileContent(t, lockPath, legacy)
+}
+
+func TestLockDescribesUnavailableComparisonsInHumanOutput(t *testing.T) {
+	for _, test := range []struct {
+		name, preview, written, reason string
+		version                        int
+	}{
+		{"damaged", "would rebuild damaged lockfile:", "rebuilt damaged lockfile:", "contains malformed TOML", contractversion.LockfileSchema},
+		{"legacy", "would replace older-schema lockfile:", "replaced older-schema lockfile:", "uses an older schema", contractversion.LockfileSchema - 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			testkit.SetDefaultRootEnv(t, filepath.Join(root, "home"))
+			manifest := filepath.Join(root, "daem.toml")
+			testkit.WriteFile(t, root, "daem.toml", "version = 1\ntargets = ['codex']\n\n[instructions.project]\nsource = 'source.md'\n")
+			testkit.WriteFile(t, root, "source.md", "project instructions\n")
+			testkit.WriteFile(t, root, "daem.lock.toml", fmt.Sprintf("version = %d\nold_lock_value = 2026-99-99\n", test.version))
+
+			for _, dryRun := range []bool{true, false} {
+				args := []string{"lock", "--manifest", manifest, "--verbose"}
+				want := test.written
+				if dryRun {
+					args = append(args, "--dry-run")
+					want = test.preview
+				}
+				var stdout, stderr bytes.Buffer
+				code := testkit.RunCLI(args, &stdout, &stderr)
+				text := stdout.String()
+				if code != 0 || !strings.HasPrefix(text, want) ||
+					!strings.Contains(text, "lock changes not compared:") || !strings.Contains(text, test.reason) ||
+					!strings.Contains(text, "lock entries: 2\n") || strings.Contains(text, "lock entry changes:") ||
+					strings.Contains(text+stderr.String(), "old_lock_value") ||
+					(dryRun && !strings.Contains(text, "locked.subject:")) {
+					t.Fatalf("%v: exit %d, stdout %q, stderr %q", args, code, &stdout, &stderr)
+				}
+			}
+		})
+	}
 }
 
 func requireUnavailableLockComparison(t *testing.T, output, status, mode string) clijson.Lock {

@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/desired"
@@ -160,7 +161,15 @@ func previewLock(
 		return commandResult{}, errorContext
 	}
 
-	previous, err := readPreviousLock(ctx, outputPath, standalone)
+	readPath := outputPath
+	if standalone {
+		readPath, err = filepath.Abs(outputPath)
+		if err != nil {
+			errorContext.Err = fmt.Errorf("resolve lockfile: %w", err)
+			return commandResult{}, errorContext
+		}
+	}
+	previous, err := readPreviousLock(ctx, readPath, standalone)
 	if err != nil {
 		errorContext.Err = fmt.Errorf("read lockfile: %w", err)
 		return commandResult{}, errorContext
@@ -169,7 +178,7 @@ func previewLock(
 	input.Paths = paths
 	input.Environment = environment
 	if previous.status == PreviousDamaged {
-		if err := checkPreviewRebuildInputs(ctx, outputPath, input); err != nil {
+		if err := checkPreviewRebuildInputs(ctx, readPath, input); err != nil {
 			errorContext.Err = err
 			return commandResult{}, errorContext
 		}

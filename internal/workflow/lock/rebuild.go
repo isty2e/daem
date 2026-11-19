@@ -21,35 +21,42 @@ func checkPreviewRebuildInputs(ctx context.Context, path string, input lockgener
 func checkRebuildInputs(ctx context.Context, path, manifestPath string, localPaths []string, revisions *mutation.RevisionSet) error {
 	depth := physicalwork.MaximumPhysicalPathDepth
 	budget := physicalwork.NewPathBudget()
-	observe := func(request mutation.RevisionRequest) (mutation.DirectoryEntryAuthorityObservation, error) {
+	observe := func(request mutation.RevisionRequest) (mutation.DirectoryEntryAuthorityObservation, bool, error) {
 		if err := ctx.Err(); err != nil {
-			return mutation.DirectoryEntryAuthorityObservation{}, err
+			return mutation.DirectoryEntryAuthorityObservation{}, false, err
 		}
 		if revisions == nil {
 			_, authority, err := mutation.ObserveFutureReferentAuthorityBounded(request.Path, depth, budget)
-			return authority, err
+			_, exact := authority.Exact()
+			return authority, exact, err
 		}
-		physical, _, err := revisions.CapturedReferent(request)
-		if err != nil {
-			return mutation.DirectoryEntryAuthorityObservation{}, err
+		physical, present, err := revisions.CapturedReferent(request)
+		if err != nil || !present {
+			return mutation.DirectoryEntryAuthorityObservation{}, false, err
 		}
-		return mutation.ObserveDirectoryEntryAuthorityBounded(physical, depth, budget)
+		authority, err := mutation.ObserveDirectoryEntryAuthorityBounded(physical, depth, budget)
+		return authority, true, err
 	}
 	lockRequest, err := mutation.NewBoundedFileRevisionRequest(declarationartifact.MaximumBytes, path, mutation.PathEffectReferent)
 	if err != nil {
 		return err
 	}
-	destination, err := observe(lockRequest)
+	destination, comparable, err := observe(lockRequest)
 	if err != nil {
 		return err
 	}
+	if !comparable {
+		return mutation.StaleSnapshotError{}
+	}
 
 	check := func(request mutation.RevisionRequest) error {
-		authority, err := observe(request)
+		authority, comparable, err := observe(request)
 		if err != nil {
 			return err
 		}
-		if destination.MayOverlap(authority) {
+		// Missing inputs cannot overlap a present lock. Let source resolution
+		// report the absence, not a collision with a hypothetical future name.
+		if comparable && destination.MayOverlap(authority) {
 			return fmt.Errorf("cannot rebuild damaged lockfile: its destination overlaps the selected manifest or a local source")
 		}
 		return nil

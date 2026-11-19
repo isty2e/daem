@@ -12,6 +12,7 @@ import (
 	locksnapshot "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
+	"github.com/isty2e/daem/internal/supply/source/backend/localfs"
 )
 
 func TestLockRebuildRespectsLinkedDestinationAndConsumedSources(t *testing.T) {
@@ -57,7 +58,7 @@ func TestLockRebuildRespectsLinkedDestinationAndConsumedSources(t *testing.T) {
 						t.Fatalf("dry-run=%t overlap: %v; source events = %d", dryRun, err, sourceEvents)
 					}
 				case test.missing:
-					if err == nil || sourceEvents != 0 {
+					if !errors.Is(err, os.ErrNotExist) || sourceEvents != 0 {
 						t.Fatalf("dry-run=%t dangling: %v; source events = %d", dryRun, err, sourceEvents)
 					}
 				default:
@@ -121,5 +122,46 @@ func TestLockRebuildRefusesRetargetedLinkBeforeWriting(t *testing.T) {
 	}
 	if link, err := os.Readlink(selected); err != nil || link != "future.toml" {
 		t.Fatalf("intervening link changed: %q, %v", link, err)
+	}
+}
+
+func TestLockRebuildAcceptsRelativeLockfileOverride(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	writeWorkflowTestFile(t, root, "project/daem.toml", "version = 1\ntargets = ['codex']\n")
+	damaged := fmt.Sprintf("version = %d\n[[\n", locksnapshot.CurrentVersion)
+	writeWorkflowTestFile(t, root, "explicit.lock.toml", damaged)
+
+	for _, dryRun := range []bool{true, false} {
+		result, err := RunLock(t.Context(), LockInput{
+			ManifestPath: filepath.Join(root, "project", "daem.toml"),
+			LockfilePath: "explicit.lock.toml",
+			DryRun:       dryRun,
+		})
+		if err != nil || result.PreviousStatus() != PreviousDamaged || result.LockfilePath != "explicit.lock.toml" {
+			t.Fatalf("dry-run=%t: previous = %q, lockfile = %q, error = %v", dryRun, result.PreviousStatus(), result.LockfilePath, err)
+		}
+	}
+	if _, err := lockfile.Load(t.Context(), "explicit.lock.toml"); err != nil {
+		t.Fatalf("explicit lockfile was not regenerated: %v", err)
+	}
+}
+
+func TestLockRebuildReportsMissingSourceRatherThanOverlap(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	writeWorkflowTestFile(t, root, "daem.toml", "version = 1\ntargets = ['codex']\n\n[instructions.project]\nsource = 'Café.md'\n")
+	damaged := fmt.Sprintf("version = %d\n[[\n", locksnapshot.CurrentVersion)
+	writeWorkflowTestFile(t, root, "daem.lock.toml", damaged)
+
+	for _, dryRun := range []bool{true, false} {
+		_, err := RunLock(t.Context(), LockInput{ManifestPath: filepath.Join(root, "daem.toml"), DryRun: dryRun})
+		if !localfs.IsSourceUnavailable(err) {
+			t.Fatalf("dry-run=%t: expected the missing source diagnostic, got %v", dryRun, err)
+		}
+		if content, err := os.ReadFile(filepath.Join(root, "daem.lock.toml")); err != nil || string(content) != damaged {
+			t.Fatalf("damaged lock changed without a source: %q, %v", content, err)
+		}
 	}
 }

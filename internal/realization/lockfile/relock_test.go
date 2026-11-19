@@ -54,3 +54,11 @@ func TestRelockWireProbePreservesCancellation(t *testing.T) {
 		t.Fatalf("cancelled syntax probe = %v", err)
 	}
 }
+
+func TestRelockWireProbePreservesAnObservedStructureLimit(t *testing.T) {
+	content := fmt.Appendf(nil, "version = %d\nunknown = 2026-99-99\n", lock.CurrentVersion)
+	limit := fmt.Errorf("field traversal: %w", tomlsyntax.ErrMaximumWorkExceeded)
+	if err := classifyLockfileWireFailure(t.Context(), content, limit); err != limit {
+		t.Fatalf("wire limit changed to %v", err)
+	}
+}

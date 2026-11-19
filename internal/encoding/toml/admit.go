@@ -31,16 +31,26 @@ const (
 
 var (
 	// ErrMaximumDepthExceeded classifies nesting beyond the caller budget.
-	ErrMaximumDepthExceeded = errors.New("TOML nesting depth exceeded")
+	ErrMaximumDepthExceeded error = structureLimitError("TOML nesting depth exceeded")
 	// ErrMaximumContainersExceeded classifies too many tables or arrays.
-	ErrMaximumContainersExceeded = errors.New("TOML container count exceeded")
+	ErrMaximumContainersExceeded error = structureLimitError("TOML container count exceeded")
 	// ErrMaximumWorkExceeded classifies aggregate TOML structure work.
-	ErrMaximumWorkExceeded = errors.New("TOML aggregate work exceeded")
+	ErrMaximumWorkExceeded error = structureLimitError("TOML aggregate work exceeded")
 	// ErrMaximumPathWorkExceeded classifies ancestor-path byte recopy work.
-	ErrMaximumPathWorkExceeded = errors.New("TOML path recopy work exceeded")
+	ErrMaximumPathWorkExceeded error = structureLimitError("TOML path recopy work exceeded")
 	// ErrMalformed classifies malformed TOML syntax.
 	ErrMalformed = errors.New("malformed TOML structure")
 )
+
+type structureLimitError string
+
+func (err structureLimitError) Error() string { return string(err) }
+
+// IsStructureLimit reports whether decoding or admission exhausted a TOML structure budget.
+func IsStructureLimit(err error) bool {
+	var limit structureLimitError
+	return errors.As(err, &limit)
+}
 
 // Limits are positive structure ceilings applied before typed decoding.
 type Limits struct {

@@ -329,9 +329,7 @@ func decodeLockfileDTO(ctx context.Context, content []byte) (fileDTO, error) {
 
 func classifyLockfileWireFailure(ctx context.Context, content []byte, wireErr error) error {
 	switch {
-	case errors.Is(wireErr, context.Canceled), errors.Is(wireErr, context.DeadlineExceeded),
-		errors.Is(wireErr, tomlsyntax.ErrMaximumDepthExceeded), errors.Is(wireErr, tomlsyntax.ErrMaximumContainersExceeded),
-		errors.Is(wireErr, tomlsyntax.ErrMaximumWorkExceeded), errors.Is(wireErr, tomlsyntax.ErrMaximumPathWorkExceeded):
+	case errors.Is(wireErr, context.Canceled), errors.Is(wireErr, context.DeadlineExceeded), tomlsyntax.IsStructureLimit(wireErr):
 		return wireErr
 	}
 
