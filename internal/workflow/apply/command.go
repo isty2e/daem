@@ -118,6 +118,7 @@ type Failure struct {
 	documentAdmission      *nativeoperation.DocumentAdmissionError
 	staleAgentConfigSource entity.ID
 	cleanupAttempted       bool
+	cleanupRecordsCleared  bool
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -138,11 +139,12 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		outcome: outcome,
 		barrier: recoverygate.StateOf(err),
 	}
+	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
 	for _, step := range result.RecoveryCleanup {
 		if step.Outcome != "" && step.Outcome != workspacecleanup.NotAttempted {
 			failure.cleanupAttempted = true
-			break
 		}
+		failure.cleanupRecordsCleared = failure.cleanupRecordsCleared && step.Outcome == workspacecleanup.Retired
 	}
 	switch failure.reason {
 	case FailureReasonMCPBackendTransition:
@@ -403,6 +405,9 @@ func (failure Failure) reasonDetail() string {
 	case FailureReasonFileSetAccessUnprovable:
 		return "StateDir access or identity could not be proven; restore access before apply or recover"
 	case FailureReasonRecoveryCleanup:
+		if failure.cleanupRecordsCleared {
+			return "the approved recovery records were cleared, but cleanup ended with an error; normal apply did not start"
+		}
 		return "approved recovery cleanup did not complete; normal apply did not start"
 	case FailureReasonApplyIncomplete:
 		return "apply did not complete after an effect boundary was crossed"

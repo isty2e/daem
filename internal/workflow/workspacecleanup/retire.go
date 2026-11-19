@@ -16,11 +16,6 @@ import (
 	"github.com/isty2e/daem/internal/recoverygate"
 )
 
-type journalFilesystem interface {
-	mutationfs.Reader
-	mutationfs.RootedStore
-}
-
 // Retire runs only the sealed cleanup, keeping one lease through both owners.
 // A nil filesystem uses the production journal storage adapter. Even on
 // failure the returned rows describe the approved steps in owner order.
@@ -120,7 +115,7 @@ func (plan *Plan) Retire(ctx context.Context, filesystem mutationfs.Store, reval
 	return steps, pending.barrier.Validate(ctx)
 }
 
-func (pending *Pending) retireJournal(ctx context.Context, filesystem journalFilesystem, validate func(context.Context) error) (outcome Outcome, returnErr error) {
+func (pending *Pending) retireJournal(ctx context.Context, filesystem mutationfs.RootedStore, validate func(context.Context) error) (outcome Outcome, returnErr error) {
 	cleanup, ok := journal.JournalCleanupPlan(pending.journal)
 	if !ok {
 		return NotAttempted, fmt.Errorf("journal has no cleanup authority")

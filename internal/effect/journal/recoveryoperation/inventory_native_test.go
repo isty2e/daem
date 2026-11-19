@@ -132,6 +132,21 @@ func TestNativeInventoryCorrelatesCompleteRecordWithControlAndResidue(t *testing
 			if err != nil || inventory.Decision().State() != state || (inventory.Active() != nil) != (state == retirement.StatePrepared) {
 				t.Fatalf("native control/residue state=%s want=%s: %v, %s", inventory.Decision().State(), state, err, inventory.Decision().Detail())
 			}
+			profile, err := NewNativeRecoveryInventoryProfile(testStateCodec(), setup.fixture.codec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			selected, err := ObserveJournalCleanup(t.Context(), root, journalTestFilesystem(), nil, profile)
+			if state == retirement.StatePrepared {
+				if !errors.Is(err, ErrInterruptedApply) || selected != nil {
+					t.Fatalf("active native journal granted cleanup-only authority: %v", err)
+				}
+				return
+			}
+			plan, ok := JournalCleanupPlan(selected)
+			if err != nil || !ok || plan.Authority().OperationID() != identity.OperationID() || plan.Authority().Phase() != phase {
+				t.Fatalf("cleanup-only selection lost the native journal's identity or phase: %v", err)
+			}
 		})
 	}
 }

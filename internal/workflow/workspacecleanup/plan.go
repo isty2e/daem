@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -139,7 +140,7 @@ func (pending *Pending) boundRecoveryRoot(budget *physicalwork.PathBudget) (stri
 	return root, nil
 }
 
-func (pending *Pending) observeJournal(ctx context.Context, filesystem journalFilesystem, budget *physicalwork.PathBudget) (journal.RecoverablePlan, error) {
+func (pending *Pending) observeJournal(ctx context.Context, filesystem mutationfs.Reader, budget *physicalwork.PathBudget) (journal.RecoverablePlan, error) {
 	root, err := pending.boundRecoveryRoot(budget)
 	if err != nil {
 		return nil, err
@@ -185,7 +186,7 @@ func (pending *Pending) ReadSettledManifest(ctx context.Context) ([]byte, error)
 	return pending.pair.ReadManifest(ctx)
 }
 
-func (pending *Pending) validate(ctx context.Context, filesystem journalFilesystem) error {
+func (pending *Pending) validate(ctx context.Context, filesystem mutationfs.Reader) error {
 	if err := pending.validateAxes(ctx, pending.journal != nil); err != nil {
 		return err
 	}

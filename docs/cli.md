@@ -1847,15 +1847,16 @@ Known mutation codes include `stale_snapshot`, `stale_plan`, `mutation_contended
 `interrupted_file_set_transaction`, `file_set_evidence_invalid`,
 `abandoned_file_set_residue`, `file_set_fence_census_limit`, and
 `file_set_access_unprovable`. `recovery_cleanup_failed` reports a failed cleanup
-without a more specific cause such as cancellation or a changed plan. Typed `recovery_barrier` preserves journal and
-file-set axes independently, with `unknown` for an unclassified peer. Active
+without a more specific cause such as cancellation or a changed plan. Typed
+`recovery_barrier` preserves journal and file-set axes independently, with
+`unknown` for an unclassified peer. Active
 recovery differs from cleanup-only authority. Published markers, markerless
 residue and census overflow are continuing fences; invalid evidence or
 unprovable StateDir access needs repair/restored access before apply or recover.
 These are not `apply_refused`; never delete reserved names to bypass them.
 
-Closed `phase` and `outcome` distinguish pre-effect refusal, incomplete effects
-and complete compensation. Messages come only from typed facts, not internal
+For normal apply, `phase` and `outcome` distinguish pre-effect refusal,
+incomplete effects and complete compensation. Messages come only from typed facts, not internal
 error strings. `mcp_backend_transition_unsupported` identifies a direct change
 between stored and desired Pi codecs, with the binding, backends and retirement
 guidance. It can refuse planning before an execution envelope exists.

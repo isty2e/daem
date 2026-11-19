@@ -14,11 +14,13 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/recoverygate"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/metadatatx"
@@ -33,7 +35,7 @@ func TestApplyRetiresQualifiedRecoveryThenRunsUnchangedPlan(t *testing.T) {
 		wantKinds    []string
 		journalPhase retirement.Phase
 	}{
-		{name: "selected pair", pair: true, wantKinds: []string{"declaration_pair"}},
+		{name: "selected pair through a manifest link", pair: true, wantKinds: []string{"declaration_pair"}},
 		{name: "retained journal and no-op", journal: true, noOp: true, wantKinds: []string{"journal_retirement"}, journalPhase: retirement.PhasePrepared},
 		{name: "joint, then apply", journal: true, pair: true, wantKinds: []string{"journal_retirement", "declaration_pair"}, journalPhase: retirement.PhaseFinalizing},
 	} {
@@ -62,6 +64,14 @@ func TestApplyRetiresQualifiedRecoveryThenRunsUnchangedPlan(t *testing.T) {
 			var marker string
 			if test.pair {
 				marker = stageApplyPair(t, paths, true)
+			}
+			var selectedLink string
+			if test.pair && !test.journal {
+				selectedLink = filepath.Join(paths.ManifestRoot, "linked.toml")
+				if err := os.Symlink(filepath.Base(manifest), selectedLink); err != nil {
+					t.Fatal(err)
+				}
+				manifest = selectedLink
 			}
 			assertPending := func() {
 				t.Helper()
@@ -102,6 +112,11 @@ func TestApplyRetiresQualifiedRecoveryThenRunsUnchangedPlan(t *testing.T) {
 			}
 			if test.journal {
 				journal.assertCleanupAbsent(t)
+			}
+			if selectedLink != "" {
+				if target, err := os.Readlink(selectedLink); err != nil || target != filepath.Base(paths.ManifestPath) {
+					t.Fatalf("cleanup did not preserve the selected manifest link: %s, %v", target, err)
+				}
 			}
 			assertApplyConfirmationFileContent(t, host, desired)
 		})
@@ -228,11 +243,12 @@ func TestApplyRecoveryCleanupReportsPartialRetirement(t *testing.T) {
 		newJournal     bool
 		journalOutcome string
 		pairOutcome    string
+		reason         string
 	}{
-		{name: "first cleanup fails", failCleanup: 1, journalOutcome: "still_fenced", pairOutcome: "not_attempted"},
-		{name: "final garbage collection fails", failCleanup: 2, journalOutcome: "retired", pairOutcome: "not_attempted"},
-		{name: "pair changes after journal retirement", changePair: true, journalOutcome: "retired", pairOutcome: "still_fenced"},
-		{name: "new barrier after journal retirement", newJournal: true, journalOutcome: "retired", pairOutcome: "not_attempted"},
+		{name: "first cleanup fails", failCleanup: 1, journalOutcome: "still_fenced", pairOutcome: "not_attempted", reason: "journal_cleanup_incomplete"},
+		{name: "final garbage collection fails", failCleanup: 2, journalOutcome: "retired", pairOutcome: "not_attempted", reason: "recovery_cleanup_failed"},
+		{name: "pair changes after journal retirement", changePair: true, journalOutcome: "retired", pairOutcome: "still_fenced", reason: "file_set_evidence_invalid"},
+		{name: "new barrier after journal retirement", newJournal: true, journalOutcome: "retired", pairOutcome: "not_attempted", reason: "recovery_cleanup_failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
@@ -267,6 +283,9 @@ func TestApplyRecoveryCleanupReportsPartialRetirement(t *testing.T) {
 			if !result.HasErrors || result.ActionCount != 0 || !slices.Equal(result.RecoveryCleanup, want) {
 				t.Fatalf("partial apply result = %s, want %v", &stdout, want)
 			}
+			if len(result.Errors) != 1 || result.Errors[0].Code != test.reason || result.Errors[0].Phase != "preflight" || result.Errors[0].Outcome != "refused" {
+				t.Fatalf("cleanup failure lost its reason or reported normal apply effects: %s", &stdout)
+			}
 			assertApplyConfirmationFileContent(t, fixture.hostPath, string(fixture.oldContent))
 			assertApplyConfirmationFileContent(t, fixture.paths.StatefilePath, state)
 			assertApplyConfirmationFileContent(t, marker, evidence)
@@ -277,14 +296,50 @@ func TestApplyRecoveryCleanupReportsPartialRetirement(t *testing.T) {
 				assertCLIPathMissing(t, fixture.residueDir)
 			}
 			if !test.changePair && !test.newJournal {
+				var gcEvidence string
+				gcRecord := filepath.Join(fixture.garbageDir, retirement.RecordFileName)
+				if test.failCleanup == 2 {
+					gcEvidence = readCleanupFile(t, gcRecord)
+				}
 				content := runApplyCleanupJSON(t, "apply", "--yes", "--manifest", fixture.manifestPath)
 				retry := clijson.DecodeApplyResult(t, content)
 				if retry.ActionCount != 1 || retry.HasErrors || len(retry.RecoveryCleanup) == 0 || retry.RecoveryCleanup[len(retry.RecoveryCleanup)-1].Kind != "declaration_pair" {
 					t.Fatalf("retry did not complete: %s", content)
 				}
 				assertCLIPathMissing(t, filepath.Dir(marker))
+				if gcEvidence != "" {
+					assertApplyConfirmationFileContent(t, gcRecord, gcEvidence)
+				}
 			}
 		})
+	}
+}
+
+func TestApplyRecoveryCleanupHumanReportsPartialFailureAndRetry(t *testing.T) {
+	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
+	prepareRecoveryApplyDeclarations(t, fixture.manifestPath, string(fixture.newContent))
+	writeApplyConfirmationFile(t, fixture.paths.ManifestRoot, "AGENTS.md", string(fixture.oldContent))
+	stageApplyPair(t, fixture.paths, true)
+	var stdout, stderr bytes.Buffer
+	args := []string{"apply", "--yes", "--manifest", fixture.manifestPath}
+	filesystem := &failActiveJournalGCCleanupStore{Store: storagecommit.Adapter{}}
+	code := RunWithOptions(args, RunOptions{
+		Stdout: &stdout, Stderr: &stderr,
+		ApplyExecuteOptions: applyworkflow.ExecuteOptions{RecoveryCleanupFilesystem: filesystem},
+	})
+	journal := strings.Index(stderr.String(), "already-retired apply journal: recovery cleared")
+	pair := strings.Index(stderr.String(), "completed manifest and lockfile update: cleanup not attempted")
+	if code != 1 || journal < 0 || pair <= journal || !strings.Contains(stderr.String(), "normal apply did not start") || strings.Contains(stderr.String(), "before effects") {
+		t.Fatalf("partial cleanup exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunWithOptions(args, RunOptions{Stdout: &stdout, Stderr: &stderr})
+	pair = strings.Index(stdout.String(), "completed manifest and lockfile update: recovery cleared")
+	applied := strings.Index(stdout.String(), "applied:")
+	if code != 0 || pair < 0 || applied <= pair || stderr.Len() != 0 {
+		t.Fatalf("cleanup retry exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
 	}
 }
 
@@ -416,6 +471,14 @@ func TestApplyCleanupRetainsReceiptWhenNormalPlanChanges(t *testing.T) {
 	assertApplyConfirmationFileContent(t, paths.StatefilePath, legacy)
 	assertCLIPathMissing(t, paths.OwnershipRegistryPath)
 	assertCLIPathMissing(t, paths.CarrierClaimRegistryPath)
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversion, err := metadataconversion.PrepareForCommand(t.Context(), barrier)
+	if err != nil || !conversion.Changed() {
+		t.Fatalf("unchanged test metadata must still qualify for conversion: %v", err)
+	}
 }
 
 func prepareRecoveryApplyDeclarations(t *testing.T, manifest, source string) {
