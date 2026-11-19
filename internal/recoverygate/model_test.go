@@ -93,6 +93,41 @@ func TestCombineCancellationHasHighestPrecedence(t *testing.T) {
 	}
 }
 
+func TestRefineOwnerRefusalPreservesTheOtherAxis(t *testing.T) {
+	t.Parallel()
+	observed := Combine(journal.ErrIncompleteJournalCleanup, fileset.ErrInterruptedFileSetTransaction)
+	for _, test := range []struct {
+		name    string
+		refusal error
+		journal journal.InterruptionKind
+		fileSet fileset.FileSetFenceKind
+	}{
+		{
+			name: "journal drift", refusal: journal.ErrInterruptedApply,
+			journal: journal.InterruptionActiveApply, fileSet: fileset.FileSetFencePublishedTransaction,
+		},
+		{
+			name: "file-set evidence invalid", refusal: fileset.ErrFileSetEvidenceInvalid,
+			journal: journal.InterruptionCleanupOnly, fileSet: fileset.FileSetFenceInvalidEvidence,
+		},
+		{
+			name: "both axes reobserved", refusal: Combine(journal.ErrInterruptedApply, nil),
+			journal: journal.InterruptionActiveApply, fileSet: fileset.FileSetFenceClear,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := RefineOwnerRefusal(observed, test.refusal)
+			state := StateOf(err)
+			if !state.JournalKnown() || state.Journal() != test.journal || !state.FileSetKnown() || state.FileSet() != test.fileSet {
+				t.Fatalf("refined refusal lost or replaced observed authority: %+v (%v)", state, err)
+			}
+		})
+	}
+	if err := RefineOwnerRefusal(observed, context.Canceled); !IsCancellation(err) || StateOf(err).Observed() {
+		t.Fatalf("cancellation was replaced by lower-priority recovery facts: %v", err)
+	}
+}
+
 func TestAccessFailureMessagePrecedesObservedJournalAuthority(t *testing.T) {
 	t.Parallel()
 	err := Combine(journal.ErrInterruptedApply, fileset.ErrFileSetAccessUnprovable)

@@ -83,7 +83,7 @@ func (plan *Plan) Retire(ctx context.Context, filesystem mutationfs.Store, reval
 			if err := validateCommand(ctx); err != nil {
 				return err
 			}
-			if err := pending.validateAxes(ctx, false); err != nil {
+			if _, err := pending.validateAxes(ctx, false); err != nil {
 				return err
 			}
 			if err := pending.barrier.ValidateFileSetRecovery(ctx); err != nil {

@@ -73,10 +73,11 @@ type Pending struct {
 
 // Observe returns nil for a clear workspace or a refusal if either axis cannot
 // be qualified. The ordinary barrier supplies the selected paths.
-func Observe(ctx context.Context, barrier recoverygate.EffectAuthority, barrierErr error) (*Pending, error) {
+func Observe(ctx context.Context, barrier recoverygate.EffectAuthority, barrierErr error) (_ *Pending, returnErr error) {
 	if !MayQualify(barrierErr) {
 		return nil, barrierErr
 	}
+	defer func() { returnErr = recoverygate.RefineOwnerRefusal(barrierErr, returnErr) }()
 	paths, err := barrier.SelectedPaths()
 	if err != nil {
 		return nil, err
@@ -113,16 +114,13 @@ func Observe(ctx context.Context, barrier recoverygate.EffectAuthority, barrierE
 		}
 		pending.pair, err = selection.ObserveSettled(ctx, stateDir, pending.declarationControls(), budget)
 		if err != nil {
-			if fileset.FileSetFenceKindOf(err) != fileset.FileSetFenceClear {
-				return nil, recoverygate.RefineFileSetRefusal(barrierErr, err)
-			}
 			return nil, err
 		}
 		if pending.pair == nil {
 			return nil, mutation.StaleSnapshotError{}
 		}
 	}
-	if err := pending.validateAxes(ctx, pending.journal != nil); err != nil {
+	if _, err := pending.validateAxes(ctx, pending.journal != nil); err != nil {
 		return nil, err
 	}
 	return pending, nil
@@ -151,25 +149,25 @@ func (pending *Pending) observeJournal(ctx context.Context, filesystem mutationf
 	return journal.ObserveJournalCleanup(ctx, root, filesystem, budget, pending.profile)
 }
 
-func (pending *Pending) validateAxes(ctx context.Context, journalPending bool) error {
+func (pending *Pending) validateAxes(ctx context.Context, journalPending bool) (observed, refusal error) {
 	if current, err := pending.barrier.ExistingStateDir(ctx); err != nil {
-		return err
+		return nil, err
 	} else if current != pending.stateDir {
-		return mutation.StaleSnapshotError{}
+		return nil, mutation.StaleSnapshotError{}
 	}
-	err := pending.barrier.Validate(ctx)
-	if !MayQualify(err) {
-		if err == nil {
-			return mutation.StaleSnapshotError{}
+	fence := pending.barrier.Validate(ctx)
+	if !MayQualify(fence) {
+		if fence == nil {
+			return nil, mutation.StaleSnapshotError{}
 		}
-		return err
+		return nil, fence
 	}
-	state := recoverygate.StateOf(err)
+	state := recoverygate.StateOf(fence)
 	if (state.Journal() == journal.InterruptionCleanupOnly) != journalPending ||
 		(state.FileSet() == fileset.FileSetFencePublishedTransaction) != (pending.pair != nil) {
-		return mutation.StaleSnapshotError{}
+		return nil, mutation.StaleSnapshotError{}
 	}
-	return nil
+	return fence, nil
 }
 
 // Validate checks that the private planning exception still refers to the same
@@ -187,27 +185,32 @@ func (pending *Pending) ReadSettledManifest(ctx context.Context) ([]byte, error)
 }
 
 func (pending *Pending) validate(ctx context.Context, filesystem mutationfs.Reader) error {
-	if err := pending.validateAxes(ctx, pending.journal != nil); err != nil {
+	fence, err := pending.validateAxes(ctx, pending.journal != nil)
+	if err != nil {
 		return err
 	}
 	budget := physicalwork.NewPathBudget()
 	if pending.journal != nil {
 		current, err := pending.observeJournal(ctx, filesystem, budget)
 		if err != nil {
-			return err
+			return recoverygate.RefineOwnerRefusal(fence, err)
 		}
 		if !pending.journal.SameExecutionAuthority(current) {
 			return mutation.StaleSnapshotError{}
 		}
 	}
 	if pending.pair != nil {
-		return pending.pair.Validate(ctx, pending.declarationControls(), budget)
+		return recoverygate.RefineOwnerRefusal(fence, pending.pair.Validate(ctx, pending.declarationControls(), budget))
 	}
 	return nil
 }
 
 func (pending *Pending) declarationControls() []string {
-	return append(pending.workspaceControls(), pending.marker, pending.paths.RecoveryDir)
+	return append(pending.workspaceControls(), pending.marker, pending.paths.RecoveryDir, pending.leaseStoreNamespace())
+}
+
+func (pending *Pending) leaseStoreNamespace() string {
+	return filepath.Join(pending.paths.DataDir, "locks")
 }
 
 func (pending *Pending) workspaceControls() []string {
@@ -294,7 +297,7 @@ func (plan *Plan) checkDisjoint(includeJournal bool) error {
 		retirements = append(retirements, entry)
 	}
 	// The lease store is an overlap control, not a leasable resource.
-	if err := rejectOverlap(filepath.Join(plan.pending.paths.DataDir, "locks"), retirements, budget); err != nil {
+	if err := rejectOverlap(plan.pending.leaseStoreNamespace(), retirements, budget); err != nil {
 		return err
 	}
 	for _, path := range plan.protected {
