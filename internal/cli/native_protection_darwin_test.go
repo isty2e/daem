@@ -26,7 +26,7 @@ func TestNativeProtectionDiagnosticNamesTheUncertainDocumentNotAnUnavailableFore
 	if !errors.As(failure, &protection) || protection.Kind() != journalnamespace.ProtectionUnverified || protection.Uncertainty() != journalnamespace.ProtectionDocumentIndeterminate || errors.Is(failure, configuration.ErrReserved) {
 		t.Fatal("normalization-sensitive document became a reserved hit or unavailable root", failure)
 	}
-	diagnostic, reason := applyFailurePrimary(applyFailurePlanning, failure, applyworkflow.CommandResult{})
+	diagnostic, reason := applyFailurePrimary(applyFailurePlanning, failure, applyworkflow.CommandResult{}, false)
 	if reason != applyworkflow.FailureReasonApplyRefused || !strings.Contains(diagnostic.Message(), "document's future path") || strings.Contains(diagnostic.Message(), "home could not") || len(diagnostic.Guidance()) != 1 || !strings.Contains(diagnostic.Guidance()[0].Message(), "filesystem spelling") {
 		t.Fatal("normalization diagnostic blamed the already-resolved host location", diagnostic.HumanText())
 	}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -155,6 +157,54 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 				if strings.Contains(failure.Detail(), private) {
 					t.Fatalf("public detail %q contains private cause fragment %q", failure.Detail(), private)
 				}
+			}
+		})
+	}
+}
+
+func TestClassifyFailureProjectsStaleAgentConfigOnlyBeforeReconciliation(t *testing.T) {
+	t.Parallel()
+
+	declaration, err := entity.New(entity.KindAgentConfig, "preferences")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := fmt.Errorf("private source path: %w", lockobserve.NativeSourceStaleError{DeclarationID: declaration})
+	preflight := ClassifyFailure(stale, CommandResult{})
+	if got, present := preflight.StaleAgentConfigSource(); !present || got != declaration {
+		t.Fatalf("stale-source preflight lost the declaration: %v, present=%t", got, present)
+	}
+	plain := ClassifyFailure(lockobserve.ErrNativeSourceStale, CommandResult{})
+	if id, present := plain.StaleAgentConfigSource(); present || id != (entity.ID{}) {
+		t.Fatalf("cause without a declaration acquired one: %v, present=%t", id, present)
+	}
+	if preflight.Reason() != FailureReasonApplyRefused || preflight.Phase() != FailurePhasePreflight || preflight.Outcome() != FailureOutcomeRefused ||
+		preflight.PrimaryDetail() != plain.PrimaryDetail() || preflight.Detail() != plain.Detail() {
+		t.Fatal("additional diagnostic evidence changed the original refusal", preflight)
+	}
+
+	for _, test := range []struct {
+		name   string
+		other  error
+		result CommandResult
+	}{
+		{name: "reconciliation ready", result: CommandResult{ReconciliationReady: true}},
+		{name: "effects attempted", result: CommandResult{ExecutionAttempted: true}},
+		{name: "cancellation", other: context.Canceled},
+		{name: "stale plan", other: mutation.StalePlanError{}},
+		{name: "known file-set fence", other: fileset.ErrInterruptedFileSetTransaction},
+		{name: "unclassified recovery barrier", other: recoverygate.Combine(errors.New("unclassified journal failure"), nil)},
+		{name: "native support refusal", other: nativeSupportError{nativeSupportRoutes}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failure := ClassifyFailure(errors.Join(stale, test.other), test.result)
+			if id, present := failure.StaleAgentConfigSource(); present || id != (entity.ID{}) {
+				t.Fatalf("stale-source detail displaced a stronger disposition: %v, present=%t", id, present)
+			}
+			want := ClassifyFailure(errors.Join(lockobserve.ErrNativeSourceStale, test.other), test.result)
+			if failure.Reason() != want.Reason() || failure.Phase() != want.Phase() || failure.Outcome() != want.Outcome() ||
+				failure.PrimaryDetail() != want.PrimaryDetail() || failure.Detail() != want.Detail() {
+				t.Fatalf("stale-source detail changed the failure: %v, want %v", failure, want)
 			}
 		})
 	}

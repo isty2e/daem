@@ -107,13 +107,14 @@ const (
 
 // Failure is a path-neutral public projection of an internal apply error.
 type Failure struct {
-	reason            FailureReason
-	phase             FailurePhase
-	outcome           FailureOutcome
-	barrier           recoverygate.State
-	backendTransition *readiness.MCPBackendTransitionError
-	nativeSupport     nativeSupportReason
-	documentAdmission *nativeoperation.DocumentAdmissionError
+	reason                 FailureReason
+	phase                  FailurePhase
+	outcome                FailureOutcome
+	barrier                recoverygate.State
+	backendTransition      *readiness.MCPBackendTransitionError
+	nativeSupport          nativeSupportReason
+	documentAdmission      *nativeoperation.DocumentAdmissionError
+	staleAgentConfigSource entity.ID
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -128,26 +129,30 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		}
 	}
 
-	reason := classifyFailureReason(err, result.ExecutionAttempted)
-	var transition *readiness.MCPBackendTransitionError
-	if reason == FailureReasonMCPBackendTransition {
-		errors.As(err, &transition)
+	failure := Failure{
+		reason:  classifyFailureReason(err, result.ExecutionAttempted),
+		phase:   phase,
+		outcome: outcome,
+		barrier: recoverygate.StateOf(err),
 	}
-	var nativeSupport nativeSupportError
-	var documentAdmission *nativeoperation.DocumentAdmissionError
-	if reason == FailureReasonApplyRefused {
+	switch failure.reason {
+	case FailureReasonMCPBackendTransition:
+		errors.As(err, &failure.backendTransition)
+	case FailureReasonApplyRefused:
+		var nativeSupport nativeSupportError
 		errors.As(err, &nativeSupport)
-		errors.As(err, &documentAdmission)
+		failure.nativeSupport = nativeSupport.reason
+		errors.As(err, &failure.documentAdmission)
+
+		if phase == FailurePhasePreflight && !result.ReconciliationReady && !failure.barrier.Observed() &&
+			failure.nativeSupport == 0 && failure.documentAdmission == nil {
+			var stale lockobserve.NativeSourceStaleError
+			if errors.As(err, &stale) && stale.DeclarationID.Kind() == entity.KindAgentConfig {
+				failure.staleAgentConfigSource = stale.DeclarationID
+			}
+		}
 	}
-	return Failure{
-		reason:            reason,
-		phase:             phase,
-		outcome:           outcome,
-		barrier:           recoverygate.StateOf(err),
-		backendTransition: transition,
-		nativeSupport:     nativeSupport.reason,
-		documentAdmission: documentAdmission,
-	}
+	return failure
 }
 
 func classifyFailureReason(err error, executionAttempted bool) FailureReason {
@@ -247,6 +252,12 @@ func (failure Failure) Outcome() FailureOutcome { return failure.outcome }
 // RecoveryBarrier returns the independently preserved journal and file-set
 // evidence associated with this failure.
 func (failure Failure) RecoveryBarrier() recoverygate.State { return failure.barrier }
+
+// StaleAgentConfigSource returns the declaration for an otherwise unclassified
+// stale-source refusal before reconciliation.
+func (failure Failure) StaleAgentConfigSource() (entity.ID, bool) {
+	return failure.staleAgentConfigSource, failure.staleAgentConfigSource != (entity.ID{})
+}
 
 // Detail derives bounded public prose only from closed failure facts.
 func (failure Failure) Detail() string {
