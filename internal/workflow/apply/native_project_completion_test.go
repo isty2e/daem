@@ -8,6 +8,8 @@ import (
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/reconcile"
 	projectionbuild "github.com/isty2e/daem/internal/reconcile/build/projection"
@@ -74,7 +76,8 @@ func TestNativePreparationCompletesExactPendingProjectInstall(t *testing.T) {
 		t.Run(string(kind), func(t *testing.T) {
 			assessment, pending := nativeProjectCompletionFixture(t, kind, true)
 			planned := commandPlan{assessment: assessment, context: commandContext{
-				PersistenceEpoch: readiness.NewPersistenceEpoch(assessment.CurrentState, durablecarrier.EmptyGlobalCarrierClaims()),
+				Paths:            daempaths.Paths{ManifestRoot: t.TempDir()},
+				PersistenceEpoch: readiness.NewPersistenceEpochWithBudget(assessment.CurrentState, durablecarrier.EmptyGlobalCarrierClaims(), physicalwork.NewCaptureBudget(nil)),
 			}}
 			if err := admitNativeCommandPlan(t.Context(), &planned); err != nil {
 				t.Fatal(err)
@@ -141,7 +144,8 @@ func TestNativePreparationCannotCompleteFromPendingHistoryAlone(t *testing.T) {
 				}
 			}
 			planned := commandPlan{assessment: assessment, context: commandContext{
-				PersistenceEpoch: readiness.NewPersistenceEpoch(assessment.CurrentState, durablecarrier.EmptyGlobalCarrierClaims()),
+				Paths:            daempaths.Paths{ManifestRoot: t.TempDir()},
+				PersistenceEpoch: readiness.NewPersistenceEpochWithBudget(assessment.CurrentState, durablecarrier.EmptyGlobalCarrierClaims(), physicalwork.NewCaptureBudget(nil)),
 			}}
 			err = admitNativeCommandPlan(t.Context(), &planned)
 			if scenario == "stale evidence" {

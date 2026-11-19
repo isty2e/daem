@@ -64,6 +64,13 @@ func (captured CapturedNativeJournal) ActiveJournalAuthority() journalinventory.
 	return captured.active
 }
 
+func (captured CapturedNativeJournal) MissingClaimNamespaces() ([]pathauthority.Provisional, error) {
+	if err := captured.Validate(); err != nil {
+		return nil, err
+	}
+	return captured.qualified.MissingClaimNamespaces()
+}
+
 // References returns runtime lookup evidence, not fields added to the journal.
 func (captured CapturedNativeJournal) References() []pathauthority.Reference {
 	references := append([]pathauthority.Reference(nil), captured.publication.references...)

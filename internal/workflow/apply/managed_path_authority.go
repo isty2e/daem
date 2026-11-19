@@ -8,18 +8,19 @@ import (
 )
 
 type managedPathFingerprintFacts struct {
-	Kind          reconcile.ManagedPathDecisionKind
-	Subject       topology.SubjectID
-	Consumers     []string
-	Scope         string
-	Destination   string
-	DesiredHash   string
-	LiveHash      string
-	ContentKind   realization.PathProjectionContentKind
-	PlacementMode realization.PathProjectionMode
-	Reason        reconcile.ActionReason
-	Detail        string
-	Previous      *managedPathPreviousFingerprintFacts
+	Kind                  reconcile.ManagedPathDecisionKind
+	Subject               topology.SubjectID
+	Consumers             []string
+	Scope                 string
+	Destination           string
+	DesiredHash           string
+	LiveHash              string
+	ContentKind           realization.PathProjectionContentKind
+	PlacementMode         realization.PathProjectionMode
+	Reason                reconcile.ActionReason
+	Detail                string
+	Previous              *managedPathPreviousFingerprintFacts
+	RetiresAbsentPrevious bool `json:",omitempty"`
 }
 
 type managedPathPreviousFingerprintFacts struct {
@@ -40,6 +41,7 @@ func managedPathFingerprintRows(decisions []reconcile.ManagedPathDecision) []man
 			DesiredHash: string(decision.DesiredHash()), LiveHash: string(decision.LiveHash()),
 			ContentKind: decision.ContentKind(), PlacementMode: decision.PlacementMode(),
 			Reason: decision.Reason(), Detail: decision.Detail(),
+			RetiresAbsentPrevious: decision.RetiresAbsentPrevious(),
 		}
 		if previous, present := decision.PreviousState(); present {
 			row.Previous = &managedPathPreviousFingerprintFacts{

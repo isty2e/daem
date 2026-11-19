@@ -4,6 +4,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -19,11 +20,31 @@ const (
 	nativeSupportCarrierState
 	nativeSupportNamespace
 	nativeSupportWholeRewrite
+	nativeSupportWholeDocumentOverlap
+	nativeSupportDuplicateWholeDocument
+	nativeSupportWholeMoveToSameDocument
+	nativeSupportAbsentWholeAndKeys
+	nativeSupportWholeRemovalAndKeys
 )
 
 type nativeSupportError struct{ reason nativeSupportReason }
 
 func (err nativeSupportError) Error() string { return err.reason.detail() }
+
+func nativeDocumentConflictReason(kind nativeoperation.WholeDocumentConflictKind) nativeSupportReason {
+	switch kind {
+	case nativeoperation.DuplicateWholeDocumentWork:
+		return nativeSupportDuplicateWholeDocument
+	case nativeoperation.WholeMoveToSameDocument:
+		return nativeSupportWholeMoveToSameDocument
+	case nativeoperation.AbsentWholeRetirementAndKeys:
+		return nativeSupportAbsentWholeAndKeys
+	case nativeoperation.WholeDocumentRemovalAndKeys:
+		return nativeSupportWholeRemovalAndKeys
+	default:
+		return nativeSupportWholeDocumentOverlap
+	}
+}
 
 func (reason nativeSupportReason) detail() string {
 	switch reason {
@@ -37,6 +58,12 @@ func (reason nativeSupportReason) detail() string {
 		return "selected settings overlap the plugin host's private namespace without a supported rewrite contract"
 	case nativeSupportWholeRewrite:
 		return "whole-file ownership overlaps settings rewritten by an extension command"
+	case nativeSupportWholeDocumentOverlap, nativeSupportAbsentWholeAndKeys, nativeSupportWholeRemovalAndKeys:
+		return "whole-file management and selected settings changes overlap in the same configuration file"
+	case nativeSupportDuplicateWholeDocument:
+		return "multiple whole-file operations resolve to the same configuration file"
+	case nativeSupportWholeMoveToSameDocument:
+		return "the new path resolves to the same configuration destination as the recorded path"
 	default:
 		return "the selected settings-key execution is not supported"
 	}
@@ -108,6 +135,16 @@ func (reason nativeSupportReason) repairInstruction() string {
 		return "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before apply"
 	case nativeSupportWholeRewrite:
 		return "use key ownership for the shared settings file, or choose a separate dedicated file"
+	case nativeSupportWholeDocumentOverlap:
+		return "use separate paths, or use key ownership for the shared configuration file"
+	case nativeSupportDuplicateWholeDocument:
+		return "choose distinct destinations that do not resolve to the same file"
+	case nativeSupportWholeMoveToSameDocument:
+		return "keep the original path in the declaration, or choose a different file to move to; then run daem lock and daem apply"
+	case nativeSupportAbsentWholeAndKeys:
+		return "leave the new key declaration out and run daem lock, then daem apply to retire the old management; add the key declaration back and run both commands again"
+	case nativeSupportWholeRemovalAndKeys:
+		return `to keep the existing file, restore the original declaration at the recorded path, set ownership = "keys", and put only the settings you want to manage in its source. Remove the competing key declaration, then run daem lock and daem apply. To replace the file, leave the new key declaration out and run daem lock, then daem apply (this deletes the existing managed file), then add the key declaration and run both commands again`
 	default:
 		return ""
 	}

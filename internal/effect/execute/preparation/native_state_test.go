@@ -5,10 +5,54 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
+
+func TestNativeAbsentRetirementRequiresExactStateAndCannotCaptureAPathMutation(t *testing.T) {
+	id, err := entity.New(entity.KindAgentConfig, "obsolete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := aggregate.AgentConfigDocumentSubject(id, target.TargetCodex, target.ScopeProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, err := durable.NewManagedPathState(subject, []target.Target{target.TargetCodex}, target.ScopeProject,
+		outputtest.Parse(t, ".codex/prefs.toml"), testArtifactHash("previous"), realization.PathProjectionFile, realization.PathPermissionsExact, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := reconcile.NewManagedPathDecision(reconcile.ManagedPathDecisionInput{
+		Kind: reconcile.ManagedPathRetireAbsent, Reason: reconcile.ReasonRemovedFromManifest, Subject: subject,
+		Scope: previous.Scope(), Destination: previous.Destination(), ContentKind: previous.ContentKind(),
+		PermissionPolicy: previous.PermissionPolicy(), Previous: &previous,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := durable.NewSnapshot(durable.SnapshotInput{ManagedPaths: []durable.ManagedPathState{previous}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := NativeApplyStateInput{Before: before, ManagedPaths: []reconcile.ManagedPathDecision{decision}, StateCodec: statefile.Codec{}}
+	prepared, err := PrepareNativeApplyState(t.Context(), input)
+	if err != nil || len(prepared.AfterState().ManagedPaths()) != 0 {
+		t.Fatal("absent retirement did not consume the previous row", err)
+	}
+	if mutations, err := ManagedPathJournalMutations(prepared.ManagedPathEffects()); err == nil || len(mutations) != 0 {
+		t.Fatal("ordinary capture admitted a host mutation for retirement", err)
+	}
+
+	input.Before = durable.EmptySnapshot()
+	if _, err := PrepareNativeApplyState(t.Context(), input); err == nil {
+		t.Fatal("absent retirement admitted an unowned file")
+	}
+}
 
 func TestNativeApplyStatePreservesOrdinaryRelocationInputs(t *testing.T) {
 	previous := testManagedPathEffectStateAt(t, "oracle", "skill.project.opencode", []target.Target{target.TargetOpenCode}, outputtest.Parse(t, ".opencode/skills/oracle"))

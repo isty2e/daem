@@ -30,7 +30,8 @@ func PrintPlanResultWithOptions(output io.Writer, planResult reconcile.Result, o
 	}
 	for _, label := range []string{
 		"add managed output", "update managed output", "remove managed output",
-		"manage existing matching output", "update managed ownership", "record managed output", "blocked",
+		"manage existing matching output", "update managed ownership", "record managed output",
+		absentRetirementLabel, absentRelocationLabel, "blocked",
 	} {
 		if counts[label] != 0 {
 			fmt.Fprintf(output, "  %s: %d\n", label, counts[label])
@@ -94,7 +95,7 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 		printNativeKeyLocation(output, decision)
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
-		} else if decision.Kind() == reconcile.AggregateRemove &&
+		} else if decision.Kind() == reconcile.AggregateRemove && !decision.RetiresAbsentKey() &&
 			decision.Detail() != "" {
 			fmt.Fprintln(
 				output,
@@ -107,10 +108,14 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 func printVerboseAggregateRows(output io.Writer, decisions []reconcile.AggregateSubjectDecision) {
 	for _, decision := range decisions {
 		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
+		label := aggregatePublicKind(decision)
+		if decision.RetiresAbsentKey() {
+			label = absentRetirementLabel
+		}
 		fmt.Fprintf(
 			output,
 			"%s %s=%s target=%s scope=%s destination=%s content_path=%s reason=%s",
-			aggregatePublicKind(decision),
+			label,
 			identityLabel,
 			Quote(identityValue),
 			Escape(string(decision.Target())),
@@ -155,7 +160,15 @@ func projectionIdentityLabel(subject topology.SubjectID) (string, string) {
 	return "subject", subjectString(*planJSONSubjectFor(subject))
 }
 
+const (
+	absentRetirementLabel = "retire management of missing output"
+	absentRelocationLabel = "create at the new path and retire management of the absent file"
+)
+
 func aggregateLabel(decision reconcile.AggregateSubjectDecision) string {
+	if decision.RetiresAbsentKey() {
+		return absentRetirementLabel
+	}
 	if decision.Kind() == reconcile.AggregateRecord {
 		switch decision.Reason() {
 		case reconcile.ReasonManagedExisting:
@@ -210,10 +223,14 @@ func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.Managed
 	for _, decision := range decisions {
 		identityLabel, identityValue := projectionIdentityLabel(decision.Subject())
 		targetLabel, targetValue := managedPathTargetLabel(decision)
+		label := managedPathPublicKind(decision)
+		if decision.Kind() == reconcile.ManagedPathRetireAbsent {
+			label = absentRetirementLabel
+		}
 		fmt.Fprintf(
 			output,
 			"%s %s=%s %s=%s scope=%s destination=%s mode=%s reason=%s",
-			managedPathPublicKind(decision),
+			label,
 			identityLabel,
 			Quote(identityValue),
 			targetLabel,
@@ -231,7 +248,7 @@ func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.Managed
 		}
 		if decision.PermissionPolicy() != "" {
 			fmt.Fprintf(output, " permission_policy=%s", decision.PermissionPolicy())
-			if decision.PermissionPolicy() != "none" {
+			if decision.PermissionPolicy() != "none" && decision.Kind() != reconcile.ManagedPathRetireAbsent {
 				fmt.Fprintf(
 					output,
 					" desired_file_mode=%04o live_file_mode=%04o",
@@ -252,6 +269,8 @@ func managedPathPublicKind(decision reconcile.ManagedPathDecision) string {
 		return "update"
 	case reconcile.ManagedPathRemove:
 		return "delete"
+	case reconcile.ManagedPathRetireAbsent:
+		return "record"
 	default:
 		return string(decision.Kind())
 	}
@@ -267,6 +286,9 @@ func managedPathTargetLabel(decision reconcile.ManagedPathDecision) (string, str
 }
 
 func managedPathLabel(decision reconcile.ManagedPathDecision) string {
+	if decision.RetiresAbsentPrevious() {
+		return absentRelocationLabel
+	}
 	if decision.Kind() == reconcile.ManagedPathRecord {
 		switch decision.Reason() {
 		case reconcile.ReasonManagedExisting:
@@ -282,6 +304,8 @@ func managedPathLabel(decision reconcile.ManagedPathDecision) string {
 		return "update managed output"
 	case reconcile.ManagedPathRemove:
 		return "remove managed output"
+	case reconcile.ManagedPathRetireAbsent:
+		return absentRetirementLabel
 	case reconcile.ManagedPathRecord:
 		return "record managed output"
 	case reconcile.ManagedPathNoOp:

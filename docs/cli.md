@@ -1536,12 +1536,15 @@ narrow it using RFC 6901 pointers. Selecting an object selects only its currentl
 declared atomic descendants, not future or undeclared children. Array elements
 cannot be selected independently. Whole-document ownership, ownership-mode
 changes, and moving recorded ownership to another host, scope or file are refused.
+Replacement also checks the resolved file for reserved keys, scope restrictions,
+and overlapping management, just as `apply` does.
 
 For noninteractive execution, first inspect `--dry-run --json`. Copy its opaque
 `fingerprint` into `--expect-plan` and execute with both `--yes` and
 `--expect-plan`. Bare `--yes` is refused. The declaration, source, selected values,
-ownership and file protection must still match the approved plan. A mismatch
-requires a fresh preview; `--yes` does not override it. Unselected values, comments
+ownership and file protection for the selected document must still match the
+approved plan. A mismatch requires a fresh preview; `--yes` does not override it.
+Unselected values, comments
 and formatting can change: execution rereads and preserves them rather than
 replaying saved file bytes. Replacing a file inode alone does not invalidate
 consent when the selected namespace, values and protection still match.
@@ -1693,6 +1696,15 @@ and any typed `foreign_precedence_change` risks. OpenCode rows describe config
 order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
+
+In `actions`, removing a managed agent configuration key uses `kind: "delete"`
+and `reason: "removed_from_manifest"` even if the key is already absent. When
+the declaration of an already absent dedicated file is removed, apply reports
+`kind: "record"` with the same reason and no requested file mode. Moving an
+absent dedicated file within one agent uses `kind: "update"` with the old
+placement in `previous_state`. Moving across agents reports the old record
+separately with `kind: "record"` and `reason: "state_stale"`. Human output
+distinguishes retiring management from deleting a file.
 
 For `effective_shadowing`, `state: "unobserved"` with reason
 `EFFECTIVE_OBSERVER_UNSUPPORTED` means the catalog does not provide an

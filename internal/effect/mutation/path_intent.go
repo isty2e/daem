@@ -59,10 +59,6 @@ func (intent namespaceLeaseIntent) isZero() bool {
 	return intent == namespaceLeaseIntent{}
 }
 
-func (intent namespaceLeaseIntent) matchesCurrent() (bool, error) {
-	return intent.matchesCurrentUsing(canonicalPathIdentity)
-}
-
 func (intent namespaceLeaseIntent) matchesCurrentUsing(observe pathIdentityObserver) (bool, error) {
 	identity, err := observe(intent.accessPath, PathEffectReferent)
 	if err != nil {

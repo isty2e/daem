@@ -7,6 +7,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
+	"github.com/isty2e/daem/internal/desired/agentconfig"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
@@ -54,6 +56,7 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 		States:             input.managedPathStates, Evidence: input.managedPathEvidence,
 		ManageUnmanagedMatches: input.manageUnmanagedMatches,
 		Owner:                  input.owner, Ownership: input.ownership,
+		AbsentAgentConfigRetirements: absentAgentConfigRetirements(input.environment, input.managedPathStates, input.selectedTargets),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("build managed path decisions: %w", err)
@@ -128,6 +131,34 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 		return nil, nil, fmt.Errorf("build managed aggregate decisions: %w", err)
 	}
 	return managedPaths, aggregates, nil
+}
+
+func absentAgentConfigRetirements(environment desired.Environment, paths []durable.ManagedPathState, selected reconcile.SelectedTargets) map[topology.SubjectID]reconcile.ActionReason {
+	configs := environment.AgentConfigs()
+	declared := make(map[entity.ID]agentconfig.Config, len(configs))
+	for _, config := range configs {
+		declared[config.ID()] = config
+	}
+
+	retirements := make(map[topology.SubjectID]reconcile.ActionReason)
+	for _, path := range paths {
+		subject := path.Subject()
+		id, entityBacked := topologyprojection.EntityID(subject)
+		if !entityBacked || id.Kind() != entity.KindAgentConfig {
+			continue
+		}
+		config, present := declared[id]
+		if !present {
+			retirements[subject] = reconcile.ReasonRemovedFromManifest
+			continue
+		}
+		consumers := path.ConsumerTargets()
+		if config.Ownership() == agentconfig.OwnershipDocument && selected.Contains(config.Target()) &&
+			len(consumers) == 1 && consumers[0] != config.Target() {
+			retirements[subject] = reconcile.ReasonStateStale
+		}
+	}
+	return retirements
 }
 
 func managedPathExpectations(

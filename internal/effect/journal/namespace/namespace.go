@@ -319,11 +319,12 @@ func ObserveAlias(ctx context.Context, address aggregate.DocumentAddress, roots 
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
-	qualified, err := roots.Qualify(ctx, budget)
+	allocation := &physicalObservationBudget{traversal: budget}
+	qualified, err := roots.Qualify(ctx, allocation)
 	if err != nil {
 		return mutation.DirectoryEntryAuthorityObservation{}, err
 	}
-	alias, _, err := observeNativeAlias(ctx, inputs[0], qualified.grants, budget)
+	alias, _, err := observeNativeAlias(ctx, inputs[0], qualified.grants, allocation)
 	return alias.observation, err
 }
 
@@ -441,7 +442,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aliasInput, ro
 		boundRoots[alias.location.RootReference()] = struct{}{}
 	}
 	observer := newPhysicalObserver(protection, budget)
-	if err := observer.requireUnreserved(ctx, result.aliases); err != nil {
+	if err := observer.requireUnreserved(ctx, protectionAliases(result.aliases)); err != nil {
 		return DocumentNamespace{}, err
 	}
 	result.physical, err = observer.documents(ctx, result.aliases, qualified)

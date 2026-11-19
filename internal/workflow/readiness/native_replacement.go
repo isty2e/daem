@@ -3,9 +3,6 @@ package readiness
 import (
 	"context"
 	"fmt"
-	"slices"
-
-	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
@@ -86,6 +83,9 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 	if len(inputs.expected) == 0 {
 		return Assessment{}, fmt.Errorf("replacement has no declared atomic keys to select")
 	}
+	if err := requireNativeProjectionPermissions(source.SourceContract(), inputs.expected, nativeClaimNamespaces(input.Native.Documents), recordedNativeFootprints(before)); err != nil {
+		return Assessment{}, err
+	}
 	inputs.desired, err = aggregateContributionsFromContracts(inputs.expected)
 	if err != nil {
 		return Assessment{}, err
@@ -101,13 +101,6 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 		}
 		if _, present := selected[previous.Subject()]; present {
 			inputs.states = append(inputs.states, previous)
-			continue
-		}
-		for _, desired := range inputs.desired {
-			left, right := previous.Contribution().Address(), desired.Contribution().Address()
-			if left.Document() == right.Document() && left.Footprint().Overlaps(right.Footprint()) {
-				return Assessment{}, fmt.Errorf("replacement overlaps unselected managed ownership; reconcile or retire that ownership first")
-			}
 		}
 	}
 	facts := nativeAssessmentSources{input: input.Native, sources: []lockobserve.NativeSourceObservation{source}}
@@ -150,27 +143,12 @@ func assessNativeReplacement(ctx context.Context, input Input) (Assessment, erro
 	if err != nil {
 		return Assessment{}, err
 	}
-	allApproval, err := input.Native.Documents.Evidence().ApprovalEvidence()
-	if err != nil {
-		return Assessment{}, err
-	}
 	return Assessment{
 		StatePath: input.Paths.StatefilePath, CurrentState: before, GlobalCarrierClaims: claims,
 		Reconciliation: result, AggregateEvidence: observations.evidence, AggregateFailures: observations.failures,
 		Owner: input.Native.Owner, Ownership: ownership, SelectedTargets: targets,
 		OwnerReference: input.Native.OwnerReference,
-		NativeSources:  []lockobserve.NativeSourceObservation{source}, NativeApproval: selectedNativeReplacementApproval(inputs, allApproval),
+		NativeSources:  []lockobserve.NativeSourceObservation{source},
 		nativeRegistry: input.Native.Registry,
 	}, nil
-}
-
-func selectedNativeReplacementApproval(input managedAggregatePlanningInputs, facts []journalobservation.ApprovalEvidence) []journalobservation.ApprovalEvidence {
-	document := input.desired[0].Contribution().Address().Document()
-	var result []journalobservation.ApprovalEvidence
-	for _, fact := range facts {
-		if slices.Contains(fact.Aliases, document) {
-			result = append(result, fact)
-		}
-	}
-	return result
 }

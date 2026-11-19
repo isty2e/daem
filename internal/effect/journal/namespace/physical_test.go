@@ -9,6 +9,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -78,6 +79,47 @@ func (budget *entryObservationBudget) AdmitPathComponents(count int) error {
 	}
 	budget.visits += count
 	return nil
+}
+
+func TestOrdinaryAliasObservationDiscardsPriorEvidenceOnUnverifiedRoute(t *testing.T) {
+	first := nativeNamespaceAddress(t, target.TargetCodex, target.ScopeProject, ".codex/first.toml")
+	blocked := nativeNamespaceAddress(t, target.TargetCodex, target.ScopeProject, ".codex/blocked.toml")
+	unknown := nativeNamespaceAddress(t, target.TargetCodex, target.ScopeProject, ".codex/unknown.toml")
+	root := t.TempDir()
+	file := filepath.Join(root, "regular.toml")
+	if err := os.WriteFile(file, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	limit := errors.New("test path allocation exhausted")
+	for _, test := range []struct {
+		name  string
+		cause error
+		want  ProtectionUncertainty
+	}{
+		{name: "unresolved", cause: os.ErrPermission, want: ProtectionDocumentUnavailable},
+		{name: "work limit", cause: limit, want: ProtectionWorkLimit},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			budget := &entryObservationBudget{Budget: imageBudget(t)}
+			resolve := func(destination output.Destination, _ rootedpath.PhysicalTraversalBudget) (string, error) {
+				switch destination {
+				case blocked.AggregateRoot():
+					return filepath.Join(file, "child"), nil
+				case unknown.AggregateRoot():
+					if test.cause != limit {
+						return "", test.cause
+					}
+					budget.refuseNext = limit
+				}
+				return filepath.Join(root, filepath.Base(destination.RelativePath())), nil
+			}
+			aliases, err := ObserveOrdinaryDocumentAliases(t.Context(), []aggregate.DocumentAddress{first, blocked, unknown}, resolve, budget)
+			var failure *ProtectionError
+			if aliases != nil || budget.visits == 0 || !errors.Is(err, test.cause) || !errors.As(err, &failure) || failure.Kind() != ProtectionUnverified || failure.Uncertainty() != test.want || failure.Address() != unknown {
+				t.Fatalf("failed route returned partial evidence or lost its identity and cause: %v, %v", aliases, err)
+			}
+		})
+	}
 }
 
 func TestNativeNamedProfileRulesDoNotChangeWithOwnCreationOrRemoval(t *testing.T) {
@@ -176,8 +218,8 @@ func TestNativeRoleOnlyUnknownBlocksNewClaimsButRetainsRecordedObservation(t *te
 	if err := os.WriteFile(selected, []byte(`{"fixture":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loop := filepath.Join(base, "codex", "config.toml")
-	if err := os.Symlink(loop, loop); err != nil {
+	endpoint := filepath.Join(base, "codex", "config.toml")
+	if err := os.Symlink("missing/../config.toml", endpoint); err != nil {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
 	manifest := nativeNamespaceRoot(t, base)
@@ -199,7 +241,7 @@ func TestNativeRoleOnlyUnknownBlocksNewClaimsButRetainsRecordedObservation(t *te
 	if err := capability.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(loop); err != nil {
+	if err := os.Remove(endpoint); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := value.WriterBinding(t.Context(), imageBudget(t)); err == nil {

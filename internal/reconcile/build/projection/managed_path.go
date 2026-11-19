@@ -26,6 +26,9 @@ type ManagedPathInput struct {
 	ManageUnmanagedMatches bool
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
+	// AbsentAgentConfigRetirements identifies prior dedicated-file subjects
+	// whose declarations were removed or moved to another selected agent.
+	AbsentAgentConfigRetirements map[topology.SubjectID]reconcile.ActionReason
 }
 
 // ManagedPathInventoryInput contains only the static lock, durable state, live
@@ -116,6 +119,7 @@ func buildManagedPathDecisions(
 		return nil, err
 	}
 	addressConflicts := managedPathAddressConflicts(canonicalExpectations, states)
+
 	desiredSubjects := make(map[topology.SubjectID]struct{}, len(expectations))
 	decisions := make([]managedPathDecision, 0, len(expectations)+input.Locked.Len()+len(states))
 	for _, expectation := range canonicalExpectations {
@@ -300,8 +304,13 @@ func buildManagedPathDecisions(
 		if facts.ContentKind == realization.PathProjectionFile {
 			facts.LiveFileMode = current.FileMode()
 		}
+		retirementReason, retiring := input.AbsentAgentConfigRetirements[subject]
 		var decision managedPathDecision
 		switch {
+		case !current.Exists() && len(remaining) == 0 && retiring:
+			facts.ConsumerTargets = nil
+			facts.DesiredHash, facts.DesiredFileMode = "", 0
+			decision = newManagedPathDecision(facts, reconcile.ManagedPathRetireAbsent, retirementReason, "")
 		case !current.Exists():
 			decision = newManagedPathBlocked(facts, reconcile.ReasonMissingOutput, "managed output is missing")
 		case current.ContentHash() != state.ContentHash():

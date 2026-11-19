@@ -138,7 +138,7 @@ func TestCarrierStateReconstructionUsesTheCorrectExpectedPhysicalGroup(t *testin
 		if len(groups[source].AfterAliases()) != 0 || len(groups[targetIndex].BeforeAliases()) != 0 {
 			t.Fatal("carrier membership was inferred from the global row in both groups")
 		}
-		index, err := IndexSnapshot(t.Context(), state)
+		index, err := IndexSnapshotsForClaims(t.Context(), state, state, NativeClaims)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -233,7 +233,7 @@ func TestCarrierTransferKeepsAnotherCurrentContributorsSourceCreation(t *testing
 	if err != nil {
 		t.Fatal("MCP retirement blocked the other current contributor's repair", err)
 	}
-	index, err := IndexSnapshot(t.Context(), state)
+	index, err := IndexSnapshotsForClaims(t.Context(), state, state, NativeClaims)
 	if err != nil {
 		t.Fatal(err)
 	}

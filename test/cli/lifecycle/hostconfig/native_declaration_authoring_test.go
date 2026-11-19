@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +17,75 @@ import (
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
+
+func TestAgentConfigRemovedKeysWithAbsentDocument(t *testing.T) {
+	const removed = "version=1\ntargets=['codex']\n"
+	const newKey = "notifications = true\n"
+	for _, tc := range []struct {
+		name       string
+		manifest   string
+		withNewKey bool
+	}{
+		{name: "retire without a parent directory", manifest: removed},
+		{name: "add a disjoint key", manifest: removed + `[[agent_config]]
+id = "new"
+path = "config.toml"
+source = "new.toml"
+`, withNewKey: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := nativefixture.NewPresentation(t, "model = 'original'\n", "")
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			root := filepath.Dir(fixture.Destination)
+			if err := os.Remove(fixture.Destination); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(root); err != nil {
+				t.Fatal(err)
+			}
+			workspace := filepath.Dir(fixture.Manifest)
+			testkit.WriteFile(t, workspace, "daem.toml", tc.manifest)
+			if tc.withNewKey {
+				testkit.WriteFile(t, workspace, "new.toml", newKey)
+			}
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", fixture.Manifest)
+
+			project, err := paths.Resolve(fixture.Manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := []string{root, project.StatefilePath, project.OwnershipRegistryPath, project.RecoveryDir}
+			before := nativefixture.SnapshotRecoveryPaths(t, observed...)
+			preview := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--dry-run", "--diff")
+			if !maps.Equal(before, nativefixture.SnapshotRecoveryPaths(t, observed...)) {
+				t.Fatal("preview changed output or recovery evidence")
+			}
+			applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", fixture.Manifest, "--yes")
+			if !strings.Contains(applied, "retire management of missing output: 1") {
+				t.Fatalf("the result did not count the retired key: %s", applied)
+			}
+
+			for _, result := range []string{preview, applied} {
+				if !strings.Contains(result, "key: model: retire management of missing output") {
+					t.Fatalf("the absent key was not reported as record-only: %s", result)
+				}
+			}
+			if tc.withNewKey {
+				actual := testkit.ReadFile(t, fixture.Destination)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, actual, newKey, true)
+				nativefixture.RequireSharedValues(t, configdocument.TOML, actual, "model = 'original'\n", false)
+			} else {
+				testkit.AssertPathMissing(t, root)
+				if strings.Contains(preview, "@@") {
+					t.Fatalf("the absent retirement reported a file diff: %s", preview)
+				}
+			}
+			nativefixture.RequireLifecycleMetadata(t, fixture.Manifest, tc.withNewKey)
+			nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", fixture.Manifest, "--check", "--json"))
+			testkit.AssertNoRecoveryArtifacts(t, workspace)
+		})
+	}
+}
 
 func TestAgentConfigDeclarationAuthoringSharedLifecycle(t *testing.T) {
 	root := t.TempDir()
@@ -185,18 +255,10 @@ func TestAgentConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	if err := os.WriteFile(destination, []byte(content+"# locally changed\n"), info.Mode().Perm()); err != nil {
 		t.Fatal(err)
 	}
-	assertRetainedDocumentAdvice := func() {
-		t.Helper()
-		code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--manifest", manifest, "--target", "codex")
-		if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage agent-config dedicated") {
-			t.Errorf("blocked whole-file removal must point to management release: %d\n%s%s", code, stdout, stderr)
-		}
+	code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--manifest", manifest, "--target", "codex")
+	if code != 1 || !strings.Contains(stdout+stderr, "daem unmanage agent-config dedicated") {
+		t.Fatalf("drifted whole-file removal must point to management release: %d\n%s%s", code, stdout, stderr)
 	}
-	assertRetainedDocumentAdvice()
-	if err := os.Remove(destination); err != nil {
-		t.Fatal(err)
-	}
-	assertRetainedDocumentAdvice()
 	nativefixture.RunLifecycleCommand(t, "unmanage", "agent-config", "dedicated", "--manifest", manifest, "--target", "codex", "--scope", "project", "--dry-run")
 	nativefixture.RequireLifecycleMetadata(t, manifest, true)
 	if err := os.WriteFile(destination, []byte(content), info.Mode().Perm()); err != nil {
@@ -206,4 +268,78 @@ func TestAgentConfigDeclarationAuthoringWholeLifecycle(t *testing.T) {
 	testkit.AssertPathMissing(t, destination)
 	nativefixture.RequireLifecycleMetadata(t, manifest, false)
 	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+}
+
+func TestAgentConfigRemovedWholeDocumentAlreadyAbsent(t *testing.T) {
+	root := t.TempDir()
+	nativefixture.SetRecoveryEnvironment(t, root)
+	workspace := filepath.Join(root, "workspace")
+	manifest := filepath.Join(workspace, "daem.toml")
+	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
+targets = ["codex"]
+[[agent_config]]
+id = "dedicated"
+path = "prefs.toml"
+source = "prefs.toml"
+ownership = "document"
+`)
+	const content = "model = 'original'\n"
+	testkit.WriteFile(t, workspace, "prefs.toml", content)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	nativefixture.RequireLifecycleMetadata(t, manifest, true)
+	dir := filepath.Join(workspace, ".codex")
+	destination := filepath.Join(dir, "prefs.toml")
+	removeOutput := func() {
+		t.Helper()
+		for _, name := range []string{destination, dir} {
+			if err := os.Remove(name); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	removeOutput()
+
+	stillDesired := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--json")
+	recreate := clijson.DecodePlan(t, []byte(stillDesired))
+	if recreate.HasErrors || len(recreate.Actions) != 1 || recreate.Actions[0].Kind != "create" || recreate.Actions[0].Reason != "missing_output" {
+		t.Fatalf("still-declared whole file should be recreated, not retired: %s", stillDesired)
+	}
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	testkit.AssertFileContent(t, destination, content)
+	removeOutput()
+
+	testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = ['codex']\n")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	project, err := paths.Resolve(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := []string{dir, project.StatefilePath, project.OwnershipRegistryPath, project.RecoveryDir}
+	before := nativefixture.SnapshotRecoveryPaths(t, observed...)
+	preview := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--diff")
+	jsonPreview := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--json")
+	plan := clijson.DecodePlan(t, []byte(jsonPreview))
+	if plan.HasErrors || len(plan.Actions) != 1 || plan.Actions[0].Kind != "record" || plan.Actions[0].Reason != "removed_from_manifest" ||
+		plan.Actions[0].Safety != "" || plan.Actions[0].DesiredHash != "" || strings.Contains(jsonPreview, `"desired_file_mode"`) {
+		t.Fatalf("expected one record-only retirement without a requested file update: %s", jsonPreview)
+	}
+	if !maps.Equal(before, nativefixture.SnapshotRecoveryPaths(t, observed...)) {
+		t.Fatal("preview changed the absent output or recovery evidence")
+	}
+	applied := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	if !strings.Contains(preview, "retire management of missing output") || strings.Contains(preview, "@@") ||
+		!strings.Contains(applied, "retire management of missing output") {
+		t.Fatalf("the file retirement was not disclosed as record-only: %s\n%s", preview, applied)
+	}
+
+	testkit.AssertPathMissing(t, dir)
+	nativefixture.RequireLifecycleMetadata(t, manifest, false)
+	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+	settled := nativefixture.SnapshotRecoveryPaths(t, observed...)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	if !maps.Equal(settled, nativefixture.SnapshotRecoveryPaths(t, observed...)) {
+		t.Fatal("reapplying changed settled retirement evidence")
+	}
+	testkit.AssertNoRecoveryArtifacts(t, workspace)
 }

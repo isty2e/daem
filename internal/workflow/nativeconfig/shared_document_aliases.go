@@ -1,20 +1,13 @@
 package nativeconfig
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/desired/entity"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
-	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -22,20 +15,25 @@ import (
 
 func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snapshot, selected []aggregate.DocumentAddress) ([]aggregate.DocumentAddress, error) {
 	locations := make(map[configuration.AliasLocation]struct{}, len(selected))
+	roots := make(map[output.RootReference]struct{})
+	selectedAddresses := make(map[aggregate.DocumentAddress]struct{}, len(selected))
 	for _, address := range selected {
 		binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
 		if err != nil {
 			return nil, err
 		}
 		locations[binding.Location()] = struct{}{}
+		roots[binding.RootReference()] = struct{}{}
+		selectedAddresses[address] = struct{}{}
 	}
 	candidates := make(map[aggregate.DocumentAddress]struct{})
 	add := func(contribution aggregate.ManagedContribution) error {
-		if _, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID()); native {
+		_, native := aggregate.AgentConfigSyntaxForCodec(contribution.CodecContractID())
+		if native && input.NativeReplacement == nil {
 			return nil
 		}
 		address := contribution.Contract().Address().Document()
-		if !input.Selection.Includes(address.Target()) || slices.Contains(selected, address) {
+		if _, observed := selectedAddresses[address]; observed || !input.Selection.Includes(address.Target()) {
 			return nil
 		}
 		binding, err := configuration.RootBindingForAlias(configuration.AliasInput{Target: address.Target(), Scope: address.Scope(), Destination: address.AggregateRoot()})
@@ -45,7 +43,10 @@ func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snaps
 		if err != nil {
 			return err
 		}
-		if _, sameLocation := locations[binding.Location()]; sameLocation {
+		_, sameLocation := locations[binding.Location()]
+		_, selectedRoot := roots[binding.RootReference()]
+		_, mcp := aggregate.MCPPlacementForCodec(aggregate.MCPPlacementID(contribution.PlacementID()), contribution.CodecContractID())
+		if sameLocation || selectedRoot && (mcp || native) {
 			candidates[address] = struct{}{}
 		}
 		return nil
@@ -87,34 +88,4 @@ func ordinaryDocumentAliasCandidates(input readiness.Input, before durable.Snaps
 	}
 	slices.SortFunc(result, journaldocument.CompareAliases)
 	return result, nil
-}
-
-func joinOrdinaryDocumentAliases(ctx context.Context, paths daempaths.Paths, roots journalnamespace.Roots, budget *physicalwork.Budget, addresses, candidates []aggregate.DocumentAddress) ([]aggregate.DocumentAddress, error) {
-	resolver := physicalhostpath.NewResolver(paths)
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		native, err := journalnamespace.ObserveAlias(ctx, candidate, roots, budget)
-		if err != nil {
-			return nil, err
-		}
-		path, err := resolver.Resolve(candidate.AggregateRoot(), budget)
-		if err != nil {
-			return nil, fmt.Errorf("resolve ordinary document %q: %w", candidate.AggregateRoot(), err)
-		}
-		referent, err := rootedpath.ResolveFutureReferentPathBounded(path, physicalwork.MaximumPhysicalPathDepth, budget)
-		if err != nil {
-			return nil, fmt.Errorf("resolve ordinary document referent %q: %w", candidate.AggregateRoot(), err)
-		}
-		ordinary, err := mutation.ObserveDirectoryEntryAuthorityBounded(referent, physicalwork.MaximumPhysicalPathDepth, budget)
-		if err != nil {
-			return nil, fmt.Errorf("observe ordinary document source %q: %w", candidate.AggregateRoot(), err)
-		}
-		// A shared static binding cannot redirect a divergent ordinary source.
-		if ordinary.Equal(native) {
-			addresses = append(addresses, candidate)
-		}
-	}
-	return addresses, ctx.Err()
 }

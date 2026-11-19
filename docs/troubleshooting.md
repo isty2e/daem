@@ -659,20 +659,23 @@ command. If a recovery journal is active, resolve it before manual host edits.
 
 ### Agent Configuration Removal Is Blocked
 
+If you remove a declaration or a managed key from its source, run `daem lock`
+and `daem apply`. When the removed key or dedicated file is already absent at
+its recorded destination, apply drops the management records without writing
+the configuration.
+
 When a key has changed since daem last applied it, dropping the key from its
 source or removing the declaration does not let apply delete the changed value.
 If you want the key gone, save any changes you need, remove only that key from
-the host file, and preview apply again. Apply can retire the management record
-for an already absent key. If the declaration still manages other keys,
-`unmanage agent-config` would also release their management. To keep managing
+the host file, and preview apply again. If the declaration still manages other
+keys, `unmanage agent-config` would also release their management. To keep managing
 the current value, add that value back to the source, run `daem lock`, and
 preview apply again.
 
-For a dedicated whole file, apply blocks removal if the file changed or is
-already missing. After removing the declaration, use `unmanage agent-config`
-to release the remaining management. If the file still exists and you want
-to delete it, save any changes you need, release its management, then delete it
-yourself.
+For a dedicated file that has changed, apply leaves it in place. After removing
+the declaration, use `unmanage agent-config` to release management and keep the
+file. If you want the file gone, save any changes you need, delete the file, and
+preview apply again.
 
 ## NFS-Backed Home Or Workspace
 

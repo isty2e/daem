@@ -51,6 +51,84 @@ func TestRunApplyDisclosedSourceDriftReturnsStalePlanWithoutEffects(t *testing.T
 	assertApplyConfirmationFileContent(t, sourcePath, "changed after disclosure\n")
 }
 
+func TestRunApplyPreservesReappearingFileAfterDisclosedRetirementOrMove(t *testing.T) {
+	for _, move := range []bool{false, true} {
+		name := "retire"
+		if move {
+			name = "move"
+		}
+		t.Run(name, func(t *testing.T) { requireStaleAbsentWholeFilePlan(t, move) })
+	}
+}
+
+func requireStaleAbsentWholeFilePlan(t *testing.T, move bool) {
+	t.Helper()
+	root := isolatedApplyAuthorityRoot(t)
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
+	manifest := filepath.Join(root, "daem.toml")
+	const content = "model = 'baseline'\n"
+	writeApplyConfirmationFile(t, root, "prefs.toml", content)
+	const whole = `version=1
+targets=['codex']
+[[agent_config]]
+id='prefs'
+path='prefs.toml'
+source='prefs.toml'
+ownership='document'
+`
+	writeApplyConfirmationFile(t, root, "daem.toml", whole)
+	var stdout, stderr bytes.Buffer
+	run := func(args ...string) {
+		t.Helper()
+		args = append(args, "--manifest", manifest)
+		if exit := runWithoutTerminal(args, &stdout, &stderr); exit != 0 {
+			t.Fatalf("%q exited %d: %s\n%s", args, exit, &stdout, &stderr)
+		}
+		stdout.Reset()
+		stderr.Reset()
+	}
+	run("lock")
+	run("apply", "--yes")
+	destination := filepath.Join(root, ".codex", "prefs.toml")
+	if err := os.Remove(destination); err != nil {
+		t.Fatal(err)
+	}
+	revised := "version=1\ntargets=['codex']\n"
+	if move {
+		revised = strings.Replace(whole, "path='prefs.toml'", "path='relocated.toml'", 1)
+	}
+	writeApplyConfirmationFile(t, root, "daem.toml", revised)
+	run("lock")
+	paths, err := daempaths.Resolve(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := make(map[string]string)
+	for _, name := range []string{paths.StatefilePath, paths.OwnershipRegistryPath} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = string(data)
+	}
+	input := &beforeReadApplyConfirmation{
+		reader: strings.NewReader("yes\n"),
+		beforeRead: func() error {
+			return os.WriteFile(destination, []byte(content), 0o600)
+		},
+	}
+	exit := RunWithOptions([]string{"apply", "--manifest", manifest}, interactiveRunOptions(input, &stdout, &stderr))
+	if exit != 1 || !input.read || !strings.Contains(stdout.String(), "retire management") ||
+		!strings.Contains(stderr.String(), "the authorized apply plan changed before apply completed") {
+		t.Fatalf("expected a stale disclosed plan, exit=%d stdout=%q stderr=%q", exit, &stdout, &stderr)
+	}
+	assertApplyConfirmationFileContent(t, destination, content)
+	assertCLIPathMissing(t, filepath.Join(root, ".codex", "relocated.toml"))
+	for name, want := range before {
+		assertApplyConfirmationFileContent(t, name, want)
+	}
+}
+
 func TestRunApplyDefaultFailureHidesRootedAuthorityPath(t *testing.T) {
 	root := isolatedApplyAuthorityRoot(t)
 	manifestPath, _, _ := writeApplyConfirmationFixture(t, root)

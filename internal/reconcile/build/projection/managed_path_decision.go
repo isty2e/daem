@@ -46,6 +46,7 @@ func newManagedPathNoOp(input reconcile.ManagedPathDecisionInput, reason reconci
 }
 
 func newManagedPathBlocked(input reconcile.ManagedPathDecisionInput, reason reconcile.ActionReason, detail string) managedPathDecision {
+	input.RetiresAbsentPrevious = false
 	return newManagedPathDecision(input, reconcile.ManagedPathBlocked, reason, detail)
 }
 

@@ -7,6 +7,7 @@ import "context"
 type VisibilityGate struct {
 	before   func(context.Context) error
 	after    func(context.Context) error
+	forward  func(context.Context, string) error
 	schedule *applyVisibilityExecution
 }
 
@@ -14,12 +15,22 @@ func NewVisibilityGate(before, after func(context.Context) error) VisibilityGate
 	return VisibilityGate{before: before, after: after}
 }
 
+func (gate VisibilityGate) WithForwardValidation(check func(context.Context, string) error) VisibilityGate {
+	gate.forward = check
+	return gate
+}
+
 func (gate VisibilityGate) ValidateBefore(ctx context.Context) error {
 	action := func() error {
-		if gate.before == nil {
-			return nil
+		if gate.before != nil {
+			if err := gate.before(ctx); err != nil {
+				return err
+			}
 		}
-		return gate.before(ctx)
+		if gate.schedule != nil && gate.forward != nil {
+			return gate.forward(ctx, gate.schedule.id)
+		}
+		return nil
 	}
 	if gate.schedule != nil {
 		return gate.schedule.validate(action)

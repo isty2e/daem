@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 )
@@ -55,6 +56,24 @@ func pairDemandedDocuments(records journalrecord.LoadedDocuments, namespaces []j
 }
 
 func (documents Documents) Len() int { return len(documents.live) }
+
+// MissingClaimNamespaces yields qualified absence evidence only for groups with
+// exact recorded claims. A document awaiting its first acquisition has none.
+func (documents Documents) MissingClaimNamespaces() ([]pathauthority.Provisional, error) {
+	var missing []pathauthority.Provisional
+	for index := range documents.Len() {
+		namespace, observed := documents.NamespaceAt(index)
+		recorded, loaded := documents.DocumentAt(index)
+		if !observed || !loaded {
+			return nil, fmt.Errorf("native document facts are incomplete")
+		}
+		claims := recorded.Claims()
+		if absent, provisional := namespace.Observation().Provisional(); provisional && len(claims.Before())+len(claims.After()) != 0 {
+			missing = append(missing, absent)
+		}
+	}
+	return missing, nil
+}
 
 func (documents Documents) Records() journalrecord.LoadedDocuments { return documents.records }
 

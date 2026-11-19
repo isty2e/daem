@@ -4,6 +4,7 @@ package cli_test
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -81,7 +82,7 @@ func TestNativePiMCPSuffixProcessLossRecoversWithoutCommandReplay(t *testing.T) 
 	}
 }
 
-func TestNativePiSharedCodexMCPSuffixRecoversWithoutCommandReplay(t *testing.T) {
+func TestNativePiSharedCodexMCPAliasSuffixRecoversWithoutCommandReplay(t *testing.T) {
 	for _, boundary := range []string{"host", "state"} {
 		t.Run(boundary, func(t *testing.T) {
 			fixture := nativefixture.NewPiInvocation(t, "")
@@ -89,7 +90,7 @@ func TestNativePiSharedCodexMCPSuffixRecoversWithoutCommandReplay(t *testing.T) 
 [[agent_config]]
 id = "codex-preferences"
 targets = ["codex"]
-path = "config.toml"
+path = "alias/config.toml"
 source = "./codex-preferences.toml"
 ownership = "keys"
 [[mcp_server]]
@@ -102,6 +103,9 @@ args = ["shared.js"]
 			destination := filepath.Join(fixture.Workspace, ".codex", "config.toml")
 			testkit.WriteFile(t, fixture.Workspace, "codex-preferences.toml", "model='fixture-model'\n")
 			testkit.WriteFile(t, filepath.Dir(destination), filepath.Base(destination), "# User settings\nforeign=true\n")
+			if err := os.Symlink(".", filepath.Join(filepath.Dir(destination), "alias")); err != nil {
+				t.Fatal(err)
+			}
 			testkit.WriteFile(t, fixture.Workspace, "daem.toml", manifest)
 			fixture.Require(t, "lock")
 			fixture.Require(t, "apply", "--yes")

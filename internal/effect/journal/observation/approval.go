@@ -4,20 +4,26 @@ import (
 	"context"
 	"fmt"
 
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
 // ApprovalEvidence projects stable namespace and protection facts.
 // It excludes content revisions and final-file object identity and grants no effects.
 type ApprovalEvidence struct {
-	Aliases    []aggregate.DocumentAddress
-	Authority  mutation.DirectoryEntryAuthorityObservation
-	Protection string
-	requests   map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
+	Aliases         []aggregate.DocumentAddress
+	Authority       mutation.DirectoryEntryAuthorityObservation
+	Protection      string
+	Roles           []configuration.DocumentSpec
+	GlobalLocations []output.RootReference
+	requests        map[aggregate.DocumentAddress]mutation.PhysicalAuthorityRequest
+	removal         journalnamespace.RemovalPreflight
 }
 
 // AuthorityRequest retains qualified routing facts after observation resources
@@ -28,6 +34,10 @@ func (evidence ApprovalEvidence) AuthorityRequest(alias aggregate.DocumentAddres
 		return mutation.PhysicalAuthorityRequest{}, fmt.Errorf("native approval has no qualified authority request for the selected document")
 	}
 	return request, nil
+}
+
+func (evidence ApprovalEvidence) RequireRecoverableRemoval(ctx context.Context, budget rootedpath.PhysicalTraversalBudget) error {
+	return evidence.removal.RequireRecoverablePath(ctx, budget)
 }
 
 func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
@@ -57,7 +67,11 @@ func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
 			}
 			requests[alias.Address()] = request
 		}
-		result = append(result, ApprovalEvidence{Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection, requests: requests})
+		result = append(result, ApprovalEvidence{
+			Aliases: namespace.Addresses(), Authority: namespace.Observation(), Protection: protection,
+			Roles: namespace.PhysicalRoles(), GlobalLocations: namespace.GlobalLocations(), requests: requests,
+			removal: namespace.RemovalPreflight(),
+		})
 	}
 	return result, nil
 }

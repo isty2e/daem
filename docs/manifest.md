@@ -1480,7 +1480,14 @@ locks.
 Existing key-only documents keep their permission bits; newly created documents
 use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
 document policy requires `0600`, and the preview includes that permission change.
-Both sets of changes are applied and recovered together.
+Both sets of changes are applied and recovered together, including when a path
+alias resolves to the same `config.toml`.
+
+Daem refuses an edit that would overwrite or remove another managed output,
+even when that output uses a different path to the same file or belongs to a
+target outside `--target`. If removing a declaration would remove another
+managed value, use [`unmanage agent-config`](cli.md#unmanage-agent-config) to
+release the declaration without editing the file.
 
 Selected-value drift is not silently overwritten. To take over a different
 existing value or replace a changed managed value, use
@@ -1582,6 +1589,14 @@ permissions. Source updates replace the managed file; removing the declaration
 removes it. A changed host file is not silently overwritten or deleted.
 Shared host files such as Codex `config.toml` and Pi `settings.json`, along with
 the reserved paths listed above, cannot use whole-document ownership.
+
+To move a dedicated file, keep its declaration ID and change its path, scope,
+or target. Run `daem lock`, then preview and apply. If the old file is already
+absent at its recorded location, apply can create the file from the locked
+source at the new location and retire the old management records without
+writing to the old path. If you use `--target` for a move between agents,
+select both agents to finish the move in one apply. Use a distinct destination;
+another spelling for the same physical file does not transfer ownership.
 
 To retain only selected keys from a managed whole file, keep the declaration's
 `id`, target, scope and path, change `ownership` to `keys`, and revise its source

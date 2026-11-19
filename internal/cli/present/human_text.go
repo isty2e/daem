@@ -12,6 +12,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -339,6 +341,20 @@ func GlobalMetadataFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 // boundary. Generic error rendering must not promote this cause through a
 // recovery or execution wrapper that owns a stronger lifecycle summary.
 func NativePlanningFailureDiagnostic(err error) (FailureDiagnostic, bool) {
+	var documentType *observe.AggregateDocumentTypeError
+	if errors.As(err, &documentType) {
+		return NewFailureDiagnostic(documentType.Error()).WithGuidance(InstructionGuidance("check the destination type; preserve any existing contents before changing the path")), true
+	}
+	var overlap *nativeoperation.DocumentAdmissionError
+	hasAdmission := errors.As(err, &overlap)
+	if hasAdmission && overlap.UnsafeRemoval() {
+		diagnostic := NewFailureDiagnostic(overlap.Error())
+		if id, removing := overlap.RemovedAgentConfig(); removing {
+			guidance, _ := CommandGuidance([]string{"daem", "unmanage", "agent-config", id, "--dry-run"}, "to release management without deleting the file")
+			return diagnostic.WithGuidance(guidance), true
+		}
+		return diagnostic.WithGuidance(InstructionGuidance("retain the file; the recorded path cannot be verified once the entry is gone")), true
+	}
 	var protection configuration.NativeProtectionFailure
 	if errors.As(err, &protection) {
 		return NativeProtectionPlanningDiagnostic(protection), true
@@ -346,6 +362,17 @@ func NativePlanningFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 	var claim configuration.NativeClaimFailure
 	if errors.As(err, &claim) {
 		return NativeClaimPlanningDiagnostic(claim), true
+	}
+	if hasAdmission {
+		diagnostic := NewFailureDiagnostic(overlap.Error())
+		if overlap.Unverified() {
+			return diagnostic.WithGuidance(InstructionGuidance("check the reported output's parent directories, links and read access, then retry")), true
+		}
+		if id, removing := overlap.RemovedAgentConfig(); removing {
+			guidance, _ := CommandGuidance([]string{"daem", "unmanage", "agent-config", id, "--dry-run"}, "to release management without changing the shared file")
+			return diagnostic.WithGuidance(guidance), true
+		}
+		return diagnostic.WithGuidance(InstructionGuidance("use separate paths or non-overlapping managed keys, or retire the previous management first")), true
 	}
 	return FailureDiagnostic{}, false
 }

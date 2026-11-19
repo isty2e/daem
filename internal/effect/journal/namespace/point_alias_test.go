@@ -309,7 +309,7 @@ func TestPointLiteralRouteParticipatesInMembershipAndReservation(t *testing.T) {
 			if _, reserved := facet.ReservationAt("sessions/point.json"); !reserved {
 				t.Fatal("fixture route is not reserved")
 			}
-			if err := observer.requireFacet(t.Context(), value.Aliases(), target.TargetPi, facet, selector); !errors.Is(err, configuration.ErrReserved) {
+			if err := observer.requireFacet(t.Context(), protectionAliases(value.Aliases()), target.TargetPi, facet, selector); !errors.Is(err, configuration.ErrReserved) {
 				t.Fatal("point referent outside the reservation hid its reserved literal alias", err)
 			}
 			return

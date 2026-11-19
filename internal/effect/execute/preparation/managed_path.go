@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -21,10 +22,11 @@ import (
 type ManagedPathEffectKind string
 
 const (
-	ManagedPathEffectCreate  ManagedPathEffectKind = "create"
-	ManagedPathEffectReplace ManagedPathEffectKind = "replace"
-	ManagedPathEffectRemove  ManagedPathEffectKind = "remove"
-	ManagedPathEffectRecord  ManagedPathEffectKind = "record"
+	ManagedPathEffectCreate       ManagedPathEffectKind = "create"
+	ManagedPathEffectReplace      ManagedPathEffectKind = "replace"
+	ManagedPathEffectRemove       ManagedPathEffectKind = "remove"
+	ManagedPathEffectRetireAbsent ManagedPathEffectKind = "retire_absent"
+	ManagedPathEffectRecord       ManagedPathEffectKind = "record"
 )
 
 type managedPathEffectFacts struct {
@@ -43,18 +45,23 @@ type managedPathEffectFacts struct {
 
 type (
 	managedPathCreateEffect  struct{ facts managedPathEffectFacts }
-	managedPathReplaceEffect struct{ facts managedPathEffectFacts }
-	managedPathRemoveEffect  struct{ facts managedPathEffectFacts }
-	managedPathRecordEffect  struct{ facts managedPathEffectFacts }
+	managedPathReplaceEffect struct {
+		facts                 managedPathEffectFacts
+		retiresAbsentPrevious bool
+	}
+	managedPathRemoveEffect       struct{ facts managedPathEffectFacts }
+	managedPathRetireAbsentEffect struct{ facts managedPathEffectFacts }
+	managedPathRecordEffect       struct{ facts managedPathEffectFacts }
 )
 
 // ManagedPathEffect is an execution-owned closed union. It contains only
 // authority already established by a mutating managed-path decision.
 type ManagedPathEffect struct {
-	create  *managedPathCreateEffect
-	replace *managedPathReplaceEffect
-	remove  *managedPathRemoveEffect
-	record  *managedPathRecordEffect
+	create       *managedPathCreateEffect
+	replace      *managedPathReplaceEffect
+	remove       *managedPathRemoveEffect
+	retireAbsent *managedPathRetireAbsentEffect
+	record       *managedPathRecordEffect
 }
 
 // ManagedPathEffects admits executable decisions without translating them to
@@ -109,9 +116,11 @@ func ManagedPathEffects(decisions []reconcile.ManagedPathDecision) ([]ManagedPat
 		case reconcile.ManagedPathCreate:
 			effect.create = &managedPathCreateEffect{facts: facts}
 		case reconcile.ManagedPathReplace:
-			effect.replace = &managedPathReplaceEffect{facts: facts}
+			effect.replace = &managedPathReplaceEffect{facts: facts, retiresAbsentPrevious: decision.RetiresAbsentPrevious()}
 		case reconcile.ManagedPathRemove:
 			effect.remove = &managedPathRemoveEffect{facts: facts}
+		case reconcile.ManagedPathRetireAbsent:
+			effect.retireAbsent = &managedPathRetireAbsentEffect{facts: facts}
 		case reconcile.ManagedPathRecord:
 			effect.record = &managedPathRecordEffect{facts: facts}
 		default:
@@ -198,6 +207,16 @@ func (effect ManagedPathEffect) Validate() error {
 		}
 		return nil
 	}
+	if effect.Kind() == ManagedPathEffectRetireAbsent {
+		if !aggregate.IsAgentConfigDocumentSubject(facts.subject) || facts.previous == nil ||
+			facts.previous.Scope() != facts.scope || facts.previous.Destination() != facts.destination ||
+			len(facts.previous.ConsumerTargets()) != 1 || len(facts.consumerTargets) != 0 ||
+			facts.desiredHash != "" || facts.liveHash != "" ||
+			facts.desiredFileMode != 0 || facts.liveFileMode != 0 {
+			return fmt.Errorf("absent retirement requires a prior managed agent configuration file without a live or desired image")
+		}
+		return nil
+	}
 	if len(facts.consumerTargets) == 0 {
 		return fmt.Errorf("effect requires at least one consumer target")
 	}
@@ -225,6 +244,12 @@ func (effect ManagedPathEffect) Validate() error {
 		} else if facts.previous.Scope() == facts.scope && facts.previous.Destination() == facts.destination {
 			return fmt.Errorf("in-place replace effect requires fresh live hash")
 		}
+		if effect.RetiresAbsentPrevious() && (!aggregate.IsAgentConfigDocumentSubject(facts.subject) ||
+			facts.previous.Scope() == facts.scope && facts.previous.Destination() == facts.destination ||
+			facts.contentKind != realization.PathProjectionFile || facts.permissionPolicy != realization.PathPermissionsExact ||
+			facts.liveHash != "" || facts.liveFileMode != 0) {
+			return fmt.Errorf("a move from an absent path requires a dedicated agent configuration and an absent destination")
+		}
 	}
 	if effect.Kind() == ManagedPathEffectRecord {
 		if facts.liveHash == "" {
@@ -251,6 +276,8 @@ func (effect ManagedPathEffect) facts() managedPathEffectFacts {
 		return effect.replace.facts
 	case effect.remove != nil:
 		return effect.remove.facts
+	case effect.retireAbsent != nil:
+		return effect.retireAbsent.facts
 	case effect.record != nil:
 		return effect.record.facts
 	default:
@@ -266,11 +293,21 @@ func (effect ManagedPathEffect) Kind() ManagedPathEffectKind {
 		return ManagedPathEffectReplace
 	case effect.remove != nil:
 		return ManagedPathEffectRemove
+	case effect.retireAbsent != nil:
+		return ManagedPathEffectRetireAbsent
 	case effect.record != nil:
 		return ManagedPathEffectRecord
 	default:
 		return ""
 	}
+}
+
+func (effect ManagedPathEffect) DropsManagedState() bool {
+	return effect.Kind() == ManagedPathEffectRemove || effect.Kind() == ManagedPathEffectRetireAbsent
+}
+
+func (effect ManagedPathEffect) RetiresAbsentPrevious() bool {
+	return effect.replace != nil && effect.replace.retiresAbsentPrevious
 }
 
 func (effect ManagedPathEffect) Subject() topology.SubjectID { return effect.facts().subject }
@@ -331,25 +368,21 @@ func (effect ManagedPathEffect) RequiresPayload() bool {
 func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journalrecord.ManagedPathMutation, error) {
 	mutations := make([]journalrecord.ManagedPathMutation, 0, len(effects)+1)
 	for index, effect := range effects {
+		if effect.RetiresAbsentPrevious() {
+			return nil, ErrNativeOperationRequired
+		}
 		previous, hasPrevious := effect.PreviousState()
 		var mutation journalrecord.ManagedPathMutation
 		var err error
 		switch effect.Kind() {
 		case ManagedPathEffectCreate:
-			mutation, err = journalrecord.NewManagedPathCreateMutation(
-				effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
-				effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode(),
-				managedPathPreviousPointer(previous, hasPrevious),
-			)
+			mutation, err = effect.createMutation(managedPathPreviousPointer(previous, hasPrevious))
 		case ManagedPathEffectReplace:
 			if !hasPrevious {
 				return nil, fmt.Errorf("managed path effect[%d] replace lacks previous state", index)
 			}
 			if previous.Scope() != effect.Scope() || previous.Destination() != effect.Destination() {
-				create, createErr := journalrecord.NewManagedPathCreateMutation(
-					effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
-					effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode(), nil,
-				)
+				create, createErr := effect.createMutation(nil)
 				if createErr != nil {
 					return nil, fmt.Errorf("managed path effect[%d] relocation creation: %w", index, createErr)
 				}
@@ -388,6 +421,25 @@ func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journalrecord.M
 		mutations = append(mutations, mutation)
 	}
 	return mutations, nil
+}
+
+// AbsentRelocationCreation projects only the new endpoint of a native move.
+// The enclosing native operation still has to capture the old absence.
+func (effect ManagedPathEffect) AbsentRelocationCreation() (journalrecord.ManagedPathMutation, error) {
+	if !effect.RetiresAbsentPrevious() {
+		return journalrecord.ManagedPathMutation{}, fmt.Errorf("managed path effect does not retire an absent previous endpoint")
+	}
+	if err := effect.Validate(); err != nil {
+		return journalrecord.ManagedPathMutation{}, err
+	}
+	return effect.createMutation(nil)
+}
+
+func (effect ManagedPathEffect) createMutation(previous *durable.ManagedPathState) (journalrecord.ManagedPathMutation, error) {
+	return journalrecord.NewManagedPathCreateMutation(
+		effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
+		effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode(), previous,
+	)
 }
 
 func managedPathPreviousPointer(previous durable.ManagedPathState, present bool) *durable.ManagedPathState {

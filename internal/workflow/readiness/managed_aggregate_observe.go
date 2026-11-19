@@ -36,6 +36,8 @@ func observeAggregatePrecondition(
 	}
 }
 
+var errAggregateDocumentNotRegular = errors.New("aggregate destination is not a regular file")
+
 func readAggregateDocument(
 	ctx context.Context,
 	path string,
@@ -46,7 +48,7 @@ func readAggregateDocument(
 		return aggregate.AbsentDocument(), 0, nil
 	}
 	if errors.Is(err, filesnapshot.ErrNotRegular) || errors.Is(err, filesnapshot.ErrSymlink) {
-		return aggregate.Document{}, 0, fmt.Errorf("aggregate destination is not a regular file")
+		return aggregate.Document{}, 0, errAggregateDocumentNotRegular
 	}
 	if err != nil {
 		return aggregate.Document{}, 0, err

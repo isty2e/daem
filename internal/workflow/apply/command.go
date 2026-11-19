@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
+
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
@@ -111,6 +113,7 @@ type Failure struct {
 	barrier           recoverygate.State
 	backendTransition *readiness.MCPBackendTransitionError
 	nativeSupport     nativeSupportReason
+	documentAdmission *nativeoperation.DocumentAdmissionError
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -131,8 +134,10 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		errors.As(err, &transition)
 	}
 	var nativeSupport nativeSupportError
+	var documentAdmission *nativeoperation.DocumentAdmissionError
 	if reason == FailureReasonApplyRefused {
 		errors.As(err, &nativeSupport)
+		errors.As(err, &documentAdmission)
 	}
 	return Failure{
 		reason:            reason,
@@ -141,6 +146,7 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		barrier:           recoverygate.StateOf(err),
 		backendTransition: transition,
 		nativeSupport:     nativeSupport.reason,
+		documentAdmission: documentAdmission,
 	}
 }
 
@@ -308,6 +314,9 @@ func (failure Failure) withOutcomeFacts(detail string) string {
 }
 
 func (failure Failure) reasonDetail() string {
+	if failure.reason == FailureReasonApplyRefused && failure.documentAdmission != nil {
+		return failure.documentAdmission.Error()
+	}
 	if failure.reason == FailureReasonApplyRefused && failure.nativeSupport != 0 {
 		return failure.nativeSupport.detail()
 	}

@@ -85,6 +85,9 @@ func runCarrierHandoffPrerequisite(ctx context.Context, qualification applyRequa
 				if err := prepareNativeInvocationRemainder(ctx, fresh); err != nil {
 					return applyForwardEffectSchedule{}, err
 				}
+				if err := observeNativeAdmissionForPlan(ctx, fresh); err != nil {
+					return applyForwardEffectSchedule{}, err
+				}
 			}
 			schedule, err := equivalentProviderFinalSchedule(qualification.schedule.finalBinding(), *fresh, providers)
 			if err != nil {

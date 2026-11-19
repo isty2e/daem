@@ -188,7 +188,8 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 		}
 	}
 	compiled := builder.Compile()
-	documentWrites, err := mutation.NewPhysicalAuthoritySet(compiled.DocumentWriteRequests()...)
+	documentWriteRequests := compiled.DocumentWriteRequests()
+	documentWrites, err := mutation.NewPhysicalAuthoritySet(documentWriteRequests...)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
@@ -200,5 +201,5 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	return recoveryAuthorityEvidence{domains: domains, documentWrites: documentWrites, authorityFingerprint: fingerprint}, nil
+	return recoveryAuthorityEvidence{domains: domains, initialDocumentWrites: documentWrites, documentWriteRequests: documentWriteRequests, authorityFingerprint: fingerprint}, nil
 }

@@ -17,7 +17,7 @@ func AfterManagedPaths(snapshot durable.Snapshot, effects []ManagedPathEffect) (
 		if previous, present := effect.PreviousState(); present {
 			removals[previous.Subject()] = struct{}{}
 		}
-		if effect.Kind() == ManagedPathEffectRemove {
+		if effect.DropsManagedState() {
 			continue
 		}
 		if _, duplicate := replacements[effect.Subject()]; duplicate {

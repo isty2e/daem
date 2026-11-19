@@ -48,6 +48,15 @@ func TestNativeAbsentRetirementDoesNotAdmitDesiredRecreationOrOrdinaryAbsence(t 
 	if err != nil || retiring.Kind() == reconcile.AggregateBlocked || intent.Before().Present() {
 		t.Fatal("native absent retirement manufactured present before evidence", err)
 	}
+	retiring.expected, err = aggregate.NewProjectionState(set.Contract(), true, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retiring, err = classifyAggregateProjection(codec, retiring, true, false, nil)
+	if err != nil || retiring.Kind() != reconcile.AggregateRecord || len(retiring.deltas) != 1 || retiring.deltas[0].kind != reconcile.AggregateRemove {
+		t.Fatal("a new parent document changed the absent key retirement", err, retiring.Kind(), retiring.Reason())
+	}
+
 	ordinary, ordinaryRow := aggregateOwnershipProjection(t)
 	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
 		ServerID: "context7", Command: "npx", Args: []string{}, Env: map[string]string{},

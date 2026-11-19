@@ -22,11 +22,13 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/compose"
@@ -48,6 +50,7 @@ type nativeApplyWork struct {
 	documents          journalpublication.NativeDocumentObservationBatch
 	managed            []effectpreparation.ManagedPathEffect
 	whole              []effectpreparation.ManagedPathEffect
+	wholeMutations     []journalrecord.ManagedPathMutation
 	ordinaryAggregates []effectpreparation.AggregateEffect
 	edits              []compose.ProjectionEdit
 	mutating           []bool
@@ -74,66 +77,38 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		return nativeApplyWork{}, err
 	}
 	namespaces := documents.Evidence().Namespaces()
+	aliases := make([][]aggregate.DocumentAddress, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		aliases = append(aliases, namespace.Addresses())
+	}
+	whole, err := wholeDocumentWorkFor(input.Preparation, aliases)
+	if err != nil {
+		return nativeApplyWork{}, err
+	}
+
 	promoting := make([]bool, len(members))
 	for index, member := range members {
 		promoting[index] = member.RequiresPromotion()
 	}
 	work := nativeApplyWork{
 		documents: documents, promoting: promoting, mutating: make([]bool, len(namespaces)),
-		managed: input.Preparation.ManagedPathEffects(), changed: input.Preparation.StateChanged(),
+		managed: whole.ordinary, whole: whole.whole, wholeMutations: whole.mutations,
+		changed: input.Preparation.StateChanged(),
 	}
 	var registryAliases []aggregate.DocumentAddress
-	wholeGroups := make(map[int]struct{})
-	ordinaryManaged := work.managed[:0:0]
-	for _, effect := range work.managed {
-		if !aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
-			ordinaryManaged = append(ordinaryManaged, effect)
-			continue
+	for _, group := range whole.groups {
+		if group.action == retireAbsentWholeDocument {
+			original, _, observed := documents.Evidence().Document(group.address)
+			if !observed || original.Exists() {
+				return nativeApplyWork{}, fmt.Errorf("retiring a native file record requires observed absence at the recorded destination")
+			}
 		}
-		work.whole = append(work.whole, effect)
+		work.mutating[group.index] = group.action.writesFile()
+		registryAliases = append(registryAliases, group.address)
 	}
-	work.managed = ordinaryManaged
-	wholeSchedule, err := hostmutation.PlanManagedPaths(work.whole)
-	if err != nil {
-		return nativeApplyWork{}, err
-	}
-	for _, phase := range []hostmutation.ManagedPathPhase{hostmutation.ManagedPathPublishPhase, hostmutation.ManagedPathRetirePhase} {
-		for operation := range wholeSchedule.Operations(phase) {
-			effect := operation.Effect()
-			consumers, scope, destination := effect.ConsumerTargets(), effect.Scope(), effect.Destination()
-			if previous, present := effect.PreviousState(); present && (len(consumers) == 0 || operation.Relocates() && phase == hostmutation.ManagedPathRetirePhase) {
-				consumers = previous.ConsumerTargets()
-				if operation.Relocates() && phase == hostmutation.ManagedPathRetirePhase {
-					scope, destination = previous.Scope(), previous.Destination()
-				}
-			}
-			if len(consumers) != 1 {
-				return nativeApplyWork{}, fmt.Errorf("native whole effect requires one consumer")
-			}
-			address, err := aggregate.NewDocumentAddress(consumers[0], scope, destination)
-			if err != nil {
-				return nativeApplyWork{}, err
-			}
-			found := false
-			for index, namespace := range namespaces {
-				if !slices.Contains(namespace.Addresses(), address) {
-					continue
-				}
-				if _, duplicate := wholeGroups[index]; duplicate {
-					return nativeApplyWork{}, fmt.Errorf("native document has multiple whole writers")
-				}
-				wholeGroups[index] = struct{}{}
-				work.mutating[index], found = effect.Kind() != effectpreparation.ManagedPathEffectRecord, true
-			}
-			if !found {
-				return nativeApplyWork{}, fmt.Errorf("native whole effect has no retained namespace")
-			}
-			registryAliases = append(registryAliases, address)
-		}
-	}
+
 	for _, action := range input.Preparation.Narrowings() {
-		placement, _ := action.SourceContract().AgentConfigPlacement()
-		address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())
+		address, err := narrowingDocumentAddress(action)
 		if err != nil {
 			return nativeApplyWork{}, err
 		}
@@ -163,33 +138,19 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 		if failure != nil {
 			return nativeApplyWork{}, failure
 		}
-		for index, namespace := range namespaces {
-			if slices.Contains(namespace.Addresses(), address) {
-				if _, whole := wholeGroups[index]; whole {
-					return nativeApplyWork{}, fmt.Errorf("whole document overlaps ownership narrowing")
-				}
-				work.mutating[index] = !rendered.Document().Equal(action.CurrentDocument())
-			}
+		if index, observed := whole.indexByAlias[address]; observed {
+			work.mutating[index] = !rendered.Document().Equal(action.CurrentDocument())
 		}
 	}
 	for _, effect := range input.Preparation.AggregateEffects() {
-		group := -1
-		for index, namespace := range namespaces {
-			if slices.Contains(namespace.Addresses(), effect.DocumentAddress()) {
-				group = index
-				break
-			}
-		}
-		if group < 0 {
+		group, observed := whole.indexByAlias[effect.DocumentAddress()]
+		if !observed {
 			if _, native := aggregate.AgentConfigSyntaxForCodec(effect.CodecContractID()); native {
 				return nativeApplyWork{}, fmt.Errorf("native effect has no retained namespace")
 			}
 			work.ordinaryAggregates = append(work.ordinaryAggregates, effect)
 			work.changed = true
 			continue
-		}
-		if _, whole := wholeGroups[group]; whole {
-			return nativeApplyWork{}, fmt.Errorf("whole document overlaps selected effects")
 		}
 		registryAliases = append(registryAliases, effect.DocumentAddress())
 		selection, err := effect.BeforeSnapshot().Selection()
@@ -218,19 +179,12 @@ func nativeApplyWorkFor(input NativeApplyInput) (nativeApplyWork, error) {
 	work.changed = work.changed || len(work.managed) != 0
 	for _, order := range input.Preparation.SequenceEdits() {
 		alias := order.DocumentAddress()
-		found := false
-		for index, namespace := range namespaces {
-			if slices.Contains(namespace.Addresses(), alias) {
-				if _, whole := wholeGroups[index]; whole {
-					return nativeApplyWork{}, fmt.Errorf("whole document overlaps package ordering")
-				}
-				work.mutating[index], work.changed, found = true, true, true
-				registryAliases = append(registryAliases, alias)
-			}
-		}
-		if !found {
+		index, observed := whole.indexByAlias[alias]
+		if !observed {
 			return nativeApplyWork{}, fmt.Errorf("Pi order has no retained native settings member")
 		}
+		work.mutating[index], work.changed = true, true
+		registryAliases = append(registryAliases, alias)
 	}
 	work.registryScope, err = documents.Evidence().RegistryScopeFor(registryAliases)
 	if err != nil {
@@ -363,7 +317,15 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	expectedPlan, err := PrepareNativeApplyEffectPlan(input)
+	approval, err := input.Documents.Evidence().ApprovalEvidence()
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	admission, err := ObserveForwardDocumentAdmission(ctx, input.Paths.ManifestRoot, input.Preparation, approval, input.Resolver, input.Budget)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	expectedPlan, err := prepareNativeApplyEffectPlan(input, work)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -433,12 +395,19 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	gate := applyprogram.NewVisibilityGate(func(ctx context.Context) error {
 		return options.ValidatePhysicalRequests(ctx, authority.physicalAuthorityRequests)
 	}, options.AcceptVisibility)
+	forwardPaths := make(map[string][]output.Destination)
+	forwardGate := gate.WithForwardValidation(func(ctx context.Context, step string) error {
+		if paths := forwardPaths[step]; len(paths) != 0 {
+			return admission.recheck(ctx, input.Budget, paths...)
+		}
+		return nil
+	})
 	run := func(prefix string, action func() error) error {
 		failure := applyprogram.FailureGuardedRecovery
 		if prefix == "apply/native-journal-publication" {
 			failure = applyprogram.FailureNoCompensation
 		}
-		step := execution.VisibilityGate(gate, prefix, operationplan.EffectStepPersistence, failure)
+		step := execution.VisibilityGate(forwardGate, prefix, operationplan.EffectStepPersistence, failure)
 		if err := step.ValidateBefore(ctx); err != nil {
 			return err
 		}
@@ -454,9 +423,27 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return ApplyResult{}, err
 	}
 	ordinaryPromoting := ordinary.ownership.IntentCount() != 0
-	wholeMutations, err := effectpreparation.ManagedPathJournalMutations(work.whole)
-	if err != nil {
-		return result, err
+	for index, namespace := range work.documents.Evidence().Namespaces() {
+		if !work.mutating[index] {
+			continue
+		}
+		step := fmt.Sprintf("apply/native-document/%d", index)
+		for _, alias := range namespace.Addresses() {
+			forwardPaths[step] = append(forwardPaths[step], alias.AggregateRoot())
+		}
+	}
+	for _, phase := range []hostmutation.ManagedPathPhase{hostmutation.ManagedPathPublishPhase, hostmutation.ManagedPathRetirePhase} {
+		for operation := range ordinary.managedSchedule.Operations(phase) {
+			path := operation.Effect().Destination()
+			if phase == hostmutation.ManagedPathRetirePhase && operation.Relocates() {
+				previous, _ := operation.Effect().PreviousState()
+				path = previous.Destination()
+			}
+			forwardPaths[operation.ScheduleReference()] = []output.Destination{path}
+		}
+	}
+	for index, effect := range work.ordinaryAggregates {
+		forwardPaths[hostmutation.AggregateScheduleReference(index)] = []output.Destination{effect.Destination()}
 	}
 	var captured journalpublication.CapturedNativeJournal
 	if err := run("apply/native-journal-publication", func() error {
@@ -465,13 +452,16 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 			return err
 		}
 		var err error
-		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.JournalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{CaptureOptions: journalpublication.CaptureOptions{
-			Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
-			OperationAuthority: authority.journalEntries.Directory(), ManifestRoot: authority.capturedRoot,
-			ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
-			ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
-			Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
-		}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), SequenceEdits: input.Preparation.SequenceEdits(), WholeDocuments: wholeMutations, Payloads: input.Payloads})
+		captured, err = journalpublication.CaptureNativeJournalWithOptions(ctx, input.Paths.JournalPaths(), id, created, work.documents, input.Preparation.AfterState(), work.edits, journalpublication.NativeCaptureOptions{
+			CaptureOptions: journalpublication.CaptureOptions{
+				Filesystem: input.Filesystem, StateCodec: input.StateCodec, Codecs: input.Codecs,
+				OperationAuthority: authority.journalEntries.Directory(), ManifestRoot: authority.capturedRoot,
+				ManagedPathMutations: ordinary.managedMutations, ManagedAggregateMutations: ordinary.aggregateMutations, ManagedPathEvidence: input.ManagedPathEvidence,
+				ClaimTransitions: ordinary.ownership.Transitions(), ProvisionalAcquires: ordinary.ownership.Intents(), RemovalDemands: ordinary.demands,
+				Resolver: authority.destinations.JournalResolver(input.Resolver), RootedCapability: authority.destinations.JournalCapability,
+			}, ProjectCarrierCompletions: input.Preparation.ProjectCarrierCompletions(), SequenceEdits: input.Preparation.SequenceEdits(), WholeDocuments: work.wholeMutations, Payloads: input.Payloads,
+			ValidateBeforePublication: func(ctx context.Context) error { return admission.recheck(ctx, input.Budget) },
+		})
 		if err != nil {
 			return err
 		}
@@ -497,8 +487,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	}
 	defer func() { resultErr = errors.Join(resultErr, retiring.Close()) }()
 	if err := run("apply/native-ownership-preparation", func() error {
-		_, err := store.ConvergeRegistry(ctx, preparation, emptyBindings, authority.registryReferences(captured)...)
-		return err
+		return authority.convergeCapturedRegistry(ctx, captured, store, input.Budget, preparation, emptyBindings)
 	}); err != nil {
 		return result, settle(err)
 	}
@@ -528,7 +517,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 				return result, settle(err)
 			}
 			if err := run(prefix+"/claims", func() error {
-				return reserveNativePromotedDocument(ctx, store, captured.Documents()[index], authority.registryReferences(captured)...)
+				return authority.reserveNativePromotedDocument(ctx, store, captured, index, input.Budget)
 			}); err != nil {
 				return result, settle(err)
 			}
@@ -539,15 +528,15 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 	promoteManaged := func(ctx context.Context, effect effectpreparation.ManagedPathEffect, phase hostmutation.ManagedPathPhase) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, hostmutation.ProvisionalAcquireKeysForManagedPath(effect, phase), &captured, authority, input, store, gate, execution)
 	}
-	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
+	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathPublishPhase, input.Payloads, managedProgress, 0, events, forwardGate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
-	if _, err := authority.hostMutation().ApplyAggregateEffects(ctx, work.ordinaryAggregates, input.Codecs, len(work.managed), events, gate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
+	if _, err := authority.hostMutation().ApplyAggregateEffects(ctx, work.ordinaryAggregates, input.Codecs, len(work.managed), events, forwardGate, execution, func(ctx context.Context, effect effectpreparation.AggregateEffect) error {
 		return promoteNativeOrdinaryAcquires(ctx, &ordinary.ownership, hostmutation.ProvisionalAcquireKeysForAggregate(effect), &captured, authority, input, store, gate, execution)
 	}); err != nil {
 		return result, settle(err)
 	}
-	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, managedProgress, 0, events, gate, execution, promoteManaged); err != nil {
+	if err := authority.hostMutation().ApplyManagedPathPhase(ctx, ordinary.managedSchedule, hostmutation.ManagedPathRetirePhase, input.Payloads, managedProgress, 0, events, forwardGate, execution, promoteManaged); err != nil {
 		return result, settle(err)
 	}
 	if slices.Contains(work.promoting, true) || ordinaryPromoting {
@@ -607,8 +596,7 @@ func ApplyNativeWithEffectPlan(ctx context.Context, input NativeApplyInput, plan
 		return result, settle(err)
 	}
 	if err := run("apply/native-ownership-finalization", func() error {
-		_, err := store.ConvergeRegistry(ctx, assessment.FinalizeClaims(), assessment.FinalizeBindings())
-		return err
+		return registrysettlement.ConvergeDocuments(ctx, store, captured.Owner(), assessment.MissingDocuments(), input.Budget, assessment.FinalizeClaims(), assessment.FinalizeBindings())
 	}); err != nil {
 		return result, settle(err)
 	}

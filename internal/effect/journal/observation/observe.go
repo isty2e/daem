@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -26,15 +27,18 @@ import (
 // Input supplies independently selected observation
 // dependencies. Root and allocation ownership stay with the containing operation.
 type Input struct {
-	Owner      stateauthority.Authority
-	Before     durable.Snapshot
-	Aliases    []aggregate.DocumentAddress
-	Roots      journalnamespace.Roots
-	Protection journalnamespace.ReservationSelectors
-	Filesystem mutationfs.RootedReader
-	Registry   ownershipmutation.RegistryReader
-	Limits     configdocument.Limits
-	Budget     *physicalwork.Budget
+	Owner   stateauthority.Authority
+	Before  durable.Snapshot
+	Aliases []aggregate.DocumentAddress
+	// OrdinaryAliases are observations through ordinary output routes. They
+	// may join an existing group but may not introduce a root or a new group.
+	OrdinaryAliases map[aggregate.DocumentAddress]mutation.DirectoryEntryAuthorityObservation
+	Roots           journalnamespace.Roots
+	Protection      journalnamespace.ReservationSelectors
+	Filesystem      mutationfs.RootedReader
+	Registry        ownershipmutation.RegistryReader
+	Limits          configdocument.Limits
+	Budget          *physicalwork.Budget
 }
 
 type nativeDocumentOriginal struct {
@@ -141,20 +145,16 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 	aliases := slices.Clone(input.Aliases)
 	slices.SortFunc(aliases, journaldocument.CompareAliases)
 	indices := make(map[string]int)
+	selected := make(map[aggregate.DocumentAddress]struct{}, len(aliases))
 	var representatives []mutation.DirectoryEntryAuthorityObservation
 	var groups [][]aggregate.DocumentAddress
 	for _, alias := range aliases {
+		selected[alias] = struct{}{}
 		observation, err := journalnamespace.ObserveAlias(ctx, alias, input.Roots, input.Budget)
 		if err != nil {
 			return nil, err
 		}
-		key := ""
-		if exact, known := observation.Exact(); known {
-			key = "exact:" + exact.Key()
-		} else {
-			provisional, _ := observation.Provisional()
-			key = "provisional:" + provisional.CandidateKey()
-		}
+		key := nativeDocumentGroupKey(observation)
 		index, present := indices[key]
 		if !present {
 			indices[key] = len(groups)
@@ -167,8 +167,40 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 		}
 		groups[index] = append(groups[index], alias)
 	}
+
+	ordinaryAliases := slices.Collect(maps.Keys(input.OrdinaryAliases))
+	slices.SortFunc(ordinaryAliases, journaldocument.CompareAliases)
+	for _, alias := range ordinaryAliases {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if _, repeated := selected[alias]; repeated {
+			return nil, fmt.Errorf("ordinary alias repeats a selected native alias")
+		}
+		ordinary := input.OrdinaryAliases[alias]
+		if err := ordinary.Validate(); err != nil {
+			return nil, err
+		}
+		index, sharesDocument := indices[nativeDocumentGroupKey(ordinary)]
+		if !sharesDocument {
+			continue
+		}
+		qualified, err := journalnamespace.ObserveAlias(ctx, alias, input.Roots, input.Budget)
+		if canceled := ctx.Err(); canceled != nil {
+			return nil, canceled
+		}
+		if err != nil {
+			return nil, journalnamespace.NewUnverifiedDocumentRoute(alias, err)
+		}
+		if !ordinary.Equal(qualified) || !ordinary.Equal(representatives[index]) {
+			return nil, journalnamespace.NewUnverifiedDocumentRoute(alias, errors.New("ordinary route disagrees with the selected native namespace"))
+		}
+		groups[index] = append(groups[index], alias)
+	}
+
 	result := make([]journalnamespace.DocumentNamespace, 0, len(groups))
 	for index, aliases := range groups {
+		slices.SortFunc(aliases, journaldocument.CompareAliases)
 		namespace, err := journalnamespace.Observe(ctx, aliases, input.Roots, input.Protection, input.Filesystem, input.Budget)
 		if err != nil {
 			return nil, err
@@ -179,6 +211,14 @@ func observeNativeDocumentGroups(ctx context.Context, input Input) ([]journalnam
 		result = append(result, namespace)
 	}
 	return result, nil
+}
+
+func nativeDocumentGroupKey(observation mutation.DirectoryEntryAuthorityObservation) string {
+	if exact, known := observation.Exact(); known {
+		return "exact:" + exact.Key()
+	}
+	provisional, _ := observation.Provisional()
+	return "provisional:" + provisional.CandidateKey()
 }
 
 func readNativeCaptureRegistry(ctx context.Context, reader ownershipmutation.RegistryReader, owner stateauthority.Authority, missing []pathauthority.Provisional, budget *physicalwork.Budget) (ownership.Registry, error) {

@@ -13,6 +13,7 @@ import (
 
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 
+	physicalhostpath "github.com/isty2e/daem/internal/assurance/observe/hostpath"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
@@ -66,7 +67,7 @@ func ObserveSelectedDocuments(ctx context.Context, paths daempaths.Paths, epoch 
 		return nil, fmt.Errorf("selected native observation requires context, persistence and addresses")
 	}
 	operation := &DocumentObservation{}
-	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), nil, operation); err != nil {
+	if _, err := observeDocumentAddresses(ctx, paths, epoch, slices.Clone(addresses), nil, false, operation); err != nil {
 		return nil, errors.Join(err, operation.Close())
 	}
 	return operation, nil
@@ -133,9 +134,11 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 			add(address)
 		}
 	}
-	for _, state := range before.ManagedAggregates() {
-		if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
-			add(state.Contribution().Contract().Address().Document())
+	if input.NativeReplacement == nil {
+		for _, state := range before.ManagedAggregates() {
+			if _, native := aggregate.AgentConfigSyntaxForCodec(state.Contribution().CodecContractID()); native {
+				add(state.Contribution().Contract().Address().Document())
+			}
 		}
 	}
 	if len(aliases) == 0 && !input.Lockfile.ContainsAgentConfig() && !before.ContainsAgentConfig() {
@@ -149,10 +152,10 @@ func observeRetainedDocumentInputs(ctx context.Context, input readiness.Input, o
 	if err != nil {
 		return nil, err
 	}
-	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, candidates, operation)
+	return observeDocumentAddresses(ctx, input.Paths, input.PersistenceEpoch, addresses, candidates, input.NativeReplacement != nil, operation)
 }
 
-func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses, candidates []aggregate.DocumentAddress, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
+func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch *readiness.PersistenceEpoch, addresses, candidates []aggregate.DocumentAddress, replacement bool, operation *DocumentObservation) (result *readiness.NativeAssessmentInput, resultErr error) {
 	locations, err := nativehostpath.CaptureLocations(paths.ManifestRoot)
 	if err != nil {
 		return nil, err
@@ -243,7 +246,12 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	if err != nil {
 		return nil, err
 	}
-	addresses, err = joinOrdinaryDocumentAliases(ctx, paths, roots, budget, addresses, candidates)
+	resolver := physicalhostpath.NewResolver(paths)
+	observeCandidates := journalnamespace.ObserveOrdinaryDocumentAliases
+	if replacement {
+		observeCandidates = journalnamespace.ObserveReplacementAliasCandidates
+	}
+	ordinaryAliases, err := observeCandidates(ctx, candidates, resolver.Resolve, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +261,7 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 	}
 	registry := &observedRegistry{RegistryReader: reader}
 	documents, err := journal.ObserveNativeDocuments(ctx, journalobservation.Input{
-		Owner: owner, Before: before, Aliases: addresses, Roots: roots,
+		Owner: owner, Before: before, Aliases: addresses, OrdinaryAliases: ordinaryAliases, Roots: roots,
 		Protection: protection,
 		Filesystem: storagecommit.Adapter{}, Registry: registry, Limits: DocumentLimits(), Budget: budget,
 	})

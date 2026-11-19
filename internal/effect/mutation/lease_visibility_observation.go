@@ -7,6 +7,47 @@ import (
 	"sync"
 )
 
+// bindVisibilityDomains runs separately from lock selection. An exact
+// referent may use its matching entry's already selected namespace, but it
+// cannot rebind to a different entry within that namespace.
+func bindVisibilityDomains(requested []Domain) []Domain {
+	type pairKey struct {
+		kind                          domainKind
+		requested, key, target, scope string
+		witness                       pathSemanticsWitness
+	}
+	pair := func(domain Domain) pairKey {
+		return pairKey{domain.kind, domain.requestedPath, domain.canonicalPath, domain.target, domain.scope, domain.pathWitness}
+	}
+	var entries map[pairKey]namespaceLeaseIntent
+	domains := make([]Domain, 0, len(requested))
+	for _, domain := range requested {
+		if domain.routeRead {
+			continue
+		}
+		domains = append(domains, domain)
+		if domain.access == AccessExclusive && domain.effect == PathEffectDirectoryEntry && domain.provisional.IsZero() && !domain.namespaceLease.isZero() {
+			if entries == nil {
+				entries = make(map[pairKey]namespaceLeaseIntent)
+			}
+			entries[pair(domain)] = domain.namespaceLease
+		}
+	}
+	if len(entries) != 0 {
+		for index, domain := range domains {
+			if domain.access != AccessExclusive || domain.effect != PathEffectReferent || !domain.provisional.IsZero() || !domain.namespaceLease.isZero() {
+				continue
+			}
+			if namespace, paired := entries[pair(domain)]; paired {
+				domain.namespaceLease = namespace
+				domain.pairedEntry = true
+				domains[index] = domain
+			}
+		}
+	}
+	return domains
+}
+
 func observeVisibilityDomains(
 	ctx context.Context,
 	domains []Domain,

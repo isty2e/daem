@@ -176,6 +176,12 @@ func (document Document) Removal() (recovery.DocumentRemoval, bool, error) {
 	return removal, err == nil, err
 }
 
+// RemovesFile distinguishes a forward removal from a create with a rollback
+// removal demand and from metadata-only retirement of an already absent file.
+func (document Document) RemovesFile() bool {
+	return document.initialized && document.record.Original.Kind == "file" && document.record.Expected.Kind == "absent"
+}
+
 func (document Document) SelectedSubjects(ctx context.Context) ([]topology.SubjectID, error) {
 	if err := document.require(); err != nil {
 		return nil, err

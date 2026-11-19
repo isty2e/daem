@@ -440,7 +440,7 @@ func TestNativeProtectionMissingSelectorsAndCancellationDoNotRead(t *testing.T) 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	budget := &cancelProtectionBudget{Budget: imageBudget(t), cancel: cancel}
-	if err := newPhysicalObserver(value.protection, budget).requireUnreserved(ctx, value.aliases); err != context.Canceled || reader.imageReads != 0 {
+	if err := newPhysicalObserver(value.protection, budget).requireUnreserved(ctx, protectionAliases(value.aliases)); err != context.Canceled || reader.imageReads != 0 {
 		t.Fatal("cancellation during protection became an unavailable-location error", err)
 	}
 }
@@ -460,7 +460,7 @@ func TestNativeProtectionAllocationFailureIsNotAnUnavailableHostLocation(t *test
 	}
 	quota := errors.New("removal path-component work exceeds operation limit fixture")
 	budget := &refuseProtectionBudget{Budget: imageBudget(t), failure: quota}
-	err = newPhysicalObserver(value.protection, budget).requireUnreserved(t.Context(), value.aliases)
+	err = newPhysicalObserver(value.protection, budget).requireUnreserved(t.Context(), protectionAliases(value.aliases))
 	var failure *ProtectionError
 	if !errors.As(err, &failure) || failure.Kind() != ProtectionUnverified || failure.Uncertainty() != ProtectionWorkLimit || !errors.Is(err, quota) || errors.Is(err, configuration.ErrReserved) {
 		t.Fatal("allocation failure lost its cause or became a reserved hit", err)

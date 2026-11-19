@@ -23,9 +23,10 @@ import (
 )
 
 type recoveryAuthorityEvidence struct {
-	domains              []mutation.Domain
-	documentWrites       mutation.PhysicalAuthoritySet
-	authorityFingerprint mutation.OperationFingerprint
+	domains               []mutation.Domain
+	initialDocumentWrites mutation.PhysicalAuthoritySet
+	documentWriteRequests []mutation.PhysicalAuthorityRequest
+	authorityFingerprint  mutation.OperationFingerprint
 }
 
 type recoveryDestinationKey struct {
@@ -411,7 +412,8 @@ func buildActiveRecoveryAuthorityEvidence(
 		}
 	}
 	compiled := builder.Compile()
-	documentWrites, err := mutation.NewPhysicalAuthoritySet(compiled.DocumentWriteRequests()...)
+	documentWriteRequests := compiled.DocumentWriteRequests()
+	documentWrites, err := mutation.NewPhysicalAuthoritySet(documentWriteRequests...)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
@@ -424,9 +426,10 @@ func buildActiveRecoveryAuthorityEvidence(
 		return recoveryAuthorityEvidence{}, err
 	}
 	return recoveryAuthorityEvidence{
-		domains:              domains,
-		documentWrites:       documentWrites,
-		authorityFingerprint: fingerprint,
+		domains:               domains,
+		initialDocumentWrites: documentWrites,
+		documentWriteRequests: documentWriteRequests,
+		authorityFingerprint:  fingerprint,
 	}, nil
 }
 

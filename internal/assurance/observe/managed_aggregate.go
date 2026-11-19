@@ -24,6 +24,16 @@ type AggregateObservationFailure struct {
 	failure   aggregate.CodecFailure
 }
 
+// AggregateDocumentTypeError identifies an ordinary output whose final entry
+// is not a regular file, without exposing the resolved host path.
+type AggregateDocumentTypeError struct {
+	Address aggregate.DocumentAddress
+}
+
+func (failure *AggregateDocumentTypeError) Error() string {
+	return fmt.Sprintf("aggregate destination is not a regular file at %q", failure.Address.AggregateRoot())
+}
+
 // AggregatePreconditionEvidence is one fresh observation of a static
 // codec-profile operation precondition.
 type AggregatePreconditionEvidence struct {

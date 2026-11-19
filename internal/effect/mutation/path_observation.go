@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -16,6 +18,37 @@ type pathIdentityObserver func(string, PathEffect) (canonicalPath, error)
 type pathObservationKey struct {
 	path   string
 	effect PathEffect
+}
+
+var ErrRemovalSpellingMismatch = errors.New("missing file cannot be qualified under its retained spelling")
+
+// NewStableRouteReadDomain shares the entry lock with ordinary writers. A
+// missing ancestor or provisional entry has no stable read domain; callers
+// still need their own fresh route observation before publishing.
+func NewStableRouteReadDomain(path string, depth int, budget rootedpath.PhysicalTraversalBudget) (Domain, bool, error) {
+	if err := validatePathObservation(path, PathEffectDirectoryEntry); err != nil {
+		return Domain{}, false, err
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return Domain{}, false, nil
+	}
+	physical, missing, err := rootedpath.ResolveFutureReferentComponentsBounded(parent, depth, budget)
+	if err != nil {
+		return Domain{}, false, err
+	}
+	if len(missing) != 0 {
+		return Domain{}, false, nil
+	}
+	selection := pathSelection{anchorPath: physical, missingComponents: []string{filepath.Base(path)}, finalEntryMayExist: true}
+	identity, err := platformCanonicalPathBounded(selection, PathEffectDirectoryEntry, depth, budget)
+	identity, err = validateCanonicalPathIdentity(path, identity, err)
+	if err != nil || !identity.provisional.IsZero() {
+		return Domain{}, false, err
+	}
+	domain := logicalPathDomain(LogicalPathRequest{Path: path, Access: AccessShared, Effect: PathEffectDirectoryEntry}, identity)
+	domain.routeRead = true
+	return domain, true, nil
 }
 
 // ObserveFutureReferentAuthorityBounded resolves a locator and observes the
@@ -78,6 +111,44 @@ func observeFutureReferentAuthorityBounded(
 		return "", DirectoryEntryAuthorityObservation{}, err
 	}
 	return resolved, observation, nil
+}
+
+// ProjectRemovalSpellingBounded returns comparison evidence for a Darwin name
+// that depends on the existing file for normalization. It does not look up
+// the projected entry or grant authority for the absent path.
+func (observation DirectoryEntryAuthorityObservation) ProjectRemovalSpellingBounded(path string, depth int, budget rootedpath.PhysicalTraversalBudget) (DirectoryEntryAuthorityObservation, bool, error) {
+	if runtime.GOOS != "darwin" {
+		return DirectoryEntryAuthorityObservation{}, false, nil
+	}
+	retained, present := observation.Reference()
+	if !present {
+		return DirectoryEntryAuthorityObservation{}, false, fmt.Errorf("removal spelling check requires an exact observed file")
+	}
+	nonASCII := func(char rune) bool { return char > unicode.MaxASCII }
+	storedNameNeedsNamespace := strings.ContainsFunc(filepath.Base(retained.Locator()), nonASCII)
+	if !storedNameNeedsNamespace && !strings.ContainsFunc(filepath.Base(path), nonASCII) {
+		return DirectoryEntryAuthorityObservation{}, false, nil
+	}
+	referent, err := rootedpath.ResolveReferentPathBounded(path, depth, budget)
+	if err != nil {
+		return DirectoryEntryAuthorityObservation{}, false, err
+	}
+	selection, err := selectDirectoryEntryPathBounded(referent, depth, budget)
+	if err != nil {
+		return DirectoryEntryAuthorityObservation{}, false, err
+	}
+	selection.finalEntryMayExist = false
+	identity, err := platformCanonicalPathBounded(selection, PathEffectDirectoryEntry, depth, budget)
+	if err != nil {
+		return DirectoryEntryAuthorityObservation{}, false, err
+	}
+	if !storedNameNeedsNamespace && !identity.provisional.IsZero() {
+		// The existing entry would not have acquired a normalization lease.
+		return DirectoryEntryAuthorityObservation{}, false, ErrRemovalSpellingMismatch
+	}
+	projected, err := directoryEntryAuthorityObservation(identity)
+	projected.locator = ""
+	return projected, err == nil, err
 }
 
 func newBoundedPathIdentityObserver(ctx context.Context, depth int, budget PhysicalObservationBudget) pathIdentityObserver {

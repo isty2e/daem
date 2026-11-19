@@ -421,7 +421,7 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			return nil, err
 		}
 		id, entityBacked := topologyprojection.EntityID(effect.Subject())
-		if !entityBacked || id.Kind() != entity.KindAgentConfig || effect.Kind() == ManagedPathEffectRemove {
+		if !entityBacked || id.Kind() != entity.KindAgentConfig || effect.DropsManagedState() {
 			continue
 		}
 		source, present := sources[id]

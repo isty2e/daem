@@ -237,7 +237,8 @@ func executeWithDependencies(
 		return disclose(current), fmt.Errorf("derive current apply mutation authority: %w", err)
 	}
 	if !execution.operationEvidence.Equal(currentOperation) ||
-		!execution.authorityEvidence.authorityFingerprint.Equal(currentAuthority.authorityFingerprint) {
+		!execution.authorityEvidence.authorityFingerprint.Equal(currentAuthority.authorityFingerprint) ||
+		!slices.Equal(execution.authorityEvidence.routeReadDomains, currentAuthority.routeReadDomains) {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
 	}
 	if matches, err := firstEffectRevisions.MatchesCurrent(ctx); err != nil {

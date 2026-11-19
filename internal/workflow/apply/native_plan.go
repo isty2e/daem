@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -37,6 +38,7 @@ import (
 
 type nativePlanInputs struct {
 	state          effectpreparation.NativeApplyStatePreparation
+	admission      nativeoperation.ForwardDocumentAdmission
 	codecs         aggregate.CodecCatalog
 	stateCodec     durable.SnapshotCodec
 	statefileCodec statefile.PhysicalCodec
@@ -171,11 +173,14 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		}
 		alias := order.DocumentAddress()
 		for _, evidence := range assessment.NativeApproval {
+			if !slices.Contains(evidence.Aliases, alias) {
+				continue
+			}
 			member, err := evidence.HasMembers(ctx, assessment.CurrentState, state.AfterState())
 			if err != nil {
 				return err
 			}
-			if member && slices.Contains(evidence.Aliases, alias) {
+			if member {
 				nativeOrders = append(nativeOrders, order)
 				break
 			}
@@ -249,8 +254,37 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	}
 	planned.nativePlan = &nativePlanInputs{state: state, codecs: codecs, stateCodec: codec, statefileCodec: physicalCodec, stateDocuments: documents, orders: nativeOrders}
 	if opaque {
-		return prepareNativeInvocationRemainder(ctx, planned)
+		if err := prepareNativeInvocationRemainder(ctx, planned); err != nil {
+			return err
+		}
 	}
+	return observeNativeAdmissionForPlan(ctx, planned)
+}
+
+func observeNativeAdmissionForPlan(ctx context.Context, planned *commandPlan) error {
+	plan := planned.nativePlan
+	assessment := planned.assessment
+	phases := []effectpreparation.NativeApplyStatePreparation{plan.state}
+	if plan.opaque {
+		var err error
+		phases, err = plan.state.AdmissionPhases(plan.prefix, plan.suffix, nativeDelegatesScheduled(assessment.Reconciliation.Delegates()))
+		if err != nil {
+			return err
+		}
+	}
+	budget, err := planned.context.PersistenceEpoch.PhysicalBudget()
+	if err != nil {
+		return err
+	}
+	admission, err := nativeoperation.ObserveForwardDocumentPhases(ctx, planned.context.Paths.ManifestRoot, assessment.NativeApproval, destinationResolver(planned.context.Paths).Resolve, budget, phases...)
+	if err != nil {
+		var conflict *nativeoperation.WholeDocumentConflict
+		if errors.As(err, &conflict) {
+			return errors.Join(nativeSupportError{nativeDocumentConflictReason(conflict.Kind)}, err)
+		}
+		return err
+	}
+	plan.admission = admission
 	return nil
 }
 
@@ -295,9 +329,13 @@ func nativeStateDocuments(ctx context.Context, assessment readiness.Assessment, 
 	if after.Equal(assessment.CurrentState) {
 		return nil, nil
 	}
+	indexes, err := journaldocument.IndexSnapshotsForClaims(ctx, assessment.CurrentState, after, journaldocument.NativeClaims)
+	if err != nil {
+		return nil, err
+	}
 	var documents []aggregate.DocumentAddress
 	for _, evidence := range assessment.NativeApproval {
-		member, err := evidence.HasMembers(ctx, assessment.CurrentState, after)
+		member, err := indexes.HasMembers(ctx, evidence.Aliases)
 		if err != nil {
 			return nil, err
 		}

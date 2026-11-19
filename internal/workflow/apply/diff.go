@@ -134,7 +134,7 @@ func BuildDryRunDiffs(
 		}
 
 		currentContent := []byte(nil)
-		if decision.Kind() == reconcile.ManagedPathReplace {
+		if decision.Kind() == reconcile.ManagedPathReplace && !decision.RetiresAbsentPrevious() {
 			currentLimit := min(MaximumDryRunDiffInputBytes, budget.remainingBytes)
 			var omitted bool
 			var readErr error
@@ -403,7 +403,7 @@ func diffableManagedFileDecisions(
 
 func managedFileDiffNeedsProjectRoot(decisions []reconcile.ManagedPathDecision) bool {
 	for _, decision := range decisions {
-		if decision.Kind() == reconcile.ManagedPathReplace && decision.Scope() == target.ScopeProject {
+		if decision.Kind() == reconcile.ManagedPathReplace && !decision.RetiresAbsentPrevious() && decision.Scope() == target.ScopeProject {
 			return true
 		}
 	}

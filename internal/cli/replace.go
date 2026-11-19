@@ -75,6 +75,12 @@ func prepareReplaceAgentConfigInvocation(args []string, stdout, stderr io.Writer
 			if _, invalid := applyworkflow.InputErrorCause(err); invalid {
 				return fail(usageFailure, err)
 			}
+			failure := applyworkflow.ClassifyFailure(err, applyworkflow.CommandResult{})
+			if failure.Phase() == applyworkflow.FailurePhasePreflight && failure.Reason() == applyworkflow.FailureReasonApplyRefused {
+				if diagnostic, native := clipresent.NativePlanningFailureDiagnostic(err); native {
+					return response.failure(operationFailure, diagnostic)
+				}
+			}
 			return fail(operationFailure, err)
 		}
 		defer plan.Close()

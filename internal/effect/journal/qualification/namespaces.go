@@ -114,15 +114,6 @@ func loadDemandedNamespaces(journal journalrecord.Native, ctx context.Context, o
 		if err := record.RequireWriterSpelling(writerPath); err != nil {
 			return nil, err
 		}
-		if options.Rules.mode == forwardNamespaceRules {
-			original, present := expected[aliases[0].Address]
-			if !present {
-				return nil, fmt.Errorf("native forward document has no original rule observation")
-			}
-			if err := namespace.RequirePhysicalRules(original); err != nil {
-				return nil, err
-			}
-		}
 		if err := record.RequireCapturedNamespace(namespace.Observation()); err != nil {
 			return nil, err
 		}
@@ -177,6 +168,19 @@ func loadDemandedNamespaces(journal journalrecord.Native, ctx context.Context, o
 			}
 			if observed.Status() != recovery.RemovalNamespaceMatched {
 				return nil, fmt.Errorf("native document removal namespace no longer matches its writer")
+			}
+		}
+		if options.Rules.mode == forwardNamespaceRules {
+			original, present := expected[aliases[0].Address]
+			if !present {
+				return nil, fmt.Errorf("native forward document has no original rule observation")
+			}
+			compare := namespace.RequirePhysicalRules
+			if record.RemovesFile() {
+				compare = namespace.RequireRemovedDocumentRules
+			}
+			if err := compare(original); err != nil {
+				return nil, err
 			}
 		}
 		namespaces = append(namespaces, namespace)
