@@ -288,6 +288,26 @@ func (authority StateDirAuthority) PresentAtCapture() bool {
 	return ok && snapshot.plannedPresent
 }
 
+// ExistingPath revalidates the original selection as well as the captured
+// directory itself before giving a recovery effect its physical location.
+func (authority StateDirAuthority) ExistingPath(ctx context.Context) (string, error) {
+	snapshot, ok := authority.snapshot()
+	if !ok || !snapshot.plannedPresent {
+		return "", fmt.Errorf("file-set recovery requires an existing state directory binding")
+	}
+	current, err := fileset.CanonicalStateDirBounded(snapshot.selectedPath, authority.state.maximumPhysicalDepth, authority.workBudget())
+	if err != nil {
+		return "", err
+	}
+	if current != snapshot.path {
+		return "", fileset.WrapFileSetAccessUnprovable(fmt.Errorf("selected file-set state directory path changed"))
+	}
+	if err := authority.Validate(ctx); err != nil {
+		return "", err
+	}
+	return snapshot.path, nil
+}
+
 // Validate proves that the selected StateDir still names the planning-time
 // namespace and bound directory incarnation.
 func (authority StateDirAuthority) Validate(ctx context.Context) error {

@@ -1201,6 +1201,14 @@ by default.
 persistent cache. Temporary resolution data is removed before exit. The same
 floating manifest can legitimately resolve to a different exact lock over time.
 
+Before writing, `lock` can clear an interrupted update's recovery record if the
+record covers only the selected manifest and its default lockfile and both
+files already match the recorded result. It verifies the files and the record
+before removing the record, then resolves sources for the requested lock write.
+It does not complete or roll back the earlier update. `--dry-run` reports the
+pending record without clearing it. See [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
+if the files do not match or another recovery record blocks the write.
+
 If the first non-comment, nonblank line identifies the current lockfile schema
 but the TOML body is damaged, `lock` can rebuild the entire file from the
 current manifest and sources. Preview the rebuild with `--dry-run`. The file
@@ -1868,10 +1876,11 @@ uses the shared three-stream terminal contract and asks after disclosing the
 current recovery plan; non-interactive execution requires `--yes`. It does not
 read desired resources from the manifest or lockfile: the manifest selects the
 derived state/recovery paths. An interrupted published metadata-transaction
-marker remains a separate protocol recovered by retrying the exact authoring
-or `unmanage` write, or by `migrate state --recover` for a state migration. Markerless private residue under the state directory is
-not recoverable by retry; preserve it for analysis as described in
-[troubleshooting](troubleshooting.md#manifest-metadata-update-was-interrupted).
+marker remains separate from journal recovery. See
+[interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
+to choose the matching write or state recovery command. Markerless private
+residue under the state directory is not recoverable by retry; preserve it for
+analysis.
 
 `--legacy-user-state` selects only the default user manifest's former local
 apply-journal root, before state migration. It is not an arbitrary state-path

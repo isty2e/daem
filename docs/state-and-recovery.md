@@ -316,8 +316,12 @@ rollback/cleanup remains compensation.
 
 Lockfile-only generation stays available during active recovery, but its
 source-build/publication paths still require stable StateDir identity and a
-clear file-set fence. For metadata markers and old tombstones, follow
-[Troubleshooting](troubleshooting.md), not generic journal recovery advice.
+clear file-set fence. A `lock` write may clear a published record for its
+selected manifest and default lockfile only after verifying that both files
+already match the recorded result and that the journal, shared metadata, and
+other file-set barriers are clear. It never restores or completes an earlier
+write. See [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
+for other records and old tombstones.
 
 ### Older Tombstones
 

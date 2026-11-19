@@ -385,23 +385,27 @@ func loadMarkerAtCanonicalPathVersionWithBudget(
 	if err != nil {
 		return transactionMarker{}, nil, err
 	}
-	envelope, err := jsonstrict.DecodeVersionEnvelope(
-		content,
-		"file-set transaction marker",
-		maximumMarkerJSONDepth,
-		expectedVersion,
-	)
-	if err != nil {
-		return transactionMarker{}, nil, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
-	}
-	if err := markerVersionError(envelope); err != nil {
-		return transactionMarker{}, nil, err
-	}
-	marker, err := decodeValidatedMarkerContent(canonicalPath, content, expectedVersion, maximumPhysicalDepth, physicalWorkBudget)
+	marker, err := decodeMarkerVersion(canonicalPath, content, expectedVersion, maximumPhysicalDepth, physicalWorkBudget)
 	if err != nil {
 		return transactionMarker{}, nil, err
 	}
 	return marker, content, nil
+}
+
+func decodeMarkerVersion(path string, content []byte, version, depth int, budget PhysicalWorkBudget) (transactionMarker, error) {
+	envelope, err := jsonstrict.DecodeVersionEnvelope(
+		content,
+		"file-set transaction marker",
+		maximumMarkerJSONDepth,
+		version,
+	)
+	if err != nil {
+		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", path, err)
+	}
+	if err := markerVersionError(envelope); err != nil {
+		return transactionMarker{}, err
+	}
+	return decodeValidatedMarkerContent(path, content, version, depth, budget)
 }
 
 func readMarkerContent(ctx context.Context, canonicalPath string) ([]byte, error) {

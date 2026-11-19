@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -43,9 +44,23 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	if err := lockRequireStateDirClear(ctx, paths, stateDirAuthority); err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
+	var settledPair *transaction.FinalizationPair
+	retired := false
+	defer func() {
+		if retired && returnErr != nil {
+			returnErr = afterMetadataRetirement{cause: returnErr}
+		}
+	}()
+	if fenceErr := lockRequireStateDirClear(ctx, paths, stateDirAuthority); fenceErr != nil {
+		if outputPath != paths.LockfilePath || !stateDirAuthority.PresentAtCapture() || !localPublishedFileSet(fenceErr) {
+			errorContext.Err = fenceErr
+			return Result{}, errorContext
+		}
+		settledPair, retired, err = finishLockMetadata(ctx, paths, stateDirAuthority, metadataTransactionPath)
+		if err != nil {
+			errorContext.Err = err
+			return Result{}, errorContext
+		}
 	}
 	optimisticLocalPaths, err := commandLocalPaths(ctx, paths)
 	if err != nil {
@@ -100,6 +115,19 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	}
 	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
+	validateFinalizedSelection := func(ctx context.Context) error {
+		if settledPair == nil {
+			return nil
+		}
+		if _, err := stateDirAuthority.ExistingPath(ctx); err != nil {
+			return err
+		}
+		return settledPair.RequireSameSelection(revisions)
+	}
+	if err := validateFinalizedSelection(ctx); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -159,6 +187,9 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		}
 		if !matches {
 			return mutation.StaleSnapshotError{}
+		}
+		if err := validateFinalizedSelection(ctx); err != nil {
+			return err
 		}
 		return lockRequireStateDirClear(ctx, paths, stateDirAuthority)
 	}
@@ -246,6 +277,10 @@ func compileLockOperationProgram(
 func lowerLockDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
 	domains := make([]mutation.Domain, 0, len(steps))
 	for _, step := range steps {
+		if domain, ok := step.Compiled(); ok {
+			domains = append(domains, domain)
+			continue
+		}
 		request, ok := step.Path()
 		if !ok {
 			return nil, fmt.Errorf("lock operation domain step is not a path request")
