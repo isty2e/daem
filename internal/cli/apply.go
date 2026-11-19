@@ -195,7 +195,8 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			if arguments.output == requestedJSON {
 				return response.failure(operationFailure, applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, readinessPlanning.CommandResult, false).WithPrefix("apply failed: ").WithGuidance(applyWorkflowGuidance(*manifestPath, readinessPlanning.CommandResult, err)...))
 			}
-			printApplyFailure(stderr, err, applyFailurePlanning, readinessPlanning.CommandResult, *verbose)
+			diagnostic := applyFailureDiagnostic(*manifestPath, err, applyFailurePlanning, readinessPlanning.CommandResult, *verbose)
+			fmt.Fprintln(stderr, diagnostic.WithPrefix("apply failed: ").HumanText())
 			if readinessPlanning.ReconciliationReady {
 				clipresent.PrintActionPlanWithOptions(
 					stderr,
@@ -417,7 +418,7 @@ func applyFailureDiagnostic(
 	result applyworkflow.CommandResult,
 	verbose bool,
 ) clipresent.FailureDiagnostic {
-	diagnostic, reason := applyFailurePrimary(stage, err, result)
+	diagnostic, reason := applyFailurePrimary(stage, err, result, requestedManifestPath != "")
 	diagnostic = diagnostic.WithPermissionProtection(result.PermissionProtection)
 	var instruction string
 	switch reason {
@@ -472,7 +473,7 @@ func applyRecoverGuidance(manifestPath, requestedManifestPath, purpose string) c
 	return clipresent.InstructionGuidance("run daem recover --dry-run " + purpose)
 }
 
-func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflow.CommandResult) (clipresent.FailureDiagnostic, applyworkflow.FailureReason) {
+func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflow.CommandResult, explicitManifest bool) (clipresent.FailureDiagnostic, applyworkflow.FailureReason) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		failure := applyworkflow.ClassifyFailure(err, result)
 		return clipresent.NewFailureDiagnostic(failure.PrimaryDetail()), failure.Reason()
@@ -492,6 +493,15 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 				if diagnostic, native := clipresent.NativePlanningFailureDiagnostic(err); native {
 					return diagnostic, failure.Reason()
 				}
+			}
+			if declaration, stale := failure.StaleAgentConfigSource(); stale {
+				instruction := "from the same directory and environment, run daem lock --dry-run. If the changes are expected, run daem lock, then preview apply again."
+				if explicitManifest {
+					instruction = "from the same directory and environment, run daem lock --dry-run with the same --manifest argument. If the changes are expected, run daem lock with that argument, then preview apply again."
+				}
+				resource := clipresent.ResourceReference(declaration.Kind(), declaration.Name())
+				return clipresent.NewFailureDiagnostic("the lockfile no longer matches " + resource).
+					WithGuidance(clipresent.InstructionGuidance(instruction)), failure.Reason()
 			}
 		}
 		return clipresent.NewFailureDiagnostic(failure.PrimaryDetail()), failure.Reason()

@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -31,7 +33,7 @@ func TestNativeProtectionDiagnosticsAreActionableOnlyInPlanning(t *testing.T) {
 		if !errors.As(err, &protection) {
 			t.Fatal("fixture did not reach native protection", err)
 		}
-		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, applyworkflow.CommandResult{})
+		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, applyworkflow.CommandResult{}, false)
 		if reason != applyworkflow.FailureReasonApplyRefused || diagnostic.Message() != protection.Error() || len(diagnostic.Guidance()) != 1 || diagnostic.Guidance()[0].Kind() != clipresent.GuidanceInstruction {
 			t.Fatal("planning hid the native cause or omitted repair guidance", diagnostic.HumanText(), reason)
 		}
@@ -55,7 +57,7 @@ func TestNativeProtectionDiagnosticsAreActionableOnlyInPlanning(t *testing.T) {
 			{applyFailureExecution, err, applyworkflow.CommandResult{ExecutionAttempted: true}},
 			{applyFailurePlanning, err, applyworkflow.CommandResult{ExecutionAttempted: true}},
 		} {
-			actual, reason := applyFailurePrimary(sample.stage, sample.cause, sample.result)
+			actual, reason := applyFailurePrimary(sample.stage, sample.cause, sample.result, false)
 			owned := applyworkflow.ClassifyFailure(sample.cause, sample.result)
 			if actual.Message() != owned.PrimaryDetail() || reason != owned.Reason() || len(actual.Guidance()) != 0 {
 				t.Fatal("protection cause overrode the workflow's failure disposition", actual.HumanText(), reason)
@@ -134,6 +136,7 @@ func TestApplyFailureDetailPreservesCancellationAcrossPreEffectStages(t *testing
 			stage,
 			context.Canceled,
 			applyworkflow.CommandResult{},
+			false,
 		)
 		detail := diagnostic.HumanText()
 		if detail != "apply was cancelled before effects" ||
@@ -148,6 +151,7 @@ func TestApplyFailureDetailPreservesPostEffectDeadline(t *testing.T) {
 		applyFailureDiff,
 		context.DeadlineExceeded,
 		applyworkflow.CommandResult{ExecutionAttempted: true},
+		false,
 	)
 	detail := diagnostic.HumanText()
 	if detail != "apply was cancelled after an effect boundary was crossed" ||
@@ -169,7 +173,7 @@ func TestApplyFailureRejectsUnownedInputLookalikes(t *testing.T) {
 		for _, stage := range []applyFailureStage{applyFailurePlanning, applyFailureExecution} {
 			result := applyworkflow.CommandResult{}
 			failure := applyworkflow.ClassifyFailure(err, result)
-			diagnostic, reason := applyFailurePrimary(stage, err, result)
+			diagnostic, reason := applyFailurePrimary(stage, err, result, false)
 			detail := diagnostic.HumanText()
 			if detail != failure.Detail() || reason != failure.Reason() {
 				t.Fatalf("unowned error escaped its closed projection: %v -> %q/%q", err, detail, reason)
@@ -201,7 +205,7 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 		errors.Join(inputErr, fileset.ErrInterruptedFileSetTransaction),
 		errors.Join(fileset.ErrInterruptedFileSetTransaction, inputErr),
 	} {
-		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, plan.CommandResult)
+		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, plan.CommandResult, false)
 		detail := diagnostic.HumanText()
 		failure := applyworkflow.ClassifyFailure(err, plan.CommandResult)
 		if detail != failure.PrimaryDetail() || reason != applyworkflow.FailureReasonInterruptedFileSetTransaction {
@@ -214,7 +218,7 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 		}
 	}
 	for _, err := range []error{errors.Join(inputErr, context.Canceled), errors.Join(context.Canceled, inputErr)} {
-		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, plan.CommandResult)
+		diagnostic, reason := applyFailurePrimary(applyFailurePlanning, err, plan.CommandResult, false)
 		detail := diagnostic.HumanText()
 		failure := applyworkflow.ClassifyFailure(err, plan.CommandResult)
 		if detail != failure.Detail() || reason != applyworkflow.FailureReasonCancelled {
@@ -228,7 +232,7 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 	}
 	for _, stage := range []applyFailureStage{applyFailurePlanning, applyFailureExecution} {
 		result := applyworkflow.CommandResult{ExecutionAttempted: true}
-		diagnostic, reason := applyFailurePrimary(stage, inputErr, result)
+		diagnostic, reason := applyFailurePrimary(stage, inputErr, result, false)
 		detail := diagnostic.HumanText()
 		failure := applyworkflow.ClassifyFailure(inputErr, result)
 		if detail != failure.Detail() || reason != failure.Reason() {
@@ -247,5 +251,30 @@ func TestApplyInputDiagnosticPreservesHigherPriorityFailures(t *testing.T) {
 	}
 	if !bytes.Equal(beforeJSON.Bytes(), afterJSON.Bytes()) || strings.Contains(afterJSON.String(), manifestPath) {
 		t.Fatalf("marker changed path-neutral JSON: before=%q after=%q", &beforeJSON, &afterJSON)
+	}
+}
+
+func TestApplyStaleAgentConfigDiagnosticIsPlanningOnly(t *testing.T) {
+	declaration, err := entity.New(entity.KindAgentConfig, "preferences")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := lockobserve.NativeSourceStaleError{DeclarationID: declaration}
+	result := applyworkflow.CommandResult{}
+
+	planning := applyFailureDiagnostic("", stale, applyFailurePlanning, result, false)
+	if !strings.Contains(planning.Message(), "agent-config/preferences") || len(planning.Guidance()) != 1 {
+		t.Fatal("the fixture did not receive the planning diagnosis", planning.HumanText())
+	}
+	execution := applyFailureDiagnostic("", stale, applyFailureExecution, result, false)
+	if execution.Message() != applyworkflow.ClassifyFailure(stale, result).PrimaryDetail() || len(execution.Guidance()) != 0 {
+		t.Fatal("an execution-stage check gained relock advice before effects", execution.HumanText())
+	}
+
+	protection, _ := nativeProtectionFailure(t, false, ".codex/auth.json")
+	protected := applyFailureDiagnostic("", protection, applyFailurePlanning, result, false)
+	combined := applyFailureDiagnostic("", errors.Join(stale, protection), applyFailurePlanning, result, false)
+	if combined.HumanText() != protected.HumanText() {
+		t.Fatal("stale-source advice displaced a protection refusal", combined.HumanText())
 	}
 }

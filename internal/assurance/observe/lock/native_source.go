@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/agentconfig"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
@@ -15,6 +16,15 @@ import (
 )
 
 var ErrNativeSourceStale = errors.New("native source differs from its locked intent")
+
+// NativeSourceStaleError identifies the selected declaration whose source no
+// longer matches its locked intent without exposing source details.
+type NativeSourceStaleError struct {
+	DeclarationID entity.ID
+}
+
+func (failure NativeSourceStaleError) Error() string { return ErrNativeSourceStale.Error() }
+func (failure NativeSourceStaleError) Unwrap() error { return ErrNativeSourceStale }
 
 // NativeSourceObservation retains one positively matched source and its complete
 // projections, including an empty key source. It is not a freshness lease or an
@@ -99,7 +109,7 @@ func (epoch SourceEpoch) NativeSource(ctx context.Context, resource agentconfig.
 			return NativeSourceObservation{}, err
 		}
 		if observations[0].Stale() {
-			return NativeSourceObservation{}, ErrNativeSourceStale
+			return NativeSourceObservation{}, NativeSourceStaleError{DeclarationID: resource.ID()}
 		}
 
 		projections := make([]lock.LockedSubjectContract, 0, len(candidate.keys))

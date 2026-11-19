@@ -116,14 +116,16 @@ func TestNativeSourceObservationRechecksCompleteSourceAndRetainedView(t *testing
 	if err := os.WriteFile(filepath.Join(fixture.root, "source.json"), []byte(`{"a":2}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if observed, err := epoch.NativeSource(t.Context(), fixture.resource); err == nil || observed.Validate() == nil {
-		t.Fatal("changed retained source view exposed an intent")
+	if observed, err := epoch.NativeSource(t.Context(), fixture.resource); err == nil || errors.Is(err, ErrNativeSourceStale) || observed.Validate() == nil {
+		t.Fatal("changed retained source view became an intent or a stale lock observation", err)
 	}
 	fresh, err := ResolveNativeDocumentSourceEpoch(t.Context(), fixture.paths, fixture.environment, fixture.locked, fixture.selection, nativeKeyObservationLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if observed, err := fresh.NativeSource(t.Context(), fixture.resource); !errors.Is(err, ErrNativeSourceStale) || observed.Validate() == nil {
-		t.Fatal("stale native source became a successful action input", err)
+	observed, err := fresh.NativeSource(t.Context(), fixture.resource)
+	var stale NativeSourceStaleError
+	if !errors.Is(err, ErrNativeSourceStale) || !errors.As(err, &stale) || stale.DeclarationID != fixture.resource.ID() || observed.Validate() == nil {
+		t.Fatal("stale native source lost its declaration or became an action input", err)
 	}
 }
