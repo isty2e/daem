@@ -57,6 +57,9 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 			status := workflowlock.MetadataRecoveryStatusOf(err)
 			diagnostic := humanFailureDiagnostic(err).WithPrefix("lock failed: ").
 				WithGuidance(lockMetadataGuidance(*dryRun, status)...)
+			if workflowlock.JournalRetired(err) {
+				diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("the already-retired apply journal was cleared before lock stopped"))
+			}
 			if status == workflowlock.MetadataRecoveryNotApplicable || status == workflowlock.MetadataRecoveryRetired {
 				diagnostic = diagnostic.WithGuidance(lockWorkflowGuidance(*manifestPath, err)...)
 			}
@@ -112,7 +115,7 @@ func lockMetadataGuidance(dryRun bool, status workflowlock.MetadataRecoveryStatu
 	switch status {
 	case workflowlock.MetadataRecoveryPending:
 		if dryRun {
-			return []clipresent.Guidance{clipresent.NoteGuidance("preview leaves the recovery record untouched; if you intend to refresh this lockfile, daem lock with the same manifest selection can clear an already completed manifest and lockfile update")}
+			return []clipresent.Guidance{clipresent.NoteGuidance("preview leaves the recovery record untouched; if you intend to refresh this lockfile, daem lock with the same manifest selection can clear an already completed manifest and lockfile update and any verified, already-retired journal that blocks it")}
 		}
 		return []clipresent.Guidance{troubleshooting}
 	case workflowlock.MetadataRecoveryDifferentPair:

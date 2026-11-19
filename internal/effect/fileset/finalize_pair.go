@@ -23,81 +23,165 @@ var (
 	ErrFileSetRetirementUnconfirmed = errors.New("file-set evidence retirement could not be confirmed")
 )
 
-// FinalizeCommittedPair retires an exact generation-3 file set without restoring
-// either target. The caller holds both targets' and the marker's leases, supplies
-// independently bound physical addresses, and revalidates peer authority before
-// removal. A false, nil result means the active directory was already absent.
-func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companionPath string, revalidate func(context.Context) error) (bool, error) {
-	return finalizeCommittedPair(ctx, stateDir, replacedPath, companionPath, revalidate, storagecommit.ConfirmFilePersistence)
+// CommittedPair is read-only evidence of one settled generation-3 file set.
+// It binds the complete private inventory and both after-image identities.
+type CommittedPair struct {
+	stateDir, replacedPath, companionPath string
+	inventory                             mutationfs.DirectorySnapshot
+	targets                               [2]string
+	identities                            [2]storagecommit.EntryIdentity
 }
 
-func finalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companionPath string, revalidate func(context.Context) error, confirm func(context.Context, string, storagecommit.EntryIdentity) error) (bool, error) {
-	if ctx == nil || revalidate == nil {
-		return false, fmt.Errorf("file-set finalization requires context and revalidation")
+func (pair *CommittedPair) SameEvidence(other *CommittedPair) bool {
+	return pair != nil && other != nil && pair.stateDir == other.stateDir &&
+		pair.replacedPath == other.replacedPath && pair.companionPath == other.companionPath &&
+		pair.inventory.Equal(other.inventory) && pair.targets == other.targets &&
+		pair.identities[0].Equal(other.identities[0]) && pair.identities[1].Equal(other.identities[1])
+}
+
+// ReadReplacedImage returns bytes from the exact manifest after-image bound
+// by the proof, without following a later link or adopting a replacement.
+func (pair *CommittedPair) ReadReplacedImage(ctx context.Context) ([]byte, error) {
+	for index, path := range pair.targets {
+		if path != pair.replacedPath {
+			continue
+		}
+		snapshot, err := observeFinalizationFile(ctx, path, maximumTargetBytes, &fenceObservationBudget{})
+		if err != nil {
+			return nil, err
+		}
+		if !pair.identities[index].Equal(snapshot.Identity()) {
+			return nil, mutation.StaleSnapshotError{}
+		}
+		return snapshot.Content(), nil
+	}
+	return nil, fmt.Errorf("file-set pair has no replaced image")
+}
+
+// ObserveCommittedPair verifies an exact file set without syncing or removing
+// anything. A nil proof with no error means the active directory is absent.
+func ObserveCommittedPair(ctx context.Context, stateDir, replacedPath, companionPath string) (*CommittedPair, error) {
+	observation, err := observePair(ctx, stateDir, replacedPath, companionPath)
+	if err != nil || observation == nil {
+		return nil, err
+	}
+	defer observation.close()
+	return &observation.proof, nil
+}
+
+type pairObservation struct {
+	proof      CommittedPair
+	capability rootedpath.CommitCapability
+	budget     *fenceObservationBudget
+}
+
+func (observation *pairObservation) close() {
+	if observation.capability != nil {
+		_ = observation.capability.Close()
+	}
+}
+
+func (observation *pairObservation) inventory(ctx context.Context) (mutationfs.DirectorySnapshot, error) {
+	if err := admitFileSetFenceObservation(transactionDir(observation.proof.stateDir), mutationfs.MaximumPhysicalPathDepth, observation.budget, maximumFileSetTargets+1, 0); err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return storagecommit.SnapshotRootedDirectoryEntries(ctx, observation.capability, maximumFileSetTargets+1)
+}
+
+func observePair(ctx context.Context, stateDir, replacedPath, companionPath string) (*pairObservation, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("file-set finalization requires context")
 	}
 	if err := ctx.Err(); err != nil {
-		return false, err
+		return nil, err
 	}
 	if replacedPath == companionPath || !filepath.IsAbs(stateDir) || filepath.Clean(stateDir) != stateDir {
-		return false, ErrDifferentFinalizationPair
+		return nil, ErrDifferentFinalizationPair
 	}
 	budget := &fenceObservationBudget{}
 	depth := mutationfs.MaximumPhysicalPathDepth
 	if err := rejectAbandonedFileSetResidueWithBudget(ctx, stateDir, depth, budget); err != nil {
-		return false, err
+		return nil, err
 	}
 
 	directory := transactionDir(stateDir)
 	root, destination, err := rootedpath.CaptureDestinationBounded(directory, depth, budget)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	defer root.Close()
 	path, err := destination.LexicalPath()
 	if err != nil || path != directory {
-		return false, mutation.StaleSnapshotError{}
+		return nil, mutation.StaleSnapshotError{}
 	}
 	capability, err := root.AcquireBounded(destination, depth, budget)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	observation := &pairObservation{
+		proof:      CommittedPair{stateDir: stateDir, replacedPath: replacedPath, companionPath: companionPath},
+		capability: capability,
+		budget:     budget,
+	}
+	keep := false
 	defer func() {
-		if capability != nil {
-			_ = capability.Close()
+		if !keep {
+			observation.close()
 		}
 	}()
-	observeInventory := func(ctx context.Context) (mutationfs.DirectorySnapshot, error) {
-		if err := admitFileSetFenceObservation(directory, depth, budget, maximumFileSetTargets+1, 0); err != nil {
-			return mutationfs.DirectorySnapshot{}, err
-		}
-		return storagecommit.SnapshotRootedDirectoryEntries(ctx, capability, maximumFileSetTargets+1)
-	}
-	inventory, err := observeInventory(ctx)
+	inventory, err := observation.inventory(ctx)
 	if errors.Is(err, fs.ErrNotExist) {
 		// A missing child in an unstable inventory does not establish that the
 		// active record is gone.
 		if _, identityErr := storagecommit.CaptureRootedEntryIdentity(ctx, capability); errors.Is(identityErr, fs.ErrNotExist) {
-			return false, nil
+			return nil, nil
 		}
 	}
 	if err != nil {
-		return false, wrapFileSetEvidenceInvalid(err)
+		return nil, wrapFileSetEvidenceInvalid(err)
 	}
 	marker, err := readPairFinalizationEvidence(ctx, stateDir, inventory, replacedPath, companionPath, budget)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	directoryIdentity, ok := inventory.RootIdentity().(storagecommit.EntryIdentity)
-	if !ok {
-		return false, fmt.Errorf("file-set evidence directory identity is unavailable")
-	}
-
 	identities, err := committedPairIdentities(ctx, marker, budget)
+	if err != nil {
+		return nil, err
+	}
+	observation.proof.inventory = inventory
+	observation.proof.targets = [2]string{marker.Targets[0].Path, marker.Targets[1].Path}
+	observation.proof.identities = identities
+	keep = true
+	return observation, nil
+}
+
+// Retire checks the same evidence before syncing after-images and retiring its
+// directory. The caller holds both targets' and the marker's leases.
+func (pair *CommittedPair) Retire(ctx context.Context, revalidate func(context.Context) error) (bool, error) {
+	return pair.retire(ctx, revalidate, storagecommit.ConfirmFilePersistence)
+}
+
+func (pair *CommittedPair) retire(ctx context.Context, revalidate func(context.Context) error, confirm func(context.Context, string, storagecommit.EntryIdentity) error) (bool, error) {
+	if pair == nil || revalidate == nil {
+		return false, fmt.Errorf("file-set retirement requires evidence and revalidation")
+	}
+	observation, err := observePair(ctx, pair.stateDir, pair.replacedPath, pair.companionPath)
 	if err != nil {
 		return false, err
 	}
-	for index, target := range marker.Targets {
-		if err := confirm(ctx, target.Path, identities[index]); err != nil {
+	if observation == nil {
+		return false, mutation.StaleSnapshotError{}
+	}
+	defer observation.close()
+	if !pair.SameEvidence(&observation.proof) {
+		return false, mutation.StaleSnapshotError{}
+	}
+	directoryIdentity, ok := pair.inventory.RootIdentity().(storagecommit.EntryIdentity)
+	if !ok {
+		return false, fmt.Errorf("file-set evidence directory identity is unavailable")
+	}
+	for index, path := range pair.targets {
+		if err := confirm(ctx, path, pair.identities[index]); err != nil {
 			return false, fmt.Errorf("confirm settled file-set target: %w", err)
 		}
 	}
@@ -105,31 +189,31 @@ func finalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companio
 	if err := revalidate(ctx); err != nil {
 		return false, err
 	}
-	if err := rejectAbandonedFileSetResidueWithBudget(ctx, stateDir, depth, budget); err != nil {
+	if err := rejectAbandonedFileSetResidueWithBudget(ctx, pair.stateDir, mutationfs.MaximumPhysicalPathDepth, observation.budget); err != nil {
 		return false, err
 	}
-	for index, target := range marker.Targets {
-		current, err := storagecommit.CaptureEntryIdentity(ctx, target.Path)
+	for index, path := range pair.targets {
+		current, err := storagecommit.CaptureEntryIdentity(ctx, path)
 		if err != nil {
 			return false, err
 		}
-		if !identities[index].Equal(current) {
+		if !pair.identities[index].Equal(current) {
 			return false, mutation.StaleSnapshotError{}
 		}
 	}
-	current, err := observeInventory(ctx)
+	current, err := observation.inventory(ctx)
 	if err != nil {
 		return false, err
 	}
-	if !inventory.Equal(current) {
+	if !pair.inventory.Equal(current) {
 		return false, mutation.StaleSnapshotError{}
 	}
 
-	removal, err := storagecommit.NewRootedLogicalRemoval(capability, directoryIdentity)
+	removal, err := storagecommit.NewRootedLogicalRemoval(observation.capability, directoryIdentity)
 	if err != nil {
 		return false, err
 	}
-	capability = nil // The commit now owns the capability.
+	observation.capability = nil // The commit now owns the capability.
 	outcome, err := storagecommit.CommitLogicalRemovalWithOutcome(ctx, removal)
 	if err != nil {
 		if outcome.State() == mutationfs.CommitOutcomeIndeterminate || outcome.State() == mutationfs.CommitOutcomeRetainedRecoverable {

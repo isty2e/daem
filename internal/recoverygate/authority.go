@@ -268,6 +268,15 @@ func (authority EffectAuthority) Validate(ctx context.Context) error {
 	return validateBarrier(ctx, authority.paths, authority.globalMetadataRoot, authority.stateDir)
 }
 
+// ExistingStateDir resolves the retained workspace incarnation without
+// capturing a replacement StateDir.
+func (authority EffectAuthority) ExistingStateDir(ctx context.Context) (string, error) {
+	if err := authority.requireInitialized(); err != nil {
+		return "", err
+	}
+	return authority.stateDir.ExistingPath(ctx)
+}
+
 func validateBarrier(
 	ctx context.Context,
 	paths daempaths.Paths,

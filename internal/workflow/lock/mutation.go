@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"slices"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -15,6 +14,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
+	"github.com/isty2e/daem/internal/workflow/workspacecleanup"
 )
 
 func runLockMutation(ctx context.Context, input LockInput) (result Result, returnErr error) {
@@ -45,11 +45,11 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	var settledPair *transaction.FinalizationPair
-	retired := false
+	var cleanup *workspacecleanup.Plan
+	var cleanupSteps []workspacecleanup.Step
 	defer func() {
-		if retired && returnErr != nil {
-			returnErr = afterMetadataRetirement{cause: returnErr}
+		if len(cleanupSteps) != 0 && returnErr != nil {
+			returnErr = afterMetadataRetirement{cause: returnErr, steps: cleanupSteps}
 		}
 	}()
 	if fenceErr := lockRequireStateDirClear(ctx, paths, stateDirAuthority); fenceErr != nil {
@@ -57,9 +57,9 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 			errorContext.Err = fenceErr
 			return Result{}, errorContext
 		}
-		settledPair, retired, err = finishLockMetadata(ctx, paths, stateDirAuthority, metadataTransactionPath)
+		cleanup, cleanupSteps, err = finishLockMetadata(ctx, paths, stateDirAuthority)
 		if err != nil {
-			if !retired && errors.Is(err, fs.ErrNotExist) && !recoverygate.IsBarrierRefusal(err) && !recoverygate.IsCancellation(err) {
+			if errors.Is(err, fs.ErrNotExist) && !recoverygate.IsBarrierRefusal(err) && !recoverygate.IsCancellation(err) {
 				err = fmt.Errorf("%w: could not verify the recovery record or selected files: %w", fileset.ErrInterruptedFileSetTransaction, err)
 			}
 			errorContext.Err = err
@@ -123,13 +123,13 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		return Result{}, errorContext
 	}
 	validateFinalizedSelection := func(ctx context.Context) error {
-		if settledPair == nil {
+		if cleanup == nil {
 			return nil
 		}
 		if _, err := stateDirAuthority.ExistingPath(ctx); err != nil {
 			return err
 		}
-		return settledPair.RequireSameSelection(revisions)
+		return cleanup.RequireSameDeclarationSelection(revisions)
 	}
 	if err := validateFinalizedSelection(ctx); err != nil {
 		errorContext.Err = err

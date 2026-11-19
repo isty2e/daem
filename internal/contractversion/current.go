@@ -33,8 +33,8 @@ const (
 	ResourceInventoryJSON  = 4
 	OutputInventoryJSON    = 5
 	PathInventoryJSON      = 2
-	ReconciliationPlanJSON = 19
-	ApplyResultJSON        = 25
+	ReconciliationPlanJSON = 20
+	ApplyResultJSON        = 26
 	RecoveryJSON           = 10
 	StateMigrationJSON     = 1
 	MetadataMigrationJSON  = 1

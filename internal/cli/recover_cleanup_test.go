@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 )
 
@@ -882,8 +883,12 @@ func writeRecoverCleanupCLIFixture(
 	phase retirement.Phase,
 	residuePresent bool,
 ) recoverCleanupCLIFixture {
+	return writeRecoverCleanupCLIFixtureWithPermissions(t, phase, residuePresent, realization.PathPermissionsExact)
+}
+
+func writeRecoverCleanupCLIFixtureWithPermissions(t *testing.T, phase retirement.Phase, residuePresent bool, permissions realization.PathPermissionPolicy) recoverCleanupCLIFixture {
 	t.Helper()
-	fixture := writeRecoverConfirmationFixture(t)
+	fixture := writeRecoverConfirmationFixtureWithPermissions(t, permissions)
 	paths, err := daempaths.Resolve(fixture.manifestPath)
 	if err != nil {
 		t.Fatal(err)

@@ -11,8 +11,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
-// FinalizationPair binds both declared referents and their revisions under the
-// caller's leases. Persisted record paths never select the pair.
+// FinalizationPair binds both selected referents and their revisions.
+// Persisted record paths never select the pair.
 type FinalizationPair struct {
 	requests  []mutation.RevisionRequest
 	referents [2]string
@@ -62,29 +62,76 @@ func (pair FinalizationPair) RequireSameSelection(revisions mutation.RevisionSet
 	return nil
 }
 
-// RetireSettled requires the manifest to be a replacement and the default
-// lockfile to be written or retained. Controls are independent workspace paths.
-func (pair FinalizationPair) RetireSettled(ctx context.Context, stateDir string, controls []string, budget rootedpath.PhysicalTraversalBudget, revalidate func(context.Context) error) (bool, error) {
-	if len(pair.requests) != len(pair.referents) || revalidate == nil {
-		return false, fmt.Errorf("retirement requires a captured pair and revalidation")
+// SettledPair authorizes only retirement of the observed declaration record.
+type SettledPair struct {
+	selection FinalizationPair
+	stateDir  string
+	evidence  *fileset.CommittedPair
+}
+
+func (pair *SettledPair) ReadManifest(ctx context.Context) ([]byte, error) {
+	return pair.evidence.ReadReplacedImage(ctx)
+}
+
+// ObserveSettled requires a replaced manifest and a replaced or retained
+// default lockfile. Nil evidence means the record is no longer present.
+func (pair FinalizationPair) ObserveSettled(ctx context.Context, stateDir string, controls []string, budget rootedpath.PhysicalTraversalBudget) (*SettledPair, error) {
+	if len(pair.requests) != len(pair.referents) {
+		return nil, fmt.Errorf("finalization requires a captured pair")
 	}
-	validate := func(ctx context.Context) error {
+	if err := pair.rejectControlOverlap(controls, budget); err != nil {
+		return nil, err
+	}
+	evidence, err := fileset.ObserveCommittedPair(ctx, stateDir, pair.referents[0], pair.referents[1])
+	if err != nil || evidence == nil {
+		return nil, err
+	}
+	if err := pair.validate(ctx); err != nil {
+		return nil, err
+	}
+	return &SettledPair{selection: pair, stateDir: stateDir, evidence: evidence}, nil
+}
+
+func (pair *SettledPair) Validate(ctx context.Context, controls []string, budget rootedpath.PhysicalTraversalBudget) error {
+	current, err := pair.selection.ObserveSettled(ctx, pair.stateDir, controls, budget)
+	if err != nil {
+		return err
+	}
+	if current == nil || !pair.evidence.SameEvidence(current.evidence) {
+		return mutation.StaleSnapshotError{}
+	}
+	return nil
+}
+
+// RequireSameSelection checks the referent locations in a subsequent plan.
+func (pair *SettledPair) RequireSameSelection(revisions mutation.RevisionSet) error {
+	return pair.selection.RequireSameSelection(revisions)
+}
+
+func (pair *SettledPair) Retire(ctx context.Context, controls []string, budget rootedpath.PhysicalTraversalBudget, revalidate func(context.Context) error) (bool, error) {
+	if err := pair.selection.validate(ctx); err != nil {
+		return false, err
+	}
+	return pair.evidence.Retire(ctx, func(ctx context.Context) error {
 		if err := revalidate(ctx); err != nil {
 			return err
 		}
-		matches, err := pair.revisions.MatchesCurrent(ctx)
-		if err != nil {
+		if err := pair.selection.validate(ctx); err != nil {
 			return err
 		}
-		if !matches {
-			return mutation.StaleSnapshotError{}
-		}
-		return pair.rejectControlOverlap(controls, budget)
+		return pair.selection.rejectControlOverlap(controls, budget)
+	})
+}
+
+func (pair FinalizationPair) validate(ctx context.Context) error {
+	matches, err := pair.revisions.MatchesCurrent(ctx)
+	if err != nil {
+		return err
 	}
-	if err := pair.rejectControlOverlap(controls, budget); err != nil {
-		return false, err
+	if !matches {
+		return mutation.StaleSnapshotError{}
 	}
-	return fileset.FinalizeCommittedPair(ctx, stateDir, pair.referents[0], pair.referents[1], validate)
+	return nil
 }
 
 func (pair FinalizationPair) rejectControlOverlap(controls []string, budget rootedpath.PhysicalTraversalBudget) error {

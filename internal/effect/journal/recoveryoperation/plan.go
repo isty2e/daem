@@ -315,20 +315,7 @@ func LoadRecoverablePlanWithOptions(
 		}, nil
 	case retirement.StateRetained,
 		retirement.StateFinalizing:
-		plan, ok := inventory.Decision().CleanupPlan()
-		if !ok {
-			return nil, fmt.Errorf(
-				"journal cleanup classification has no cleanup plan",
-			)
-		}
-		authority, err := newRecoverableInventoryAuthority(inventory, true)
-		if err != nil {
-			return nil, err
-		}
-		return cleanupRecoverablePlan{
-			plan:      plan,
-			inventory: authority,
-		}, nil
+		return cleanupPlanFromInventory(inventory)
 	case retirement.StateBlocked:
 		return nil, fmt.Errorf(
 			"recovery inventory is blocked: %s",
@@ -337,6 +324,37 @@ func LoadRecoverablePlanWithOptions(
 	default:
 		return nil, ErrNoRecoverableJournal
 	}
+}
+
+// ObserveJournalCleanup selects only cleanup of an already-retired journal.
+// It never qualifies an active journal or reads host or management state.
+func ObserveJournalCleanup(ctx context.Context, root string, filesystem mutationfs.Reader, budget rootedpath.PhysicalTraversalBudget, profile RecoveryInventoryProfile) (RecoverablePlan, error) {
+	inventory, err := journalinventory.LoadRoot(ctx, root, profile.inventoryOptions(filesystem, budget))
+	if err != nil {
+		return nil, err
+	}
+	switch inventory.Decision().State() {
+	case retirement.StateRetained, retirement.StateFinalizing:
+		return cleanupPlanFromInventory(inventory)
+	case retirement.StateClean, retirement.StateFinalized:
+		return nil, ErrNoRecoverableJournal
+	case retirement.StateActive, retirement.StatePrepared:
+		return nil, ErrInterruptedApply
+	default:
+		return nil, fmt.Errorf("recovery inventory is blocked: %s", inventory.Decision().Detail())
+	}
+}
+
+func cleanupPlanFromInventory(inventory journalinventory.RootInventory) (RecoverablePlan, error) {
+	plan, ok := inventory.Decision().CleanupPlan()
+	if !ok {
+		return nil, fmt.Errorf("journal cleanup classification has no cleanup plan")
+	}
+	authority, err := newRecoverableInventoryAuthority(inventory, true)
+	if err != nil {
+		return nil, err
+	}
+	return cleanupRecoverablePlan{plan: plan, inventory: authority}, nil
 }
 
 // LoadActivePlanWithOptions classifies the active journal using any supplied

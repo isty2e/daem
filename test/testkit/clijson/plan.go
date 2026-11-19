@@ -10,10 +10,11 @@ import (
 )
 
 type Plan struct {
-	SchemaVersion int `json:"schema_version"`
-	Command       string
-	Mode          string
-	Lockfile      struct {
+	SchemaVersion   int               `json:"schema_version"`
+	RecoveryCleanup []RecoveryCleanup `json:"recovery_cleanup"`
+	Command         string
+	Mode            string
+	Lockfile        struct {
 		Path    string
 		Missing bool
 	}
@@ -117,6 +118,11 @@ type Plan struct {
 		ManualReasons []string `json:"manual_reasons"`
 		NextStep      string   `json:"next_step"`
 	} `json:"diagnostics"`
+}
+
+type RecoveryCleanup struct {
+	Kind    string `json:"kind"`
+	Outcome string `json:"outcome,omitempty"`
 }
 
 func DecodePlan(t *testing.T, content []byte) Plan {

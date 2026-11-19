@@ -105,6 +105,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			if arguments.output == requestedJSON {
 				jsonInput := clipresent.PlanJSONInput{
 					PermissionProtection: planning.PermissionProtection,
+					RecoveryCleanup:      planning.RecoveryCleanup,
 					Command:              "apply",
 					Mode:                 "dry-run",
 					LockfilePath:         planning.LockfilePath,
@@ -229,6 +230,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		carrierAbsencesDisclosed := false
 		humanOptions := clipresent.HumanOptions{Verbose: *verbose}
 		if interactiveConfirmation {
+			clipresent.PrintRecoveryCleanup(stdout, readinessPlanning.RecoveryCleanup)
 			clipresent.PrintPermissionProtection(stdout, readinessPlanning.PermissionProtection)
 			clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly))
 			clipresent.PrintCarrierReconciliationWithOptions(stdout, readinessPlanning.Reconciliation, humanOptions)
@@ -265,6 +267,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		if arguments.output == requestedJSON {
 			if err := clipresent.PrintApplyResultJSON(io.Discard, clipresent.ApplyResultJSONInput{
 				PermissionProtection: readinessPlanning.PermissionProtection,
+				RecoveryCleanup:      readinessPlanning.RecoveryCleanup,
 				Reconciliation:       readinessPlanning.Reconciliation,
 			}); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("apply refused: prepare JSON output: "))
@@ -292,6 +295,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				failure := applyworkflow.ClassifyFailure(err, result)
 				jsonInput := clipresent.ApplyResultJSONInput{
 					CarrierHandoffProgress: result.CarrierHandoffProgress,
+					RecoveryCleanup:        result.RecoveryCleanup,
 					ActionCount:            result.ActionCount,
 					PermissionProtection:   result.PermissionProtection,
 					StatefilePath:          result.StatefilePath,
@@ -313,6 +317,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				}
 				return 1
 			}
+			clipresent.PrintRecoveryCleanup(stderr, result.RecoveryCleanup)
 			clipresent.PrintDelegateAttemptsWithOptions(stderr, delegateAttemptInputs, humanOptions)
 			clipresent.PrintCarrierHandoffProgress(stderr, result.Reconciliation, result.CarrierHandoffProgress)
 			clipresent.PrintCarrierReconciliationAdoptionResultsWithOptions(
@@ -343,6 +348,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 		if arguments.output == requestedJSON {
 			jsonInput := clipresent.ApplyResultJSONInput{
 				CarrierHandoffProgress: result.CarrierHandoffProgress,
+				RecoveryCleanup:        result.RecoveryCleanup,
 				ActionCount:            result.ActionCount,
 				PermissionProtection:   result.PermissionProtection,
 				StatefilePath:          result.StatefilePath,
@@ -363,6 +369,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			return 0
 		}
 
+		clipresent.PrintRecoveryCleanup(stdout, result.RecoveryCleanup)
 		fmt.Fprintf(stdout, "applied: %s\n", clipresent.CountLabel(result.ActionCount, "action", "actions"))
 		clipresent.PrintCarrierHandoffProgress(stdout, result.Reconciliation, result.CarrierHandoffProgress)
 		if !interactiveConfirmation {
@@ -562,7 +569,7 @@ func newRelationOrderRiskAuthorizer(
 }
 
 func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
-	if len(planning.Reconciliation.NativeNarrowings()) != 0 || len(planning.Reconciliation.MutatingDecisions()) != 0 {
+	if len(planning.RecoveryCleanup) != 0 || len(planning.Reconciliation.NativeNarrowings()) != 0 || len(planning.Reconciliation.MutatingDecisions()) != 0 {
 		return true
 	}
 	for _, action := range planning.Reconciliation.Relations() {

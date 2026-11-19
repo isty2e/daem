@@ -27,10 +27,12 @@ import (
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/workflow/readiness"
+	"github.com/isty2e/daem/internal/workflow/workspacecleanup"
 )
 
 type ExecuteOptions struct {
 	NativeFilesystem               mutationfs.Store
+	RecoveryCleanupFilesystem      mutationfs.Store
 	ExecuteEvents                  executionevent.Sink
 	RelationObservations           *relationobserve.Batch
 	HostRouteExecutor              subprocess.CommandExecutor
@@ -82,6 +84,10 @@ func executeWithDependencies(
 	}()
 
 	planned := execution.planned
+	cleanupSteps := slices.Clone(planned.result.RecoveryCleanup)
+	for index := range cleanupSteps {
+		cleanupSteps[index].Outcome = workspacecleanup.NotAttempted
+	}
 	var handoffProgress *CarrierHandoffProgress
 	var handoffPlan reconcile.Result
 	if _, present := planned.assessment.Reconciliation.CarrierHandoff(); present {
@@ -92,6 +98,7 @@ func executeWithDependencies(
 	uncompensatedEffectsAttempted := false
 	disclose := func(planned commandPlan) CommandResult {
 		result := cloneCommandResult(planned.result)
+		result.RecoveryCleanup = slices.Clone(cleanupSteps)
 		result.ExecutionAttempted = executionAttempted
 		result.UncompensatedEffectsAttempted = uncompensatedEffectsAttempted
 		if handoffProgress != nil {
@@ -140,7 +147,23 @@ func executeWithDependencies(
 		return disclose(planned), err
 	}
 
-	metadataErr := attemptMetadataConversion(ctx, planned)
+	var metadataErr error
+	if planned.cleanup != nil {
+		cleanupSteps, err = planned.cleanup.Retire(ctx, options.RecoveryCleanupFilesystem, func(ctx context.Context) error {
+			if err := executionGuard.requireDeclarationsCurrent(ctx, "retire approved recovery records"); err != nil {
+				return err
+			}
+			return planned.projectRoot.ValidateSelection(planned.context.Paths.ManifestRoot)
+		})
+		if err != nil {
+			if errors.Is(err, mutation.StaleSnapshotError{}) {
+				err = staleApplyError(options.PlanWasDisclosed, err)
+			}
+			return disclose(planned), fmt.Errorf("%w: %w", errRecoveryCleanupFailed, err)
+		}
+	} else {
+		metadataErr = attemptMetadataConversion(ctx, planned)
+	}
 	if recoverygate.IsCancellation(metadataErr) {
 		return disclose(planned), metadataErr
 	}

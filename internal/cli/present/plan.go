@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
 // HumanPlanInput carries plan facts without execution or result-history authority.
@@ -29,6 +30,7 @@ func PrintStatusPlanWithOptions(output io.Writer, input HumanPlanInput, options 
 
 type PlanJSONInput struct {
 	PermissionProtection ownershipobserve.ProtectionObservation
+	RecoveryCleanup      []applyworkflow.RecoveryCleanupStep
 	Command              string
 	Mode                 string
 	LockfilePath         string
@@ -62,6 +64,7 @@ type planJSONOutput struct {
 	Diagnostics          []planJSONDiagnostic        `json:"diagnostics"`
 	MCPStatuses          []MCPStatus                 `json:"mcp_statuses,omitempty"`
 	PermissionProtection *permissionProtectionJSON   `json:"permission_protection,omitempty"`
+	RecoveryCleanup      []recoveryCleanupJSON       `json:"recovery_cleanup,omitempty"`
 }
 
 type planJSONLockfile struct {
@@ -152,6 +155,9 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 		if input.CheckClean == nil {
 			return errors.New("status JSON requires a check assessment")
 		}
+		if len(input.RecoveryCleanup) != 0 {
+			return errors.New("status does not plan recovery cleanup")
+		}
 	} else if input.CheckClean != nil {
 		return errors.New("check assessment is only available for status JSON")
 	}
@@ -164,6 +170,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 	}
 	payload := planJSONOutput{
 		PermissionProtection: permissionProtectionJSONFor(input.PermissionProtection),
+		RecoveryCleanup:      recoveryCleanupJSONRows(input.RecoveryCleanup, false),
 		SchemaVersion:        contractversion.ReconciliationPlanJSON,
 		Command:              input.Command,
 		Mode:                 input.Mode,

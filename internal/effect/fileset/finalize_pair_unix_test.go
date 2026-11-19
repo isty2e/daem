@@ -29,19 +29,20 @@ func TestFinalizeCommittedPairPreservesSettledTargets(t *testing.T) {
 			manifestInfo := statFinalizationPath(t, manifest)
 			lockInfo := statFinalizationPath(t, lockfile)
 
-			retired, err := FinalizeCommittedPair(t.Context(), stateDir, manifest, lockfile, func(ctx context.Context) error {
+			pair, err := ObserveCommittedPair(t.Context(), stateDir, manifest, lockfile)
+			if err != nil || pair == nil {
+				t.Fatalf("could not qualify settled pair: %v", err)
+			}
+			statFinalizationPath(t, markerPath(stateDir))
+			retired, err := pair.Retire(t.Context(), func(ctx context.Context) error {
 				return ctx.Err()
 			})
 			if err != nil || !retired {
 				t.Fatalf("retired = %t; error = %v", retired, err)
 			}
 			assertMissing(t, transactionDir(stateDir))
-			retired, err = FinalizeCommittedPair(t.Context(), stateDir, manifest, lockfile, func(context.Context) error {
-				t.Fatal("already clear record entered removal")
-				return nil
-			})
-			if err != nil || retired {
-				t.Fatalf("already clear: retired = %t; error = %v", retired, err)
+			if current, err := ObserveCommittedPair(t.Context(), stateDir, manifest, lockfile); err != nil || current != nil {
+				t.Fatalf("already clear: pair = %v; error = %v", current != nil, err)
 			}
 			assertContent(t, manifest, "manifest after")
 			wantLock := "lock after"
@@ -99,13 +100,15 @@ func TestFinalizeCommittedPairPreservesUnqualifiedEvidence(t *testing.T) {
 				return string(content)
 			}
 			wantManifest, wantLock, wantMarker := read(manifest), read(lockfile), read(markerPath(stateDir))
-			retired, err := FinalizeCommittedPair(t.Context(), stateDir, manifest, lockfile, func(context.Context) error {
-				if test.revalidate {
+			pair, err := ObserveCommittedPair(t.Context(), stateDir, manifest, lockfile)
+			retired := false
+			if test.revalidate && err == nil && pair != nil {
+				retired, err = pair.Retire(t.Context(), func(context.Context) error {
 					test.alter(t, stateDir, manifest)
 					wantManifest = read(manifest)
-				}
-				return nil
-			})
+					return nil
+				})
+			}
 			if retired || !errors.Is(err, test.want) {
 				t.Fatalf("retired = %t; error = %v, want %v", retired, err, test.want)
 			}
@@ -119,9 +122,13 @@ func TestFinalizeCommittedPairPreservesUnqualifiedEvidence(t *testing.T) {
 func TestFinalizeCommittedPairPreservesEvidenceWhenPersistenceFails(t *testing.T) {
 	stateDir, manifest, lockfile, marker := setupFinalizationPair(t, false, false)
 	publishFinalizationImages(t, marker, 2)
+	pair, err := ObserveCommittedPair(t.Context(), stateDir, manifest, lockfile)
+	if err != nil || pair == nil {
+		t.Fatalf("could not qualify settled pair: %v", err)
+	}
 	refused := errors.New("persistence confirmation failed")
 	calls := 0
-	retired, err := finalizeCommittedPair(t.Context(), stateDir, manifest, lockfile, func(context.Context) error {
+	retired, err := pair.retire(t.Context(), func(context.Context) error {
 		t.Fatal("retirement proceeded after failed persistence confirmation")
 		return nil
 	}, func(ctx context.Context, path string, expected storagecommit.EntryIdentity) error {

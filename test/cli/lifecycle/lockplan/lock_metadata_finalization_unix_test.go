@@ -4,17 +4,13 @@ package cli_test
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -48,7 +44,7 @@ func TestLockFinalizesOnlyItsSelectedPair(t *testing.T) {
 	settledManifest := minimalFinalizationManifest + "\n[instructions.project]\nsource = 'source.md'\n"
 	testkit.WriteFile(t, root, "source.md", "current source content\n")
 	legacyLock := "version = 6\n"
-	marker := seedInterruptedLockPair(t, paths.StateDir, manifest, lockReferent, settledManifest, legacyLock, true)
+	marker := metadatatx.WriteInterruptedPair(t, paths.StateDir, manifest, lockReferent, settledManifest, legacyLock, true)
 
 	preview := runMetadataLock(t, 1, "--dry-run", "--manifest", manifest)
 	requireMetadataGuidance(t, preview, "preview leaves the recovery record untouched")
@@ -107,7 +103,7 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 				testkit.WriteFile(t, paths.ManifestRoot, "source.md", "this exists; only the implicit project placement must fail\n")
 			}
 			oldLock := "version = 6\n"
-			marker := seedInterruptedLockPair(t, paths.StateDir, paths.ManifestPath, paths.LockfilePath, manifest, oldLock, test.finished)
+			marker := metadatatx.WriteInterruptedPair(t, paths.StateDir, paths.ManifestPath, paths.LockfilePath, manifest, oldLock, test.finished)
 			if test.journal {
 				testkit.WriteFile(t, paths.StateDir, "recovery", "unreadable as a journal directory")
 			}
@@ -154,7 +150,7 @@ func TestLockFinalizationRefusesMissingRecordedFiles(t *testing.T) {
 			root := t.TempDir()
 			testkit.SetDefaultRootEnv(t, filepath.Join(root, "home"))
 			manifest, lock := filepath.Join(root, "daem.toml"), filepath.Join(root, "daem.lock.toml")
-			marker := seedInterruptedLockPair(t, filepath.Join(root, ".daem"), manifest, lock, minimalFinalizationManifest, "version = 6\n", true)
+			marker := metadatatx.WriteInterruptedPair(t, filepath.Join(root, ".daem"), manifest, lock, minimalFinalizationManifest, "version = 6\n", true)
 			missing := filepath.Join(root, name)
 			if err := os.Remove(missing); err != nil {
 				t.Fatal(err)
@@ -184,7 +180,7 @@ func TestLockFinalizationDoesNotConsumeNewFenceDuringNormalLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldLock := "version = 6\n"
-	marker := seedInterruptedLockPair(t, paths.StateDir, paths.ManifestPath, paths.LockfilePath, minimalFinalizationManifest, oldLock, true)
+	marker := metadatatx.WriteInterruptedPair(t, paths.StateDir, paths.ManifestPath, paths.LockfilePath, minimalFinalizationManifest, oldLock, true)
 	directory := filepath.Dir(marker)
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -217,59 +213,6 @@ func TestLockFinalizationDoesNotConsumeNewFenceDuringNormalLock(t *testing.T) {
 		testkit.AssertFileContent(t, filepath.Join(directory, name), content)
 	}
 	testkit.AssertFileContent(t, paths.LockfilePath, oldLock)
-}
-
-// The writer-side tests use the real staged marker; this fixture exercises a
-// previously released wire record through the command, without a timing race.
-func seedInterruptedLockPair(t *testing.T, stateDir, manifest, lock, manifestAfter, lockAfter string, finished bool) string {
-	t.Helper()
-	type beforeImage struct {
-		Exists bool   `json:"exists"`
-		Hash   string `json:"hash"`
-		Path   string `json:"backup_path"`
-		Mode   uint32 `json:"mode"`
-	}
-	type row struct {
-		Path  string      `json:"path"`
-		Old   beforeImage `json:"before"`
-		New   string      `json:"after_hash"`
-		Write bool        `json:"write"`
-	}
-	canonical := func(path string) string {
-		t.Helper()
-		resolved, err := mutation.CanonicalDirectoryEntryPath(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return resolved
-	}
-	evidence := testkit.AuthoringTransactionDir(canonical(stateDir))
-	hash := func(content string) string { return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(content))) }
-	manifest, lock = canonical(manifest), canonical(lock)
-	after := map[string]string{manifest: manifestAfter, lock: lockAfter}
-	files := []string{manifest, lock}
-	slices.Sort(files)
-	rows := make([]row, 0, len(files))
-	for index, path := range files {
-		before := after[path] + "# before\n"
-		name := fmt.Sprintf("target-%03d.before", index)
-		testkit.WriteFile(t, evidence, name, before)
-		rows = append(rows, row{Path: path, Old: beforeImage{true, hash(before), filepath.Join(evidence, name), 0o600}, New: hash(after[path]), Write: true})
-		content := after[path]
-		if path == lock && !finished {
-			content = before
-		}
-		testkit.WriteFile(t, filepath.Dir(path), filepath.Base(path), content)
-	}
-	marker, err := json.Marshal(struct {
-		Version int   `json:"version"`
-		Targets []row `json:"targets"`
-	}{contractversion.MetadataTransaction, rows})
-	if err != nil {
-		t.Fatal(err)
-	}
-	testkit.WriteFile(t, evidence, "transaction.json", string(marker))
-	return filepath.Join(evidence, "transaction.json")
 }
 
 func runMetadataLock(t *testing.T, want int, args ...string) string {

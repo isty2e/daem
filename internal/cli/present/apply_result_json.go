@@ -65,6 +65,7 @@ func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
 
 type ApplyResultJSONInput struct {
 	CarrierHandoffProgress *applyworkflow.CarrierHandoffProgress
+	RecoveryCleanup        []applyworkflow.RecoveryCleanupStep
 	PermissionProtection   ownershipobserve.ProtectionObservation
 	ActionCount            int
 	StatefilePath          string
@@ -103,6 +104,7 @@ type applyResultJSONOutput struct {
 	HasErrors            bool                        `json:"has_errors"`
 	Errors               []applyResultJSONError      `json:"errors"`
 	PermissionProtection *permissionProtectionJSON   `json:"permission_protection,omitempty"`
+	RecoveryCleanup      []recoveryCleanupJSON       `json:"recovery_cleanup,omitempty"`
 }
 
 type applyResultJSONError struct {
@@ -129,6 +131,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	}
 	payload := applyResultJSONOutput{
 		PermissionProtection: permissionProtectionJSONFor(input.PermissionProtection),
+		RecoveryCleanup:      recoveryCleanupJSONRows(input.RecoveryCleanup, true),
 		SchemaVersion:        contractversion.ApplyResultJSON,
 		Command:              "apply",
 		Mode:                 "write",

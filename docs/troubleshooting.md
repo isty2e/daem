@@ -505,13 +505,18 @@ file-set transaction`. Choose the action by the evidence:
 
 | Evidence | Action |
 | --- | --- |
-| Active journal (`interrupted_apply`) or retained cleanup (`journal_cleanup_incomplete`) | Start with `daem recover --dry-run`. Finish authorized journal work before metadata retry; joint file-set fences remain. |
-| The manifest and its default lockfile already match the completed update | If you intend to refresh this lockfile, run `daem lock` with the same manifest selection. It clears the record only if it can verify that the record covers just those two files and that no other recovery barrier remains. It then resolves sources normally, so floating inputs can advance. |
+| Active journal (`interrupted_apply`) | Start with `daem recover --dry-run`. Finish journal recovery before retrying a write; `recover` leaves declaration records untouched. |
+| Already-retired journal with cleanup left (`journal_cleanup_incomplete`) | If you intend to apply, start with `daem apply --dry-run`. It shows cleanup if the records qualify. To clear only the journal, start with `daem recover --dry-run`. |
+| The selected manifest and default lockfile already match the completed update | Preview `daem apply` if you intend to apply, or run `daem lock` with the same manifest selection if you intend to refresh the lockfile. The write clears only a verified record for those two files. If an already-retired journal also blocks the write, both records must qualify and journal cleanup runs first. Lock then resolves sources normally, so floating inputs can advance. |
 | Other valid published `metadata-transaction` marker | Retry the exact interrupted authoring or `unmanage` write with the same manifest and selectors. It can restore or finalize the recorded files under its original authority. For an interrupted state migration, use `daem migrate state --recover --dry-run` to inspect recovery. Neither preview nor `daem recover` removes a published file-set record. |
 | Marker version 1 or 2 | Current code preserves it; retry with its writer before upgrading. Current marker version 3 enforces bounded recovery. |
 | Invalid/incomplete evidence, out-of-authority target or unclassifiable before/after image | Preserve diagnostics/state for manual inspection; repair before journal recovery. Never edit recorded files independently or delete the marker. |
 | StateDir access/identity cannot be established | Restore it before recovery, even if a journal was observed. An accessible RecoveryDir child is insufficient. Do not retry a write as if a marker existed. |
 | Bounded census overflow with accessible StateDir | Journal recovery may proceed if RecoveryDir is readable, but the census fence remains. This is neither a marker nor named residue; do not infer a retry or prefix-deletion remedy. |
+
+If the command reports that one record was cleared before a later failure, do
+not restore it. Read the remaining error or run a fresh preview to identify
+what still needs attention.
 
 If a manifest or lockfile link changed after the interrupted write, restore its
 original target mapping before retrying that exact write. The recorded-target

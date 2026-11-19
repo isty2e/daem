@@ -119,6 +119,10 @@ type recoverConfirmationFixture struct {
 }
 
 func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
+	return writeRecoverConfirmationFixtureWithPermissions(t, realization.PathPermissionsExact)
+}
+
+func writeRecoverConfirmationFixtureWithPermissions(t *testing.T, permissions realization.PathPermissionPolicy) recoverConfirmationFixture {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
@@ -142,6 +146,10 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		t.Fatal(err)
 	}
 	writeApplyConfirmationFile(t, root, "AGENTS.md", string(oldContent))
+	mode := os.FileMode(0o600)
+	if permissions == realization.PathPermissionsExecutableClass {
+		mode = 0
+	}
 	previousPath, err := durable.NewManagedPathState(
 		subject,
 		[]target.Target{target.TargetCodex},
@@ -149,8 +157,8 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		destination,
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
-		realization.PathPermissionsExact,
-		0o600,
+		permissions,
+		mode,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -162,8 +170,8 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		destination,
 		artifact.ContentHash(newHash),
 		realization.PathProjectionFile,
-		realization.PathPermissionsExact,
-		0o600,
+		permissions,
+		mode,
 	)
 	if err != nil {
 		t.Fatal(err)

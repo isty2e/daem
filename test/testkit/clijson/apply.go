@@ -10,12 +10,13 @@ import (
 )
 
 type ApplyResult struct {
-	SchemaVersion int    `json:"schema_version"`
-	Command       string `json:"command"`
-	Mode          string `json:"mode"`
-	ActionCount   int    `json:"action_count"`
-	StatefilePath string `json:"statefile_path"`
-	LockOnly      struct {
+	SchemaVersion   int               `json:"schema_version"`
+	RecoveryCleanup []RecoveryCleanup `json:"recovery_cleanup"`
+	Command         string            `json:"command"`
+	Mode            string            `json:"mode"`
+	ActionCount     int               `json:"action_count"`
+	StatefilePath   string            `json:"statefile_path"`
+	LockOnly        struct {
 		Skills []struct {
 			Kind    string
 			Name    string

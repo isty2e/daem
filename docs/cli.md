@@ -350,8 +350,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `4` |
 | `list outputs` | Output inventory | `5` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `19` |
-| confirmed `apply` | Apply result | `25` |
+| `status`, `apply --dry-run` | Reconciliation plan | `20` |
+| confirmed `apply` | Apply result | `26` |
 | `replace agent-config` | Selected-key replacement | `1` |
 | `import agent-config` | Selected physical-value capture or its terminal recovery | `1` |
 | `recover` | Recovery plan/result | `10` |
@@ -444,6 +444,24 @@ failure can leave settled retirements with `apply_complete: false`; host-route
 attempts retain their execution order. A retry after all old management has
 already been released can be an ordinary acquisition with no handoff object.
 All plan/apply results emit the new versions, even without a handoff.
+
+Plan version `20` and apply-result version `26` add the optional
+`recovery_cleanup` array. It lists verified recovery records in cleanup order:
+`kind` is `journal_retirement` for an already-retired journal or
+`declaration_pair` for a completed update of the selected manifest and lockfile.
+Preview rows contain only `kind`. Write rows also contain `outcome`:
+
+| `outcome` | Meaning |
+| --- | --- |
+| `not_attempted` | This step did not start. |
+| `retired` | The record no longer blocks writes. A later step or final garbage collection can still fail. |
+| `still_fenced` | This step did not clear the recovery barrier. |
+| `unconfirmed` | The command could not establish the result. Preserve any remaining evidence. |
+
+An earlier row can report `retired` even when apply returns an error and
+`action_count` is zero. The action count, error phase and rollback outcome
+describe normal apply work; inspect `recovery_cleanup` separately. `status`
+and ordinary apply omit the array but use the new envelope versions.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1205,9 +1223,12 @@ Before writing, `lock` can clear an interrupted update's recovery record if the
 record covers only the selected manifest and its default lockfile and both
 files already match the recorded result. It verifies the files and the record
 before removing the record, then resolves sources for the requested lock write.
-It does not complete or roll back the earlier update. `--dry-run` reports the
-pending record without clearing it. See [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
-if the files do not match or another recovery record blocks the write.
+If an already-retired apply journal blocks that cleanup, the same lock write
+can clear its verified remnants first. A lock write that has no pending
+manifest/lockfile update leaves journal recovery alone. `--dry-run` refuses
+while the declaration record is pending and leaves both records untouched.
+See [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
+if the recorded files do not match or an active journal blocks cleanup.
 
 If the first non-comment, nonblank line identifies the current lockfile schema
 but the TOML body is damaged, `lock` can rebuild the entire file from the
@@ -1619,6 +1640,16 @@ plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
 
+If only cleanup remains for an already-retired apply journal or a completed
+update of the selected manifest and default lockfile, `apply --dry-run` reports
+that cleanup before the planned actions. Confirmed apply clears the verified
+records in journal-first order, then checks the plan again before making normal
+apply changes. It asks for confirmation even if cleanup is the only work. If
+the plan changes or cleanup fails, apply stops; any record already cleared
+stays cleared. Preview again before retrying. An active journal, an unfinished
+declaration update, or recovery evidence that cannot be verified still requires
+the [owning recovery command](troubleshooting.md#manifest-metadata-update-was-interrupted).
+
 For a managed extension source handoff, the preview discloses removal followed
 by a fresh replan and conditional acquisition. It does not promise an atomic
 replacement, cache retention or rollback of completed removal. Admitted Pi Git
@@ -1632,7 +1663,9 @@ if the requested apply is later refused. If conversion cannot be qualified,
 apply continues in the existing format under its usual ownership and recovery
 checks; an unfinished metadata transaction still requires recovery. Read-only
 planning and no-op apply do not start conversion. Older daem versions may refuse
-the new formats; see [metadata migration](#migrate-metadata).
+the new formats; see [metadata migration](#migrate-metadata). An apply invocation
+that first clears recovery records skips this separate conversion and can use
+existing readable metadata formats for its normal work.
 
 Human plans keep a resource's own configuration transition separate from a
 blocked shared document. An unchanged server can therefore have a blocked
@@ -1813,7 +1846,8 @@ Known mutation codes include `stale_snapshot`, `stale_plan`, `mutation_contended
 `journal_cleanup_incomplete`, `journal_cleanup_file_set_fence`,
 `interrupted_file_set_transaction`, `file_set_evidence_invalid`,
 `abandoned_file_set_residue`, `file_set_fence_census_limit`, and
-`file_set_access_unprovable`. Typed `recovery_barrier` preserves journal and
+`file_set_access_unprovable`. `recovery_cleanup_failed` reports a failed cleanup
+without a more specific cause such as cancellation or a changed plan. Typed `recovery_barrier` preserves journal and
 file-set axes independently, with `unknown` for an unclassified peer. Active
 recovery differs from cleanup-only authority. Published markers, markerless
 residue and census overflow are continuing fences; invalid evidence or
