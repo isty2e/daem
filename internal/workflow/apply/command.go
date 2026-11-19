@@ -594,7 +594,7 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		validate = func(ctx context.Context) error {
 			fenceErr := barrier.Validate(ctx)
 			var err error
-			pending, err = workspacecleanup.Observe(ctx, paths, barrier, fenceErr)
+			pending, err = workspacecleanup.Observe(ctx, barrier, fenceErr)
 			return recoveryCleanupPlanningError(fenceErr, err)
 		}
 	}

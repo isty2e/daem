@@ -5,14 +5,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -109,7 +109,7 @@ func TestApplyRetiresQualifiedRecoveryThenRunsUnchangedPlan(t *testing.T) {
 }
 
 func TestApplyAndLockPreserveBothRecordsIfEitherOwnerCannotProceed(t *testing.T) {
-	for _, name := range []string{"unfinished pair", "unrelated pair", "active journal", "unknown journal", "global fence", "overlapping local source"} {
+	for _, name := range []string{"unfinished pair", "unrelated pair", "invalid pair evidence", "active journal", "unknown journal", "global fence", "overlapping local source"} {
 		t.Run(name, func(t *testing.T) {
 			var manifest string
 			var journalPaths []string
@@ -146,6 +146,14 @@ func TestApplyAndLockPreserveBothRecordsIfEitherOwnerCannotProceed(t *testing.T)
 			}
 			if marker == "" {
 				marker = stageApplyPair(t, paths, name != "unfinished pair")
+			}
+			if name == "invalid pair evidence" {
+				writeApplyConfirmationFile(t, filepath.Dir(marker), "target-000.before", "backup no longer matches")
+				preview, err := applyworkflow.PlanDryRun(t.Context(), applyworkflow.CommandInput{ManifestPath: manifest})
+				failure := applyworkflow.ClassifyFailure(err, preview.CommandResult)
+				if err == nil || failure.Reason() != applyworkflow.FailureReasonFileSetEvidenceInvalid || !failure.RecoveryBarrier().JournalKnown() {
+					t.Fatalf("invalid evidence obscured its own reason or the journal axis: %v, code = %s", err, failure.Reason())
+				}
 			}
 			wantMarker, wantHost, wantState := readCleanupFile(t, marker), readCleanupFile(t, host), readCleanupFile(t, paths.StatefilePath)
 			for _, args := range [][]string{{"apply", "--dry-run"}, {"apply", "--yes"}, {"lock"}} {
@@ -190,17 +198,41 @@ func TestLockOnlyTouchesJournalToClearItsPair(t *testing.T) {
 	assertApplyConfirmationFileContent(t, fixture.hostPath, host)
 }
 
+func TestLockReportsBothRetirementsWhenSourceResolutionFails(t *testing.T) {
+	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
+	prepareRecoveryApplyDeclarations(t, fixture.manifestPath, "instructions\n")
+	marker := stageApplyPair(t, fixture.paths, true)
+	if err := os.Remove(filepath.Join(fixture.paths.ManifestRoot, "instructions.md")); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	args := []string{"lock", "--json", "--manifest", fixture.manifestPath}
+	if code := RunWithOptions(args, RunOptions{Stdout: &stdout, Stderr: &stderr}); code != 1 || stderr.Len() != 0 {
+		t.Fatalf("lock exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+	}
+	failure := clijson.DecodeFailure(t, stdout.String(), "lock", "operation")
+	for _, want := range []string{"manifest and lockfile recovery record was already cleared", "already-retired apply journal was cleared"} {
+		if !slices.ContainsFunc(failure.Guidance, func(guidance clijson.FailureGuidance) bool { return strings.Contains(guidance.Message, want) }) {
+			t.Fatalf("lock did not disclose %q before its source failure: %s", want, &stdout)
+		}
+	}
+	assertCLIPathMissing(t, filepath.Dir(marker))
+	fixture.assertCleanupAbsent(t)
+}
+
 func TestApplyRecoveryCleanupReportsPartialRetirement(t *testing.T) {
 	for _, test := range []struct {
 		name           string
 		failCleanup    int
 		changePair     bool
+		newJournal     bool
 		journalOutcome string
 		pairOutcome    string
 	}{
 		{name: "first cleanup fails", failCleanup: 1, journalOutcome: "still_fenced", pairOutcome: "not_attempted"},
 		{name: "final garbage collection fails", failCleanup: 2, journalOutcome: "retired", pairOutcome: "not_attempted"},
 		{name: "pair changes after journal retirement", changePair: true, journalOutcome: "retired", pairOutcome: "still_fenced"},
+		{name: "new barrier after journal retirement", newJournal: true, journalOutcome: "retired", pairOutcome: "not_attempted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
@@ -209,11 +241,15 @@ func TestApplyRecoveryCleanupReportsPartialRetirement(t *testing.T) {
 			marker := stageApplyPair(t, fixture.paths, true)
 			state, evidence := readCleanupFile(t, fixture.paths.StatefilePath), readCleanupFile(t, marker)
 			filesystem := mutationfs.Store(&failNthCleanupStore{Store: storagecommit.Adapter{}, failOn: test.failCleanup})
-			if test.changePair {
+			if test.changePair || test.newJournal {
 				filesystem = afterJournalCleanupStore{
 					Store: storagecommit.Adapter{}, gcName: filepath.Base(fixture.garbageDir),
 					afterGC: func() {
-						writeApplyConfirmationFile(t, filepath.Dir(marker), "target-000.before", "new unapproved evidence")
+						if test.changePair {
+							writeApplyConfirmationFile(t, filepath.Dir(marker), "target-000.before", "new unapproved evidence")
+						} else {
+							writeApplyConfirmationFile(t, fixture.paths.RecoveryDir, "unexpected-entry", "a later fence")
+						}
 					},
 				}
 			}
@@ -240,17 +276,102 @@ func TestApplyRecoveryCleanupReportsPartialRetirement(t *testing.T) {
 				assertCLIPathMissing(t, fixture.controlDir)
 				assertCLIPathMissing(t, fixture.residueDir)
 			}
-			if !test.changePair {
-				stdout.Reset()
-				stdout.Write(runApplyCleanupJSON(t, "apply", "--yes", "--manifest", fixture.manifestPath))
-				retry := clijson.DecodeApplyResult(t, stdout.Bytes())
-				if retry.ActionCount != 1 || retry.HasErrors || retry.RecoveryCleanup[len(retry.RecoveryCleanup)-1].Kind != "declaration_pair" {
-					t.Fatalf("retry did not complete: %s", &stdout)
+			if !test.changePair && !test.newJournal {
+				content := runApplyCleanupJSON(t, "apply", "--yes", "--manifest", fixture.manifestPath)
+				retry := clijson.DecodeApplyResult(t, content)
+				if retry.ActionCount != 1 || retry.HasErrors || len(retry.RecoveryCleanup) == 0 || retry.RecoveryCleanup[len(retry.RecoveryCleanup)-1].Kind != "declaration_pair" {
+					t.Fatalf("retry did not complete: %s", content)
 				}
 				assertCLIPathMissing(t, filepath.Dir(marker))
 			}
 		})
 	}
+}
+
+func TestApplyCleanupRefusesToRebindApprovedRecords(t *testing.T) {
+	for _, name := range []string{"declaration marker", "journal record", "manifest", "state directory"} {
+		t.Run(name, func(t *testing.T) {
+			fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
+			prepareRecoveryApplyDeclarations(t, fixture.manifestPath, string(fixture.newContent))
+			writeApplyConfirmationFile(t, fixture.paths.ManifestRoot, "AGENTS.md", string(fixture.oldContent))
+			marker := stageApplyPair(t, fixture.paths, true)
+			prepared, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifestPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer prepared.Close()
+
+			state := readCleanupFile(t, fixture.paths.StatefilePath)
+			journalControl := filepath.Join(fixture.controlDir, retirement.RecordFileName)
+			swap := func(path string) {
+				t.Helper()
+				content := readCleanupFile(t, path)
+				replacement := filepath.Join(filepath.Dir(path), ".same-content-replacement")
+				writeApplyConfirmationFile(t, filepath.Dir(replacement), filepath.Base(replacement), content)
+				if err := os.Rename(replacement, path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			switch name {
+			case "declaration marker":
+				swap(marker)
+			case "journal record":
+				swap(journalControl)
+			case "manifest":
+				swap(fixture.manifestPath)
+			case "state directory":
+				// Put the same entries back under the selected name, but in
+				// another incarnation of the StateDir.
+				detached := fixture.paths.StateDir + "-detached"
+				if err := os.Rename(fixture.paths.StateDir, detached); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(fixture.paths.StateDir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				entries, err := os.ReadDir(detached)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					if err := os.Rename(filepath.Join(detached, entry.Name()), filepath.Join(fixture.paths.StateDir, entry.Name())); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			result, err := applyworkflow.ExecuteWithOptions(t.Context(), prepared, applyworkflow.ExecuteOptions{PlanWasDisclosed: true})
+			if err == nil || result.ExecutionAttempted || len(result.RecoveryCleanup) != 2 || result.RecoveryCleanup[0].Outcome != "not_attempted" || result.RecoveryCleanup[1].Outcome != "not_attempted" {
+				t.Fatalf("approved cleanup was not refused before work: %+v, error = %v", result.RecoveryCleanup, err)
+			}
+			if name != "state directory" && applyworkflow.ClassifyFailure(err, result).Reason() != applyworkflow.FailureReasonStalePlan {
+				t.Fatalf("same-content replacement was not stale: %v", err)
+			}
+			readCleanupFile(t, marker)
+			readCleanupFile(t, journalControl)
+			assertApplyConfirmationFileContent(t, fixture.hostPath, string(fixture.oldContent))
+			assertApplyConfirmationFileContent(t, fixture.paths.StatefilePath, state)
+		})
+	}
+}
+
+func TestApplyCleanupDoesNotAdmitNativeReplacement(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
+	manifest, _, _ := writeApplyConfirmationFixture(t, root)
+	paths, err := daempaths.Resolve(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := stageApplyPair(t, paths, true)
+	_, err = applyworkflow.PlanNativeReplacement(t.Context(), applyworkflow.NativeReplacementInput{
+		ManifestPath: manifest,
+		ID:           "settings",
+		Keys:         []string{"/example"},
+	})
+	if !errors.Is(err, fileset.ErrInterruptedFileSetTransaction) {
+		t.Fatalf("native replacement did not retain its strict fence: %v", err)
+	}
+	readCleanupFile(t, marker)
 }
 
 type afterJournalCleanupStore struct {
@@ -269,37 +390,30 @@ func (store afterJournalCleanupStore) CleanupRootedEntry(ctx context.Context, ca
 }
 
 func TestApplyCleanupRetainsReceiptWhenNormalPlanChanges(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
-	manifest, _, _ := writeApplyConfirmationFixture(t, root)
-	paths, err := daempaths.Resolve(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy, err := statefile.Marshal(durable.EmptySnapshot())
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeApplyConfirmationFile(t, paths.StateDir, filepath.Base(paths.StatefilePath), string(legacy))
+	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
+	paths := fixture.paths
+	prepareRecoveryApplyDeclarations(t, fixture.manifestPath, string(fixture.newContent))
+	writeApplyConfirmationFile(t, paths.ManifestRoot, "AGENTS.md", string(fixture.oldContent))
+	legacy := readCleanupFile(t, paths.StatefilePath)
 	marker := stageApplyPair(t, paths, true)
-	prepared, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: manifest})
+	prepared, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: fixture.manifestPath})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer prepared.Close()
 
-	// A live output appears after consent. The cleanup is still authorized,
-	// but the strict replan must no longer proceed with the approved create.
-	host := filepath.Join(root, "AGENTS.md")
-	writeApplyConfirmationFile(t, root, "AGENTS.md", "new unmanaged output\n")
+	// The live output changes after consent. The cleanup is still authorized,
+	// but the strict replan must not perform the approved update.
+	writeApplyConfirmationFile(t, paths.ManifestRoot, "AGENTS.md", "new manual edit\n")
 	result, err := applyworkflow.ExecuteWithOptions(t.Context(), prepared, applyworkflow.ExecuteOptions{PlanWasDisclosed: true})
 	failure := applyworkflow.ClassifyFailure(err, result)
-	if err == nil || failure.Reason() != applyworkflow.FailureReasonStalePlan || result.ExecutionAttempted || result.ActionCount != 0 || len(result.RecoveryCleanup) != 1 || result.RecoveryCleanup[0].Outcome != "retired" {
+	if err == nil || failure.Reason() != applyworkflow.FailureReasonStalePlan || result.ExecutionAttempted || result.ActionCount != 0 || len(result.RecoveryCleanup) != 2 || result.RecoveryCleanup[0].Outcome != "retired" || result.RecoveryCleanup[1].Outcome != "retired" {
 		t.Fatalf("changed plan = %v, failure=%s, result=%+v", err, failure.Reason(), result.RecoveryCleanup)
 	}
 	assertCLIPathMissing(t, filepath.Dir(marker))
-	assertApplyConfirmationFileContent(t, host, "new unmanaged output\n")
-	assertApplyConfirmationFileContent(t, paths.StatefilePath, string(legacy))
+	fixture.assertCleanupAbsent(t)
+	assertApplyConfirmationFileContent(t, fixture.hostPath, "new manual edit\n")
+	assertApplyConfirmationFileContent(t, paths.StatefilePath, legacy)
 	assertCLIPathMissing(t, paths.OwnershipRegistryPath)
 	assertCLIPathMissing(t, paths.CarrierClaimRegistryPath)
 }

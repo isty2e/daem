@@ -26,7 +26,7 @@ func recoveryCleanupPlanningError(fence, proof error) error {
 	if proof == nil || !workspacecleanup.MayQualify(fence) {
 		return proof
 	}
-	if recoverygate.IsCancellation(proof) || recoverygate.IsGlobalMetadataRefusal(proof) {
+	if recoverygate.IsCancellation(proof) || recoverygate.IsBarrierRefusal(proof) {
 		return proof
 	}
 	return errors.Join(fence, fmt.Errorf("verify recovery cleanup: %w", proof))
@@ -46,7 +46,7 @@ func planDryRunWithRecoveryCleanup(ctx context.Context, input CommandInput, path
 	if err != nil {
 		return newDryRunPlan(strict), recoveryCleanupPlanningError(fence, err)
 	}
-	pending, err := workspacecleanup.Observe(ctx, paths, barrier, fence)
+	pending, err := workspacecleanup.Observe(ctx, barrier, fence)
 	if err != nil {
 		return newDryRunPlan(strict), recoveryCleanupPlanningError(fence, err)
 	}

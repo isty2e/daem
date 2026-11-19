@@ -88,7 +88,7 @@ func finishLockMetadata(ctx context.Context, paths daempaths.Paths, stateDir rec
 	if !localPublishedFileSet(fenceErr) {
 		return nil, nil, fenceErr
 	}
-	pending, err := workspacecleanup.Observe(ctx, paths, barrier, fenceErr)
+	pending, err := workspacecleanup.Observe(ctx, barrier, fenceErr)
 	if err != nil {
 		return nil, nil, err
 	}

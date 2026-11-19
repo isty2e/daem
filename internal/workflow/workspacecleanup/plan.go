@@ -71,10 +71,14 @@ type Pending struct {
 }
 
 // Observe returns nil for a clear workspace or a refusal if either axis cannot
-// be qualified. The barrier must already be bound to paths.
-func Observe(ctx context.Context, paths daempaths.Paths, barrier recoverygate.EffectAuthority, barrierErr error) (*Pending, error) {
+// be qualified. The ordinary barrier supplies the selected paths.
+func Observe(ctx context.Context, barrier recoverygate.EffectAuthority, barrierErr error) (*Pending, error) {
 	if !MayQualify(barrierErr) {
 		return nil, barrierErr
+	}
+	paths, err := barrier.SelectedPaths()
+	if err != nil {
+		return nil, err
 	}
 	stateDir, err := barrier.ExistingStateDir(ctx)
 	if err != nil {
@@ -108,6 +112,9 @@ func Observe(ctx context.Context, paths daempaths.Paths, barrier recoverygate.Ef
 		}
 		pending.pair, err = selection.ObserveSettled(ctx, stateDir, pending.declarationControls(), budget)
 		if err != nil {
+			if fileset.FileSetFenceKindOf(err) != fileset.FileSetFenceClear {
+				return nil, recoverygate.RefineFileSetRefusal(barrierErr, err)
+			}
 			return nil, err
 		}
 		if pending.pair == nil {
@@ -207,7 +214,6 @@ func (pending *Pending) workspaceControls() []string {
 	return []string{
 		paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath,
 		paths.CacheDir, paths.SourceCacheDir, paths.GlobalMetadataDir(), paths.LegacyUserStateDir,
-		filepath.Join(paths.DataDir, "locks"),
 	}
 }
 
@@ -285,6 +291,10 @@ func (plan *Plan) checkDisjoint(includeJournal bool) error {
 			return err
 		}
 		retirements = append(retirements, entry)
+	}
+	// The lease store is an overlap control, not a leasable resource.
+	if err := rejectOverlap(filepath.Join(plan.pending.paths.DataDir, "locks"), retirements, budget); err != nil {
+		return err
 	}
 	for _, path := range plan.protected {
 		if err := rejectOverlap(path, retirements, budget); err != nil {

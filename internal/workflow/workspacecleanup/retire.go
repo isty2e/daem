@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -151,13 +150,19 @@ func (pending *Pending) retireJournal(ctx context.Context, filesystem journalFil
 	if !started {
 		return NotAttempted, err
 	}
+	retired := err == nil || journal.IsRetirementFinalizedWithGCResidue(err)
 	if rootErr := root.ValidateSelectionBounded(pending.recoveryRoot, depth, physicalwork.NewPathBudget()); rootErr != nil {
+		if retired {
+			return Retired, errors.Join(err, rootErr)
+		}
 		return Unconfirmed, errors.Join(err, rootErr)
 	}
 	clearErr := journal.RequireNoInterruptedApply(ctx, pending.recoveryRoot)
 	switch {
-	case clearErr == nil && (err == nil || journal.IsRetirementFinalizedWithGCResidue(err)):
-		return Retired, err
+	case retired:
+		// Clearing the approved record does not authorize another action if
+		// a later journal observation is blocked or cancelled.
+		return Retired, errors.Join(err, clearErr)
 	case recoverygate.IsCancellation(clearErr):
 		return Unconfirmed, clearErr
 	case errors.Is(clearErr, journal.ErrIncompleteJournalCleanup):
@@ -184,10 +189,6 @@ func (plan *Plan) domains() ([]mutation.Domain, error) {
 		return nil
 	}
 	for _, path := range plan.protected {
-		// The lease store is an overlap control, not a leasable resource.
-		if path == filepath.Join(pending.paths.DataDir, "locks") {
-			continue
-		}
 		access := mutation.AccessShared
 		if pending.pair != nil && (path == pending.paths.ManifestPath || path == pending.paths.LockfilePath) {
 			access = mutation.AccessExclusive

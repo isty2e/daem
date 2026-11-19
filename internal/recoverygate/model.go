@@ -198,6 +198,16 @@ func Combine(journalErr error, fileSetErr error) error {
 	}
 }
 
+// RefineFileSetRefusal replaces the file-set observation with a more specific
+// owner refusal without discarding the independently observed journal axis.
+func RefineFileSetRefusal(observed, refusal error) error {
+	var joint *jointError
+	if errors.As(observed, &joint) {
+		return Combine(joint.journalErr, refusal)
+	}
+	return refusal
+}
+
 // Observe reads the independent RecoveryDir journal and StateDir file-set facts
 // without allowing a later observation to hide caller cancellation.
 func Observe(ctx context.Context, paths daempaths.Paths) error {
