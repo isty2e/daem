@@ -79,7 +79,7 @@ func TestRunOutdatedCheckJSONExitsNonZeroWhenLockWouldChange(t *testing.T) {
 	if payload.ChangeCounts.Added != 2 || payload.ChangeCounts.Changed != 1 || payload.ChangeCounts.Removed != 2 || payload.ChangeCounts.Unchanged != 3 {
 		t.Fatalf("change counts = %#v", payload.ChangeCounts)
 	}
-	if !payload.HasChanges {
+	if payload.HasChanges == nil || !*payload.HasChanges {
 		t.Fatalf("HasChanges = false, want true")
 	}
 }
@@ -160,7 +160,7 @@ func TestRunOutdatedWithClaudeExtensionReportsLockRefreshOnly(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal returned error: %v\nstdout = %s", err, stdout.String())
 	}
-	if payload.Command != "outdated" || payload.Mode != "check" || payload.HasChanges {
+	if payload.Command != "outdated" || payload.Mode != "check" || payload.HasChanges == nil || *payload.HasChanges {
 		t.Fatalf("payload command/mode/has_changes = %s/%s/%v", payload.Command, payload.Mode, payload.HasChanges)
 	}
 	if payload.EntryCounts.Subjects != 1 || payload.ChangeCounts.Unchanged != 1 {
@@ -242,7 +242,7 @@ func TestRunOutdatedWithChangedClaudeExtensionSourceReportsLockDeltaOnly(t *test
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal returned error: %v\nstdout = %s", err, stdout.String())
 	}
-	if payload.Command != "outdated" || payload.Mode != "check" || !payload.HasChanges {
+	if payload.Command != "outdated" || payload.Mode != "check" || payload.HasChanges == nil || !*payload.HasChanges {
 		t.Fatalf("payload command/mode/has_changes = %s/%s/%v", payload.Command, payload.Mode, payload.HasChanges)
 	}
 	if payload.EntryCounts.Subjects != 1 || payload.ChangeCounts.Changed != 1 || len(payload.SubjectChanges) != 1 {

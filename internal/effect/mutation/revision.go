@@ -110,6 +110,7 @@ func (request RevisionRequest) Equal(other RevisionRequest) bool {
 type SnapshotRevision struct {
 	kind          revisionKind
 	canonicalPath string
+	accessPath    string
 	digest        [sha256.Size]byte
 	valid         bool
 }
@@ -226,7 +227,7 @@ func captureRevision(
 	if err != nil {
 		if os.IsNotExist(err) {
 			hasher := newRevisionHasher(identity.keyPath, revisionAbsent)
-			return newSnapshotRevision(revisionAbsent, identity.keyPath, hasher), nil
+			return newSnapshotRevision(revisionAbsent, identity, hasher), nil
 		}
 		return SnapshotRevision{}, fmt.Errorf("inspect mutation revision path %q: %w", request.Path, err)
 	}
@@ -255,7 +256,7 @@ func captureRevision(
 		}
 		hasher := newRevisionHasher(identity.keyPath, revisionSymlink)
 		writeRevisionRecord(hasher, "symlink", target)
-		return newSnapshotRevision(revisionSymlink, identity.keyPath, hasher), nil
+		return newSnapshotRevision(revisionSymlink, identity, hasher), nil
 	case info.Mode().IsRegular():
 		if request.captureMode == revisionCaptureDirectoryListing {
 			return shallowEntryRevision(identity, info), nil
@@ -272,7 +273,9 @@ func captureRevision(
 			version, reusable := filesnapshot.RegularFileVersionOf(info)
 			if cached, ok := fileCache[identity.keyPath]; ok &&
 				reusable && cached.version.Equal(version) {
-				return cached.revision, nil
+				revision := cached.revision
+				revision.accessPath = identity.accessPath
+				return revision, nil
 			}
 			return captureBoundedRevisionFile(
 				ctx,
@@ -298,7 +301,7 @@ func captureRevision(
 		); err != nil {
 			return SnapshotRevision{}, err
 		}
-		return newSnapshotRevision(revisionFile, identity.keyPath, hasher), nil
+		return newSnapshotRevision(revisionFile, identity, hasher), nil
 	case info.IsDir():
 		if request.captureMode == revisionCaptureBoundedFile {
 			return SnapshotRevision{}, fmt.Errorf(
@@ -321,7 +324,7 @@ func captureRevision(
 			); err != nil {
 				return SnapshotRevision{}, err
 			}
-			return newSnapshotRevision(revisionDirectoryListing, identity.keyPath, hasher), nil
+			return newSnapshotRevision(revisionDirectoryListing, identity, hasher), nil
 		}
 		treeBudget, err := operationBudget.beginTree()
 		if err != nil {
@@ -337,7 +340,7 @@ func captureRevision(
 		); err != nil {
 			return SnapshotRevision{}, err
 		}
-		return newSnapshotRevision(revisionDirectory, identity.keyPath, hasher), nil
+		return newSnapshotRevision(revisionDirectory, identity, hasher), nil
 	default:
 		if request.captureMode == revisionCaptureDirectoryListing {
 			return shallowEntryRevision(identity, info), nil
@@ -409,7 +412,7 @@ func captureBoundedRevisionFile(
 		"stable-regular-file-snapshot",
 		snapshot.Revision(),
 	)
-	revision := newSnapshotRevision(revisionFile, identity.keyPath, hasher)
+	revision := newSnapshotRevision(revisionFile, identity, hasher)
 	if fileCache != nil {
 		if version, reusable := snapshot.FileVersion(); reusable {
 			fileCache[identity.keyPath] = revisionFileCacheEntry{
@@ -424,7 +427,7 @@ func captureBoundedRevisionFile(
 func shallowEntryRevision(identity canonicalPath, info os.FileInfo) SnapshotRevision {
 	hasher := newRevisionHasher(identity.keyPath, revisionShallowEntry)
 	writeRevisionRecord(hasher, "mode", info.Mode().String())
-	return newSnapshotRevision(revisionShallowEntry, identity.keyPath, hasher)
+	return newSnapshotRevision(revisionShallowEntry, identity, hasher)
 }
 
 func newRevisionHasher(canonicalPath string, kind revisionKind) hash.Hash {
@@ -433,10 +436,10 @@ func newRevisionHasher(canonicalPath string, kind revisionKind) hash.Hash {
 	return hasher
 }
 
-func newSnapshotRevision(kind revisionKind, canonicalPath string, hasher hash.Hash) SnapshotRevision {
+func newSnapshotRevision(kind revisionKind, identity canonicalPath, hasher hash.Hash) SnapshotRevision {
 	var digest [sha256.Size]byte
 	copy(digest[:], hasher.Sum(nil))
-	return SnapshotRevision{kind: kind, canonicalPath: canonicalPath, digest: digest, valid: true}
+	return SnapshotRevision{kind: kind, canonicalPath: identity.keyPath, accessPath: identity.accessPath, digest: digest, valid: true}
 }
 
 func hashRevisionDirectory(

@@ -47,7 +47,7 @@ func TestLockResultPreparationPrecedesPublication(t *testing.T) {
 					ManifestPath: manifest,
 					PrepareResult: func(result Result) error {
 						calls++
-						if result.LockfilePath != lockPath || !result.Delta.HasChanges() {
+						if result.LockfilePath != lockPath || !requireComparison(t, result).HasChanges() {
 							t.Fatal("preparation did not receive the actual changed lock result")
 						}
 						if changeManifest {

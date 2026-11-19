@@ -44,13 +44,13 @@ func TestLockOutputReportsOrderOnlyChanges(t *testing.T) {
 
 	var structured bytes.Buffer
 	if err := clipresent.PrintJSON(&structured, clipresent.JSONInput{
-		Command:       "lock",
-		Mode:          "dry-run",
-		ManifestPath:  "/repo/daem.toml",
-		LockfilePath:  "/repo/daem.lock.toml",
-		PreviousFound: true,
-		Lockfile:      after,
-		Delta:         delta,
+		Command:        "lock",
+		Mode:           "dry-run",
+		ManifestPath:   "/repo/daem.toml",
+		LockfilePath:   "/repo/daem.lock.toml",
+		PreviousStatus: "comparable",
+		Lockfile:       after,
+		Delta:          &delta,
 	}); err != nil {
 		t.Fatalf("PrintJSON returned error: %v", err)
 	}
@@ -104,13 +104,13 @@ func TestLockOutputProjectsPrivateCarrierIdentities(t *testing.T) {
 
 	var structured bytes.Buffer
 	if err := clipresent.PrintJSON(&structured, clipresent.JSONInput{
-		Command:       "lock",
-		Mode:          "dry-run",
-		ManifestPath:  "/repo/daem.toml",
-		LockfilePath:  "/repo/daem.lock.toml",
-		PreviousFound: false,
-		Lockfile:      after,
-		Delta:         delta,
+		Command:        "lock",
+		Mode:           "dry-run",
+		ManifestPath:   "/repo/daem.toml",
+		LockfilePath:   "/repo/daem.lock.toml",
+		PreviousStatus: "missing",
+		Lockfile:       after,
+		Delta:          &delta,
 	}); err != nil {
 		t.Fatalf("PrintJSON returned error: %v", err)
 	}
@@ -181,13 +181,13 @@ func TestLockOutputKeepsBeforeAndAfterCarrierDisclosureIndependent(t *testing.T)
 
 	var structured bytes.Buffer
 	if err := clipresent.PrintJSON(&structured, clipresent.JSONInput{
-		Command:       "lock",
-		Mode:          "dry-run",
-		ManifestPath:  "/repo/daem.toml",
-		LockfilePath:  "/repo/daem.lock.toml",
-		PreviousFound: true,
-		Lockfile:      after,
-		Delta:         delta,
+		Command:        "lock",
+		Mode:           "dry-run",
+		ManifestPath:   "/repo/daem.toml",
+		LockfilePath:   "/repo/daem.lock.toml",
+		PreviousStatus: "comparable",
+		Lockfile:       after,
+		Delta:          &delta,
 	}); err != nil {
 		t.Fatalf("PrintJSON returned error: %v", err)
 	}

@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
@@ -62,22 +61,6 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 			return response.failure(operationFailure, humanFailureDiagnostic(err))
 		}
 
-		if *dryRun {
-			if plan.output == requestedJSON {
-				if _, err := io.Copy(stdout, bytes.NewReader(preparedJSON)); err != nil {
-					return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("lock failed: write json: "))
-				}
-				return 0
-			}
-			clipresent.PrintDryRunSummaryWithOptions(stdout, clipresent.DryRunSummaryInput{
-				LockfilePath: result.LockfilePath,
-				Lockfile:     result.Lockfile,
-				Delta:        result.Delta,
-				NextCommand:  lockCommandHint(result.ManifestPath, *manifestPath),
-			}, clipresent.HumanOptions{Verbose: *verbose})
-			return 0
-		}
-
 		if plan.output == requestedJSON {
 			if _, err := io.Copy(stdout, bytes.NewReader(preparedJSON)); err != nil {
 				return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("lock failed: write json: "))
@@ -85,10 +68,38 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 			return 0
 		}
 
-		fmt.Fprintf(stdout, "wrote lockfile: %s\n", humanDiagnosticText(result.LockfilePath))
-		clipresent.PrintDeltaSummaryWithOptions(stdout, result.Delta, clipresent.HumanOptions{Verbose: *verbose})
+		summary := lockSummary(result, *dryRun)
+		if *dryRun {
+			summary.NextCommand = lockCommandHint(result.ManifestPath, *manifestPath)
+		}
+		clipresent.PrintLockSummary(stdout, summary, clipresent.HumanOptions{Verbose: *verbose})
 		return 0
 	}}
+}
+
+func lockSummary(result workflowlock.Result, dryRun bool) clipresent.LockSummaryInput {
+	preview, written := "would write lockfile", "wrote lockfile"
+	var unavailable string
+	switch result.PreviousStatus() {
+	case workflowlock.PreviousDamaged:
+		preview, written = "would rebuild damaged lockfile", "rebuilt damaged lockfile"
+		unavailable = "lock changes not compared: previous lockfile contains malformed TOML"
+	case workflowlock.PreviousLegacy:
+		preview, written = "would replace older-schema lockfile", "replaced older-schema lockfile"
+		unavailable = "lock changes not compared: previous lockfile uses an older schema"
+	}
+	heading := written
+	if dryRun {
+		heading = preview
+	}
+	return clipresent.LockSummaryInput{
+		Heading:      heading,
+		LockfilePath: result.LockfilePath,
+		Lockfile:     result.Lockfile,
+		Delta:        result.Comparison(),
+		Unavailable:  unavailable,
+		DryRun:       dryRun,
+	}
 }
 
 func lockWorkflowGuidance(manifestPath string, err error) []clipresent.Guidance {

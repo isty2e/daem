@@ -17,11 +17,11 @@ type jsonOutput struct {
 	Mode                   string                      `json:"mode"`
 	ManifestPath           string                      `json:"manifest_path"`
 	LockfilePath           string                      `json:"lockfile_path"`
-	PreviousFound          bool                        `json:"previous_found"`
+	PreviousStatus         string                      `json:"previous_status"`
 	EntryCounts            jsonEntryCounts             `json:"entry_counts"`
-	ChangeCounts           jsonChangeCounts            `json:"change_counts"`
-	OrderChangeCounts      jsonChangeCounts            `json:"order_change_counts"`
-	HasChanges             bool                        `json:"has_changes"`
+	ChangeCounts           *jsonChangeCounts           `json:"change_counts"`
+	OrderChangeCounts      *jsonChangeCounts           `json:"order_change_counts"`
+	HasChanges             *bool                       `json:"has_changes"`
 	SubjectChanges         []jsonSubjectChange         `json:"subject_changes"`
 	OrderConstraintChanges []jsonOrderConstraintChange `json:"order_constraint_changes"`
 }
@@ -140,36 +140,43 @@ type jsonSkillSetCorrelation struct {
 
 // JSONInput is the stable command-output contract for lock and outdated JSON.
 type JSONInput struct {
-	Command       string
-	Mode          string
-	ManifestPath  string
-	LockfilePath  string
-	PreviousFound bool
-	Lockfile      lock.File
-	Delta         lock.Delta
+	Command        string
+	Mode           string
+	ManifestPath   string
+	LockfilePath   string
+	PreviousStatus string
+	Lockfile       lock.File
+	Delta          *lock.Delta
 }
 
 // PrintJSON writes the stable structured lock output payload.
 func PrintJSON(output io.Writer, input JSONInput) error {
-	projection := newLockIdentityProjection(input.Lockfile, input.Delta)
-	changes, err := jsonSubjectChanges(input.Delta, projection)
-	if err != nil {
-		return err
-	}
 	payload := jsonOutput{
-		SchemaVersion:          contractversion.LockComparisonJSON,
-		Command:                input.Command,
-		Mode:                   input.Mode,
-		ManifestPath:           input.ManifestPath,
-		LockfilePath:           input.LockfilePath,
-		PreviousFound:          input.PreviousFound,
-		EntryCounts:            jsonEntryCountsForFile(input.Lockfile),
-		ChangeCounts:           jsonChangeCountsForDelta(input.Delta),
-		OrderChangeCounts:      jsonChangeCountsForOrderDelta(input.Delta),
-		HasChanges:             input.Delta.HasChanges(),
-		SubjectChanges:         changes,
-		OrderConstraintChanges: jsonOrderConstraintChanges(input.Delta, projection),
+		SchemaVersion:  contractversion.LockComparisonJSON,
+		Command:        input.Command,
+		Mode:           input.Mode,
+		ManifestPath:   input.ManifestPath,
+		LockfilePath:   input.LockfilePath,
+		PreviousStatus: input.PreviousStatus,
+		EntryCounts:    jsonEntryCountsForFile(input.Lockfile),
 	}
+	if input.Delta != nil {
+		delta := *input.Delta
+		projection := newLockIdentityProjection(input.Lockfile, delta)
+		changes, err := jsonSubjectChanges(delta, projection)
+		if err != nil {
+			return err
+		}
+		counts := jsonChangeCountsForDelta(delta)
+		orderCounts := jsonChangeCountsForOrderDelta(delta)
+		hasChanges := delta.HasChanges()
+		payload.ChangeCounts = &counts
+		payload.OrderChangeCounts = &orderCounts
+		payload.HasChanges = &hasChanges
+		payload.SubjectChanges = changes
+		payload.OrderConstraintChanges = jsonOrderConstraintChanges(delta, projection)
+	}
+
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)

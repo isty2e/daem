@@ -38,7 +38,7 @@ var (
 	ErrMaximumWorkExceeded = errors.New("TOML aggregate work exceeded")
 	// ErrMaximumPathWorkExceeded classifies ancestor-path byte recopy work.
 	ErrMaximumPathWorkExceeded = errors.New("TOML path recopy work exceeded")
-	// ErrMalformed classifies structural TOML that cannot be admitted.
+	// ErrMalformed classifies malformed TOML syntax.
 	ErrMalformed = errors.New("malformed TOML structure")
 )
 

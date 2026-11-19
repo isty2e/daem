@@ -2,19 +2,15 @@ package lock
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declarationartifact"
-	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/desired"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
@@ -46,11 +42,23 @@ type OutdatedInput struct {
 
 // Result carries lock workflow facts for CLI and presentation layers.
 type Result struct {
-	ManifestPath  string
-	LockfilePath  string
-	PreviousFound bool
-	Lockfile      lock.File
-	Delta         lock.Delta
+	ManifestPath string
+	LockfilePath string
+	Lockfile     lock.File
+
+	previous PreviousLockStatus
+	delta    lock.Delta
+}
+
+func (result Result) PreviousStatus() PreviousLockStatus { return result.previous }
+
+// Comparison returns a delta when the previous lock was readable or absent.
+func (result Result) Comparison() *lock.Delta {
+	if !result.previous.comparisonAvailable() {
+		return nil
+	}
+	delta := result.delta
+	return &delta
 }
 
 // CommandError wraps workflow failures with resolved command path facts for CLI diagnostics.
@@ -77,19 +85,19 @@ type commandResult struct {
 	Content []byte
 }
 
-// RunLock resolves sources, computes a lock delta, and writes the lockfile for non-dry-run invocations.
+// RunLock resolves sources and reports the prospective lock. Without dry-run it also publishes the lockfile.
 func RunLock(ctx context.Context, input LockInput) (Result, error) {
 	if input.DryRun {
-		result, err := buildCommandResult(
+		result, err := previewLock(
 			ctx,
 			input.ManifestPath,
 			input.LockfilePath,
-			false,
-			nil,
 			true,
-			commandMaxParallelSourceOps(input.MaxParallelSourceOps),
-			input.SourceEvents,
-			input.LockEvents,
+			lockgenerate.Input{
+				MaxParallelSourceOps: input.MaxParallelSourceOps,
+				SourceEvents:         input.SourceEvents,
+				Events:               lockBuildProgressSink(input.LockEvents),
+			},
 		)
 		if err != nil {
 			return Result{}, err
@@ -106,16 +114,16 @@ func RunLock(ctx context.Context, input LockInput) (Result, error) {
 
 // RunOutdated resolves sources through a temporary cache and reports the delta without writing the lockfile.
 func RunOutdated(ctx context.Context, input OutdatedInput) (Result, error) {
-	result, err := buildCommandResult(
+	result, err := previewLock(
 		ctx,
 		input.ManifestPath,
 		input.LockfilePath,
 		false,
-		nil,
-		false,
-		commandMaxParallelSourceOps(input.MaxParallelSourceOps),
-		input.SourceEvents,
-		input.LockEvents,
+		lockgenerate.Input{
+			MaxParallelSourceOps: input.MaxParallelSourceOps,
+			SourceEvents:         input.SourceEvents,
+			Events:               lockBuildProgressSink(input.LockEvents),
+		},
 	)
 	if err != nil {
 		return Result{}, err
@@ -124,16 +132,12 @@ func RunOutdated(ctx context.Context, input OutdatedInput) (Result, error) {
 	return result.Result, nil
 }
 
-func buildCommandResult(
+func previewLock(
 	ctx context.Context,
 	manifestPath string,
 	lockfilePath string,
-	usePersistentCache bool,
-	preparePersistentCache func(context.Context) error,
-	allowPriorSchemaReplacement bool,
-	maxParallelSourceOps int,
-	sourceEvents acquisition.EventSink,
-	lockEvents ProgressEventSink,
+	standalone bool,
+	input lockgenerate.Input,
 ) (commandResult, error) {
 	paths, err := daempaths.Resolve(manifestPath)
 	if err != nil {
@@ -150,51 +154,60 @@ func buildCommandResult(
 		return commandResult{}, errorContext
 	}
 
-	environment, err := declarationmanifest.LoadSelected(ctx, paths)
+	environment, err := loadLockEnvironment(ctx, paths)
 	if err != nil {
-		errorContext.Err = fmt.Errorf("invalid manifest: %w", err)
+		errorContext.Err = err
 		return commandResult{}, errorContext
 	}
 
-	previousLockfile, previousMissing, err := loadOptionalLockfile(
-		ctx,
-		outputPath,
-		allowPriorSchemaReplacement,
-	)
+	previous, err := readPreviousLock(ctx, outputPath, standalone)
 	if err != nil {
 		errorContext.Err = fmt.Errorf("read lockfile: %w", err)
 		return commandResult{}, errorContext
 	}
 
-	snapshot, err := lockgenerate.Build(ctx, lockgenerate.Input{
-		Paths:                  paths,
-		Environment:            environment,
-		UsePersistentCache:     usePersistentCache,
-		PreparePersistentCache: preparePersistentCache,
-		MaxParallelSourceOps:   maxParallelSourceOps,
-		SourceEvents:           sourceEvents,
-		Events:                 lockBuildProgressSink(lockEvents),
-		HookEncoder:            hookcodec.CanonicalHookContribution,
-		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
-		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
-		NativeDocumentLimits:   nativeconfig.DocumentLimits(),
-	})
+	input.Paths = paths
+	input.Environment = environment
+	if previous.status == PreviousDamaged {
+		if err := checkPreviewRebuildInputs(ctx, outputPath, input); err != nil {
+			errorContext.Err = err
+			return commandResult{}, errorContext
+		}
+	}
+	return buildCommandResult(ctx, errorContext, input, previous)
+}
+
+func buildCommandResult(ctx context.Context, errorContext CommandError, input lockgenerate.Input, previous previousLock) (commandResult, error) {
+	input.MaxParallelSourceOps = commandMaxParallelSourceOps(input.MaxParallelSourceOps)
+	input.HookEncoder = hookcodec.CanonicalHookContribution
+	input.MCPEncoder = mcpcodec.CanonicalMCPBindingContribution
+	input.ExtensionOrderIdentity = aggregatecodec.ExtensionOrderIdentityResolver(input.Paths)
+	input.NativeDocumentLimits = nativeconfig.DocumentLimits()
+	snapshot, err := lockgenerate.Build(ctx, input)
 	if err != nil {
 		errorContext.Err = err
 		return commandResult{}, errorContext
 	}
 	generatedSnapshot := snapshot.Snapshot()
 
-	return commandResult{
-		Result: Result{
-			ManifestPath:  paths.ManifestPath,
-			LockfilePath:  outputPath,
-			PreviousFound: !previousMissing,
-			Lockfile:      generatedSnapshot,
-			Delta:         lock.BuildDelta(previousLockfile, generatedSnapshot),
-		},
-		Content: snapshot.Content(),
-	}, nil
+	result := Result{
+		ManifestPath: errorContext.ManifestPath,
+		LockfilePath: errorContext.LockfilePath,
+		Lockfile:     generatedSnapshot,
+		previous:     previous.status,
+	}
+	if previous.status.comparisonAvailable() {
+		result.delta = lock.BuildDelta(previous.snapshot, generatedSnapshot)
+	}
+	return commandResult{Result: result, Content: snapshot.Content()}, nil
+}
+
+func loadLockEnvironment(ctx context.Context, paths daempaths.Paths) (desired.Environment, error) {
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
+	if err != nil {
+		return desired.Environment{}, fmt.Errorf("invalid manifest: %w", err)
+	}
+	return environment, nil
 }
 
 func commandMaxParallelSourceOps(value int) int {
@@ -211,58 +224,4 @@ func outputLockfilePath(inputPath string, paths daempaths.Paths) string {
 	}
 
 	return paths.LockfilePath
-}
-
-func loadOptionalLockfile(
-	ctx context.Context,
-	path string,
-	allowPriorSchemaReplacement bool,
-) (lock.File, bool, error) {
-	file, err := lockfile.Load(ctx, path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return lock.File{Version: lock.CurrentVersion}, true, nil
-		}
-		var versionErr lockfile.UnsupportedVersionError
-		if allowPriorSchemaReplacement &&
-			errors.As(err, &versionErr) &&
-			versionErr.RelockSupported() {
-			return lock.File{Version: lock.CurrentVersion}, false, nil
-		}
-		return lock.File{}, false, err
-	}
-
-	return file, false, nil
-}
-
-func commitLockfile(ctx context.Context, target declarationartifact.MutationTarget, content []byte, fileMode os.FileMode) (returnErr error) {
-	if err := target.Validate(ctx); err != nil {
-		return err
-	}
-	defer func() {
-		if returnErr != nil {
-			returnErr = declarationartifact.ReplacementError{Path: target.Path(), Err: returnErr}
-		}
-	}()
-	commitPath := target.Path()
-	info, err := os.Stat(commitPath)
-	if os.IsNotExist(err) {
-		request, requestErr := storagecommit.NewFileCreate(commitPath, content, fileMode)
-		if requestErr != nil {
-			return requestErr
-		}
-		return storagecommit.CommitFile(ctx, request)
-	}
-	if err != nil {
-		return err
-	}
-	expected, err := storagecommit.CaptureEntryIdentity(ctx, commitPath)
-	if err != nil {
-		return err
-	}
-	request, err := storagecommit.NewFileReplacement(commitPath, content, info.Mode().Perm(), expected)
-	if err != nil {
-		return err
-	}
-	return storagecommit.CommitFile(ctx, request)
 }

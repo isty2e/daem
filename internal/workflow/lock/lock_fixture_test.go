@@ -16,6 +16,15 @@ import (
 	"github.com/isty2e/daem/test/outputtest"
 )
 
+func requireComparison(t *testing.T, result Result) lock.Delta {
+	t.Helper()
+	delta := result.Comparison()
+	if delta == nil {
+		t.Fatalf("comparison unavailable for prior lock status %q", result.PreviousStatus())
+	}
+	return *delta
+}
+
 func assertWorkflowMCPSubject(t *testing.T, file lock.File, serverID string) mcpcodec.ClaudeProjectMCPServerEntry {
 	t.Helper()
 	if len(file.Locked.Subjects()) != 1 {

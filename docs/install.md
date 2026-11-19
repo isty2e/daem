@@ -109,14 +109,19 @@ daem status
 daem apply --dry-run --diff
 ```
 
-Relocking resolves the current manifest sources again; review the lock changes
-before applying. It does not apply changes to host configuration. Older daem
+Relocking resolves the current manifest sources again and cannot compare them
+with an older-schema file. Review the generated lock and the apply preview
+above before applying. Relocking does not change host configuration. Older daem
 versions cannot read the regenerated lockfile. If a team shares that file,
 coordinate the daem upgrade before committing the new lockfile. Rolling back
 only the executable does not restore lockfile compatibility.
 
 Other unsupported schemas remain refusals; these commands do not grant a generic
 lockfile migration or downgrade path.
+
+If you automate `lock` or `outdated`, update your decoder for
+[lock comparison JSON v6](cli.md#outdated). It reports `previous_status` and
+uses `null` for comparisons it could not perform.
 
 ## Roll Back The Executable
 

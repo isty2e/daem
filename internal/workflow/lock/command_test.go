@@ -79,8 +79,8 @@ targets = ["codex"]
 	if result.ManifestPath != manifestPath || result.LockfilePath != lockfilePath {
 		t.Fatalf("result paths = %q/%q, want %q/%q", result.ManifestPath, result.LockfilePath, manifestPath, lockfilePath)
 	}
-	if result.PreviousFound {
-		t.Fatal("PreviousFound = true, want false")
+	if result.PreviousStatus() != PreviousMissing {
+		t.Fatalf("previous status = %q, want missing", result.PreviousStatus())
 	}
 	subjects := result.Lockfile.Locked.Subjects()
 	if len(subjects) != 2 {
@@ -91,8 +91,8 @@ targets = ["codex"]
 			t.Fatalf("locked subject = %#v, want Instructions entity", subject)
 		}
 	}
-	if !result.Delta.HasChanges() {
-		t.Fatal("Delta.HasChanges() = false, want true")
+	if !requireComparison(t, result).HasChanges() {
+		t.Fatal("comparison did not find added entries")
 	}
 	if _, err := lockfile.Load(t.Context(), lockfilePath); err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
@@ -150,8 +150,8 @@ targets = ["codex"]
 	if result.LockfilePath != lockfilePath {
 		t.Fatalf("LockfilePath = %q, want %q", result.LockfilePath, lockfilePath)
 	}
-	if result.PreviousFound {
-		t.Fatal("PreviousFound = true, want false")
+	if result.PreviousStatus() != PreviousMissing {
+		t.Fatalf("previous status = %q, want missing", result.PreviousStatus())
 	}
 	if _, err := os.Stat(lockfilePath); !os.IsNotExist(err) {
 		t.Fatalf("dry-run lockfile exists or stat failed unexpectedly: %v", err)
@@ -184,8 +184,8 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("dry-run RunLock returned error: %v", err)
 	}
-	if !preview.PreviousFound {
-		t.Fatal("dry-run PreviousFound = false for replaceable v5 lockfile")
+	if preview.PreviousStatus() != PreviousLegacy || preview.Comparison() != nil {
+		t.Fatal("v5 lockfile did not preview as a replacement without comparison")
 	}
 	if got, err := os.ReadFile(lockfilePath); err != nil || string(got) != legacy {
 		t.Fatalf("v5 lockfile after successful dry-run = %q, %v", got, err)
@@ -195,8 +195,8 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("RunLock returned error: %v", err)
 	}
-	if !result.PreviousFound {
-		t.Fatal("PreviousFound = false for replaced v5 lockfile")
+	if result.PreviousStatus() != PreviousLegacy || result.Comparison() != nil {
+		t.Fatal("v5 lockfile did not report a replacement without comparison")
 	}
 	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
@@ -227,8 +227,8 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("RunLock returned error: %v", err)
 	}
-	if !result.PreviousFound {
-		t.Fatal("PreviousFound = false for replaced released schema-v3 lockfile")
+	if result.PreviousStatus() != PreviousLegacy || result.Comparison() != nil {
+		t.Fatal("v3 lockfile did not report a replacement without comparison")
 	}
 	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
@@ -267,7 +267,7 @@ func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T
 	}
 }
 
-func TestRunLockRejectsMalformedCurrentWithoutReplacingOrResolvingSources(t *testing.T) {
+func TestRunLockRejectsUnrecognizedCurrentShapeWithoutResolvingSources(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	manifest := filepath.Join(root, "daem.toml")
@@ -279,12 +279,12 @@ source = "./instructions.md"
 targets = ["codex"]
 `)
 	writeWorkflowTestFile(t, root, "instructions.md", "ordinary source that must not be resolved\n")
-	invalid := fmt.Sprintf("version = %d\nfuture_payload = { malformed = [\n", locksnapshot.CurrentVersion)
+	invalid := fmt.Sprintf("version = %d\nlocked = \"not a table\"\n", locksnapshot.CurrentVersion)
 	writeWorkflowTestFile(t, root, "daem.lock.toml", invalid)
 	_, err := lockfile.Load(t.Context(), path)
 	var versionErr lockfile.UnsupportedVersionError
 	if err == nil || errors.As(err, &versionErr) {
-		t.Fatalf("common reader accepted malformed current content or misclassified its version: %v", err)
+		t.Fatalf("common reader accepted an unrecognized current shape or misclassified its version: %v", err)
 	}
 	for _, dryRun := range []bool{true, false} {
 		events := 0
@@ -293,10 +293,10 @@ targets = ["codex"]
 			SourceEvents: func(acquisition.Event) { events++ },
 		})
 		if err == nil || errors.As(err, &versionErr) || events != 0 {
-			t.Fatalf("malformed selected native content was replaced/reclassified or resolved sources: dry-run=%t err=%v events=%d", dryRun, err, events)
+			t.Fatalf("invalid lockfile was replaced/reclassified or resolved sources: dry-run=%t err=%v events=%d", dryRun, err, events)
 		}
 		if actual, err := os.ReadFile(path); err != nil || string(actual) != invalid {
-			t.Fatalf("malformed native bytes changed: %q %v", actual, err)
+			t.Fatalf("unrecognized lockfile changed: %q %v", actual, err)
 		}
 	}
 }
