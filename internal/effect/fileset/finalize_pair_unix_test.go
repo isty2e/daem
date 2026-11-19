@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 func TestFinalizeCommittedPairPreservesSettledTargets(t *testing.T) {
@@ -113,6 +114,31 @@ func TestFinalizeCommittedPairPreservesUnqualifiedEvidence(t *testing.T) {
 			assertContent(t, markerPath(stateDir), wantMarker)
 		})
 	}
+}
+
+func TestFinalizeCommittedPairPreservesEvidenceWhenPersistenceFails(t *testing.T) {
+	stateDir, manifest, lockfile, marker := setupFinalizationPair(t, false, false)
+	publishFinalizationImages(t, marker, 2)
+	refused := errors.New("persistence confirmation failed")
+	calls := 0
+	retired, err := finalizeCommittedPair(t.Context(), stateDir, manifest, lockfile, func(context.Context) error {
+		t.Fatal("retirement proceeded after failed persistence confirmation")
+		return nil
+	}, func(ctx context.Context, path string, expected storagecommit.EntryIdentity) error {
+		calls++
+		if calls == 2 {
+			return refused
+		}
+		return storagecommit.ConfirmFilePersistence(ctx, path, expected)
+	})
+	if retired || !errors.Is(err, refused) {
+		t.Fatalf("retired = %t; error = %v", retired, err)
+	}
+	if _, err := loadMarker(t.Context(), markerPath(stateDir)); err != nil {
+		t.Fatalf("record was not preserved: %v", err)
+	}
+	assertContent(t, manifest, "manifest after")
+	assertContent(t, lockfile, "lock after")
 }
 
 func setupFinalizationPair(t *testing.T, retain, create bool) (string, string, string, transactionMarker) {

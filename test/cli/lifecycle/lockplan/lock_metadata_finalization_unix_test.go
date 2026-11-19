@@ -21,6 +21,7 @@ import (
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
 
 const minimalFinalizationManifest = "version = 1\ntargets = [\"codex\"]\n"
@@ -80,10 +81,12 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 		finished    bool
 		userDefault bool
 		journal     bool
+		global      bool
 		want        string
 	}{
 		{name: "mixed", want: "retry the exact interrupted authoring command"},
 		{name: "unknown journal", finished: true, journal: true},
+		{name: "global metadata fence", finished: true, global: true},
 		{name: "source fails after retirement", finished: true, want: "recovery record was already cleared"},
 		{name: "implicit user selection", finished: true, userDefault: true, want: "recovery record was already cleared"},
 	} {
@@ -108,11 +111,22 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 			if test.journal {
 				testkit.WriteFile(t, paths.StateDir, "recovery", "unreadable as a journal directory")
 			}
+			if test.global {
+				metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+			}
 			failure := runMetadataLock(t, 1)
+			if test.global {
+				payload := clijson.DecodeFailure(t, failure, "lock", "operation")
+				if !slices.ContainsFunc(payload.Guidance, func(item clijson.FailureGuidance) bool {
+					return slices.Equal(item.Argv, []string{"daem", "migrate", "metadata", "--recover", "--dry-run"})
+				}) {
+					t.Fatalf("did not retain global recovery guidance: %+v", payload.Guidance)
+				}
+			}
 			if test.want != "" {
 				requireMetadataGuidance(t, failure, test.want)
 			}
-			if test.finished && !test.journal {
+			if test.finished && !test.journal && !test.global {
 				assertRetiredLockMarker(t, marker)
 				payload := clijson.DecodeFailure(t, failure, "lock", "operation")
 				wantCause := "source.md"
@@ -130,6 +144,34 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 				oldLock += "# before\n"
 			}
 			testkit.AssertFileContent(t, paths.LockfilePath, oldLock)
+		})
+	}
+}
+
+func TestLockFinalizationRefusesMissingRecordedFiles(t *testing.T) {
+	for _, name := range []string{"daem.toml", "daem.lock.toml"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			testkit.SetDefaultRootEnv(t, filepath.Join(root, "home"))
+			manifest, lock := filepath.Join(root, "daem.toml"), filepath.Join(root, "daem.lock.toml")
+			marker := seedInterruptedLockPair(t, filepath.Join(root, ".daem"), manifest, lock, minimalFinalizationManifest, "version = 6\n", true)
+			missing := filepath.Join(root, name)
+			if err := os.Remove(missing); err != nil {
+				t.Fatal(err)
+			}
+			failure := runMetadataLock(t, 1, "--manifest", manifest)
+			payload := clijson.DecodeFailure(t, failure, "lock", "operation")
+			if !strings.Contains(payload.Error.Message, "interrupted file-set transaction") ||
+				slices.ContainsFunc(payload.Guidance, func(item clijson.FailureGuidance) bool { return slices.Contains(item.Argv, "init") }) {
+				t.Fatalf("did not preserve the interrupted-write diagnosis: %+v", payload)
+			}
+			requireMetadataGuidance(t, failure, "Manifest Metadata Update Was Interrupted")
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("refusal did not preserve marker: %v", err)
+			}
+			if _, err := os.Stat(missing); !os.IsNotExist(err) {
+				t.Fatalf("refusal recreated the missing file: %v", err)
+			}
 		})
 	}
 }

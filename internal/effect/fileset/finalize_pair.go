@@ -19,6 +19,8 @@ var (
 	ErrDifferentFinalizationPair = fmt.Errorf("%w: record does not belong to the selected file pair", ErrInterruptedFileSetTransaction)
 	// ErrUnfinishedFinalizationPair identifies a verified before/after pair that still needs its original writer.
 	ErrUnfinishedFinalizationPair = fmt.Errorf("%w: the selected files have not both reached their recorded final state", ErrInterruptedFileSetTransaction)
+	// ErrFileSetRetirementUnconfirmed reports residue or an indeterminate removal outcome.
+	ErrFileSetRetirementUnconfirmed = errors.New("file-set evidence retirement could not be confirmed")
 )
 
 // FinalizeCommittedPair retires an exact generation-3 file set without restoring
@@ -26,6 +28,10 @@ var (
 // independently bound physical addresses, and revalidates peer authority before
 // removal. A false, nil result means the active directory was already absent.
 func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companionPath string, revalidate func(context.Context) error) (bool, error) {
+	return finalizeCommittedPair(ctx, stateDir, replacedPath, companionPath, revalidate, storagecommit.ConfirmFilePersistence)
+}
+
+func finalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companionPath string, revalidate func(context.Context) error, confirm func(context.Context, string, storagecommit.EntryIdentity) error) (bool, error) {
 	if ctx == nil || revalidate == nil {
 		return false, fmt.Errorf("file-set finalization requires context and revalidation")
 	}
@@ -91,7 +97,7 @@ func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companio
 		return false, err
 	}
 	for index, target := range marker.Targets {
-		if err := storagecommit.ConfirmFilePersistence(ctx, target.Path, identities[index]); err != nil {
+		if err := confirm(ctx, target.Path, identities[index]); err != nil {
 			return false, fmt.Errorf("confirm settled file-set target: %w", err)
 		}
 	}
@@ -126,10 +132,10 @@ func FinalizeCommittedPair(ctx context.Context, stateDir, replacedPath, companio
 	capability = nil // The commit now owns the capability.
 	outcome, err := storagecommit.CommitLogicalRemovalWithOutcome(ctx, removal)
 	if err != nil {
+		if outcome.State() == mutationfs.CommitOutcomeIndeterminate || outcome.State() == mutationfs.CommitOutcomeRetainedRecoverable {
+			return false, fmt.Errorf("%w: %w", ErrFileSetRetirementUnconfirmed, err)
+		}
 		return false, err
-	}
-	if outcome.State() != mutationfs.CommitOutcomeComplete {
-		return false, fmt.Errorf("file-set evidence retirement did not complete")
 	}
 	return true, nil
 }
@@ -217,7 +223,10 @@ func committedPairIdentities(ctx context.Context, marker transactionMarker, budg
 	allAfter := true
 	for index, target := range marker.Targets {
 		snapshot, err := observeFinalizationFile(ctx, target.Path, maximumTargetBytes, budget)
-		if errors.Is(err, fs.ErrNotExist) && !target.Before.Exists {
+		if errors.Is(err, fs.ErrNotExist) {
+			if target.Before.Exists {
+				return identities, fmt.Errorf("%w: a recorded file is missing", ErrInterruptedFileSetTransaction)
+			}
 			allAfter = false
 			continue
 		}

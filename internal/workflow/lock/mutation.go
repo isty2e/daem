@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 
 	"github.com/isty2e/daem/internal/declaration/transaction"
@@ -58,6 +59,9 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		}
 		settledPair, retired, err = finishLockMetadata(ctx, paths, stateDirAuthority, metadataTransactionPath)
 		if err != nil {
+			if !retired && errors.Is(err, fs.ErrNotExist) && !recoverygate.IsBarrierRefusal(err) && !recoverygate.IsCancellation(err) {
+				err = fmt.Errorf("%w: could not verify the selected files: %w", fileset.ErrInterruptedFileSetTransaction, err)
+			}
 			errorContext.Err = err
 			return Result{}, errorContext
 		}

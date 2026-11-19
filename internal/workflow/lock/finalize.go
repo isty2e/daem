@@ -24,6 +24,7 @@ const (
 	MetadataRecoveryDifferentPair
 	MetadataRecoveryUnfinishedPair
 	MetadataRecoveryRetired
+	MetadataRecoveryRetirementUnconfirmed
 )
 
 type afterMetadataRetirement struct{ cause error }
@@ -36,6 +37,8 @@ func MetadataRecoveryStatusOf(err error) MetadataRecoveryStatus {
 	switch {
 	case errors.As(err, &retired):
 		return MetadataRecoveryRetired
+	case errors.Is(err, fileset.ErrFileSetRetirementUnconfirmed):
+		return MetadataRecoveryRetirementUnconfirmed
 	case !localPublishedFileSet(err):
 		return MetadataRecoveryNotApplicable
 	case errors.Is(err, fileset.ErrDifferentFinalizationPair):

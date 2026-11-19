@@ -54,9 +54,12 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 		})
 		progress.Close()
 		if err != nil {
+			status := workflowlock.MetadataRecoveryStatusOf(err)
 			diagnostic := humanFailureDiagnostic(err).WithPrefix("lock failed: ").
-				WithGuidance(lockMetadataGuidance(*dryRun, err)...).
-				WithGuidance(lockWorkflowGuidance(*manifestPath, err)...)
+				WithGuidance(lockMetadataGuidance(*dryRun, status)...)
+			if status == workflowlock.MetadataRecoveryNotApplicable || status == workflowlock.MetadataRecoveryRetired {
+				diagnostic = diagnostic.WithGuidance(lockWorkflowGuidance(*manifestPath, err)...)
+			}
 			return response.failure(operationFailure, diagnostic)
 		}
 		if err := response.selectOrdinaryResult(); err != nil {
@@ -104,18 +107,22 @@ func lockSummary(result workflowlock.Result, dryRun bool) clipresent.LockSummary
 	}
 }
 
-func lockMetadataGuidance(dryRun bool, err error) []clipresent.Guidance {
-	switch workflowlock.MetadataRecoveryStatusOf(err) {
+func lockMetadataGuidance(dryRun bool, status workflowlock.MetadataRecoveryStatus) []clipresent.Guidance {
+	troubleshooting := clipresent.InstructionGuidance("see 'Manifest Metadata Update Was Interrupted' in docs/troubleshooting.md")
+	switch status {
 	case workflowlock.MetadataRecoveryPending:
 		if dryRun {
 			return []clipresent.Guidance{clipresent.NoteGuidance("preview leaves the recovery record untouched; if you intend to refresh this lockfile, daem lock with the same manifest selection can clear an already completed manifest and lockfile update")}
 		}
+		return []clipresent.Guidance{troubleshooting}
 	case workflowlock.MetadataRecoveryDifferentPair:
-		return []clipresent.Guidance{clipresent.InstructionGuidance("see 'Manifest Metadata Update Was Interrupted' in docs/troubleshooting.md for the command that owns this record")}
+		return []clipresent.Guidance{troubleshooting}
 	case workflowlock.MetadataRecoveryUnfinishedPair:
 		return []clipresent.Guidance{clipresent.InstructionGuidance("retry the exact interrupted authoring command with the same manifest selection and arguments")}
 	case workflowlock.MetadataRecoveryRetired:
 		return []clipresent.Guidance{clipresent.NoteGuidance("the previous manifest and lockfile recovery record was already cleared")}
+	case workflowlock.MetadataRecoveryRetirementUnconfirmed:
+		return []clipresent.Guidance{clipresent.InstructionGuidance("preserve any remaining recovery files for inspection; do not remove private files by name prefix")}
 	}
 	return nil
 }
