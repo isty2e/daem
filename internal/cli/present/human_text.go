@@ -345,6 +345,16 @@ func NativePlanningFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 	if errors.As(err, &documentType) {
 		return NewFailureDiagnostic(documentType.Error()).WithGuidance(InstructionGuidance("check the destination type; preserve any existing contents before changing the path")), true
 	}
+	var overlap *nativeoperation.DocumentAdmissionError
+	hasAdmission := errors.As(err, &overlap)
+	if hasAdmission && overlap.UnsafeRemoval() {
+		diagnostic := NewFailureDiagnostic(overlap.Error())
+		if id, removing := overlap.RemovedAgentConfig(); removing {
+			guidance, _ := CommandGuidance([]string{"daem", "unmanage", "agent-config", id, "--dry-run"}, "to release management without deleting the file")
+			return diagnostic.WithGuidance(guidance), true
+		}
+		return diagnostic.WithGuidance(InstructionGuidance("retain the file; the recorded path cannot be verified once the entry is gone")), true
+	}
 	var protection configuration.NativeProtectionFailure
 	if errors.As(err, &protection) {
 		return NativeProtectionPlanningDiagnostic(protection), true
@@ -353,8 +363,7 @@ func NativePlanningFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 	if errors.As(err, &claim) {
 		return NativeClaimPlanningDiagnostic(claim), true
 	}
-	var overlap *nativeoperation.DocumentAdmissionError
-	if errors.As(err, &overlap) {
+	if hasAdmission {
 		diagnostic := NewFailureDiagnostic(overlap.Error())
 		if overlap.Unverified() {
 			return diagnostic.WithGuidance(InstructionGuidance("check the reported output's parent directories, links and read access, then retry")), true

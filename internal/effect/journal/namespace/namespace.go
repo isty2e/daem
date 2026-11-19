@@ -442,7 +442,7 @@ func observeNativeDocumentNamespace(ctx context.Context, inputs []aliasInput, ro
 		boundRoots[alias.location.RootReference()] = struct{}{}
 	}
 	observer := newPhysicalObserver(protection, budget)
-	if err := observer.requireUnreserved(ctx, result.aliases); err != nil {
+	if err := observer.requireUnreserved(ctx, protectionAliases(result.aliases)); err != nil {
 		return DocumentNamespace{}, err
 	}
 	result.physical, err = observer.documents(ctx, result.aliases, qualified)

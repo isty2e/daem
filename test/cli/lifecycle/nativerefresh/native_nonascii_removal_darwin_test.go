@@ -5,6 +5,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,11 +13,12 @@ import (
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
 func TestNativeApplyRemovesNonASCIIFileAndWritesSibling(t *testing.T) {
-	for _, boundary := range []string{"commit", "return-error", "before-state"} {
+	for _, boundary := range []string{"commit", "return-error", "before-state", "different-spelling", "ascii-spelling", "global-protection"} {
 		t.Run(boundary, func(t *testing.T) {
 			root, err := filepath.EvalSymlinks(t.TempDir())
 			if err != nil {
@@ -25,8 +27,19 @@ func TestNativeApplyRemovesNonASCIIFileAndWritesSibling(t *testing.T) {
 			nativefixture.SetRecoveryEnvironment(t, root)
 			workspace := filepath.Join(root, "workspace")
 			manifest := filepath.Join(workspace, "daem.toml")
-			old := filepath.Join(workspace, ".codex", "Café.toml")
-			next := filepath.Join(workspace, ".codex", "other.toml")
+			directory, scope, source := filepath.Join(workspace, ".codex"), "project", "source.toml"
+			if boundary == "global-protection" {
+				directory, scope, source = os.Getenv("CODEX_HOME"), "global", filepath.Join(workspace, source)
+			}
+			name, alternate := "Café.toml", ""
+			switch boundary {
+			case "different-spelling":
+				alternate = "Cafe\u0301.toml"
+			case "ascii-spelling":
+				name, alternate = "K.toml", "K.toml"
+			}
+			old := filepath.Join(directory, name)
+			next := filepath.Join(directory, "other.toml")
 			const original = "model = 'old'\n"
 			const desired = "model = 'next'\n"
 			writeManifest := func(id, name, ownership, content string) {
@@ -37,15 +50,38 @@ targets=['codex']
 [[agent_config]]
 id=%q
 path=%q
+scope=%q
 ownership=%q
-source='source.toml'
-`, id, name, ownership))
+source=%q
+`, id, name, scope, ownership, source))
 			}
-			writeManifest("old", filepath.Base(old), "document", original)
 			testkit.WriteFile(t, filepath.Dir(old), filepath.Base(old), original)
 			if err := os.Chmod(old, 0o600); err != nil {
 				t.Fatal(err)
 			}
+			entries, err := os.ReadDir(filepath.Dir(old))
+			if err != nil || len(entries) != 1 {
+				t.Fatal("cannot identify the stored filename", err)
+			}
+			selectedName := entries[0].Name()
+			if alternate != "" {
+				if alternate == selectedName {
+					alternate = name
+				}
+				stored, err := os.Stat(old)
+				if err != nil {
+					t.Fatal(err)
+				}
+				alias, err := os.Stat(filepath.Join(filepath.Dir(old), alternate))
+				if os.IsNotExist(err) {
+					t.Skip("the volume treats the Unicode spellings as distinct files")
+				}
+				if err != nil || !os.SameFile(stored, alias) {
+					t.Fatal("the alternate spelling does not identify the original file", err)
+				}
+				selectedName = alternate
+			}
+			writeManifest("old", selectedName, "document", original)
 			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
 			nativefixture.RunLifecycleCommand(t, "apply", "--yes", "--manage-existing", "--manifest", manifest)
 
@@ -57,6 +93,36 @@ source='source.toml'
 			}
 			fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: next, Paths: paths}
 			before := nativefixture.SnapshotRecoveryPaths(t, old, next, paths.StatefilePath, paths.OwnershipRegistryPath)
+			reason := ""
+			switch boundary {
+			case "different-spelling", "ascii-spelling":
+				reason = "path spelling cannot be matched after deletion"
+			case "global-protection":
+				reason = "path cannot be shown to stay outside reserved data after deletion"
+			}
+			if reason != "" {
+				code, stdout, stderr := testkit.RunCapturedCLI("apply", "--dry-run", "--json", "--manifest", manifest)
+				if code != 1 || stderr != "" {
+					t.Fatalf("expected the removal to be refused at preview: %d\n%s%s", code, stdout, stderr)
+				}
+				failure := clijson.DecodeFailure(t, stdout, "apply", "operation")
+				if !strings.Contains(failure.Error.Message, selectedName) || !strings.Contains(failure.Error.Message, reason) {
+					t.Fatalf("the refusal did not explain why the selected path cannot be removed: %s", failure.Error.Message)
+				}
+				if len(failure.Guidance) != 1 || !slices.Equal(failure.Guidance[0].Argv, []string{"daem", "unmanage", "agent-config", "old", "--dry-run"}) {
+					t.Fatalf("the refusal did not offer to release ownership without deleting: %+v", failure.Guidance)
+				}
+				code, stdout, stderr = testkit.RunCapturedCLI("apply", "--yes", "--manifest", manifest)
+				if code != 1 || !strings.Contains(stderr, reason) {
+					t.Fatalf("write apply did not refuse for the same reason: %d\n%s%s", code, stdout, stderr)
+				}
+				nativefixture.RunLifecycleCommand(t, "unmanage", "agent-config", "old", "--dry-run", "--manifest", manifest)
+				if !maps.Equal(before, nativefixture.SnapshotRecoveryPaths(t, old, next, paths.StatefilePath, paths.OwnershipRegistryPath)) {
+					t.Fatal("refused removal changed the files or their ownership")
+				}
+				testkit.AssertNoRecoveryArtifacts(t, workspace)
+				return
+			}
 			nativefixture.RunLifecycleCommand(t, "apply", "--dry-run", "--manifest", manifest)
 
 			switch boundary {

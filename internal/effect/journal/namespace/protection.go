@@ -198,7 +198,21 @@ func (failures *protectionFailures) result() error {
 func (failures *protectionFailures) Error() string   { return failures.causes[0].Error() }
 func (failures *protectionFailures) Unwrap() []error { return slices.Clone(failures.causes) }
 
-func (observer *physicalObserver) requireUnreserved(ctx context.Context, aliases []Alias) error {
+type protectionAlias struct {
+	address     aggregate.DocumentAddress
+	route       string
+	observation mutation.DirectoryEntryAuthorityObservation
+}
+
+func protectionAliases(aliases []Alias) []protectionAlias {
+	result := make([]protectionAlias, 0, len(aliases))
+	for _, alias := range aliases {
+		result = append(result, protectionAlias{address: alias.address, route: alias.route, observation: alias.observation})
+	}
+	return result
+}
+
+func (observer *physicalObserver) requireUnreserved(ctx context.Context, aliases []protectionAlias) error {
 	policies, err := configuration.NativeExclusionPolicies()
 	if err != nil {
 		return err
@@ -239,7 +253,7 @@ func (observer *physicalObserver) requireUnreserved(ctx context.Context, aliases
 	return unverified.result()
 }
 
-func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []Alias, host target.Target, facet configuration.ExclusionFacet, selector ReservationSelector) error {
+func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []protectionAlias, host target.Target, facet configuration.ExclusionFacet, selector ReservationSelector) error {
 	if selector.absent {
 		return ctx.Err()
 	}

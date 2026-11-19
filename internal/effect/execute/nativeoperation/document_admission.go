@@ -28,8 +28,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-// DocumentAdmissionError names the logical outputs involved in a refusal. A
-// failed route comparison retains its cause for verbose diagnostics only.
+// DocumentAdmissionError names the logical outputs involved in a refusal.
 type DocumentAdmissionError struct {
 	writer documentMember
 	peer   documentMember
@@ -37,6 +36,12 @@ type DocumentAdmissionError struct {
 }
 
 func (failure *DocumentAdmissionError) Error() string {
+	if errors.Is(failure.cause, mutation.ErrRemovalSpellingMismatch) {
+		return fmt.Sprintf("cannot remove configuration file %q: its path spelling cannot be matched after deletion", failure.writer.route.path)
+	}
+	if errors.Is(failure.cause, journalnamespace.ErrRemovalProtection) {
+		return fmt.Sprintf("cannot remove configuration file %q: its path cannot be shown to stay outside reserved data after deletion", failure.writer.route.path)
+	}
 	if failure.cause != nil {
 		if failure.writer.location() == failure.peer.location() {
 			return fmt.Sprintf("cannot verify the selected output's route at %q", failure.writer.route.path)
@@ -48,7 +53,13 @@ func (failure *DocumentAdmissionError) Error() string {
 
 func (failure *DocumentAdmissionError) Unwrap() error { return failure.cause }
 
-func (failure *DocumentAdmissionError) Unverified() bool { return failure.cause != nil }
+func (failure *DocumentAdmissionError) UnsafeRemoval() bool {
+	return errors.Is(failure.cause, mutation.ErrRemovalSpellingMismatch) || errors.Is(failure.cause, journalnamespace.ErrRemovalProtection)
+}
+
+func (failure *DocumentAdmissionError) Unverified() bool {
+	return failure.cause != nil && !failure.UnsafeRemoval()
+}
 
 func (failure *DocumentAdmissionError) RemovedAgentConfig() (string, bool) {
 	if !failure.writer.removing {
@@ -645,7 +656,39 @@ func observeForwardDocumentAdmission(ctx context.Context, preparation effectprep
 	if err := observation.terminal(ctx); err != nil {
 		return err
 	}
-	return refusal
+	if refusal != nil {
+		return refusal
+	}
+	return checkRemovalPaths(ctx, intents, whole.indexByAlias, evidence, observation.budget)
+}
+
+func checkRemovalPaths(ctx context.Context, intents []documentIntent, indexByAlias map[aggregate.DocumentAddress]int, evidence []journalobservation.ApprovalEvidence, budget *trackedDocumentRouteBudget) error {
+	checked := make(map[int]struct{})
+	for _, intent := range intents {
+		member := intent.member
+		if !intent.write || !member.removing || member.footprint.Kind() != output.FootprintPath {
+			continue
+		}
+		index, grouped := indexByAlias[member.route.alias]
+		if !grouped {
+			continue
+		}
+		if _, done := checked[index]; done {
+			continue
+		}
+		checked[index] = struct{}{}
+		refusal := evidence[index].RequireRecoverableRemoval(ctx, budget)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if budget.limit != nil {
+			return budget.limit
+		}
+		if refusal != nil {
+			return routeRefusal(member, member, refusal)
+		}
+	}
+	return ctx.Err()
 }
 
 func (group documentMembersAtRoute) mattersTo(intents []documentIntent) bool {
