@@ -268,6 +268,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/filesnapshot"},
 	},
 	{
+		id:        "filesystem.destination-lookup",
+		placement: plainPlacement(affinityNone, roleObservationAdapter),
+		packages:  []string{"internal/assurance/observe/hostpath"},
+	},
+	{
 		id:        "declaration.artifact",
 		placement: plainPlacement(affinityNone, roleObservationAdapter),
 		packages:  []string{"internal/declarationartifact"},
