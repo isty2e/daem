@@ -4,34 +4,33 @@ import (
 	"context"
 	"fmt"
 
-	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
-	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/output/ownership"
-	lock "github.com/isty2e/daem/internal/realization/lock"
-	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
-	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
-
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/desired"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
+	lock "github.com/isty2e/daem/internal/realization/lock"
+	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcilehostroute "github.com/isty2e/daem/internal/reconcile/build/hostroute"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 type Assessment struct {
@@ -47,7 +46,7 @@ type Assessment struct {
 	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
-	SequenceEdits          []relationhost.SelectedDocumentEdit
+	SequenceEdits          []selecteddoc.SelectedDocumentEdit
 	Owner                  stateauthority.Authority
 	OwnerReference         pathauthority.Reference
 	Ownership              []observe.OwnershipObservation

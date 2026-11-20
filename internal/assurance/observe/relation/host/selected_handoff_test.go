@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
-
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
@@ -67,7 +66,7 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := base.pi.WithRetiringRelations(retiring); err == nil {
+	if _, err := base.pi.WithHandoffRetirements(retiring, observerelation.OrderHandoffs{}); err == nil {
 		t.Fatal("ordinary deletion admitted a still-desired source")
 	}
 	before, existed := base.pi.Candidate()
@@ -75,11 +74,11 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed, err := CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{edit})
+	completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{edit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,11 +174,11 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		edit, err := NewOpenCodeDocumentEdit(view)
+		edit, err := selecteddoc.NewOpenCodeDocumentEdit(view)
 		if err != nil {
 			t.Fatal(err)
 		}
-		completed, err := CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{edit})
+		completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{edit})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -5,47 +5,35 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/executionevent"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
-	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-
+	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired"
-
+	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
-
-	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/execute"
-	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	lock "github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/subprocess"
-
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
-
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
-
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
-
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/workflow/readiness"
-
-	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
-
-	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
-
+	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/subprocess"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 var errProspectiveCarrierHandoff = errors.New("prospective carrier handoff decisions require fresh post-retirement assessment")
@@ -75,7 +63,7 @@ type runOptions struct {
 	RelationOrderRiskAuthorizer       RelationOrderRiskAuthorizer
 	orderRiskBaseline                 relationOrderRiskBaseline
 	nativeOrderResult                 *relationOrderRunResult
-	nativeOrderChecks                 []relationhost.SelectedDocumentEdit
+	nativeOrderChecks                 []selecteddoc.SelectedDocumentEdit
 	deferredNativeOrders              []relationOrderSequenceKey
 	executionGuard                    applyExecutionGuard
 	validateBeforeEffects             func(context.Context, mutation.PhysicalAuthoritySet) error

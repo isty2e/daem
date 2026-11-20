@@ -11,22 +11,17 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-
-	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
-
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
-	"github.com/isty2e/daem/internal/output"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -380,7 +375,7 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 				capture.input.CaptureInput = reviseCaptureInput(capture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = documentClaimsForTest(t).owner })
 			case "wrong Pi alias":
 				_, order := piEvidenceFixture(t, target.ScopeGlobal)
-				capture.input.sequences = []relationhost.SelectedDocumentEdit{selectedPiDocument(t, order)}
+				capture.input.sequences = []selecteddoc.SelectedDocumentEdit{selectedPiDocument(t, order)}
 			}
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {

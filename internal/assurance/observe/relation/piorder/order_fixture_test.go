@@ -1,7 +1,9 @@
-package pipackage_test
+package piorder_test
 
 import (
+	"os"
 	"path/filepath"
+	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
@@ -30,4 +32,19 @@ func readFixtureOrder(input settingsOrderFixture) (piorder.OrderObservation, err
 	}
 	capability, _ := profile.Profile(target.TargetPi).ExtensionOrder(desiredextension.CarrierPiPackage, input.Settings.Scope)
 	return piorder.ReconstructOrder(piorder.LoadedOrderInput{Scope: input.Settings.Scope, Capability: capability, SettingsContext: ctx, Document: inv.Document(), Constraint: input.Constraint, Relations: input.Relations})
+}
+
+func writeSettings(t *testing.T, path string, content string) {
+	t.Helper()
+	writeSettingsBytes(t, path, []byte(content))
+}
+
+func writeSettingsBytes(t *testing.T, path string, content []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

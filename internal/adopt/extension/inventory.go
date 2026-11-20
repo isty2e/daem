@@ -5,16 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
-
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	observeantigravity "github.com/isty2e/daem/internal/assurance/observe/antigravityplugin"
 	observeclaude "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observecodex "github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observepi "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"

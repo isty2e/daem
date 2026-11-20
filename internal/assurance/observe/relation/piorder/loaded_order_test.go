@@ -1,15 +1,15 @@
-package pipackage_test
+package piorder_test
 
 import (
 	"bytes"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -38,7 +38,7 @@ func TestLoadedPiOrderMatchesLiveObservationAndKeepsContextThroughVerification(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			content := []byte(`{"packages":[ {"source":` + quoted(storedB) + `,"opaque":{"enabled":true}}, "npm:foreign@1", ` + quoted(storedA) + ` ],"theme":"day"}`)
+			content := []byte(`{"packages":[ {"source":` + strconv.Quote(storedB) + `,"opaque":{"enabled":true}}, "npm:foreign@1", ` + strconv.Quote(storedA) + ` ],"theme":"day"}`)
 			loaded, liveInput := loadedOrderFixture(t, scope, settingsBase, commandRoot, home,
 				[]orderSpec{{id: "a", source: "./packages/a"}, {id: "b", source: "~/b"}}, aggregate.ExistingDocument(content))
 			writeSettingsBytes(t, filepath.Join(settingsBase, "settings.json"), content)
@@ -159,7 +159,7 @@ func TestLoadedPiOrderRejectsAmbientIncompleteAndUnboundedInput(t *testing.T) {
 	if err := observation.VerifyPackageContent(oversized, true); err == nil {
 		t.Fatal("post-observation bypassed the existing settings byte bound")
 	}
-	if _, err := piorder.NewScopedRelation(mustCorrelationKey(t, "npm:a@1"), target.ScopeProject, extensiontopology.LocalSourceContext{}); err == nil {
+	if _, err := piorder.NewScopedRelation(input.Relations[0].CorrelationKey(), target.ScopeProject, extensiontopology.LocalSourceContext{}); err == nil {
 		t.Fatal("zero lexical context became a bound relation")
 	}
 }

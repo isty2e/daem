@@ -5,10 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
@@ -92,7 +91,7 @@ func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original 
 	}
 	input := selectedDocumentCaptureInput{edits: edits, CaptureInput: journalobservation.NewCaptureInput(journalobservation.CaptureInputSpec{Owner: fixture.claims.owner, OperationID: fixture.journal.OperationID(), GroupIndex: 2, Limits: fixture.read.Limits, Budget: budget})}
 	if order != nil {
-		input.sequences = []relationhost.SelectedDocumentEdit{selectedPiDocument(t, *order)}
+		input.sequences = []selecteddoc.SelectedDocumentEdit{selectedPiDocument(t, *order)}
 	}
 	indexes, err := journaldocument.IndexSnapshotsForClaims(t.Context(), fixture.before, fixture.after, journaldocument.NativeClaims)
 	if err != nil {

@@ -9,44 +9,33 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
-	"github.com/isty2e/daem/internal/effect/execute"
-	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
-
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-
+	"github.com/isty2e/daem/internal/effect/execute"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
-
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
-
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
-
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
-
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -96,7 +85,7 @@ func TestNativeApplyPublishesPiOrderOnlyTransaction(t *testing.T) {
 				t.Fatal(err)
 			}
 			edit := input.Preparation.SequenceEdits()[0]
-			completed, err := relationhost.CompleteSelectedImage(t.Context(), edit.Original(), input.Documents.Evidence().DocumentLimits(), nil, []relationhost.SelectedDocumentEdit{edit})
+			completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edit.Original(), input.Documents.Evidence().DocumentLimits(), nil, []selecteddoc.SelectedDocumentEdit{edit})
 			if err != nil || !bytes.Equal(actual, completed.Expected().Content()) {
 				t.Fatal("order-only publication differs from its verified selected image", err)
 			}
@@ -394,15 +383,15 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	before := durable.EmptySnapshot()
-	view, err := order.WithRetiringRelations(nil)
+	view, err := order.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := relationhost.NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, SequenceEdits: []relationhost.SelectedDocumentEdit{edit}, StateCodec: codec})
+	prepared, err := effectpreparation.PrepareNativeApplyState(t.Context(), effectpreparation.NativeApplyStateInput{Before: before, SequenceEdits: []selecteddoc.SelectedDocumentEdit{edit}, StateCodec: codec})
 	if err != nil {
 		t.Fatal(err)
 	}

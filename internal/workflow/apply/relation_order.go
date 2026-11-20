@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -418,7 +419,7 @@ func runRelationOrderConvergence(
 		if err != nil {
 			return result, err
 		}
-		ordinary := make([]relationhost.SelectedDocumentEdit, 0, len(edits))
+		ordinary := make([]selecteddoc.SelectedDocumentEdit, 0, len(edits))
 		for _, edit := range edits {
 			for _, decision := range class.decisions {
 				if edit.Sequence().ClassID() == decision.ClassID() && edit.Sequence().SequenceID() == decision.SequenceID() {

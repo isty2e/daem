@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"

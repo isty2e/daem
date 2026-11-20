@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -184,7 +184,7 @@ func TestSelectedDocumentFactoryCompletesCompositionBeforeEveryVerifier(t *testi
 	before := edits[0].Original()
 	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
 	projection := selectedNativeProjection(t, before, "model", `"fast"`)
-	completed, err := CompleteSelectedImage(t.Context(), before, limits, []compose.ProjectionEdit{projection}, edits)
+	completed, err := selecteddoc.CompleteSelectedImage(t.Context(), before, limits, []compose.ProjectionEdit{projection}, edits)
 	if err != nil || completed.Validate() != nil || len(completed.Sequences()) != 1 || len(completed.Participants()) != 1 {
 		t.Fatal("complete selection did not cross the verified boundary", err)
 	}
@@ -193,27 +193,17 @@ func TestSelectedDocumentFactoryCompletesCompositionBeforeEveryVerifier(t *testi
 		t.Fatal("completion changed a tuple, foreign slot or unrelated composition", string(completed.Expected().Content()))
 	}
 	operationLimits := configdocument.Limits{MaximumBytes: 2 * piorder.MaximumSettingsBytes, MaximumDepth: 32}
-	operationImage, err := CompleteSelectedImage(t.Context(), before, operationLimits, []compose.ProjectionEdit{projection}, edits)
+	operationImage, err := selecteddoc.CompleteSelectedImage(t.Context(), before, operationLimits, []compose.ProjectionEdit{projection}, edits)
 	if err != nil || operationImage.Limits() != operationLimits || !operationImage.Expected().Equal(completed.Expected()) {
 		t.Fatal("private host limits replaced the containing operation contract", err)
 	}
-	if _, err := CompleteSelectedImage(t.Context(), before, configdocument.Limits{MaximumBytes: before.ContentSize() - 1, MaximumDepth: 32}, nil, edits); err == nil {
+	if _, err := selecteddoc.CompleteSelectedImage(t.Context(), before, configdocument.Limits{MaximumBytes: before.ContentSize() - 1, MaximumDepth: 32}, nil, edits); err == nil {
 		t.Fatal("private host limits replaced a stricter operation bound")
 	}
 	sequences := completed.Sequences()
-	sequences[0] = CompletedSequence{}
+	sequences[0] = selecteddoc.CompletedSequence{}
 	if completed.Sequences()[0].ArrayEdit().ArrayPath().IsRoot() {
 		t.Fatal("completed witnesses exposed mutable backing")
-	}
-	other := selectedPiFixture(t, root, "other.package-correlation", text)
-	otherEdits, err := other.SelectedEdits(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrongOrigin := edits[0]
-	wrongOrigin.selected = otherEdits[0].selected
-	if rejected, err := CompleteSelectedImage(t.Context(), before, limits, nil, []SelectedDocumentEdit{edits[0], wrongOrigin}); err == nil || rejected.Validate() == nil {
-		t.Fatal("a second semantic verifier was dropped after positional coalescing")
 	}
 	changedOriginal := selectedPiFixture(t, root, "pi.package-carrier", strings.Replace(text, `"slow"`, `"different"`, 1))
 	fresh, err := changedOriginal.SelectedEdits(nil)
@@ -222,11 +212,30 @@ func TestSelectedDocumentFactoryCompletesCompositionBeforeEveryVerifier(t *testi
 	}
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
-	if rejected, err := CompleteSelectedImage(cancelled, before, limits, nil, edits); !errors.Is(err, context.Canceled) || rejected.Validate() == nil {
+	if rejected, err := selecteddoc.CompleteSelectedImage(cancelled, before, limits, nil, edits); !errors.Is(err, context.Canceled) || rejected.Validate() == nil {
 		t.Fatal("cancelled completion returned usable evidence", err)
 	}
 	limits.MaximumBytes = before.ContentSize() - 1
-	if rejected, err := CompleteSelectedImage(t.Context(), before, limits, nil, edits); err == nil || rejected.Validate() == nil {
+	if rejected, err := selecteddoc.CompleteSelectedImage(t.Context(), before, limits, nil, edits); err == nil || rejected.Validate() == nil {
 		t.Fatal("byte-limited completion returned usable evidence")
+	}
+}
+
+func TestNativeEditCannotInvalidateAnUnchangedSelectedOrder(t *testing.T) {
+	const content = `{"packages":["npm:a@1","npm:foreign@1","npm:b@1"],"model":"slow"}`
+	order := selectedPiFixture(t, t.TempDir(), "pi.package-carrier", content)
+	edits, err := order.SelectedEdits(nil)
+	if err != nil || len(edits) != 1 || edits[0].Changed() {
+		t.Fatalf("expected a selected, unchanged package array: %v", err)
+	}
+	before := edits[0].Original()
+	limits := configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}
+	reverse := selectedNativeProjection(t, before, "packages", `["npm:b@1","npm:foreign@1","npm:a@1"]`)
+	projections := []compose.ProjectionEdit{reverse}
+	if changed, err := selecteddoc.CompleteSelectedImage(t.Context(), before, limits, projections, nil); err != nil || changed.Expected().Equal(before) {
+		t.Fatalf("native edit alone should reverse packages: %v", err)
+	}
+	if result, err := selecteddoc.CompleteSelectedImage(t.Context(), before, limits, projections, edits); err == nil || result.Validate() == nil {
+		t.Fatal("accepted reversed packages despite the selected order")
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/filesnapshot"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/realization/aggregate"

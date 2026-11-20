@@ -3,10 +3,9 @@ package relationhost
 import (
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
-
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/target"
 )

@@ -8,9 +8,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"

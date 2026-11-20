@@ -6,14 +6,12 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
-
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -185,7 +183,8 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		if err != nil {
 			return OrderObservation{}, err
 		}
-		observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{Capability: capability,
+		observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{
+			Capability: capability,
 			Inventory: observeopencode.InventoryInput{
 				ManifestRoot: input.Paths.ManifestRoot,
 				Scope:        capability.Scope(),

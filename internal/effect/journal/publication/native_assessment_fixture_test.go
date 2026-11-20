@@ -6,15 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"

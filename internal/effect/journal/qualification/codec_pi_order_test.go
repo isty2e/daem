@@ -6,12 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
-
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"

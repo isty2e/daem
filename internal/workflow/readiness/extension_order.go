@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -32,11 +33,11 @@ func observeClasslessRetirementEdits(
 	locked lock.File,
 	retiring []durablecarrier.ManagedCarrierClaim,
 	handoffs reconcile.CarrierHandoffs,
-) ([]relationhost.SelectedDocumentEdit, error) {
+) ([]selecteddoc.SelectedDocumentEdit, error) {
 	if len(retiring) == 0 {
 		return nil, nil
 	}
-	var edits []relationhost.SelectedDocumentEdit
+	var edits []selecteddoc.SelectedDocumentEdit
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetOpenCode, scope, desiredextension.CarrierOpenCodePlugin)
 		if !admitted {
@@ -217,7 +218,7 @@ func DecideExtensionOrderObservation(
 // same per-document membership projection as ordinary order planning.
 // Retirement-only and empty loaded subsets have no order decision.
 func DecideSelectedExtensionOrder(
-	edit relationhost.SelectedDocumentEdit,
+	edit selecteddoc.SelectedDocumentEdit,
 	actions []reconcile.RelationAction,
 ) (reconcile.RelationOrderDecision, bool, error) {
 	if err := edit.Validate(); err != nil {

@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
-
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -109,7 +109,7 @@ func TestSelectedOrderDecisionRetainsPhysicalSubsetAndClasslessCardinality(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
-		edit, err := relationhost.NewOpenCodeDocumentEdit(view)
+		edit, err := selecteddoc.NewOpenCodeDocumentEdit(view)
 		if err != nil {
 			t.Fatal(err)
 		}

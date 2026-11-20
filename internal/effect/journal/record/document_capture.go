@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"

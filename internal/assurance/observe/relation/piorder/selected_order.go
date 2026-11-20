@@ -65,18 +65,7 @@ func ReconstructRetirement(input LoadedRetirementInput) (SelectedOrderView, erro
 	if err != nil {
 		return SelectedOrderView{}, err
 	}
-	return newSelectedOrderView(orderSelection{scope: input.Capability.Scope(), capability: input.Capability}, inventory, input.Relations)
-}
-
-func (observation OrderObservation) WithRetiringRelations(retiring []ScopedRelation) (SelectedOrderView, error) {
-	if _, err := observation.CaptureInput(); err != nil {
-		return SelectedOrderView{}, err
-	}
-	return newSelectedOrderView(observation.selection, observation.inventory, retiring)
-}
-
-func newSelectedOrderView(selection orderSelection, inventory settingsImage, retiring []ScopedRelation) (SelectedOrderView, error) {
-	return newSelectedOrderViewWithHandoffs(selection, inventory, retiring, observerelation.OrderHandoffs{})
+	return newSelectedOrderViewWithHandoffs(orderSelection{scope: input.Capability.Scope(), capability: input.Capability}, inventory, input.Relations, observerelation.OrderHandoffs{})
 }
 
 func (observation OrderObservation) WithHandoffRetirements(retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedOrderView, error) {

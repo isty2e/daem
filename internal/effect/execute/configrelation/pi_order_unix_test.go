@@ -11,11 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -46,18 +45,18 @@ func TestOrderPublisherRefusesDuplicateSelectedPaths(t *testing.T) {
 	original := `{"packages":["npm:b@1","npm:a@1"]}`
 	writePiOrderSettings(t, path, original)
 	observation := mustPiOrderObservation(t, settings, root, target.ScopeProject, []piOrderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}})
-	view, err := observation.WithRetiringRelations(nil)
+	view, err := observation.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := relationhost.NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit}); err != nil {
+	if _, err := NewOrderPlan(t.Context(), []selecteddoc.SelectedDocumentEdit{edit}); err != nil {
 		t.Fatal("single selected document did not admit its publication plan", err)
 	}
-	plan, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit, edit})
+	plan, err := NewOrderPlan(t.Context(), []selecteddoc.SelectedDocumentEdit{edit, edit})
 	if err == nil || len(plan.documents) != 0 {
 		t.Fatal("duplicate path returned a partial or valid publication plan")
 	}
@@ -668,15 +667,15 @@ func bindPiOrder(
 	observation piorder.OrderObservation,
 ) *BoundOrder {
 	t.Helper()
-	view, err := observation.WithRetiringRelations(nil)
+	view, err := observation.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := relationhost.NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit})
+	plan, err := NewOrderPlan(t.Context(), []selecteddoc.SelectedDocumentEdit{edit})
 	if err != nil {
 		t.Fatalf("NewOrderPlan: %v", err)
 	}

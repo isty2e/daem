@@ -1,4 +1,4 @@
-package pipackage_test
+package piorder_test
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/realization/profile/configuration"

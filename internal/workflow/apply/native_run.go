@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
@@ -77,7 +77,7 @@ func runNativeWithOptions(ctx context.Context, paths daempaths.Paths, environmen
 	)
 }
 
-func executeNativeOrderedSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, reconciliation reconcile.Result, input nativeoperation.NativeApplyInput, plan applyprogram.Plan, orders []relationhost.SelectedDocumentEdit, options runOptions) (segment nativeSegmentResult, err error) {
+func executeNativeOrderedSegment(ctx context.Context, paths daempaths.Paths, environment desired.Environment, locked lock.File, selection targetselection.Selection, reconciliation reconcile.Result, input nativeoperation.NativeApplyInput, plan applyprogram.Plan, orders []selecteddoc.SelectedDocumentEdit, options runOptions) (segment nativeSegmentResult, err error) {
 	if err := requireNativeSelectedActors(orders, input.Preparation.SequenceEdits()); err != nil {
 		return segment, err
 	}

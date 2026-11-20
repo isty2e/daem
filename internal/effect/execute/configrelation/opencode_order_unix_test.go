@@ -12,11 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
-
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -566,7 +565,8 @@ func mustOpenCodeEffectObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{Capability: capability,
+	observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{
+		Capability: capability,
 		Inventory:  input,
 		Constraint: constraint,
 		Relations:  relations,
@@ -583,13 +583,13 @@ func bindOpenCodeOrder(
 	observation opencodeorder.OrderObservation,
 ) *BoundOrder {
 	t.Helper()
-	var edits []relationhost.SelectedDocumentEdit
+	var edits []selecteddoc.SelectedDocumentEdit
 	for _, document := range observation.Documents() {
 		view, err := document.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		edit, err := relationhost.NewOpenCodeDocumentEdit(view)
+		edit, err := selecteddoc.NewOpenCodeDocumentEdit(view)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -87,7 +88,7 @@ func TestSelectedEditsFilterActionClaimsAndRetainTheirExplicitCommandContext(t *
 	if _, err := edits[0].AfterRetiringClaims([]durablecarrier.ManagedCarrierClaim{mismatch}); err == nil {
 		t.Fatal("a replacement correlation retired the selected expectation")
 	}
-	completed, err := CompleteSelectedImage(t.Context(), edits[0].Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, edits)
+	completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edits[0].Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, edits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +131,7 @@ func TestObserveOpenCodeRetirementEditsUsesClasslessNormalizerAndOriginalImage(t
 		if _, ordered := selected.Constraint(); ordered || len(selected.RemovedSlots()) != 1 || !edit.Changed() {
 			t.Fatal("classless removal fabricated order or missed an exact row")
 		}
-		completed, err := CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{edit})
+		completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{edit})
 		if err != nil {
 			t.Fatal(err)
 		}

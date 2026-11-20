@@ -8,12 +8,10 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
-	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
-
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"

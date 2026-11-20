@@ -314,6 +314,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/assurance/observe/opencodeplugin"},
 	},
 	{
+		id:        "assurance.selected-document-image",
+		placement: specializedPlacement(affinityAssurance, roleCodec, specializationFormat, "selected native document image"),
+		packages:  []string{"internal/assurance/observe/relation/selecteddoc"},
+	},
+	{
 		id:        "assurance.order.opencode",
 		placement: specializedPlacement(affinityAssurance, roleCodec, specializationHost, "OpenCode"),
 		packages:  []string{"internal/assurance/observe/relation/opencodeorder"},

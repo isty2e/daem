@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"

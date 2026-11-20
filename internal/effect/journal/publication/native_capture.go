@@ -8,21 +8,16 @@ import (
 	"slices"
 	"time"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
-
-	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
-
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/payload"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -32,7 +27,7 @@ import (
 
 type NativeCaptureOptions struct {
 	CaptureOptions
-	SequenceEdits             []relationhost.SelectedDocumentEdit
+	SequenceEdits             []selecteddoc.SelectedDocumentEdit
 	ProjectCarrierCompletions []durablecarrier.ManagedCarrierClaim
 	WholeDocuments            []journalrecord.ManagedPathMutation
 	Payloads                  payload.PayloadSet
@@ -208,7 +203,7 @@ func CaptureNativeJournalWithOptions(
 	return result, nil
 }
 
-func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []relationhost.SelectedDocumentEdit, ordinary recovery.RemovalDemandSet, whole []journalrecord.ManagedPathMutation, payloads payload.PayloadSet, stateCodec durable.SnapshotCodec) (journalrecord.Native, []journaldocument.Comparison, error) {
+func prepareNativeCapture(ctx context.Context, operationID string, createdAt time.Time, batch NativeDocumentObservationBatch, after durable.Snapshot, edits []compose.ProjectionEdit, orders []selecteddoc.SelectedDocumentEdit, ordinary recovery.RemovalDemandSet, whole []journalrecord.ManagedPathMutation, payloads payload.PayloadSet, stateCodec durable.SnapshotCodec) (journalrecord.Native, []journaldocument.Comparison, error) {
 	inputs, err := batch.prepareOwnership(ctx, after, operationID)
 	if err != nil {
 		return journalrecord.Native{}, nil, err
@@ -238,7 +233,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 		}
 	}
 	candidates := make([]nativeDocumentCaptureCandidate, 0, len(inputs))
-	groupOrders := make([][]relationhost.SelectedDocumentEdit, len(inputs))
+	groupOrders := make([][]selecteddoc.SelectedDocumentEdit, len(inputs))
 	groupWhole := make([]*journalrecord.ManagedPathMutation, len(inputs))
 	for index, mutation := range whole {
 		facts, err := wholeDocumentMutationFacts(mutation)
@@ -276,7 +271,7 @@ func prepareNativeCapture(ctx context.Context, operationID string, createdAt tim
 			if !slices.Contains(namespace.Addresses(), alias) {
 				continue
 			}
-			if slices.ContainsFunc(groupOrders[index], func(previous relationhost.SelectedDocumentEdit) bool {
+			if slices.ContainsFunc(groupOrders[index], func(previous selecteddoc.SelectedDocumentEdit) bool {
 				return previous.Sequence().SequenceID() == order.Sequence().SequenceID()
 			}) {
 				return journalrecord.Native{}, nil, fmt.Errorf("selected document has duplicate sequence actors")

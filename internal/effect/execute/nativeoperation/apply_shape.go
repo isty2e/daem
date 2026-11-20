@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -23,10 +22,10 @@ type NativeManagedSuffixShape struct {
 	aggregates  []effectpreparation.AggregateEffect
 	narrowings  []reconcile.NativeNarrowingAction
 	adoptions   []effectpreparation.NativeWholeAdoption
-	orders      []relationhost.SelectedDocumentEdit
+	orders      []selecteddoc.SelectedDocumentEdit
 }
 
-func ProjectNativeManagedSuffix(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []relationhost.SelectedDocumentEdit) (NativeManagedSuffixShape, error) {
+func ProjectNativeManagedSuffix(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []selecteddoc.SelectedDocumentEdit) (NativeManagedSuffixShape, error) {
 	remaining, err := input.Preparation.ManagedRemainder(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, err
@@ -62,7 +61,7 @@ func (input NativeApplyInput) DelegatePrerequisites() (NativeApplyInput, error) 
 
 // ProjectNativeDelegateSuffixes partitions an admitted suffix without inventing
 // live intermediate observations. Both shapes require fresh input when bound.
-func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []relationhost.SelectedDocumentEdit) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
+func ProjectNativeDelegateSuffixes(input NativeApplyInput, prefix effectpreparation.NativeApplyStatePreparation, residual []effectpreparation.AggregateEffect, orders []selecteddoc.SelectedDocumentEdit) (NativeManagedSuffixShape, NativeManagedSuffixShape, error) {
 	prerequisiteState, lateState, err := input.Preparation.DelegatePhases(prefix, residual)
 	if err != nil {
 		return NativeManagedSuffixShape{}, NativeManagedSuffixShape{}, err
@@ -109,7 +108,7 @@ func suppressNativePrefixPromotions(work *nativeApplyWork, prefix nativeApplyWor
 	}
 }
 
-func projectNativeSuffixWork(input NativeApplyInput, work nativeApplyWork, orders []relationhost.SelectedDocumentEdit) (NativeManagedSuffixShape, error) {
+func projectNativeSuffixWork(input NativeApplyInput, work nativeApplyWork, orders []selecteddoc.SelectedDocumentEdit) (NativeManagedSuffixShape, error) {
 	groups := make([]int, 0, len(orders))
 	for _, order := range orders {
 		if err := order.Validate(); err != nil {

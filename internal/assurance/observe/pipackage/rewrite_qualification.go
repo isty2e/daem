@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"

@@ -23,10 +23,7 @@ func (observation OrderObservation) SameSelection(other OrderObservation) bool {
 		left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
 		return false
 	}
-	return slices.EqualFunc(left.Relations, right.Relations, func(a, b ScopedRelation) bool {
-		return a.key.Subject() == b.key.Subject() && a.key.ExpectedRelation().Equal(b.key.ExpectedRelation()) &&
-			a.scope == b.scope && a.sourceContext == b.sourceContext
-	})
+	return slices.EqualFunc(left.Relations, right.Relations, ScopedRelation.sameSelection)
 }
 
 // CaptureInput returns the original document and the contexts used to interpret it.

@@ -5,10 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -18,13 +17,13 @@ import (
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
-func selectedPiDocument(t *testing.T, observation piorder.OrderObservation) relationhost.SelectedDocumentEdit {
+func selectedPiDocument(t *testing.T, observation piorder.OrderObservation) selecteddoc.SelectedDocumentEdit {
 	t.Helper()
-	view, err := observation.WithRetiringRelations(nil)
+	view, err := observation.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := relationhost.NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}

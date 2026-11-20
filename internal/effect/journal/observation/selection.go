@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"slices"
 
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -36,7 +34,7 @@ func (member Member) RegistryScope() ownership.DocumentScope { return member.sco
 
 func (member Member) RequiresPromotion() bool { return member.promoting }
 
-func (batch Batch) SelectCaptureMembers(ctx context.Context, after durable.Snapshot, orders ...relationhost.SelectedDocumentEdit) (Batch, error) {
+func (batch Batch) SelectCaptureMembers(ctx context.Context, after durable.Snapshot, orders ...selecteddoc.SelectedDocumentEdit) (Batch, error) {
 	if err := batch.Validate(); err != nil {
 		return Batch{}, err
 	}
@@ -86,7 +84,7 @@ func (batch Batch) SelectCaptureMembers(ctx context.Context, after durable.Snaps
 
 // CaptureMembers derives actual actors and pending metadata from the retained
 // snapshots, Registry and selected order work, without observation or publication.
-func (batch Batch) CaptureMembers(after durable.Snapshot, operationID string, orders ...relationhost.SelectedDocumentEdit) (Batch, []Member, error) {
+func (batch Batch) CaptureMembers(after durable.Snapshot, operationID string, orders ...selecteddoc.SelectedDocumentEdit) (Batch, []Member, error) {
 	ctx := context.Background()
 	selected, err := batch.SelectCaptureMembers(ctx, after, orders...)
 	if err != nil {

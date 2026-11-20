@@ -6,17 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
-	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
-
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"

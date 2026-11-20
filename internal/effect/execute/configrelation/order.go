@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -43,8 +43,8 @@ func (sink OrderSequenceEventSink) emit(event OrderSequenceEvent) {
 }
 
 type selectedOrderDocument struct {
-	edit      relationhost.SelectedDocumentEdit
-	completed relationhost.VerifiedSelectedImage
+	edit      selecteddoc.SelectedDocumentEdit
+	completed selecteddoc.VerifiedSelectedImage
 }
 
 // OrderPlan owns independently publishable documents, not an atomic class write.
@@ -52,7 +52,7 @@ type OrderPlan struct {
 	documents []selectedOrderDocument
 }
 
-func NewOrderPlan(ctx context.Context, edits []relationhost.SelectedDocumentEdit) (OrderPlan, error) {
+func NewOrderPlan(ctx context.Context, edits []selecteddoc.SelectedDocumentEdit) (OrderPlan, error) {
 	if len(edits) == 0 {
 		return OrderPlan{}, fmt.Errorf("extension order requires its selected document edits")
 	}
@@ -64,7 +64,7 @@ func NewOrderPlan(ctx context.Context, edits []relationhost.SelectedDocumentEdit
 		}
 		paths[edit.SelectedPath()] = true
 		limits := configdocument.Limits{MaximumBytes: edit.MaximumBytes(), MaximumDepth: max(1, int(edit.Original().ContentSize()))}
-		completed, err := relationhost.CompleteSelectedImage(ctx, edit.Original(), limits, nil, []relationhost.SelectedDocumentEdit{edit})
+		completed, err := selecteddoc.CompleteSelectedImage(ctx, edit.Original(), limits, nil, []selecteddoc.SelectedDocumentEdit{edit})
 		if err != nil {
 			return OrderPlan{}, err
 		}
@@ -158,7 +158,7 @@ func (order *BoundOrder) Close() error {
 	return err
 }
 
-func executeSelectedOrderDocument(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, completed relationhost.VerifiedSelectedImage) (bool, error) {
+func executeSelectedOrderDocument(ctx context.Context, filesystem mutationfs.RootedStore, authority *rootedpath.EntryAuthority, completed selecteddoc.VerifiedSelectedImage) (bool, error) {
 	if err := completed.Validate(); err != nil {
 		return false, err
 	}

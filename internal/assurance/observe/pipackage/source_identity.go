@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )

@@ -1,23 +1,23 @@
-package pipackage_test
+package piorder_test
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
-	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
-
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 type orderSpec struct {
@@ -164,7 +164,7 @@ func TestReadOrderSupportsNPMGitAndLocalObjectRows(t *testing.T) {
   "packages": [
     "npm:@acme/tool@1",
     {"source":"github:acme/tool#v1","autoload":true},
-    `+quoted(storedLocal)+`
+    `+strconv.Quote(storedLocal)+`
   ]
 }`)
 	input := mustOrderInput(
@@ -189,7 +189,7 @@ func TestReadOrderSupportsNPMGitAndLocalObjectRows(t *testing.T) {
 	candidate, _ := observation.Candidate()
 	want := `{
   "packages": [
-    ` + quoted(storedLocal) + `,
+    ` + strconv.Quote(storedLocal) + `,
     {"source":"github:acme/tool#v1","autoload":true},
     "npm:@acme/tool@1"
   ]

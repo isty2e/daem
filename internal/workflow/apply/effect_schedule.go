@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
@@ -148,7 +148,7 @@ func nativeInvocationSuffixes(current commandPlan, full nativeoperation.NativeAp
 	// Carrier removal currently settles every selected retirement before either
 	// suffix. Tail-settled native-covered retirements must be excluded here.
 	retiring := current.assessment.Reconciliation.CarrierRetirementClaims()
-	orders := make([]relationhost.SelectedDocumentEdit, 0, len(current.nativePlan.orders))
+	orders := make([]selecteddoc.SelectedDocumentEdit, 0, len(current.nativePlan.orders))
 	for _, order := range current.nativePlan.orders {
 		reservation, err := order.AfterRetiringClaims(retiring)
 		if err != nil {
