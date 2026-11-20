@@ -140,6 +140,27 @@ func TestPiDependencyGuardAcceptsCurrentRepository(t *testing.T) {
 	}
 }
 
+func TestJournalConsumesSuppliedAggregateCodecs(t *testing.T) {
+	const (
+		journal   = "example.com/project/internal/effect/journal"
+		aggregate = "example.com/project/internal/realization/aggregate"
+	)
+	for _, source := range []string{
+		journal, journal + "/inventory", journal + "/publication", journal + "/qualification",
+		journal + "/record", journal + "/recoveryoperation",
+	} {
+		t.Run(source, func(t *testing.T) {
+			report := AnalyzeReport([]PackageRecord{{ImportPath: source, Imports: []string{aggregate}}})
+			if report.HasFailures() {
+				t.Fatal(FormatAnalysisReport(report))
+			}
+
+			report = AnalyzeReport([]PackageRecord{{ImportPath: source, Imports: []string{aggregate + "/codec/mcp"}}})
+			assertViolationRule(t, report.Violations, ruleAggregateCodecBoundaryImport)
+		})
+	}
+}
+
 func TestPiDependencyGuardRejectsSameAffinityKernelToBoundaryImport(t *testing.T) {
 	records := []PackageRecord{{
 		ImportPath: "example.com/project/internal/realization/aggregate",

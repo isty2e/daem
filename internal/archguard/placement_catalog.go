@@ -396,11 +396,16 @@ var packagePlacementRows = []packagePlacementRow{
 		packages: []string{
 			"internal/effect/execute",
 			"internal/effect/fileset",
-			"internal/effect/journal",
+			"internal/effect/journal", // Reserve the former root so its codec boundary survives reintroduction.
 			"internal/effect/journal/document",
+			"internal/effect/journal/inventory",
 			"internal/effect/journal/namespace",
 			"internal/effect/journal/observation",
+			"internal/effect/journal/publication",
+			"internal/effect/journal/qualification",
+			"internal/effect/journal/record",
 			"internal/effect/journal/recovery",
+			"internal/effect/journal/recoveryoperation",
 			"internal/effect/journal/removalnamespace",
 			"internal/effect/journal/retirement",
 			"internal/effect/physicalwork",
