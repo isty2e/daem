@@ -4,17 +4,16 @@ import (
 	"fmt"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/target"
-	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 // ScopedRelation pairs one exact daem relation expectation with the command
 // root from which Pi interprets an operator-provided local source.
 type ScopedRelation struct {
-	key           observerelation.CorrelationKey
-	scope         target.Scope
-	commandRoot   string
-	sourceContext *extensiontopology.LocalSourceContext
+	key         observerelation.CorrelationKey
+	scope       target.Scope
+	commandRoot string
 }
 
 // NewScopedRelation validates one Pi settings correlation request.
@@ -35,37 +34,16 @@ func NewScopedRelation(
 	default:
 		return ScopedRelation{}, fmt.Errorf("Pi relation scope %q is not observable", parsedScope)
 	}
-	root, err := cleanAbsoluteRoot("Pi package command root", commandRoot)
+	root, err := piorder.CleanPackageRoot("Pi package command root", commandRoot)
 	if err != nil {
 		return ScopedRelation{}, err
 	}
 	return ScopedRelation{key: key, scope: parsedScope, commandRoot: root}, nil
 }
 
-// NewScopedRelationWithContext binds lexical source interpretation without
-// selecting roots from the process environment.
-func NewScopedRelationWithContext(key observerelation.CorrelationKey, scope target.Scope, context extensiontopology.LocalSourceContext) (ScopedRelation, error) {
-	if err := context.Validate(); err != nil {
-		return ScopedRelation{}, err
-	}
-	relation, err := NewScopedRelation(key, scope, context.BaseRoot())
-	if err != nil {
-		return ScopedRelation{}, err
-	}
-	relation.sourceContext = &context
-	return relation, nil
-}
-
 func (relation ScopedRelation) CorrelationKey() observerelation.CorrelationKey { return relation.key }
 
 func (relation ScopedRelation) Scope() target.Scope { return relation.scope }
-
-func (relation ScopedRelation) SourceContext() (extensiontopology.LocalSourceContext, bool) {
-	if relation.sourceContext == nil {
-		return extensiontopology.LocalSourceContext{}, false
-	}
-	return *relation.sourceContext, true
-}
 
 // Correlate classifies one scope-specific settings inventory against an exact
 // locked source. Pi-equivalent but textually different rows are deliberately

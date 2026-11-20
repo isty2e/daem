@@ -1,4 +1,4 @@
-package pipackage
+package piorder
 
 import (
 	"bytes"
@@ -7,7 +7,6 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -15,18 +14,11 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-// OrderInput selects one exact Pi package sequence and its locked members.
-type OrderInput struct {
-	Settings   SettingsInput
-	Constraint hostrelation.RelationOrderConstraint
-	Relations  []ScopedRelation
-}
-
 // OrderObservation owns one immutable baseline, its fixed-slot candidate, and
 // exact postcondition evidence for a selected Pi settings sequence.
 type OrderObservation struct {
 	selection         orderSelection
-	inventory         Inventory
+	inventory         settingsImage
 	sequence          observerelation.ObservedRelationSequence
 	expectedSequence  observerelation.ObservedRelationSequence
 	candidate         []byte
@@ -39,24 +31,6 @@ type orderSelection struct {
 	constraint hostrelation.RelationOrderConstraint
 	capability profile.ExtensionOrderCapability
 	relations  []ScopedRelation
-}
-
-// ReadOrder reads one selected Pi settings layer and derives its exact
-// fixed-slot normalization candidate.
-func ReadOrder(input OrderInput) (OrderObservation, error) {
-	selection, err := newOrderSelection(
-		input.Settings.Scope,
-		input.Constraint,
-		input.Relations,
-	)
-	if err != nil {
-		return OrderObservation{}, err
-	}
-	inventory, err := ReadSettings(input.Settings)
-	if err != nil {
-		return OrderObservation{}, err
-	}
-	return observeOrder(selection, inventory)
 }
 
 // Validate rejects a zero or forged observation.
@@ -104,38 +78,6 @@ func (observation OrderObservation) Candidate() ([]byte, bool) {
 	return bytes.Clone(observation.candidate), observation.inventory.exists
 }
 
-// VerifyBaseline checks exact existence and content revision before mutation.
-func (observation OrderObservation) VerifyBaseline(content []byte, exists bool) error {
-	if exists != observation.inventory.exists {
-		return fmt.Errorf(
-			"Pi settings baseline existence changed from %t to %t",
-			observation.inventory.exists,
-			exists,
-		)
-	}
-	if settingsRevision(content) != observation.inventory.revision {
-		return fmt.Errorf("Pi settings baseline revision changed")
-	}
-	return nil
-}
-
-// VerifyPostContent reparses exact post-read bytes and requires the expected
-// canonical sequence. File-write success alone is not convergence evidence.
-func (observation OrderObservation) VerifyPostContent(content []byte, exists bool) error {
-	candidate, expectedExists := observation.Candidate()
-	if exists != expectedExists || !bytes.Equal(content, candidate) {
-		return fmt.Errorf("Pi settings post-observation does not match the exact candidate")
-	}
-	post, err := observation.postObservation(content, exists)
-	if err != nil {
-		return err
-	}
-	if !equalObservedSequence(post.sequence, observation.expectedSequence) {
-		return fmt.Errorf("Pi settings post-observation sequence does not match the expected order")
-	}
-	return nil
-}
-
 // VerifyPackageContent checks only the exact package array and canonical order.
 // A combined writer must independently verify its final whole-document candidate;
 // this check neither verifies the root revision nor authorizes a file write.
@@ -181,22 +123,6 @@ func (observation OrderObservation) postObservation(content []byte, exists bool)
 		return OrderObservation{}, fmt.Errorf("normalize Pi settings post-observation: %w", err)
 	}
 	return post, nil
-}
-
-func newOrderSelection(
-	scope target.Scope,
-	constraint hostrelation.RelationOrderConstraint,
-	relations []ScopedRelation,
-) (orderSelection, error) {
-	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
-		target.TargetPi,
-		scope,
-		desiredextension.CarrierPiPackage,
-	)
-	if !admitted {
-		return orderSelection{}, fmt.Errorf("Pi %s package order is not admitted", scope)
-	}
-	return newOrderSelectionWithCapability(scope, constraint, relations, capability)
 }
 
 func newOrderSelectionWithCapability(
@@ -265,7 +191,7 @@ func newOrderSelectionWithCapability(
 				err,
 			)
 		}
-		loadIdentity := identity.hostLoadIdentity(scope)
+		loadIdentity := identity.HostLoadIdentity(scope)
 		if hostrelation.HostLoadIdentity(loadIdentity) != member.HostLoadIdentity() {
 			return orderSelection{}, fmt.Errorf(
 				"Pi package order member[%d] host load identity %q does not match relation identity %q",
@@ -290,7 +216,7 @@ func newOrderSelectionWithCapability(
 
 func normalizedOrderRows(
 	selection orderSelection,
-	inventory Inventory,
+	inventory settingsImage,
 ) ([]observerelation.ObservedRelationRow, error) {
 	if inventory.scope != selection.scope {
 		return nil, fmt.Errorf(
@@ -320,13 +246,14 @@ func normalizedOrderRows(
 		exactSubjects[stored] = relation.key.Subject()
 	}
 
-	entries, err := inventory.Entries()
-	if err != nil {
-		return nil, err
-	}
+	entries := inventory.document.Entries()
 	rows := make([]observerelation.ObservedRelationRow, 0, len(entries))
 	for index, entry := range entries {
-		loadIdentity, err := hostrelation.NewHostLoadIdentity(entry.HostLoadIdentity())
+		identity, err := HostLoadIdentityForContext(entry.Source(), inventory.scope, inventory.sourceContext)
+		if err != nil {
+			return nil, fmt.Errorf("parse Pi settings package source[%d]: %w", index, err)
+		}
+		loadIdentity, err := hostrelation.NewHostLoadIdentity(identity)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"normalize Pi package order row[%d] identity: %w",
@@ -349,7 +276,7 @@ func normalizedOrderRows(
 	return rows, nil
 }
 
-func observeOrder(selection orderSelection, inventory Inventory) (OrderObservation, error) {
+func observeOrder(selection orderSelection, inventory settingsImage) (OrderObservation, error) {
 	rows, err := normalizedOrderRows(selection, inventory)
 	if err != nil {
 		return OrderObservation{}, err
@@ -374,7 +301,7 @@ func observeOrder(selection orderSelection, inventory Inventory) (OrderObservati
 	expectedSequence, err := newObservedOrderSequence(
 		selection,
 		selected.ExpectedRows(),
-		settingsRevision(candidate),
+		SettingsRevision(candidate),
 	)
 	if err != nil {
 		return OrderObservation{}, err
@@ -417,29 +344,29 @@ func newObservedOrderSequence(
 }
 
 func inventoryFromContent(
-	baseline Inventory,
+	baseline settingsImage,
 	content []byte,
 	exists bool,
-) (Inventory, error) {
+) (settingsImage, error) {
 	if len(content) > MaximumSettingsBytes {
-		return Inventory{}, fmt.Errorf("Pi settings exceeds %d bytes", MaximumSettingsBytes)
+		return settingsImage{}, fmt.Errorf("Pi settings exceeds %d bytes", MaximumSettingsBytes)
 	}
 	if !exists && len(content) != 0 {
-		return Inventory{}, fmt.Errorf("absent Pi settings contains bytes")
+		return settingsImage{}, fmt.Errorf("absent Pi settings contains bytes")
 	}
 	var document piconfig.Document
 	var err error
 	if exists {
 		document, err = piconfig.Parse(content)
 		if err != nil {
-			return Inventory{}, err
+			return settingsImage{}, err
 		}
 	}
-	return Inventory{
+	return settingsImage{
 		scope:         baseline.scope,
 		settingsPath:  baseline.settingsPath,
 		settingsBase:  baseline.settingsBase,
-		revision:      settingsRevision(content),
+		revision:      SettingsRevision(content),
 		exists:        exists,
 		content:       bytes.Clone(content),
 		document:      document,

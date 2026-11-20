@@ -1,4 +1,4 @@
-package opencodeplugin
+package opencodeorder
 
 import (
 	"fmt"
@@ -25,22 +25,13 @@ type SelectedDocumentOrderView struct {
 	handoffs  observerelation.OrderHandoffs
 }
 
-func (observation DocumentOrderObservation) WithRetiringRelations(retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
-	if err := observation.Validate(); err != nil {
-		return SelectedDocumentOrderView{}, err
-	}
-	return newSelectedDocumentView(observation.selection, observation.document, retiring)
-}
-
-func ReconstructRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
-	return ReconstructHandoffRetirement(capability, document, desired, retiring, observerelation.OrderHandoffs{})
-}
-
+// ReconstructHandoffRetirement qualifies removal in one supplied document
+// without requiring a desired order or the other candidates in its layer.
 func ReconstructHandoffRetirement(capability profile.ExtensionOrderCapability, document Document, desired, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedDocumentOrderView, error) {
 	if err := capability.Validate(); err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
-	if capability.Carrier() != desiredextension.CarrierOpenCodePlugin || !filepath.IsAbs(document.path) || filepath.Clean(document.path) != document.path {
+	if capability.Carrier() != desiredextension.CarrierOpenCodePlugin || document.path == "" {
 		return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode retirement requires its admitted capability and selected document")
 	}
 	protected := slices.Clone(desired)
@@ -49,10 +40,6 @@ func ReconstructHandoffRetirement(capability profile.ExtensionOrderCapability, d
 	})
 	selection := orderSelection{scope: capability.Scope(), directory: filepath.Dir(document.path), capability: capability, relations: protected}
 	return newSelectedDocumentViewWithHandoffs(selection, document, retiring, handoffs)
-}
-
-func newSelectedDocumentView(selection orderSelection, document Document, retiring []ScopedRelation) (SelectedDocumentOrderView, error) {
-	return newSelectedDocumentViewWithHandoffs(selection, document, retiring, observerelation.OrderHandoffs{})
 }
 
 func (observation DocumentOrderObservation) WithHandoffRetirements(retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedDocumentOrderView, error) {
@@ -84,7 +71,7 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 		if relation.scope != selection.scope || duplicateSubject {
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode desired retirement protection requires unique scope-matched subjects")
 		}
-		identity, err := opencodeconfig.HostLoadIdentity(string(relation.key.ExpectedRelation().SubjectKey()), filepath.Join(selection.directory, "opencode.json"))
+		identity, err := opencodeconfig.HostLoadIdentity(string(relation.key.ExpectedRelation().SubjectKey()), document.path)
 		if err != nil {
 			return SelectedDocumentOrderView{}, err
 		}
@@ -110,7 +97,7 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 			return SelectedDocumentOrderView{}, fmt.Errorf("OpenCode retirement requires unique scope-matched correlations")
 		}
 		source := string(relation.key.ExpectedRelation().SubjectKey())
-		identity, err := opencodeconfig.HostLoadIdentity(source, filepath.Join(selection.directory, "opencode.json"))
+		identity, err := opencodeconfig.HostLoadIdentity(source, document.path)
 		if err != nil {
 			return SelectedDocumentOrderView{}, err
 		}
@@ -132,8 +119,8 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 	}
 	var removed []int
 	var slots []observerelation.RetiringSequenceSlot
-	for index, entry := range document.entries {
-		key, retiring := sources[entry.source]
+	for index, entry := range document.Entries() {
+		key, retiring := sources[entry.Source()]
 		if !retiring {
 			continue
 		}
@@ -149,7 +136,7 @@ func newSelectedDocumentViewWithHandoffs(selection orderSelection, document Docu
 		}
 		removed = append(removed, index)
 	}
-	sequence, err := newObservedOrderSequence(selection, document, rows)
+	sequence, err := newObservedOrderSequence(selection, document, document.revision, rows)
 	if err != nil {
 		return SelectedDocumentOrderView{}, err
 	}
@@ -232,7 +219,7 @@ func (view SelectedDocumentOrderView) VerifySelectedExpected(selected observerel
 	if expected.ContentSize() > MaximumConfigBytes {
 		return fmt.Errorf("OpenCode completed image exceeds the config byte limit")
 	}
-	document, err := documentFromContent(view.document, expected.Content(), expected.Exists())
+	document, err := NewDocument(view.document.kind, view.document.path, expected.Content(), expected.Exists())
 	if err != nil {
 		return err
 	}
@@ -240,11 +227,11 @@ func (view SelectedDocumentOrderView) VerifySelectedExpected(selected observerel
 	if err != nil {
 		return err
 	}
-	observed, err := newObservedOrderSequence(view.selection, document, rows)
+	observed, err := newObservedOrderSequence(view.selection, document, document.revision, rows)
 	if err != nil {
 		return err
 	}
-	want, err := newObservedOrderSequence(view.selection, document, selected.ExpectedRows())
+	want, err := newObservedOrderSequence(view.selection, document, document.revision, selected.ExpectedRows())
 	if err != nil {
 		return err
 	}

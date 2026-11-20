@@ -6,16 +6,14 @@ import (
 	"testing"
 	"time"
 
-	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
-
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -25,21 +23,18 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func publishedPiOrderFixture(t *testing.T, scope target.Scope) (nativeRecordFixture, pipackage.LoadedOrderInput) {
+func publishedPiOrderFixture(t *testing.T, scope target.Scope) (nativeRecordFixture, piorder.LoadedOrderInput) {
 	t.Helper()
 	return publishedPiOrderFixtureWithManifest(t, scope, nil)
 }
 
-func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selectManifest func(string) journalnamespace.RootSelection) (nativeRecordFixture, pipackage.LoadedOrderInput) {
+func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selectManifest func(string) journalnamespace.RootSelection) (nativeRecordFixture, piorder.LoadedOrderInput) {
 	t.Helper()
 	input, order := piEvidenceFixture(t, scope)
 	if len(input.Relations) == 0 {
 		t.Fatal("Pi order fixture needs lexical relation contexts")
 	}
-	command, present := input.Relations[0].SourceContext()
-	if !present {
-		t.Fatal("Pi order fixture has no command context")
-	}
+	command := input.Relations[0].SourceContext()
 	var manifest journalnamespace.RootSelection
 	if selectManifest == nil {
 		manifest = nativeNamespaceRoot(t, command.BaseRoot())
@@ -62,6 +57,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 	}
 	claims := documentClaimsForTest(t)
 	claims.alias = alias
+	var present bool
 	claims.exact, present = namespace.Observation().Exact()
 	if !present {
 		t.Fatal("Pi order fixture has no exact namespace observation")
@@ -100,7 +96,7 @@ func publishedPiOrderFixtureWithManifest(t *testing.T, scope target.Scope, selec
 		t.Fatal("Pi order candidate is absent")
 	}
 	mode := recovery.NewPermissionMode(0o640)
-	limits := configdocument.Limits{MaximumBytes: pipackage.MaximumSettingsBytes, MaximumDepth: 64}
+	limits := configdocument.Limits{MaximumBytes: piorder.MaximumSettingsBytes, MaximumDepth: 64}
 	selected, err := journalrecord.ReconstructNative16Selected(t.Context(), journaldocument.ComparisonInput{Before: input.Document, Expected: aggregate.ExistingDocument(expectedBytes), BeforeMode: mode, ExpectedMode: mode, Limits: limits}, nil, &order)
 	if err != nil {
 		t.Fatal(err)

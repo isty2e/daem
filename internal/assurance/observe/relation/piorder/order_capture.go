@@ -1,29 +1,12 @@
-package pipackage
+package piorder
 
 import (
 	"fmt"
 	"slices"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/target"
 )
-
-// SettingsDocumentAddress identifies the independently selected Pi settings layer.
-// It grants no filesystem observation or publication authority.
-func SettingsDocumentAddress(scope target.Scope) (aggregate.DocumentAddress, error) {
-	if scope != target.ScopeProject && scope != target.ScopeGlobal {
-		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings scope is invalid")
-	}
-	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(target.TargetPi, scope, desiredextension.CarrierPiPackage)
-	projections := capability.NativeSequences()
-	if !admitted || len(projections) != 1 {
-		return aggregate.DocumentAddress{}, fmt.Errorf("Pi settings requires one admitted native sequence projection")
-	}
-	return aggregate.NewDocumentAddress(target.TargetPi, scope, projections[0].Destination())
-}
 
 func (observation OrderObservation) SelectedSequenceEdit() (observerelation.SelectedSequenceEdit, error) {
 	return observerelation.NewSelectedSequenceEdit(observation.selection.capability, observation.sequence, observation.selection.constraint, nil)
@@ -40,34 +23,18 @@ func (observation OrderObservation) SameSelection(other OrderObservation) bool {
 		left.SettingsContext != right.SettingsContext || !left.Constraint.Equal(right.Constraint) {
 		return false
 	}
-	return slices.EqualFunc(left.Relations, right.Relations, func(a, b ScopedRelation) bool {
-		return a.key.Subject() == b.key.Subject() && a.key.ExpectedRelation().Equal(b.key.ExpectedRelation()) &&
-			a.scope == b.scope && a.sourceContext != nil && b.sourceContext != nil && *a.sourceContext == *b.sourceContext
-	})
+	return slices.EqualFunc(left.Relations, right.Relations, ScopedRelation.sameSelection)
 }
 
-// CaptureInput projects the actual immutable observation, including its original
-// document and explicit lexical contexts. Ambient observations are not replayable.
+// CaptureInput returns the original document and the contexts used to interpret it.
 func (observation OrderObservation) CaptureInput() (LoadedOrderInput, error) {
-	if observation.inventory.sourceContext == nil {
-		return LoadedOrderInput{}, fmt.Errorf("Pi order capture requires an explicit settings context")
-	}
-	for _, relation := range observation.selection.relations {
-		if relation.sourceContext == nil {
-			return LoadedOrderInput{}, fmt.Errorf("Pi order capture requires explicit relation contexts")
-		}
-	}
 	if err := observation.Validate(); err != nil {
 		return LoadedOrderInput{}, err
 	}
-	document := aggregate.AbsentDocument()
-	if observation.inventory.exists {
-		document = aggregate.ExistingDocument(observation.inventory.content)
-	}
 	return LoadedOrderInput{
 		Scope: observation.selection.scope, Capability: observation.selection.capability,
-		SettingsContext: *observation.inventory.sourceContext,
-		Document:        document, Constraint: observation.selection.constraint,
+		SettingsContext: observation.inventory.sourceContext,
+		Document:        observation.inventory.Document(), Constraint: observation.selection.constraint,
 		Relations: slices.Clone(observation.selection.relations),
 	}, nil
 }

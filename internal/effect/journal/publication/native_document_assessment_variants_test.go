@@ -183,10 +183,7 @@ func TestNativeDocumentAssessmentEqualSnapshotsKeepPiOnlyRollback(t *testing.T) 
 	setup := newNativeAssessmentFixture(t)
 	fixture := &setup.fixture
 	input, order := piEvidenceFixture(t, target.ScopeProject)
-	context, known := input.Relations[0].SourceContext()
-	if !known {
-		t.Fatal("Pi relation lost its captured context")
-	}
+	context := input.Relations[0].SourceContext()
 	root := nativeNamespaceRoot(t, context.BaseRoot())
 	if err := os.Mkdir(filepath.Join(root.SelectedPath, ".pi"), 0o700); err != nil {
 		t.Fatal(err)

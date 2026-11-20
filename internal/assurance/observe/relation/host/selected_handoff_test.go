@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
@@ -23,8 +25,8 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	context, _ := input.Relations[0].SourceContext()
-	var retiring []pipackage.ScopedRelation
+	context := input.Relations[0].SourceContext()
+	var retiring []piorder.ScopedRelation
 	var pairs []observerelation.OrderHandoffSpec
 	for _, desired := range input.Relations {
 		source := "npm:a@1"
@@ -32,7 +34,7 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 			source = "npm:b@1"
 		}
 		key := selectedRetirementKey(t, "pi.package-carrier", desired.CorrelationKey().Subject().Key(), source)
-		old, err := pipackage.NewScopedRelationWithContext(key, target.ScopeProject, context)
+		old, err := piorder.NewScopedRelation(key, target.ScopeProject, context)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -40,7 +42,7 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 		pairs = append(pairs, observerelation.OrderHandoffSpec{Before: key, After: desired.CorrelationKey()})
 	}
 	extra := selectedRetirementKey(t, "pi.package-carrier", "extra", "npm:foreign@2")
-	foreign, err := pipackage.NewScopedRelationWithContext(extra, target.ScopeProject, context)
+	foreign, err := piorder.NewScopedRelation(extra, target.ScopeProject, context)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := base.pi.WithRetiringRelations(retiring); err == nil {
+	if _, err := base.pi.WithHandoffRetirements(retiring, observerelation.OrderHandoffs{}); err == nil {
 		t.Fatal("ordinary deletion admitted a still-desired source")
 	}
 	before, existed := base.pi.Candidate()
@@ -72,11 +74,11 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed, err := CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{edit})
+	completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{edit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,12 +105,12 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 		}
 	}
 	capability, _ := profile.Profile(target.TargetOpenCode).ExtensionOrder(desiredextension.CarrierOpenCodePlugin, target.ScopeGlobal)
-	var desired, retiring []opencodeplugin.ScopedRelation
+	var desired, retiring []opencodeorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	var pairs []observerelation.OrderHandoffSpec
 	for _, name := range []string{"a", "b"} {
 		key := selectedRetirementKey(t, "opencode.plugin-carrier", name, name+"@1")
-		relation, err := opencodeplugin.NewScopedRelation(key, target.ScopeGlobal)
+		relation, err := opencodeorder.NewScopedRelation(key, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,7 +129,7 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 			source = "b@1"
 		}
 		oldKey := selectedRetirementKey(t, "opencode.plugin-carrier", name, source)
-		old, err := opencodeplugin.NewScopedRelation(oldKey, target.ScopeGlobal)
+		old, err := opencodeorder.NewScopedRelation(oldKey, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +140,7 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: desired})
+	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Capability: capability, Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: desired})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,18 +167,18 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 		t.Fatal("fixture lost physical document membership")
 	}
 	for _, document := range base.Documents() {
-		if _, err := document.WithRetiringRelations(retiring); err == nil {
+		if _, err := document.WithHandoffRetirements(retiring, observerelation.OrderHandoffs{}); err == nil {
 			t.Fatal("ordinary deletion admitted a desired-source overlap")
 		}
 		view, err := document.WithHandoffRetirements(retiring, events)
 		if err != nil {
 			t.Fatal(err)
 		}
-		edit, err := NewOpenCodeDocumentEdit(view)
+		edit, err := selecteddoc.NewOpenCodeDocumentEdit(view)
 		if err != nil {
 			t.Fatal(err)
 		}
-		completed, err := CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{edit})
+		completed, err := selecteddoc.CompleteSelectedImage(t.Context(), edit.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{edit})
 		if err != nil {
 			t.Fatal(err)
 		}

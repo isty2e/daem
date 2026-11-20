@@ -5,18 +5,13 @@ import (
 	"fmt"
 	"slices"
 
-	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
-
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-
-	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
-
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -27,7 +22,7 @@ import (
 type selectedDocumentCaptureInput struct {
 	journalobservation.CaptureInput
 	edits     []compose.ProjectionEdit
-	sequences []relationhost.SelectedDocumentEdit
+	sequences []selecteddoc.SelectedDocumentEdit
 }
 
 type documentCaptureContractKey struct {
@@ -133,7 +128,7 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}
-	completed, err := relationhost.CompleteSelectedImage(ctx, original, input.Limits(), input.edits, input.sequences)
+	completed, err := selecteddoc.CompleteSelectedImage(ctx, original, input.Limits(), input.edits, input.sequences)
 	if err != nil {
 		return nativeDocumentCaptureCandidate{}, err
 	}

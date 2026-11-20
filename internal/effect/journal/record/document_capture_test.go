@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -98,7 +98,7 @@ func TestDocumentGroupDraftRefusesIncompleteTransitionsWithoutRecords(t *testing
 		if group, comparison, err := candidate.Seal(t.Context(), nil); err == nil || group.initialized || comparison.Validate() == nil {
 			t.Fatal("failed transition produced a usable record")
 		}
-		if next, _, err := draft.WithPiOrder(pipackage.OrderObservation{}); err == nil || next.phase != 0 {
+		if next, _, err := draft.WithPiOrder(piorder.OrderObservation{}); err == nil || next.phase != 0 {
 			t.Fatal("incomplete metadata accepted order evidence")
 		}
 	}

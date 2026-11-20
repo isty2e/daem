@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -57,23 +59,20 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	context, explicit := input.Relations[0].SourceContext()
-	if !explicit {
-		t.Fatal("fixture is not explicitly scoped")
-	}
-	retiring := func(name, source string) pipackage.ScopedRelation {
-		relation, err := pipackage.NewScopedRelationWithContext(selectedRetirementKey(t, "pi.package-carrier", name, source), target.ScopeProject, context)
+	context := input.Relations[0].SourceContext()
+	retiring := func(name, source string) piorder.ScopedRelation {
+		relation, err := piorder.NewScopedRelation(selectedRetirementKey(t, "pi.package-carrier", name, source), target.ScopeProject, context)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return relation
 	}
 	candidate, exists := base.pi.Candidate()
-	view, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{retiring("r", "npm:r@1")})
+	view, err := base.pi.WithHandoffRetirements([]piorder.ScopedRelation{retiring("r", "npm:r@1")}, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal("retirement correlation ran the removal-free normalizer", err)
 	}
-	selected, err := NewPiDocumentEdit(view)
+	selected, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil || edits[0].SameIntent(selected) {
 		t.Fatal("retirement did not enter its own factory-bound intent", err)
 	}
@@ -81,13 +80,13 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projected, err := NewPiDocumentEdit(reservation)
+	projected, err := selecteddoc.NewPiDocumentEdit(reservation)
 	fresh := selectedPiFixture(t, root, "pi.package-carrier", `{"packages":[{"source":"npm:b@1","autoload":false},"npm:foreign@1","npm:a@1"],"model":"slow"}`)
 	freshEdits, freshErr := fresh.SelectedEdits(nil)
 	if err != nil || freshErr != nil || len(freshEdits) != 1 || !projected.SameMutation(edits[0]) || !projected.SameIntent(freshEdits[0]) || projected.SameMutation(freshEdits[0]) || selected.SameIntent(freshEdits[0]) {
 		t.Fatal("retirement projection weakened fresh matching or replaced the original CAS baseline", err, freshErr)
 	}
-	completed, err := CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{selected})
+	completed, err := selecteddoc.CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{selected})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,22 +99,22 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 		t.Fatal("retirement mutated the historical16 observation")
 	}
 	for _, source := range []string{"npm:a@1", "npm:a@2"} {
-		if _, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{retiring("renamed", source)}); err == nil {
+		if _, err := base.pi.WithHandoffRetirements([]piorder.ScopedRelation{retiring("renamed", source)}, observerelation.OrderHandoffs{}); err == nil {
 			t.Fatal("retirement stole a desired source/load identity", source)
 		}
 	}
-	for name, relations := range map[string][]pipackage.ScopedRelation{
+	for name, relations := range map[string][]piorder.ScopedRelation{
 		"duplicate subject":       {retiring("r", "npm:r@1"), retiring("r", "npm:other@1")},
 		"duplicate source":        {retiring("r", "npm:r@1"), retiring("other", "npm:r@1")},
 		"duplicate load identity": {retiring("r", "npm:r@1"), retiring("other", "npm:r@2")},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := base.pi.WithRetiringRelations(relations); err == nil {
+			if _, err := base.pi.WithHandoffRetirements(relations, observerelation.OrderHandoffs{}); err == nil {
 				t.Fatal("ambiguous Pi retirement correlations were accepted")
 			}
 		})
 	}
-	absent, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{retiring("absent", "npm:absent@1")})
+	absent, err := base.pi.WithHandoffRetirements([]piorder.ScopedRelation{retiring("absent", "npm:absent@1")}, observerelation.OrderHandoffs{})
 	if err != nil || len(absent.SelectedSequence().RemovedSlots()) != 0 || view.SameSelection(absent) {
 		t.Fatal("pending absent retirement or intent comparison is incorrect", err)
 	}
@@ -123,29 +122,29 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	relation, err := pipackage.NewScopedRelationWithContext(selectedRetirementKey(t, "pi.package-carrier", "r", "npm:r@1"), target.ScopeProject, wrongContext)
+	relation, err := piorder.NewScopedRelation(selectedRetirementKey(t, "pi.package-carrier", "r", "npm:r@1"), target.ScopeProject, wrongContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{relation}); err == nil {
+	if _, err := base.pi.WithHandoffRetirements([]piorder.ScopedRelation{relation}, observerelation.OrderHandoffs{}); err == nil {
 		t.Fatal("retirement changed its selected command context")
 	}
 
 	pureOriginal := aggregate.ExistingDocument([]byte(`{"packages":["npm:r@1"],"model":"slow"}`))
-	pure, err := pipackage.ReconstructRetirement(pipackage.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: pureOriginal, Relations: []pipackage.ScopedRelation{retiring("r", "npm:r@1")}})
+	pure, err := piorder.ReconstructRetirement(piorder.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: pureOriginal, Relations: []piorder.ScopedRelation{retiring("r", "npm:r@1")}})
 	if err != nil {
 		t.Fatal("pure retirement required an invented desired constraint", err)
 	}
-	selected, err = NewPiDocumentEdit(pure)
+	selected, err = selecteddoc.NewPiDocumentEdit(pure)
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed, err = CompleteSelectedImage(t.Context(), pureOriginal, configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{selected})
+	completed, err = selecteddoc.CompleteSelectedImage(t.Context(), pureOriginal, configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{selected})
 	_, ordered := pure.SelectedSequence().Constraint()
 	if err != nil || ordered || !completed.Expected().Exists() || string(completed.Expected().Content()) != `{"packages":[],"model":"slow"}` {
 		t.Fatal("last-row retirement invented parent/document deletion", err)
 	}
-	absentOnly, err := pipackage.ReconstructRetirement(pipackage.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: aggregate.AbsentDocument(), Relations: []pipackage.ScopedRelation{retiring("r", "npm:r@1")}})
+	absentOnly, err := piorder.ReconstructRetirement(piorder.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: aggregate.AbsentDocument(), Relations: []piorder.ScopedRelation{retiring("r", "npm:r@1")}})
 	if err != nil || absentOnly.SelectedSequence().Changed() {
 		t.Fatal("pending removal recreated an absent document", err)
 	}
@@ -167,11 +166,11 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	if !admitted {
 		t.Fatal("OpenCode capability unavailable")
 	}
-	var relations []opencodeplugin.ScopedRelation
+	var relations []opencodeorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for _, name := range []string{"a", "b"} {
 		key := selectedRetirementKey(t, "opencode.plugin-carrier", name, name+"@1")
-		relation, err := opencodeplugin.NewScopedRelation(key, target.ScopeGlobal)
+		relation, err := opencodeorder.NewScopedRelation(key, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -189,7 +188,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: relations})
+	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Capability: capability, Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: relations})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +196,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	if err != nil || len(edits) != 2 {
 		t.Fatal("fixture did not retain both physical documents", err)
 	}
-	retiring, err := opencodeplugin.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", "r", "r@1"), target.ScopeGlobal)
+	retiring, err := opencodeorder.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", "r", "r@1"), target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,14 +206,14 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	}
 	for index, document := range base.Documents() {
 		if index == 0 {
-			relationFor := func(name, source string, scope target.Scope) opencodeplugin.ScopedRelation {
-				relation, err := opencodeplugin.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", name, source), scope)
+			relationFor := func(name, source string, scope target.Scope) opencodeorder.ScopedRelation {
+				relation, err := opencodeorder.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", name, source), scope)
 				if err != nil {
 					t.Fatal(err)
 				}
 				return relation
 			}
-			for name, relations := range map[string][]opencodeplugin.ScopedRelation{
+			for name, relations := range map[string][]opencodeorder.ScopedRelation{
 				"desired source":          {relationFor("renamed", "a@1", target.ScopeGlobal)},
 				"desired load identity":   {relationFor("renamed", "a@2", target.ScopeGlobal)},
 				"wrong scope":             {relationFor("r", "r@1", target.ScopeProject)},
@@ -223,28 +222,28 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 				"duplicate load identity": {retiring, relationFor("other", "r@2", target.ScopeGlobal)},
 			} {
 				t.Run(name, func(t *testing.T) {
-					if _, err := document.WithRetiringRelations(relations); err == nil {
+					if _, err := document.WithHandoffRetirements(relations, observerelation.OrderHandoffs{}); err == nil {
 						t.Fatal("OpenCode retirement stole desired membership or admitted ambiguous correlations")
 					}
 				})
 			}
-			for name, desired := range map[string][]opencodeplugin.ScopedRelation{
+			for name, desired := range map[string][]opencodeorder.ScopedRelation{
 				"same source after rename": {relationFor("renamed", "r@1", target.ScopeGlobal)},
 				"same load after rename":   {relationFor("renamed", "r@2", target.ScopeGlobal)},
 				"retained subject":         {relationFor("r", "different@1", target.ScopeGlobal)},
 			} {
 				t.Run("classless/"+name, func(t *testing.T) {
-					if _, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], desired, []opencodeplugin.ScopedRelation{retiring}); err == nil {
+					if _, err := opencodeorder.ReconstructHandoffRetirement(capability, inventory.Documents()[index], desired, []opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{}); err == nil {
 						t.Fatal("classless retirement consumed a still-desired relation")
 					}
 				})
 			}
 		}
-		view, err := document.WithRetiringRelations([]opencodeplugin.ScopedRelation{retiring})
+		view, err := document.WithHandoffRetirements([]opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		selected, err := NewOpenCodeDocumentEdit(view)
+		selected, err := selecteddoc.NewOpenCodeDocumentEdit(view)
 		if err != nil || edits[index].SameIntent(selected) {
 			t.Fatal("retirement did not enter its own factory-bound intent", err)
 		}
@@ -252,11 +251,11 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		projected, err := NewOpenCodeDocumentEdit(reservation)
+		projected, err := selecteddoc.NewOpenCodeDocumentEdit(reservation)
 		if err != nil || !projected.SameMutation(edits[index]) || selected.SameIntent(projected) {
 			t.Fatal("OpenCode reservation changed its normalized original or weakened same-phase intent", err)
 		}
-		completed, err := CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{selected})
+		completed, err := selecteddoc.CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{selected})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -268,20 +267,20 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 			t.Fatal("retirement mutated the base OpenCode observation")
 		}
 
-		pure, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], relations[:1], []opencodeplugin.ScopedRelation{retiring})
+		pure, err := opencodeorder.ReconstructHandoffRetirement(capability, inventory.Documents()[index], relations[:1], []opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		selected, err = NewOpenCodeDocumentEdit(pure)
+		selected, err = selecteddoc.NewOpenCodeDocumentEdit(pure)
 		if err != nil {
 			t.Fatal(err)
 		}
-		completed, err = CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []SelectedDocumentEdit{selected})
+		completed, err = selecteddoc.CompleteSelectedImage(t.Context(), selected.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{selected})
 		_, ordered := pure.SelectedSequence().Constraint()
 		if err != nil || ordered || !strings.Contains(string(completed.Expected().Content()), `"plugin":[["b@1",{"option":true}],"foreign@1","a@1"]`) {
 			t.Fatal("pure retirement imposed a desired permutation", err)
 		}
-		unprotected, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], nil, []opencodeplugin.ScopedRelation{retiring})
+		unprotected, err := opencodeorder.ReconstructHandoffRetirement(capability, inventory.Documents()[index], nil, []opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{})
 		if err != nil || pure.SameSelection(unprotected) {
 			t.Fatal("desired retirement protection disappeared from selection intent", err)
 		}

@@ -1,4 +1,4 @@
-package pipackage_test
+package piorder_test
 
 import (
 	"bytes"

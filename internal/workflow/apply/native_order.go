@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -20,13 +21,13 @@ type relationOrderSequenceKey struct {
 	sequenceID hostrelation.PhysicalSequenceID
 }
 
-func selectedOrderSequenceKey(edit relationhost.SelectedDocumentEdit) relationOrderSequenceKey {
+func selectedOrderSequenceKey(edit selecteddoc.SelectedDocumentEdit) relationOrderSequenceKey {
 	return relationOrderSequenceKey{edit.Sequence().ClassID(), edit.Sequence().SequenceID()}
 }
 
-func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, locked lock.File, reconciliation reconcile.Result, orders []relationhost.SelectedDocumentEdit, options runOptions) (relationOrderRunResult, error) {
-	wanted := make(map[relationOrderSequenceKey]relationhost.SelectedDocumentEdit, len(orders))
-	classes := make(map[hostrelation.OrderClassID]relationhost.SelectedDocumentEdit)
+func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, locked lock.File, reconciliation reconcile.Result, orders []selecteddoc.SelectedDocumentEdit, options runOptions) (relationOrderRunResult, error) {
+	wanted := make(map[relationOrderSequenceKey]selecteddoc.SelectedDocumentEdit, len(orders))
+	classes := make(map[hostrelation.OrderClassID]selecteddoc.SelectedDocumentEdit)
 	hasOrder := false
 	for _, order := range orders {
 		key := selectedOrderSequenceKey(order)
@@ -122,7 +123,7 @@ func prepareNativeOrderConvergence(ctx context.Context, paths daempaths.Paths, l
 	return prepared, err
 }
 
-func requireNativeSelectedActors(checks, actors []relationhost.SelectedDocumentEdit) error {
+func requireNativeSelectedActors(checks, actors []selecteddoc.SelectedDocumentEdit) error {
 	matched := 0
 	for _, check := range checks {
 		if !check.Changed() {
@@ -147,8 +148,8 @@ func requireNativeSelectedActors(checks, actors []relationhost.SelectedDocumentE
 }
 
 func matchNativeSelectedEdits(
-	wanted map[relationOrderSequenceKey]relationhost.SelectedDocumentEdit,
-	actual []relationhost.SelectedDocumentEdit,
+	wanted map[relationOrderSequenceKey]selecteddoc.SelectedDocumentEdit,
+	actual []selecteddoc.SelectedDocumentEdit,
 	reconciliation reconcile.Result,
 ) ([]reconcile.RelationOrderDecision, int, error) {
 	var decisions []reconcile.RelationOrderDecision

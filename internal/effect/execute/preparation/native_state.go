@@ -5,16 +5,14 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
-
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -26,7 +24,7 @@ type NativeApplyStateInput struct {
 	WholeSources             []lock.LockedSubjectContract
 	StateCodec               durable.SnapshotCodec
 	ConfirmedRelationActions []reconcile.RelationAction
-	SequenceEdits            []relationhost.SelectedDocumentEdit
+	SequenceEdits            []selecteddoc.SelectedDocumentEdit
 }
 
 // NativeWholeAdoption binds an actual matching whole Record to state-only key
@@ -60,7 +58,7 @@ type NativeApplyStatePreparation struct {
 	narrowings         []reconcile.NativeNarrowingAction
 	adoptions          []NativeWholeAdoption
 	projectCompletions []durablecarrier.ManagedCarrierClaim
-	orders             []relationhost.SelectedDocumentEdit
+	orders             []selecteddoc.SelectedDocumentEdit
 	initialized        bool
 }
 
@@ -97,8 +95,8 @@ func (preparation NativeApplyStatePreparation) AggregateEffects() []AggregateEff
 	return append([]AggregateEffect(nil), preparation.aggregates...)
 }
 
-func (preparation NativeApplyStatePreparation) SequenceEdits() []relationhost.SelectedDocumentEdit {
-	return append([]relationhost.SelectedDocumentEdit(nil), preparation.orders...)
+func (preparation NativeApplyStatePreparation) SequenceEdits() []selecteddoc.SelectedDocumentEdit {
+	return append([]selecteddoc.SelectedDocumentEdit(nil), preparation.orders...)
 }
 
 func (preparation NativeApplyStatePreparation) ActionCount() int {
@@ -145,7 +143,7 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 		return NativeApplyStatePreparation{}, err
 	}
 
-	orders := make([]relationhost.SelectedDocumentEdit, 0, len(input.SequenceEdits))
+	orders := make([]selecteddoc.SelectedDocumentEdit, 0, len(input.SequenceEdits))
 	for _, order := range input.SequenceEdits {
 		if err := order.Validate(); err != nil {
 			return NativeApplyStatePreparation{}, err

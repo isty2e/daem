@@ -9,6 +9,7 @@ import (
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -50,6 +51,16 @@ func TestMissingSettingsIsFreshScopedAbsence(t *testing.T) {
 	if inventory.SettingsPath() != filepath.Join(root, "agent", "settings.json") {
 		t.Fatalf("SettingsPath() = %q", inventory.SettingsPath())
 	}
+}
+
+func TestAmbientNonlocalCorrelationWithoutHome(t *testing.T) {
+	root := t.TempDir()
+	writeSettings(t, filepath.Join(root, ".pi", "settings.json"), `{"packages":["npm:pkg@1"]}`)
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	inventory := mustReadSettings(t, observepipackage.SettingsInput{ProjectRoot: root, Scope: target.ScopeProject})
+	result := mustCorrelate(t, "npm:pkg@1", root, target.ScopeProject, inventory)
+	assertCorrelationState(t, result, observerelation.StateExactCorrelation)
 }
 
 func TestReadSettingsRejectsAmbiguousOrUnsafeEvidence(t *testing.T) {
@@ -124,7 +135,7 @@ func TestReadSettingsRejectsSymlinkAndNonRegularPath(t *testing.T) {
 func TestReadSettingsRejectsOversizedInput(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent", "settings.json")
-	content := bytes.Repeat([]byte(" "), observepipackage.MaximumSettingsBytes+1)
+	content := bytes.Repeat([]byte(" "), piorder.MaximumSettingsBytes+1)
 	writeSettingsBytes(t, path, content)
 
 	_, err := observepipackage.ReadSettings(observepipackage.SettingsInput{

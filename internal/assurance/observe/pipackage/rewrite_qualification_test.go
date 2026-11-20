@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -268,7 +269,7 @@ func rewriteDocument(t *testing.T, content string) configdocument.Document {
 
 func rewriteDocumentSyntax(t *testing.T, content string, syntax configdocument.Syntax) configdocument.Document {
 	t.Helper()
-	limits := configdocument.Limits{MaximumBytes: observepipackage.MaximumSettingsBytes, MaximumDepth: 32}
+	limits := configdocument.Limits{MaximumBytes: piorder.MaximumSettingsBytes, MaximumDepth: 32}
 	var document configdocument.Document
 	var err error
 	if content == "" {

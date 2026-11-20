@@ -11,21 +11,17 @@ import (
 	"slices"
 	"testing"
 
-	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
-
-	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
-
-	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
-
-	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
-	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
-	"github.com/isty2e/daem/internal/output"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
+	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -190,10 +186,7 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		t.Run(string(scope), func(t *testing.T) {
 			loaded, order := piEvidenceFixture(t, scope)
-			command, known := loaded.Relations[0].SourceContext()
-			if !known {
-				t.Fatal("actual Pi relation has no command context")
-			}
+			command := loaded.Relations[0].SourceContext()
 			roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, command.BaseRoot())})
 			if scope == target.ScopeGlobal {
 				roots = namespacetest.WithLegacyRoot(t, roots, output.RootPiAgent, nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot()))
@@ -211,8 +204,9 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			if err != nil || hasOrder || !comparison.Changed() {
 				t.Fatalf("real Pi-only group failed: %v", err)
 			}
-			if err := order.VerifyPostContent(comparison.ExpectedDocument().Content(), comparison.ExpectedDocument().Exists()); err != nil {
-				t.Fatal("completed positional image lost the selected package order", err)
+			want, exists := order.Candidate()
+			if comparison.ExpectedDocument().Exists() != exists || !bytes.Equal(comparison.ExpectedDocument().Content(), want) {
+				t.Fatal("completed image differs from the selected order candidate")
 			}
 			subjects, err := recorded.SelectedSubjects(t.Context())
 			if err != nil || len(subjects) != 0 {
@@ -224,7 +218,7 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 			}
 			capture.requireCompleteStage(t, group, comparison)
 			loaded.Document = comparison.ExpectedDocument()
-			unchanged, err := pipackage.ReconstructOrder(loaded)
+			unchanged, err := piorder.ReconstructOrder(loaded)
 			if err != nil || unchanged.Changed() {
 				t.Fatalf("actual converged order was not unchanged: %v", err)
 			}
@@ -243,10 +237,7 @@ func TestSelectedGroupCaptureRetainsRealPiContextAndOrderOnlyWork(t *testing.T) 
 
 func TestSelectedGroupCaptureCombinesActualNativeAndPiOrder(t *testing.T) {
 	loaded, order := piEvidenceFixture(t, target.ScopeGlobal)
-	command, known := loaded.Relations[0].SourceContext()
-	if !known {
-		t.Fatal("actual Pi relation lacks source context")
-	}
+	command := loaded.Relations[0].SourceContext()
 	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, command.BaseRoot()), output.RootPiAgent: nativeNamespaceRoot(t, loaded.SettingsContext.BaseRoot())})
 	fixture := nativeJournalFixture(t)
 	fixture.claims.alias, _ = journalrecord.PiOrderDocumentAlias(target.ScopeGlobal)
@@ -330,10 +321,7 @@ func TestSelectedGroupCaptureRejectsWrongPiCommandRootBeforeRead(t *testing.T) {
 
 func TestSelectedGroupCaptureRejectsDifferentSelectedReferentWithEqualBytes(t *testing.T) {
 	loaded, _ := piEvidenceFixture(t, target.ScopeGlobal)
-	command, explicit := loaded.Relations[0].SourceContext()
-	if !explicit {
-		t.Fatal("fixture command context is not explicit")
-	}
+	command := loaded.Relations[0].SourceContext()
 	settingsBase := loaded.SettingsContext.BaseRoot()
 	otherBase := filepath.Join(filepath.Dir(settingsBase), "other-agent")
 	context, err := localcontext.NewLocalSourceContext(otherBase, loaded.SettingsContext.HomeRoot())
@@ -341,7 +329,7 @@ func TestSelectedGroupCaptureRejectsDifferentSelectedReferentWithEqualBytes(t *t
 		t.Fatal(err)
 	}
 	loaded.SettingsContext = context
-	order, err := pipackage.ReconstructOrder(loaded)
+	order, err := piorder.ReconstructOrder(loaded)
 	if err != nil || !order.Changed() {
 		t.Fatal("equal-byte second file did not retain valid changed order semantics", err)
 	}
@@ -387,7 +375,7 @@ func TestSelectedGroupCaptureRefusesStaticContractAndMetadataMisjoinsBeforeRead(
 				capture.input.CaptureInput = reviseCaptureInput(capture.input.CaptureInput, func(spec *journalobservation.CaptureInputSpec) { spec.Owner = documentClaimsForTest(t).owner })
 			case "wrong Pi alias":
 				_, order := piEvidenceFixture(t, target.ScopeGlobal)
-				capture.input.sequences = []relationhost.SelectedDocumentEdit{selectedPiDocument(t, order)}
+				capture.input.sequences = []selecteddoc.SelectedDocumentEdit{selectedPiDocument(t, order)}
 			}
 			group, comparison, err := prepareSelectedDocumentGroup(t.Context(), capture.namespace, capture.input, capture.subjects)
 			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil || capture.reader.imageReads != 0 {

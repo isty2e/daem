@@ -11,6 +11,8 @@ import (
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observepi "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -200,7 +202,7 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 			Entries:      len(document.Entries()),
 			Imported:     importedCount,
 			Skipped:      skippedCount,
-			MaximumBytes: observeopencode.MaximumConfigBytes,
+			MaximumBytes: opencodeorder.MaximumConfigBytes,
 		})
 	}
 	return nil
@@ -313,7 +315,7 @@ func (collector *importCollector) collectPi(scope target.Scope) error {
 		Scope:        scope,
 		Entries:      len(entries),
 		Imported:     len(entries),
-		MaximumBytes: observepi.MaximumSettingsBytes,
+		MaximumBytes: piorder.MaximumSettingsBytes,
 	})
 	return nil
 }

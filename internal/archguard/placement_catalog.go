@@ -314,6 +314,21 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/assurance/observe/opencodeplugin"},
 	},
 	{
+		id:        "assurance.selected-document-image",
+		placement: specializedPlacement(affinityAssurance, roleCodec, specializationFormat, "selected native document image"),
+		packages:  []string{"internal/assurance/observe/relation/selecteddoc"},
+	},
+	{
+		id:        "assurance.order.opencode",
+		placement: specializedPlacement(affinityAssurance, roleCodec, specializationHost, "OpenCode"),
+		packages:  []string{"internal/assurance/observe/relation/opencodeorder"},
+	},
+	{
+		id:        "assurance.order.pi",
+		placement: specializedPlacement(affinityAssurance, roleCodec, specializationHost, "Pi"),
+		packages:  []string{"internal/assurance/observe/relation/piorder"},
+	},
+	{
 		id:        "assurance.observation.pi",
 		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "Pi"),
 		packages:  []string{"internal/assurance/observe/pipackage"},

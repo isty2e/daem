@@ -1,23 +1,15 @@
 package pipackage
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
-	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
-	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
-)
-
-const (
-	// MaximumSettingsBytes is the observation and mutation limit for Pi settings.
-	MaximumSettingsBytes = 4 << 20
 )
 
 // SettingsInput selects exactly one Pi package settings layer.
@@ -30,14 +22,13 @@ type SettingsInput struct {
 
 // Inventory is one immutable, scope-specific Pi package settings observation.
 type Inventory struct {
-	scope         target.Scope
-	settingsPath  string
-	settingsBase  string
-	revision      string
-	exists        bool
-	content       []byte
-	document      piconfig.Document
-	sourceContext *extensiontopology.LocalSourceContext
+	scope        target.Scope
+	settingsPath string
+	settingsBase string
+	revision     string
+	exists       bool
+	content      []byte
+	document     piconfig.Document
 }
 
 // SettingsPath returns the exact passive authority path consumed by the read.
@@ -88,20 +79,15 @@ func (inventory Inventory) Entries() ([]Entry, error) {
 		}
 		entry := Entry{
 			source:           source,
-			hostLoadIdentity: identity.hostLoadIdentity(inventory.scope),
+			hostLoadIdentity: identity.HostLoadIdentity(inventory.scope),
 		}
-		if identity.kind == sourceKindLocal {
-			entry.localIdentity = identity.key
-		}
+		entry.localIdentity = identity.LocalPath()
 		entries = append(entries, entry)
 	}
 	return entries, nil
 }
 
-func (inventory Inventory) sourceIdentity(source string) (sourceIdentity, error) {
-	if inventory.sourceContext != nil {
-		return sourceIdentityForContext(source, inventory.scope, *inventory.sourceContext)
-	}
+func (inventory Inventory) sourceIdentity(source string) (piorder.SourceIdentity, error) {
 	return parseSourceIdentity(source, inventory.settingsBase, inventory.scope)
 }
 
@@ -128,7 +114,7 @@ func ReadSettings(input SettingsInput) (Inventory, error) {
 	}
 	content, exists, err := filesnapshot.ReadRegularFile(
 		settingsPath,
-		MaximumSettingsBytes,
+		piorder.MaximumSettingsBytes,
 	)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Pi %s package settings %q: %w", input.Scope, settingsPath, err)
@@ -145,16 +131,11 @@ func ReadSettings(input SettingsInput) (Inventory, error) {
 		scope:        input.Scope,
 		settingsPath: settingsPath,
 		settingsBase: filepath.Dir(settingsPath),
-		revision:     settingsRevision(content),
+		revision:     piorder.SettingsRevision(content),
 		exists:       exists,
 		content:      append([]byte(nil), content...),
 		document:     document,
 	}, nil
-}
-
-func settingsRevision(content []byte) string {
-	digest := sha256.Sum256(content)
-	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 // SettingsPath resolves the exact settings layer used by Pi package commands.
@@ -165,7 +146,7 @@ func SettingsPath(input SettingsInput) (string, error) {
 	}
 	switch scope {
 	case target.ScopeProject:
-		root, err := cleanAbsoluteRoot("Pi project root", input.ProjectRoot)
+		root, err := piorder.CleanPackageRoot("Pi project root", input.ProjectRoot)
 		if err != nil {
 			return "", err
 		}
@@ -182,24 +163,4 @@ func SettingsPath(input SettingsInput) (string, error) {
 	default:
 		return "", fmt.Errorf("Pi package settings scope %q is not observable", scope)
 	}
-}
-
-func cleanAbsoluteRoot(label string, root string) (string, error) {
-	if strings.TrimSpace(root) == "" || strings.TrimSpace(root) != root {
-		return "", fmt.Errorf("%s must be non-empty and trimmed", label)
-	}
-	if strings.ContainsRune(root, '\x00') {
-		return "", fmt.Errorf("%s must not contain a NUL byte", label)
-	}
-	if !filepath.IsAbs(root) {
-		return "", fmt.Errorf("%s must be absolute", label)
-	}
-	return filepath.Clean(root), nil
-}
-
-func validateSourceText(source string) (string, error) {
-	if err := piconfig.ValidatePackageSource(source); err != nil {
-		return "", err
-	}
-	return source, nil
 }

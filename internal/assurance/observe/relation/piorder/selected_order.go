@@ -1,4 +1,4 @@
-package pipackage
+package piorder
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 // observation remains unchanged while retired correlations select original slots.
 type SelectedOrderView struct {
 	selection orderSelection
-	inventory Inventory
+	inventory settingsImage
 	retiring  []ScopedRelation
 	selected  observerelation.SelectedSequenceEdit
 	handoffs  observerelation.OrderHandoffs
@@ -56,27 +56,16 @@ func ReconstructRetirement(input LoadedRetirementInput) (SelectedOrderView, erro
 		return SelectedOrderView{}, fmt.Errorf("Pi retirement image exceeds the settings byte limit")
 	}
 	for _, relation := range input.Relations {
-		if relation.sourceContext == nil || *relation.sourceContext != input.CommandContext {
+		if relation.sourceContext != input.CommandContext {
 			return SelectedOrderView{}, fmt.Errorf("Pi retirement differs from the selected command context")
 		}
 	}
 	context := input.SettingsContext
-	inventory, err := inventoryFromContent(Inventory{scope: input.Capability.Scope(), settingsPath: filepath.Join(context.BaseRoot(), "settings.json"), settingsBase: context.BaseRoot(), sourceContext: &context}, input.Document.Content(), input.Document.Exists())
+	inventory, err := inventoryFromContent(settingsImage{scope: input.Capability.Scope(), settingsPath: filepath.Join(context.BaseRoot(), "settings.json"), settingsBase: context.BaseRoot(), sourceContext: context}, input.Document.Content(), input.Document.Exists())
 	if err != nil {
 		return SelectedOrderView{}, err
 	}
-	return newSelectedOrderView(orderSelection{scope: input.Capability.Scope(), capability: input.Capability}, inventory, input.Relations)
-}
-
-func (observation OrderObservation) WithRetiringRelations(retiring []ScopedRelation) (SelectedOrderView, error) {
-	if _, err := observation.CaptureInput(); err != nil {
-		return SelectedOrderView{}, err
-	}
-	return newSelectedOrderView(observation.selection, observation.inventory, retiring)
-}
-
-func newSelectedOrderView(selection orderSelection, inventory Inventory, retiring []ScopedRelation) (SelectedOrderView, error) {
-	return newSelectedOrderViewWithHandoffs(selection, inventory, retiring, observerelation.OrderHandoffs{})
+	return newSelectedOrderViewWithHandoffs(orderSelection{scope: input.Capability.Scope(), capability: input.Capability}, inventory, input.Relations, observerelation.OrderHandoffs{})
 }
 
 func (observation OrderObservation) WithHandoffRetirements(retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedOrderView, error) {
@@ -86,7 +75,7 @@ func (observation OrderObservation) WithHandoffRetirements(retiring []ScopedRela
 	return newSelectedOrderViewWithHandoffs(observation.selection, observation.inventory, retiring, handoffs)
 }
 
-func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Inventory, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedOrderView, error) {
+func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory settingsImage, retiring []ScopedRelation, handoffs observerelation.OrderHandoffs) (SelectedOrderView, error) {
 	var desired []observerelation.CorrelationKey
 	for _, relation := range selection.relations {
 		desired = append(desired, relation.key)
@@ -118,11 +107,11 @@ func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Invent
 		if err := relation.key.Validate(); err != nil {
 			return SelectedOrderView{}, err
 		}
-		if relation.scope != selection.scope || relation.sourceContext == nil || index != 0 && retained[index-1].key.Subject() == relation.key.Subject() {
+		if relation.scope != selection.scope || index != 0 && retained[index-1].key.Subject() == relation.key.Subject() {
 			return SelectedOrderView{}, fmt.Errorf("Pi retirement requires unique, scope-matched explicit correlations")
 		}
 		for _, desired := range selection.relations {
-			if desired.sourceContext == nil || *relation.sourceContext != *desired.sourceContext {
+			if relation.sourceContext != desired.sourceContext {
 				return SelectedOrderView{}, fmt.Errorf("Pi retirement differs from the selected command context")
 			}
 		}
@@ -134,7 +123,7 @@ func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Invent
 		if err != nil {
 			return SelectedOrderView{}, err
 		}
-		load := hostrelation.HostLoadIdentity(identity.hostLoadIdentity(selection.scope))
+		load := hostrelation.HostLoadIdentity(identity.HostLoadIdentity(selection.scope))
 		_, repeatedSource := sources[source]
 		exact, exactOverlap := desiredSources[source]
 		identityKey, identityOverlap := desiredIdentities[load]
@@ -144,10 +133,7 @@ func newSelectedOrderViewWithHandoffs(selection orderSelection, inventory Invent
 		}
 		sources[source], identities[load] = relation.key, true
 	}
-	entries, err := inventory.Entries()
-	if err != nil {
-		return SelectedOrderView{}, err
-	}
+	entries := inventory.document.Entries()
 	rows, err := normalizedOrderRows(selection, inventory)
 	if err != nil {
 		return SelectedOrderView{}, err
@@ -194,7 +180,7 @@ func (view SelectedOrderView) SelectedSequence() observerelation.SelectedSequenc
 
 func (view SelectedOrderView) OriginalDocument() aggregate.Document { return view.inventory.Document() }
 
-func (view SelectedOrderView) SettingsPath() string { return view.inventory.SettingsPath() }
+func (view SelectedOrderView) SettingsPath() string { return view.inventory.settingsPath }
 func (view SelectedOrderView) Scope() target.Scope  { return view.selection.scope }
 
 func (view SelectedOrderView) AfterRetiring(correlations []observerelation.CorrelationKey) (SelectedOrderView, error) {
@@ -225,9 +211,7 @@ func (view SelectedOrderView) DefinitionRoots() []string {
 	seen := make(map[string]bool)
 	for _, relations := range [][]ScopedRelation{view.selection.relations, view.retiring} {
 		for _, relation := range relations {
-			if relation.sourceContext != nil {
-				seen[relation.sourceContext.BaseRoot()] = true
-			}
+			seen[relation.sourceContext.BaseRoot()] = true
 		}
 	}
 	roots := make([]string, 0, len(seen))
@@ -240,7 +224,7 @@ func (view SelectedOrderView) DefinitionRoots() []string {
 
 func (view SelectedOrderView) SameSelection(other SelectedOrderView) bool {
 	if !view.selected.SameIntent(other.selected) || view.inventory.settingsPath != other.inventory.settingsPath ||
-		view.inventory.sourceContext == nil || other.inventory.sourceContext == nil || *view.inventory.sourceContext != *other.inventory.sourceContext {
+		view.inventory.sourceContext != other.inventory.sourceContext {
 		return false
 	}
 	return slices.EqualFunc(view.selection.relations, other.selection.relations, ScopedRelation.sameSelection) && slices.EqualFunc(view.retiring, other.retiring, ScopedRelation.sameSelection)
@@ -248,7 +232,7 @@ func (view SelectedOrderView) SameSelection(other SelectedOrderView) bool {
 
 func (left ScopedRelation) sameSelection(right ScopedRelation) bool {
 	return left.key.Subject() == right.key.Subject() && left.key.ExpectedRelation().Equal(right.key.ExpectedRelation()) && left.scope == right.scope &&
-		left.sourceContext != nil && right.sourceContext != nil && *left.sourceContext == *right.sourceContext
+		left.sourceContext == right.sourceContext
 }
 
 func (view SelectedOrderView) VerifySelectedExpected(selected observerelation.SelectedSequenceEdit, expected aggregate.Document) error {

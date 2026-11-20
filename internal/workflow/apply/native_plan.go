@@ -7,17 +7,17 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
-	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
-	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
-
 	"github.com/isty2e/daem/internal/assurance/durable"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
+	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -46,7 +46,7 @@ type nativePlanInputs struct {
 	opaque         bool
 	prefix         effectpreparation.NativeApplyStatePreparation
 	suffix         []effectpreparation.AggregateEffect
-	orders         []relationhost.SelectedDocumentEdit
+	orders         []selecteddoc.SelectedDocumentEdit
 }
 
 func rejectUnsupportedCommandPlan(planned commandPlan) error {
@@ -166,7 +166,7 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 	if err != nil {
 		return err
 	}
-	var nativeOrders []relationhost.SelectedDocumentEdit
+	var nativeOrders []selecteddoc.SelectedDocumentEdit
 	for _, order := range assessment.SequenceEdits {
 		if _, ordered := order.SelectedSequence().Constraint(); !ordered {
 			continue

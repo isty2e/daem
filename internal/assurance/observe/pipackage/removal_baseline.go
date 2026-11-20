@@ -43,7 +43,7 @@ func CaptureRemovalBaselines(
 	if err != nil {
 		return durablecarrier.EffectBaselineSet{}, fmt.Errorf("derive Pi local removal source: %w", err)
 	}
-	baseline, err := captureLocalSourceBaseline(ctx, identity.key)
+	baseline, err := captureLocalSourceBaseline(ctx, identity.LocalPath())
 	if err != nil {
 		return durablecarrier.EffectBaselineSet{}, err
 	}
@@ -93,7 +93,7 @@ func observeLocalSourceUnchanged(
 	if err != nil {
 		return observepostcondition.EvidenceMalformed, nil
 	}
-	view, err := artifactaccess.OpenView(identity.key)
+	view, err := artifactaccess.OpenView(identity.LocalPath())
 	if errors.Is(err, fs.ErrNotExist) {
 		if baseline.State() == durablecarrier.EffectBaselineAbsent {
 			return observepostcondition.EvidenceSatisfied, nil

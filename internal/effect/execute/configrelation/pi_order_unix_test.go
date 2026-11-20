@@ -13,7 +13,8 @@ import (
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
-	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -44,18 +45,18 @@ func TestOrderPublisherRefusesDuplicateSelectedPaths(t *testing.T) {
 	original := `{"packages":["npm:b@1","npm:a@1"]}`
 	writePiOrderSettings(t, path, original)
 	observation := mustPiOrderObservation(t, settings, root, target.ScopeProject, []piOrderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}})
-	view, err := observation.WithRetiringRelations(nil)
+	view, err := observation.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := relationhost.NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit}); err != nil {
+	if _, err := NewOrderPlan(t.Context(), []selecteddoc.SelectedDocumentEdit{edit}); err != nil {
 		t.Fatal("single selected document did not admit its publication plan", err)
 	}
-	plan, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit, edit})
+	plan, err := NewOrderPlan(t.Context(), []selecteddoc.SelectedDocumentEdit{edit, edit})
 	if err == nil || len(plan.documents) != 0 {
 		t.Fatal("duplicate path returned a partial or valid publication plan")
 	}
@@ -333,7 +334,7 @@ func TestPiOrderExecuteRejectsUnsafeConcurrentEntryChanges(t *testing.T) {
 		{
 			name: "oversized",
 			mutate: func(t *testing.T, path string) {
-				content := make([]byte, observepipackage.MaximumSettingsBytes+1)
+				content := make([]byte, piorder.MaximumSettingsBytes+1)
 				for index := range content {
 					content[index] = ' '
 				}
@@ -553,7 +554,7 @@ func mustPiOrderObservation(
 	commandRoot string,
 	scope target.Scope,
 	specs []piOrderSpec,
-) observepipackage.OrderObservation {
+) piorder.OrderObservation {
 	t.Helper()
 	path, err := observepipackage.SettingsPath(settings)
 	if err != nil {
@@ -579,7 +580,7 @@ func mustPiOrderObservation(
 		t.Fatalf("Pi %s order capability is absent", scope)
 	}
 	members := make([]hostrelation.RelationOrderMember, 0, len(specs))
-	relations := make([]observepipackage.ScopedRelation, 0, len(specs))
+	relations := make([]piorder.ScopedRelation, 0, len(specs))
 	for _, spec := range specs {
 		subject, err := topology.NewSubjectID(
 			topology.SubjectHostRelation,
@@ -605,7 +606,7 @@ func mustPiOrderObservation(
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := observepipackage.NewScopedRelationWithContext(key, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -641,7 +642,7 @@ func mustPiOrderObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
+	observation, err := piorder.ReconstructOrder(piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext,
 		Document: inventory.Document(), Constraint: constraint, Relations: relations,
 	})
@@ -663,18 +664,18 @@ func piOrderSettings(root string, scope target.Scope) observepipackage.SettingsI
 func bindPiOrder(
 	t *testing.T,
 	root string,
-	observation observepipackage.OrderObservation,
+	observation piorder.OrderObservation,
 ) *BoundOrder {
 	t.Helper()
-	view, err := observation.WithRetiringRelations(nil)
+	view, err := observation.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	edit, err := relationhost.NewPiDocumentEdit(view)
+	edit, err := selecteddoc.NewPiDocumentEdit(view)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := NewOrderPlan(t.Context(), []relationhost.SelectedDocumentEdit{edit})
+	plan, err := NewOrderPlan(t.Context(), []selecteddoc.SelectedDocumentEdit{edit})
 	if err != nil {
 		t.Fatalf("NewOrderPlan: %v", err)
 	}

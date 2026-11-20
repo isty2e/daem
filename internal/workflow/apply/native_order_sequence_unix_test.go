@@ -13,6 +13,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/selecteddoc"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -49,7 +50,7 @@ func TestNativeOrderCompletionAndDeferralPartitionPhysicalDocuments(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			var native relationhost.SelectedDocumentEdit
+			var native selecteddoc.SelectedDocumentEdit
 			for _, edit := range edits {
 				if edit.SelectedPath() == server {
 					native = edit
@@ -65,7 +66,7 @@ func TestNativeOrderCompletionAndDeferralPartitionPhysicalDocuments(t *testing.T
 				t.Fatal(err)
 			}
 			planned.assessment = readiness.Assessment{Reconciliation: initial}
-			planned.nativePlan = &nativePlanInputs{orders: []relationhost.SelectedDocumentEdit{native}}
+			planned.nativePlan = &nativePlanInputs{orders: []selecteddoc.SelectedDocumentEdit{native}}
 			classes, err := admittedOrderClassFacts(planned)
 			if err != nil || len(classes) != 1 || !classes[0].requiresMutation || !applyOrderScheduleFacts(classes)[0].requiresMutation {
 				t.Fatal("mixed class lost its ordinary mutation reservation", classes, err)
@@ -76,11 +77,11 @@ func TestNativeOrderCompletionAndDeferralPartitionPhysicalDocuments(t *testing.T
 				projectRoot: projectRoot, executionGuard: testApplyExecutionGuard(t, paths),
 				orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 			}
-			prepared, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []relationhost.SelectedDocumentEdit{native}, options)
+			prepared, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []selecteddoc.SelectedDocumentEdit{native}, options)
 			if err != nil || len(prepared.results) != 1 {
 				t.Fatal("native preparation required the unrelated ordinary actor", prepared, err)
 			}
-			image, err := relationhost.CompleteSelectedImage(t.Context(), native.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []relationhost.SelectedDocumentEdit{native})
+			image, err := selecteddoc.CompleteSelectedImage(t.Context(), native.Original(), configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32}, nil, []selecteddoc.SelectedDocumentEdit{native})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +171,7 @@ func TestNativeExactActorRefusesDriftAndKeepsTypedObservationFailure(t *testing.
 	path := filepath.Join(root, ".opencode", "opencode.json")
 	writeRelationOrderTestFile(t, path, `{"plugin":["alpha@1","beta@1"]}`)
 	initial := relationOrderTestReconciliation(t, paths, locked, nil)
-	observe := func() relationhost.SelectedDocumentEdit {
+	observe := func() selecteddoc.SelectedDocumentEdit {
 		t.Helper()
 		observation, err := relationhost.ObserveOrder(relationhost.OrderInput{Paths: paths, Lockfile: locked, Constraint: locked.Locked.OrderConstraints()[0]})
 		if err != nil {
@@ -186,27 +187,27 @@ func TestNativeExactActorRefusesDriftAndKeepsTypedObservationFailure(t *testing.
 			}
 		}
 		t.Fatal("fixture has no selected document")
-		return relationhost.SelectedDocumentEdit{}
+		return selecteddoc.SelectedDocumentEdit{}
 	}
 	exact := observe()
 	options := runOptions{orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders())}
-	if err := requireNativeSelectedActors([]relationhost.SelectedDocumentEdit{exact}, nil); err != nil {
+	if err := requireNativeSelectedActors([]selecteddoc.SelectedDocumentEdit{exact}, nil); err != nil {
 		t.Fatal("a checked exact native document invented a mutation actor", err)
 	}
 	writeRelationOrderTestFile(t, path, `{"plugin":["beta@1","alpha@1"]}`)
 	changed := observe()
-	if _, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []relationhost.SelectedDocumentEdit{exact}, options); err == nil {
+	if _, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []selecteddoc.SelectedDocumentEdit{exact}, options); err == nil {
 		t.Fatal("an exact native document drifted into the ordinary channel")
 	}
-	if requireNativeSelectedActors([]relationhost.SelectedDocumentEdit{changed}, nil) == nil ||
-		requireNativeSelectedActors(nil, []relationhost.SelectedDocumentEdit{changed}) == nil {
+	if requireNativeSelectedActors([]selecteddoc.SelectedDocumentEdit{changed}, nil) == nil ||
+		requireNativeSelectedActors(nil, []selecteddoc.SelectedDocumentEdit{changed}) == nil {
 		t.Fatal("qualification and bound publication actor sets diverged")
 	}
-	if err := requireNativeSelectedActors([]relationhost.SelectedDocumentEdit{changed}, []relationhost.SelectedDocumentEdit{changed}); err != nil {
+	if err := requireNativeSelectedActors([]selecteddoc.SelectedDocumentEdit{changed}, []selecteddoc.SelectedDocumentEdit{changed}); err != nil {
 		t.Fatal("matched selected publication actor was refused", err)
 	}
 	writeRelationOrderTestFile(t, path, `{`)
-	blocked, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []relationhost.SelectedDocumentEdit{exact}, options)
+	blocked, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []selecteddoc.SelectedDocumentEdit{exact}, options)
 	if !errors.Is(err, ErrRelationOrderBlock) || strings.Contains(err.Error(), root) ||
 		len(blocked.results) != 1 || blocked.results[0].Outcome() != RelationOrderNotAttempted {
 		t.Fatal("native observation lost its typed, path-neutral refusal", blocked.results, err)
@@ -236,7 +237,7 @@ func TestNativeSubsetWithoutDecisionIsNotTransferredToOrdinaryWriter(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			var native relationhost.SelectedDocumentEdit
+			var native selecteddoc.SelectedDocumentEdit
 			for _, edit := range edits {
 				if edit.SelectedPath() == tui {
 					native = edit
@@ -253,7 +254,7 @@ func TestNativeSubsetWithoutDecisionIsNotTransferredToOrdinaryWriter(t *testing.
 				t.Fatal(err)
 			}
 			options := runOptions{orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders())}
-			prepared, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []relationhost.SelectedDocumentEdit{native}, options)
+			prepared, err := prepareNativeOrderConvergence(t.Context(), paths, locked, initial, []selecteddoc.SelectedDocumentEdit{native}, options)
 			if err != nil || len(prepared.results) != 0 {
 				t.Fatal("empty native subset invented an order result", prepared, err)
 			}

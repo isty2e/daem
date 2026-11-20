@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -13,14 +13,14 @@ import (
 
 // PrepareNative16SelectedImage retains native16's private Pi checks while lowering
 // its order to the shared positional editor. Context qualification stays separate.
-func PrepareNative16SelectedImage(ctx context.Context, before aggregate.Document, limits configdocument.Limits, edits []compose.ProjectionEdit, order *pipackage.OrderObservation) (aggregate.Document, []compose.Participant, error) {
+func PrepareNative16SelectedImage(ctx context.Context, before aggregate.Document, limits configdocument.Limits, edits []compose.ProjectionEdit, order *piorder.OrderObservation) (aggregate.Document, []compose.Participant, error) {
 	if err := compose.ValidateImage(ctx, before, limits); err != nil {
 		return aggregate.Document{}, nil, err
 	}
 	var sequences []configdocument.JSONArrayEdit
 	preparationLimits := limits
 	if order != nil {
-		preparationLimits.MaximumBytes = min(preparationLimits.MaximumBytes, pipackage.MaximumSettingsBytes)
+		preparationLimits.MaximumBytes = min(preparationLimits.MaximumBytes, piorder.MaximumSettingsBytes)
 		if err := validateNative16OrderBaseline(before, *order); err != nil {
 			return aggregate.Document{}, nil, err
 		}
@@ -49,7 +49,7 @@ func PrepareNative16SelectedImage(ctx context.Context, before aggregate.Document
 
 // ReconstructNative16Selected validates legacy semantic evidence before lowering
 // it to the same positional comparison used by other selected arrays.
-func ReconstructNative16Selected(ctx context.Context, input journaldocument.ComparisonInput, participants []compose.Participant, order *pipackage.OrderObservation) (journaldocument.SelectedCandidate, error) {
+func ReconstructNative16Selected(ctx context.Context, input journaldocument.ComparisonInput, participants []compose.Participant, order *piorder.OrderObservation) (journaldocument.SelectedCandidate, error) {
 	for _, image := range []aggregate.Document{input.Before, input.Expected} {
 		if err := compose.ValidateImage(ctx, image, input.Limits); err != nil {
 			return journaldocument.SelectedCandidate{}, err
@@ -57,7 +57,7 @@ func ReconstructNative16Selected(ctx context.Context, input journaldocument.Comp
 	}
 	var sequences []configdocument.JSONArrayEdit
 	if order != nil {
-		if input.Expected.ContentSize() > pipackage.MaximumSettingsBytes {
+		if input.Expected.ContentSize() > piorder.MaximumSettingsBytes {
 			return journaldocument.SelectedCandidate{}, fmt.Errorf("Pi expected image exceeds the settings byte limit")
 		}
 		if err := validateNative16OrderBaseline(input.Before, *order); err != nil {
@@ -75,7 +75,7 @@ func ReconstructNative16Selected(ctx context.Context, input journaldocument.Comp
 	return journaldocument.ReconstructSelected(ctx, input, participants, sequences)
 }
 
-func validateNative16OrderBaseline(before aggregate.Document, order pipackage.OrderObservation) error {
+func validateNative16OrderBaseline(before aggregate.Document, order piorder.OrderObservation) error {
 	captured, err := order.CaptureInput()
 	if err != nil {
 		return err
@@ -93,7 +93,7 @@ func validateNative16OrderBaseline(before aggregate.Document, order pipackage.Or
 	return nil
 }
 
-func native16SequenceEdits(ctx context.Context, before, expected aggregate.Document, limits configdocument.Limits, order pipackage.OrderObservation) ([]configdocument.JSONArrayEdit, error) {
+func native16SequenceEdits(ctx context.Context, before, expected aggregate.Document, limits configdocument.Limits, order piorder.OrderObservation) ([]configdocument.JSONArrayEdit, error) {
 	if !order.Changed() {
 		return nil, nil
 	}
