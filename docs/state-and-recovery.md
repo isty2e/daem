@@ -68,10 +68,12 @@ does not grant package/cache ownership, runtime readiness or ambient exclusivity
 ### Missing State File
 
 An absent state file is not necessarily a first run. When the shared registry
-still records output ownership for the selected state file, commands that need
+still contains output claims for the selected state file, commands that need
 the applied baseline refuse instead of starting a new one. The registry records
 who owns an output, not the value last applied. The manifest, lockfile and live
-settings cannot reconstruct that history.
+settings cannot reconstruct that history. Document bindings or permission
+protection alone do not prove that a state file was lost; their existing
+document-level fences still apply.
 
 Restore a matching backup if you have one. Otherwise you can explicitly release
 the selected state file's settled output ownership. The release leaves host

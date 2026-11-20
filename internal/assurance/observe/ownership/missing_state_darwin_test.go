@@ -10,11 +10,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
-	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
 func TestMissingStateLegacyWitnessIsNeitherFreshNorReleaseAuthority(t *testing.T) {
@@ -38,34 +35,38 @@ func TestMissingStateLegacyWitnessIsNeitherFreshNorReleaseAuthority(t *testing.T
 	if err != nil || !exact.MatchesLegacyComparison(legacy) {
 		t.Fatalf("invalid comparison-only fixture: %v", err)
 	}
-	outputPath, err := mutation.ObservePersistedDirectoryEntryAuthority(filepath.Join(root, "output"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	address, err := outputownership.NewManagedAddressFromLegacy(outputPath.Exact(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, recorded := range []pathauthority.Exact{legacy, exact} {
-		owner, err := stateauthority.New(recorded, filepath.Join(workspace, "another-manifest.toml"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		claim, err := outputownership.NewActiveClaim(address, owner)
-		if err != nil {
-			t.Fatal(err)
-		}
-		registry, err := outputownership.NewRegistry([]outputownership.Claim{claim})
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = RequireMissingStateRegistryClear(t.Context(), missing, manifest, registry)
-		want := ErrMissingStateWithOutputs
-		if recorded == legacy {
-			want = ErrAmbiguousStateOwner
-		}
-		if !errors.Is(err, want) {
-			t.Fatalf("recorded witness %s: %v, want %v", recorded.Witness(), err, want)
+	for _, name := range []string{"existing parent", "missing parent"} {
+		t.Run(name, func(t *testing.T) {
+			for _, recorded := range []pathauthority.Exact{legacy, exact} {
+				owner := missingStateOwner(t, recorded, filepath.Join(workspace, "another-manifest.toml"))
+				registry := missingStateClaims(t, root, owner)
+				want := ErrMissingStateWithOutputs
+				if recorded == legacy {
+					want = ErrAmbiguousStateOwner
+				}
+				if err := RequireMissingStateRegistryClear(t.Context(), missing, manifest, registry); !errors.Is(err, want) {
+					t.Fatalf("recorded witness %s: %v, want %v", recorded.Witness(), err, want)
+				}
+				outputs, err := MatchMissingStateOutputs(t.Context(), missing, manifest, registry)
+				if recorded == legacy && (!outputs.Empty() || !errors.Is(err, want)) {
+					t.Fatalf("legacy evidence could authorize release: %v (%v)", outputs.Claims(), err)
+				}
+				if recorded == exact && (err != nil || len(outputs.Claims()) != 1) {
+					t.Fatalf("strict evidence did not select the owner: %v (%v)", outputs.Claims(), err)
+				}
+			}
+		})
+		if name == "existing parent" {
+			if err := os.Remove(workspace); err != nil {
+				t.Fatal(err)
+			}
+			missing, err = statefile.ObserveMissingState(t.Context(), path, physicalwork.NewCaptureBudget(nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, known := missing.OwnerPath().Provisional(); !known {
+				t.Fatal("a missing Unicode parent did not produce provisional authority")
+			}
 		}
 	}
 }

@@ -595,18 +595,22 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		)
 	}
 	var pending *workspacecleanup.Pending
+	var pendingFence error
 	var validate func(context.Context) error
 	if canPlanRecoveryCleanup(input, paths, lockfilePath) {
 		validate = func(ctx context.Context) error {
 			fenceErr := barrier.Validate(ctx)
 			var err error
 			pending, err = workspacecleanup.Observe(ctx, barrier, fenceErr)
+			if pending != nil {
+				pendingFence = fenceErr
+			}
 			return recoveryCleanupPlanningError(fenceErr, err)
 		}
 	}
 	planned, err := planReadinessAtPathsWithBarrierValidation(ctx, input, operationContext, paths, &barrier, validate)
 	if err != nil {
-		return unavailablePreparedWrite(planned.result), err
+		return unavailablePreparedWrite(planned.result), pendingRecoveryInputError(pendingFence, err)
 	}
 	if err := rejectUnsupportedCommandPlan(planned); err != nil {
 		return unavailablePreparedWrite(planned.result), err

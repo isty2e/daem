@@ -173,6 +173,11 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 		}
 	}
 	if declaration == nil && candidate.management == nil {
+		if missing, absent := state.Missing(); absent {
+			if err := ownershipobserve.RequireMissingStateClear(ctx, paths, missing, budget); err != nil {
+				return agentConfigReleaseCandidate{}, err
+			}
+		}
 		return agentConfigReleaseCandidate{}, ErrAgentConfigManagementNotFound
 	}
 	if declaration != nil {

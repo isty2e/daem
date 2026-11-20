@@ -56,16 +56,7 @@ func ObserveMissingState(ctx context.Context, selected string, budget rootedpath
 		return MissingState{}, err
 	}
 	defer func() { returnErr = errors.Join(returnErr, root.Close(), ctx.Err()) }()
-	capability, err := root.AcquireBounded(destination, depth, budget)
-	if err != nil {
-		return MissingState{}, err
-	}
-	defer func() { returnErr = errors.Join(returnErr, capability.Close()) }()
-	_, err = storagecommit.CaptureRootedEntryIdentity(ctx, capability)
-	if err == nil {
-		return MissingState{}, ErrStatefilePresent
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
+	if err := requireRootedStatefileAbsence(ctx, root, destination, budget); err != nil {
 		return MissingState{}, err
 	}
 	ownerPath, err := mutation.ObserveDirectoryEntryAuthorityBounded(path, depth, budget)
@@ -83,9 +74,25 @@ func ObserveMissingState(ctx context.Context, selected string, budget rootedpath
 	if !destination.Equal(currentDestination) {
 		return MissingState{}, mutation.StaleSnapshotError{}
 	}
-	_, err = storagecommit.CaptureRootedEntryIdentity(ctx, capability)
-	if !errors.Is(err, fs.ErrNotExist) {
+	if err := requireRootedStatefileAbsence(ctx, current, currentDestination, budget); err != nil {
 		return MissingState{}, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
-	return MissingState{path: path, destination: destination, ownerPath: ownerPath}, nil
+	return MissingState{path: path, destination: currentDestination, ownerPath: ownerPath}, nil
+}
+
+func requireRootedStatefileAbsence(ctx context.Context, root *rootedpath.CapturedRoot, destination rootedpath.Destination, budget rootedpath.PhysicalTraversalBudget) (returnErr error) {
+	capability, err := root.AcquireBounded(destination, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return err
+	}
+	defer func() { returnErr = errors.Join(returnErr, capability.Close()) }()
+	_, err = storagecommit.CaptureRootedEntryIdentity(ctx, capability)
+	switch {
+	case err == nil:
+		return ErrStatefilePresent
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	default:
+		return err
+	}
 }

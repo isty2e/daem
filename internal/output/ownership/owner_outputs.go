@@ -14,31 +14,40 @@ var (
 	ErrOwnerOutputsChanged  = errors.New("the selected output ownership records changed")
 )
 
+// RecordedOwner separates claim evidence from retained bindings or protection
+// participation, which can exist without an applied State baseline.
+type RecordedOwner struct {
+	Authority stateauthority.Authority
+	HasClaim  bool
+}
+
 // RecordedOwners includes protection participants even when they have no
 // current binding row. Manifest provenance is retained for each recorded owner.
-func (registry Registry) RecordedOwners() ([]stateauthority.Authority, error) {
+func (registry Registry) RecordedOwners() ([]RecordedOwner, error) {
 	if !registry.initialized {
 		return nil, fmt.Errorf("ownership registry is required")
 	}
-	seen := make(map[stateauthority.Authority]struct{})
-	var owners []stateauthority.Authority
-	add := func(owner stateauthority.Authority) {
-		if _, exists := seen[owner]; !exists {
-			seen[owner] = struct{}{}
-			owners = append(owners, owner)
+	indices := make(map[stateauthority.Authority]int)
+	var owners []RecordedOwner
+	add := func(owner stateauthority.Authority, hasClaim bool) {
+		if index, exists := indices[owner]; exists {
+			owners[index].HasClaim = owners[index].HasClaim || hasClaim
+		} else {
+			indices[owner] = len(owners)
+			owners = append(owners, RecordedOwner{Authority: owner, HasClaim: hasClaim})
 		}
 	}
 	for _, claim := range registry.claims {
-		add(claim.Owner())
+		add(claim.Owner(), true)
 	}
 	for _, binding := range registry.bindings {
-		add(binding.Owner())
+		add(binding.Owner(), false)
 	}
 	for _, protection := range registry.protections {
-		add(protection.Owner())
+		add(protection.Owner(), false)
 		for _, document := range protection.documents {
 			for _, binding := range document.bindings {
-				add(binding.Owner())
+				add(binding.Owner(), false)
 			}
 		}
 	}

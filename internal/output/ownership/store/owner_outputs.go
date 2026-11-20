@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -16,9 +15,10 @@ import (
 func (store Store) ReleaseOwnerOutputs(
 	ctx context.Context,
 	expected ownership.OwnerOutputs,
+	writer mutationfs.RootedEntryCommitter,
 	revalidate func(context.Context, ownership.Registry) error,
 ) (_ mutationfs.CommitOutcome, returnErr error) {
-	if store.root == nil || expected.Empty() || revalidate == nil {
+	if store.root == nil || expected.Empty() || writer == nil || revalidate == nil {
 		return mutationfs.CommitOutcome{}, fmt.Errorf("output ownership release requires a rooted registry, selected records, and revalidation")
 	}
 	current, identity, exists, capability, err := store.loadRecordedForUpdate(ctx)
@@ -49,5 +49,5 @@ func (store Store) ReleaseOwnerOutputs(
 	}
 	commitCapability := capability
 	capability = nil
-	return (storagecommit.Adapter{}).ReplaceRootedFileWithOutcome(ctx, commitCapability, content, 0o600, identity)
+	return writer.ReplaceRootedFileWithOutcome(ctx, commitCapability, content, 0o600, identity)
 }

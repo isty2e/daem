@@ -457,7 +457,9 @@ func applyFailureDiagnostic(
 	if instruction != "" {
 		diagnostic = diagnostic.WithGuidance(clipresent.InstructionGuidance(instruction))
 	}
-	if verbose && err != nil {
+	if note, missing := clipresent.MissingStateEvidenceGuidance(err); missing {
+		diagnostic = diagnostic.WithGuidance(note)
+	} else if verbose && err != nil {
 		diagnostic = diagnostic.WithGuidance(clipresent.BoundedEvidenceGuidance(err, maximumVerboseApplyFailureEvidenceRunes, "apply failure evidence: "))
 	}
 	return diagnostic

@@ -24,8 +24,8 @@ func MissingStateFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 		manifest := protection.Protection.Owner().ManifestPath()
 		if manifest == refusal.ManifestPath() {
 			diagnostic = diagnostic.WithGuidance(missingStateCommand(manifest, "to inspect pending permission recovery", "recover", "--dry-run"))
-		} else if safeReleaseReference(manifest) {
-			diagnostic = diagnostic.WithGuidance(InstructionGuidance(fmt.Sprintf("preserve the records and preview daem recover --dry-run for the original selection of the protection owner (%q)", manifest)))
+		} else if visibleRecoveryReference(manifest) {
+			diagnostic = diagnostic.WithGuidance(InstructionGuidance(fmt.Sprintf("preserve the records and preview daem recover --dry-run for the original selection of the protection owner (%s)", Quote(manifest))))
 		} else {
 			diagnostic = diagnostic.WithGuidance(InstructionGuidance("preserve the records and preview daem recover --dry-run with the original selection of the protection owner"))
 		}
@@ -48,8 +48,21 @@ func MissingStateFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 	return diagnostic, true
 }
 
+// MissingStateEvidenceGuidance adds the loss as context when a recovery fence
+// takes priority, and replaces raw verbose evidence for missing-state errors.
+func MissingStateEvidenceGuidance(err error) (Guidance, bool) {
+	var refusal *ownershipobserve.MissingStateRefusal
+	if !errors.As(err, &refusal) {
+		return Guidance{}, false
+	}
+	if recoverygate.IsCancellation(err) || !recoverygate.IsBarrierRefusal(err) {
+		return Guidance{}, true
+	}
+	return NoteGuidance(refusal.Error()), true
+}
+
 func missingStateCommand(manifest, purpose, command string, flags ...string) Guidance {
-	if safeReleaseReference(manifest) {
+	if visibleRecoveryReference(manifest) {
 		args := ManifestCommandArguments([]string{command}, manifest, HumanOptions{}, flags...)
 		if guidance, err := CommandGuidance(args, purpose); err == nil {
 			return guidance

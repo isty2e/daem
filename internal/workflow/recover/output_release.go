@@ -32,11 +32,12 @@ const (
 
 // OutputReleasePlan contains only disclosure facts, never write authority.
 type OutputReleasePlan struct {
-	ManifestPath      string
-	RecordedManifests []string
-	Locations         []string
-	ClaimCount        int
-	BindingCount      int
+	ManifestPath          string
+	RecordedManifests     []string
+	Locations             []string
+	WithheldLocationCount int
+	ClaimCount            int
+	BindingCount          int
 }
 
 func (plan OutputReleasePlan) Empty() bool { return plan.ClaimCount+plan.BindingCount == 0 }
@@ -61,13 +62,15 @@ func (prepared outputReleasePreparation) disclose() OutputReleasePlan {
 		plan.Locations = append(plan.Locations, binding.Destination().String())
 		bound[binding.PathAuthority()] = struct{}{}
 	}
+	unbound := make(map[pathauthority.Exact]struct{})
 	for _, claim := range claims {
 		plan.RecordedManifests = append(plan.RecordedManifests, claim.Owner().ManifestPath())
 		physical := claim.Address().PathAuthority()
 		if _, hasLogicalLocation := bound[physical]; !hasLogicalLocation {
-			plan.Locations = append(plan.Locations, physical.Key())
+			unbound[physical] = struct{}{}
 		}
 	}
+	plan.WithheldLocationCount = len(unbound)
 	slices.Sort(plan.RecordedManifests)
 	plan.RecordedManifests = slices.Compact(plan.RecordedManifests)
 	slices.Sort(plan.Locations)
@@ -75,7 +78,7 @@ func (prepared outputReleasePreparation) disclose() OutputReleasePlan {
 	return plan
 }
 
-func planOutputRelease(ctx context.Context, input PlanInput) (_ outputReleasePreparation, returnErr error) {
+func planOutputRelease(ctx context.Context, input PlanInput) (outputReleasePreparation, error) {
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return outputReleasePreparation{}, err
@@ -84,6 +87,10 @@ func planOutputRelease(ctx context.Context, input PlanInput) (_ outputReleasePre
 	if err != nil {
 		return outputReleasePreparation{}, err
 	}
+	return observeOutputRelease(ctx, paths, barrier)
+}
+
+func observeOutputRelease(ctx context.Context, paths daempaths.Paths, barrier recoverygate.EffectAuthority) (_ outputReleasePreparation, returnErr error) {
 	if err := barrier.Validate(ctx); err != nil {
 		return outputReleasePreparation{}, err
 	}
@@ -117,18 +124,22 @@ func planOutputRelease(ctx context.Context, input PlanInput) (_ outputReleasePre
 	return outputReleasePreparation{barrier: barrier, paths: paths, missing: missing, registryDestination: destination, outputs: outputs}, nil
 }
 
-func (prepared outputReleasePreparation) execute(ctx context.Context) (phase OutputReleasePhase, returnErr error) {
+func (prepared outputReleasePreparation) execute(ctx context.Context, writer mutationfs.RootedEntryCommitter) (phase OutputReleasePhase, returnErr error) {
 	if ctx == nil {
 		return OutputReleaseRefused, fmt.Errorf("output ownership release context is required")
 	}
-	if err := prepared.barrier.Validate(ctx); err != nil {
-		return OutputReleaseRefused, err
-	}
 	if prepared.outputs.Empty() {
-		if err := ownershipobserve.RevalidateStateAdmission(ctx, prepared.paths, prepared.missing); err != nil {
+		current, err := observeOutputRelease(ctx, prepared.paths, prepared.barrier)
+		if err != nil {
 			return OutputReleaseRefused, err
 		}
+		if !current.missing.Equal(prepared.missing) || !current.registryDestination.Equal(prepared.registryDestination) || !current.outputs.Empty() {
+			return OutputReleaseRefused, mutation.StaleSnapshotError{}
+		}
 		return OutputReleaseNothing, nil
+	}
+	if err := prepared.barrier.Validate(ctx); err != nil {
+		return OutputReleaseRefused, err
 	}
 	store, err := mutation.NewStore(prepared.paths.DataDir)
 	if err != nil {
@@ -170,7 +181,7 @@ func (prepared outputReleasePreparation) execute(ctx context.Context) (phase Out
 	// Take the State proof and compare the selected rows again under the same
 	// lease that protects the registry snapshot supplied to publication.
 	var qualificationErr error
-	outcome, err := registryStore.ReleaseOwnerOutputs(ctx, prepared.outputs, func(ctx context.Context, registry ownership.Registry) error {
+	outcome, err := registryStore.ReleaseOwnerOutputs(ctx, prepared.outputs, writer, func(ctx context.Context, registry ownership.Registry) error {
 		qualificationErr = prepared.revalidate(ctx, paths, leases, destination, registry, budget)
 		return qualificationErr
 	})
@@ -258,6 +269,9 @@ func requireOutputRegistrySeparation(ctx context.Context, paths daempaths.Paths,
 			return outputRegistryFailure(err)
 		}
 		if registryEntry.MayOverlap(entry) || registryEntry.MayOverlap(referent) {
+			if path == paths.CacheDir {
+				return fmt.Errorf("the output ownership registry overlaps the cache directory; check that XDG_DATA_HOME and XDG_CACHE_HOME select separate locations")
+			}
 			return fmt.Errorf("the output ownership registry overlaps another workspace file or directory")
 		}
 	}

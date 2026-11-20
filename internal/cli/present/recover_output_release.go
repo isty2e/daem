@@ -4,9 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/contractversion"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
@@ -22,26 +19,27 @@ type outputReleaseDisclosure struct {
 	BindingCount          int      `json:"binding_count"`
 }
 
-func safeReleaseReference(value string) bool {
-	return value != "" && utf8.ValidString(value) && strings.IndexFunc(value, func(r rune) bool { return !unicode.IsGraphic(r) }) < 0
+func visibleRecoveryReference(value string) bool {
+	return value != "" && !shellArgumentRequiresReconstruction(value)
 }
 
 func releaseDisclosure(plan recoverworkflow.OutputReleasePlan) outputReleaseDisclosure {
 	result := outputReleaseDisclosure{
 		RecordedManifests: []string{}, Locations: []string{}, ClaimCount: plan.ClaimCount, BindingCount: plan.BindingCount,
+		WithheldLocationCount: plan.WithheldLocationCount,
 	}
-	if safeReleaseReference(plan.ManifestPath) {
+	if visibleRecoveryReference(plan.ManifestPath) {
 		result.Manifest = plan.ManifestPath
 	}
 	for _, manifest := range plan.RecordedManifests {
-		if safeReleaseReference(manifest) {
+		if visibleRecoveryReference(manifest) {
 			result.RecordedManifests = append(result.RecordedManifests, manifest)
 		} else {
 			result.WithheldManifestCount++
 		}
 	}
 	for _, location := range plan.Locations {
-		if safeReleaseReference(location) {
+		if visibleRecoveryReference(location) {
 			result.Locations = append(result.Locations, location)
 		} else {
 			result.WithheldLocationCount++
@@ -86,10 +84,10 @@ func PrintOutputRelease(output io.Writer, plan recoverworkflow.OutputReleasePlan
 		disclosure := releaseDisclosure(plan)
 		fmt.Fprintf(output, "would release all recorded output ownership for the selected state file (%d claims, %d document bindings)\n", plan.ClaimCount, plan.BindingCount)
 		for _, manifest := range disclosure.RecordedManifests {
-			fmt.Fprintf(output, "manifest in the recorded ownership: %s\n", Escape(manifest))
+			fmt.Fprintf(output, "manifest in the recorded ownership: %s\n", Quote(manifest))
 		}
 		for _, location := range disclosure.Locations {
-			fmt.Fprintf(output, "output: %s\n", Escape(location))
+			fmt.Fprintf(output, "output: %s\n", Quote(location))
 		}
 		if disclosure.WithheldManifestCount+disclosure.WithheldLocationCount > 0 {
 			fmt.Fprintf(output, "references not shown: %d manifests, %d locations\n", disclosure.WithheldManifestCount, disclosure.WithheldLocationCount)

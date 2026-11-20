@@ -213,10 +213,11 @@ func Execute(
 		return ExecutionResult{}, err
 	}
 	if release, ok := selected.(outputReleasePreparation); ok {
+		var writer mutationfs.RootedEntryCommitter = storagecommit.Adapter{}
 		if options.Filesystem != nil {
-			return ExecutionResult{outputRelease: OutputReleaseRefused}, fmt.Errorf("output ownership release requires the rooted registry adapter")
+			writer = options.Filesystem
 		}
-		phase, err := release.execute(ctx)
+		phase, err := release.execute(ctx, writer)
 		return ExecutionResult{outputRelease: phase}, err
 	}
 	if safety, ok := selected.(permissionPreparation); ok {

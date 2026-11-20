@@ -47,6 +47,10 @@ func (refusal *MissingStateRefusal) Error() string {
 // MatchMissingStateOutputs compares recorded keys without reopening the outputs
 // or treating a historical alias as authority to release a recorded owner.
 func MatchMissingStateOutputs(ctx context.Context, missing statefile.MissingState, manifest string, registry outputownership.Registry) (outputownership.OwnerOutputs, error) {
+	return matchMissingStateOutputs(ctx, missing, manifest, registry, false)
+}
+
+func matchMissingStateOutputs(ctx context.Context, missing statefile.MissingState, manifest string, registry outputownership.Registry, requireClaim bool) (outputownership.OwnerOutputs, error) {
 	if err := ctx.Err(); err != nil {
 		return outputownership.OwnerOutputs{}, err
 	}
@@ -59,14 +63,17 @@ func MatchMissingStateOutputs(ctx context.Context, missing statefile.MissingStat
 		return outputownership.OwnerOutputs{}, err
 	}
 	var selected stateauthority.Key
-	for _, owner := range owners {
+	var relevantClaim, ambiguous bool
+	for _, recorded := range owners {
 		if err := ctx.Err(); err != nil {
 			return outputownership.OwnerOutputs{}, err
 		}
+		owner := recorded.Authority
 		retained := owner.StatefileAuthority()
 		var strict, legacy bool
 		if exact, known := observed.Exact(); known {
-			strict, legacy = exact.Equal(retained), exact.MatchesLegacyComparison(retained)
+			strict = exact.Equal(retained)
+			legacy = exact.MatchesLegacyComparison(retained) || retained.MatchesLegacyComparison(exact)
 		} else {
 			provisional, _ := observed.Provisional()
 			strict = provisional.CandidateKey() == retained.Key() && provisional.CandidateWitness() == retained.Witness()
@@ -74,17 +81,22 @@ func MatchMissingStateOutputs(ctx context.Context, missing statefile.MissingStat
 		}
 		if !strict {
 			if legacy || observed.NamespaceKey() == retained.Key() || owner.ManifestPath() == manifest {
-				return outputownership.OwnerOutputs{}, &MissingStateRefusal{manifest: manifest, cause: ErrAmbiguousStateOwner}
+				ambiguous = true
+				relevantClaim = relevantClaim || recorded.HasClaim
 			}
 			continue
 		}
-		if selected != (stateauthority.Key{}) && selected != owner.Key() {
-			return outputownership.OwnerOutputs{}, &MissingStateRefusal{manifest: manifest, cause: ErrAmbiguousStateOwner}
-		}
+		relevantClaim = relevantClaim || recorded.HasClaim
 		selected = owner.Key()
 	}
 	if err := ctx.Err(); err != nil {
 		return outputownership.OwnerOutputs{}, err
+	}
+	if requireClaim && !relevantClaim {
+		return outputownership.OwnerOutputs{}, nil
+	}
+	if ambiguous {
+		return outputownership.OwnerOutputs{}, &MissingStateRefusal{manifest: manifest, cause: ErrAmbiguousStateOwner}
 	}
 	if selected == (stateauthority.Key{}) {
 		return outputownership.OwnerOutputs{}, nil
@@ -117,7 +129,7 @@ func RequireMissingStateClear(ctx context.Context, paths daempaths.Paths, missin
 }
 
 func RequireMissingStateRegistryClear(ctx context.Context, missing statefile.MissingState, manifest string, registry outputownership.Registry) error {
-	outputs, err := MatchMissingStateOutputs(ctx, missing, manifest, registry)
+	outputs, err := matchMissingStateOutputs(ctx, missing, manifest, registry, true)
 	if err != nil {
 		return err
 	}
@@ -136,6 +148,8 @@ func RevalidateStateAdmission(ctx context.Context, paths daempaths.Paths, planne
 		return cancellation
 	}
 	switch {
+	case errors.Is(err, mutation.StaleSnapshotError{}):
+		return err
 	case errors.Is(err, statefile.ErrStatefilePresent):
 		if planned.Path() != "" {
 			return mutation.StaleSnapshotError{}
