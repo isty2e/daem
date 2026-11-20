@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -42,7 +44,7 @@ type selectedDocumentOrigin interface {
 type (
 	piSelectedOrigin       struct{ observation piorder.SelectedOrderView }
 	openCodeSelectedOrigin struct {
-		observation opencodeplugin.SelectedDocumentOrderView
+		observation opencodeorder.SelectedDocumentOrderView
 	}
 )
 
@@ -166,13 +168,13 @@ func NewPiDocumentEdit(view piorder.SelectedOrderView) (SelectedDocumentEdit, er
 	return edit, nil
 }
 
-func NewOpenCodeDocumentEdit(view opencodeplugin.SelectedDocumentOrderView) (SelectedDocumentEdit, error) {
+func NewOpenCodeDocumentEdit(view opencodeorder.SelectedDocumentOrderView) (SelectedDocumentEdit, error) {
 	selected := view.SelectedSequence()
 	address, err := aggregate.NewDocumentAddress(target.TargetOpenCode, view.Scope(), selected.Projection().Destination())
 	if err != nil {
 		return SelectedDocumentEdit{}, err
 	}
-	edit := SelectedDocumentEdit{selected: selected, document: address, original: view.OriginalDocument(), path: view.Path(), maximumBytes: opencodeplugin.MaximumConfigBytes, origin: openCodeSelectedOrigin{view}}
+	edit := SelectedDocumentEdit{selected: selected, document: address, original: view.OriginalDocument(), path: view.Path(), maximumBytes: opencodeorder.MaximumConfigBytes, origin: openCodeSelectedOrigin{view}}
 	if err := edit.Validate(); err != nil {
 		return SelectedDocumentEdit{}, err
 	}
@@ -275,12 +277,12 @@ func ObserveOpenCodeHandoffRetirementEdits(
 	if err != nil {
 		return nil, err
 	}
-	var desired []opencodeplugin.ScopedRelation
+	var desired []opencodeorder.ScopedRelation
 	for _, record := range records {
 		if record.scope != scope || record.carrier != desiredextension.CarrierOpenCodePlugin {
 			continue
 		}
-		relation, err := opencodeplugin.NewScopedRelation(record.key, scope)
+		relation, err := opencodeorder.NewScopedRelation(record.key, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +294,7 @@ func ObserveOpenCodeHandoffRetirementEdits(
 	}
 	var edits []SelectedDocumentEdit
 	for _, document := range inventory.Documents() {
-		view, err := opencodeplugin.ReconstructHandoffRetirement(capability, document, desired, relations, handoffs)
+		view, err := opencodeorder.ReconstructHandoffRetirement(capability, document, desired, relations, handoffs)
 		if err != nil {
 			return nil, err
 		}
@@ -305,14 +307,14 @@ func ObserveOpenCodeHandoffRetirementEdits(
 	return edits, nil
 }
 
-func openCodeRetiringRelations(retiring []durablecarrier.ManagedCarrierClaim, scope target.Scope) ([]opencodeplugin.ScopedRelation, error) {
+func openCodeRetiringRelations(retiring []durablecarrier.ManagedCarrierClaim, scope target.Scope) ([]opencodeorder.ScopedRelation, error) {
 	keys, err := retiringCorrelations(retiring, target.TargetOpenCode, scope, desiredextension.CarrierOpenCodePlugin)
 	if err != nil {
 		return nil, err
 	}
-	var relations []opencodeplugin.ScopedRelation
+	var relations []opencodeorder.ScopedRelation
 	for _, key := range keys {
-		relation, err := opencodeplugin.NewScopedRelation(key, scope)
+		relation, err := opencodeorder.NewScopedRelation(key, scope)
 		if err != nil {
 			return nil, err
 		}

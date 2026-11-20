@@ -10,6 +10,7 @@ import (
 
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -346,7 +347,7 @@ func TestReadOrderRejectsUnsafeSelectedDocuments(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			content := make([]byte, observeopencode.MaximumConfigBytes+1)
+			content := make([]byte, opencodeorder.MaximumConfigBytes+1)
 			for index := range content {
 				content[index] = ' '
 			}
@@ -411,7 +412,7 @@ func mustOpenCodeOrderObservation(
 	directory string,
 	scope target.Scope,
 	specs []openCodeOrderSpec,
-) observeopencode.OrderObservation {
+) opencodeorder.OrderObservation {
 	t.Helper()
 	observation, err := openCodeOrderObservation(input, directory, scope, specs)
 	if err != nil {
@@ -425,19 +426,19 @@ func openCodeOrderObservation(
 	directory string,
 	scope target.Scope,
 	specs []openCodeOrderSpec,
-) (observeopencode.OrderObservation, error) {
+) (opencodeorder.OrderObservation, error) {
 	capability, admitted := profile.Profile(target.TargetOpenCode).ExtensionOrder(
 		desiredextension.CarrierOpenCodePlugin,
 		scope,
 	)
 	if !admitted {
-		return observeopencode.OrderObservation{}, fmt.Errorf(
+		return opencodeorder.OrderObservation{}, fmt.Errorf(
 			"OpenCode %s order capability is absent",
 			scope,
 		)
 	}
 	members := make([]hostrelation.RelationOrderMember, 0, len(specs))
-	relations := make([]observeopencode.ScopedRelation, 0, len(specs))
+	relations := make([]opencodeorder.ScopedRelation, 0, len(specs))
 	for _, spec := range specs {
 		subject, err := topology.NewSubjectID(
 			topology.SubjectHostRelation,
@@ -445,42 +446,42 @@ func openCodeOrderObservation(
 			spec.id,
 		)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		subjectKey, err := hostrelation.NewSubjectKey(spec.source)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		managedKey, err := hostrelation.NewManagedInstanceKey("host-relation:v1:" + spec.id)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		expected, err := hostrelation.NewExpectedRelation(subjectKey, managedKey)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		key, err := observerelation.NewCorrelationKey(subject, expected)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
-		relation, err := observeopencode.NewScopedRelation(key, scope)
+		relation, err := opencodeorder.NewScopedRelation(key, scope)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		identity, err := opencodeconfig.HostLoadIdentity(
 			spec.source,
 			filepath.Join(directory, "opencode.json"),
 		)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		loadIdentity, err := hostrelation.NewHostLoadIdentity(identity)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		member, err := hostrelation.NewRelationOrderMember(subject, loadIdentity)
 		if err != nil {
-			return observeopencode.OrderObservation{}, err
+			return opencodeorder.OrderObservation{}, err
 		}
 		relations = append(relations, relation)
 		members = append(members, member)
@@ -492,10 +493,11 @@ func openCodeOrderObservation(
 		members,
 	)
 	if err != nil {
-		return observeopencode.OrderObservation{}, err
+		return opencodeorder.OrderObservation{}, err
 	}
 	return observeopencode.ReadOrder(observeopencode.OrderInput{
 		Inventory:  input,
+		Capability: capability,
 		Constraint: constraint,
 		Relations:  relations,
 	})

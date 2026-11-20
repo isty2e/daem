@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
@@ -102,7 +105,7 @@ func TestSelectedOrderDecisionRetainsPhysicalSubsetAndClasslessCardinality(t *te
 		t.Fatal("fixture has no order capability")
 	}
 	for _, document := range inventory.Documents() {
-		view, err := opencodeplugin.ReconstructRetirement(capability, document, nil, nil)
+		view, err := opencodeorder.ReconstructHandoffRetirement(capability, document, nil, nil, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
@@ -104,12 +106,12 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 		}
 	}
 	capability, _ := profile.Profile(target.TargetOpenCode).ExtensionOrder(desiredextension.CarrierOpenCodePlugin, target.ScopeGlobal)
-	var desired, retiring []opencodeplugin.ScopedRelation
+	var desired, retiring []opencodeorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	var pairs []observerelation.OrderHandoffSpec
 	for _, name := range []string{"a", "b"} {
 		key := selectedRetirementKey(t, "opencode.plugin-carrier", name, name+"@1")
-		relation, err := opencodeplugin.NewScopedRelation(key, target.ScopeGlobal)
+		relation, err := opencodeorder.NewScopedRelation(key, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -128,7 +130,7 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 			source = "b@1"
 		}
 		oldKey := selectedRetirementKey(t, "opencode.plugin-carrier", name, source)
-		old, err := opencodeplugin.NewScopedRelation(oldKey, target.ScopeGlobal)
+		old, err := opencodeorder.NewScopedRelation(oldKey, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,7 +141,7 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: desired})
+	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Capability: capability, Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: desired})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +168,7 @@ func TestSelectedOpenCodeHandoffRetiresEachPhysicalDocument(t *testing.T) {
 		t.Fatal("fixture lost physical document membership")
 	}
 	for _, document := range base.Documents() {
-		if _, err := document.WithRetiringRelations(retiring); err == nil {
+		if _, err := document.WithHandoffRetirements(retiring, observerelation.OrderHandoffs{}); err == nil {
 			t.Fatal("ordinary deletion admitted a desired-source overlap")
 		}
 		view, err := document.WithHandoffRetirements(retiring, events)

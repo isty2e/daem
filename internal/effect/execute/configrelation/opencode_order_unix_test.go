@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
@@ -490,7 +492,7 @@ func mustOpenCodeEffectObservation(
 	input observeopencode.InventoryInput,
 	directory string,
 	scope target.Scope,
-) observeopencode.OrderObservation {
+) opencodeorder.OrderObservation {
 	t.Helper()
 	capability, admitted := profile.Profile(target.TargetOpenCode).ExtensionOrder(
 		desiredextension.CarrierOpenCodePlugin,
@@ -507,7 +509,7 @@ func mustOpenCodeEffectObservation(
 		{id: "beta", source: "beta@1"},
 	}
 	members := make([]hostrelation.RelationOrderMember, 0, len(specs))
-	relations := make([]observeopencode.ScopedRelation, 0, len(specs))
+	relations := make([]opencodeorder.ScopedRelation, 0, len(specs))
 	for _, spec := range specs {
 		subject, err := topology.NewSubjectID(
 			topology.SubjectHostRelation,
@@ -533,7 +535,7 @@ func mustOpenCodeEffectObservation(
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := observeopencode.NewScopedRelation(key, scope)
+		relation, err := opencodeorder.NewScopedRelation(key, scope)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -564,7 +566,7 @@ func mustOpenCodeEffectObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{
+	observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{Capability: capability,
 		Inventory:  input,
 		Constraint: constraint,
 		Relations:  relations,
@@ -578,12 +580,12 @@ func mustOpenCodeEffectObservation(
 func bindOpenCodeOrder(
 	t *testing.T,
 	root string,
-	observation observeopencode.OrderObservation,
+	observation opencodeorder.OrderObservation,
 ) *BoundOrder {
 	t.Helper()
 	var edits []relationhost.SelectedDocumentEdit
 	for _, document := range observation.Documents() {
-		view, err := document.WithRetiringRelations(nil)
+		view, err := document.WithHandoffRetirements(nil, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}

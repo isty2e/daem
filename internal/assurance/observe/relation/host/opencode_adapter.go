@@ -3,6 +3,8 @@ package relationhost
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -83,7 +85,7 @@ func observeOpenCodePlugins(input Input, records []carrierRecord) (relationobser
 
 func correlateOpenCodeRelation(
 	record carrierRecord,
-	documents []observeopencode.Document,
+	documents []opencodeorder.Document,
 ) (relationobserve.CorrelationResult, error) {
 	if err := record.key.Validate(); err != nil {
 		return relationobserve.CorrelationResult{}, fmt.Errorf(

@@ -314,6 +314,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/assurance/observe/opencodeplugin"},
 	},
 	{
+		id:        "assurance.order.opencode",
+		placement: specializedPlacement(affinityAssurance, roleCodec, specializationHost, "OpenCode"),
+		packages:  []string{"internal/assurance/observe/relation/opencodeorder"},
+	},
+	{
 		id:        "assurance.order.pi",
 		placement: specializedPlacement(affinityAssurance, roleCodec, specializationHost, "Pi"),
 		packages:  []string{"internal/assurance/observe/relation/piorder"},

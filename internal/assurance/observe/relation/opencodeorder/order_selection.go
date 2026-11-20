@@ -1,4 +1,4 @@
-package opencodeplugin
+package opencodeorder
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -55,6 +54,7 @@ type orderSelection struct {
 }
 
 func newOrderSelection(
+	capability profile.ExtensionOrderCapability,
 	scope target.Scope,
 	directory string,
 	constraint hostrelation.RelationOrderConstraint,
@@ -63,16 +63,11 @@ func newOrderSelection(
 	if err := constraint.Validate(); err != nil {
 		return orderSelection{}, fmt.Errorf("OpenCode plugin order constraint: %w", err)
 	}
-	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
-		return orderSelection{}, fmt.Errorf("OpenCode plugin order directory is not canonical")
+	if err := capability.Validate(); err != nil {
+		return orderSelection{}, err
 	}
-	capability, admitted := hostsurfacecatalog.Product().ExtensionOrderCapability(
-		target.TargetOpenCode,
-		scope,
-		desiredextension.CarrierOpenCodePlugin,
-	)
-	if !admitted {
-		return orderSelection{}, fmt.Errorf("OpenCode %s plugin order is not admitted", scope)
+	if capability.Carrier() != desiredextension.CarrierOpenCodePlugin || capability.Scope() != scope {
+		return orderSelection{}, fmt.Errorf("OpenCode %s plugin order requires a matching capability", scope)
 	}
 	if constraint.ClassID() != capability.ClassID() ||
 		constraint.MemberIdentityContract() != capability.MemberIdentityContract() ||

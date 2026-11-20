@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
@@ -165,11 +167,11 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	if !admitted {
 		t.Fatal("OpenCode capability unavailable")
 	}
-	var relations []opencodeplugin.ScopedRelation
+	var relations []opencodeorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for _, name := range []string{"a", "b"} {
 		key := selectedRetirementKey(t, "opencode.plugin-carrier", name, name+"@1")
-		relation, err := opencodeplugin.NewScopedRelation(key, target.ScopeGlobal)
+		relation, err := opencodeorder.NewScopedRelation(key, target.ScopeGlobal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -187,7 +189,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: relations})
+	base, err := opencodeplugin.ReadOrder(opencodeplugin.OrderInput{Capability: capability, Inventory: opencodeplugin.InventoryInput{ManifestRoot: root, ConfigRoot: directory, Scope: target.ScopeGlobal}, Constraint: constraint, Relations: relations})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +197,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	if err != nil || len(edits) != 2 {
 		t.Fatal("fixture did not retain both physical documents", err)
 	}
-	retiring, err := opencodeplugin.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", "r", "r@1"), target.ScopeGlobal)
+	retiring, err := opencodeorder.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", "r", "r@1"), target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,14 +207,14 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 	}
 	for index, document := range base.Documents() {
 		if index == 0 {
-			relationFor := func(name, source string, scope target.Scope) opencodeplugin.ScopedRelation {
-				relation, err := opencodeplugin.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", name, source), scope)
+			relationFor := func(name, source string, scope target.Scope) opencodeorder.ScopedRelation {
+				relation, err := opencodeorder.NewScopedRelation(selectedRetirementKey(t, "opencode.plugin-carrier", name, source), scope)
 				if err != nil {
 					t.Fatal(err)
 				}
 				return relation
 			}
-			for name, relations := range map[string][]opencodeplugin.ScopedRelation{
+			for name, relations := range map[string][]opencodeorder.ScopedRelation{
 				"desired source":          {relationFor("renamed", "a@1", target.ScopeGlobal)},
 				"desired load identity":   {relationFor("renamed", "a@2", target.ScopeGlobal)},
 				"wrong scope":             {relationFor("r", "r@1", target.ScopeProject)},
@@ -221,24 +223,24 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 				"duplicate load identity": {retiring, relationFor("other", "r@2", target.ScopeGlobal)},
 			} {
 				t.Run(name, func(t *testing.T) {
-					if _, err := document.WithRetiringRelations(relations); err == nil {
+					if _, err := document.WithHandoffRetirements(relations, observerelation.OrderHandoffs{}); err == nil {
 						t.Fatal("OpenCode retirement stole desired membership or admitted ambiguous correlations")
 					}
 				})
 			}
-			for name, desired := range map[string][]opencodeplugin.ScopedRelation{
+			for name, desired := range map[string][]opencodeorder.ScopedRelation{
 				"same source after rename": {relationFor("renamed", "r@1", target.ScopeGlobal)},
 				"same load after rename":   {relationFor("renamed", "r@2", target.ScopeGlobal)},
 				"retained subject":         {relationFor("r", "different@1", target.ScopeGlobal)},
 			} {
 				t.Run("classless/"+name, func(t *testing.T) {
-					if _, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], desired, []opencodeplugin.ScopedRelation{retiring}); err == nil {
+					if _, err := opencodeorder.ReconstructHandoffRetirement(capability, inventory.Documents()[index], desired, []opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{}); err == nil {
 						t.Fatal("classless retirement consumed a still-desired relation")
 					}
 				})
 			}
 		}
-		view, err := document.WithRetiringRelations([]opencodeplugin.ScopedRelation{retiring})
+		view, err := document.WithHandoffRetirements([]opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -266,7 +268,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 			t.Fatal("retirement mutated the base OpenCode observation")
 		}
 
-		pure, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], relations[:1], []opencodeplugin.ScopedRelation{retiring})
+		pure, err := opencodeorder.ReconstructHandoffRetirement(capability, inventory.Documents()[index], relations[:1], []opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -279,7 +281,7 @@ func TestSelectedOpenCodeRetirementCompletesEachPhysicalDocument(t *testing.T) {
 		if err != nil || ordered || !strings.Contains(string(completed.Expected().Content()), `"plugin":[["b@1",{"option":true}],"foreign@1","a@1"]`) {
 			t.Fatal("pure retirement imposed a desired permutation", err)
 		}
-		unprotected, err := opencodeplugin.ReconstructRetirement(capability, inventory.Documents()[index], nil, []opencodeplugin.ScopedRelation{retiring})
+		unprotected, err := opencodeorder.ReconstructHandoffRetirement(capability, inventory.Documents()[index], nil, []opencodeorder.ScopedRelation{retiring}, observerelation.OrderHandoffs{})
 		if err != nil || pure.SameSelection(unprotected) {
 			t.Fatal("desired retirement protection disappeared from selection intent", err)
 		}

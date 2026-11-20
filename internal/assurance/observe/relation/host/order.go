@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -59,7 +61,7 @@ func (observation PhysicalOrderObservation) Sequence() relationobserve.ObservedR
 type OrderObservation struct {
 	physical []PhysicalOrderObservation
 	pi       *piorder.OrderObservation
-	openCode *observeopencode.OrderObservation
+	openCode *opencodeorder.OrderObservation
 }
 
 // Physical returns defensive copies in canonical physical-sequence order.
@@ -142,7 +144,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 
 	var physical []PhysicalOrderObservation
 	var piObservation *piorder.OrderObservation
-	var openCodeObservation *observeopencode.OrderObservation
+	var openCodeObservation *opencodeorder.OrderObservation
 	switch selectedTarget {
 	case target.TargetPi:
 		relations, err := piOrderRelations(
@@ -183,7 +185,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		if err != nil {
 			return OrderObservation{}, err
 		}
-		observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{
+		observation, err := observeopencode.ReadOrder(observeopencode.OrderInput{Capability: capability,
 			Inventory: observeopencode.InventoryInput{
 				ManifestRoot: input.Paths.ManifestRoot,
 				Scope:        capability.Scope(),
@@ -252,7 +254,7 @@ func newOrderObservation(
 	capability profile.ExtensionOrderCapability,
 	values []PhysicalOrderObservation,
 	piObservation *piorder.OrderObservation,
-	openCodeObservation *observeopencode.OrderObservation,
+	openCodeObservation *opencodeorder.OrderObservation,
 ) (OrderObservation, error) {
 	expectedIDs := capability.PhysicalSequenceIDs()
 	switch capability.SequenceMembership() {
@@ -358,14 +360,14 @@ func openCodeOrderRelations(
 	locked lock.File,
 	capability profile.ExtensionOrderCapability,
 	constraint hostrelation.RelationOrderConstraint,
-) ([]observeopencode.ScopedRelation, error) {
-	relations := make([]observeopencode.ScopedRelation, 0, len(constraint.Members()))
+) ([]opencodeorder.ScopedRelation, error) {
+	relations := make([]opencodeorder.ScopedRelation, 0, len(constraint.Members()))
 	for index, member := range constraint.Members() {
 		key, err := lockedOrderCorrelation(locked, capability, member)
 		if err != nil {
 			return nil, fmt.Errorf("OpenCode order member[%d]: %w", index, err)
 		}
-		relation, err := observeopencode.NewScopedRelation(key, capability.Scope())
+		relation, err := opencodeorder.NewScopedRelation(key, capability.Scope())
 		if err != nil {
 			return nil, fmt.Errorf("OpenCode order member[%d]: %w", index, err)
 		}

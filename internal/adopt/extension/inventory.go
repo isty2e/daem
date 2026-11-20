@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/opencodeorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 
 	observeantigravity "github.com/isty2e/daem/internal/assurance/observe/antigravityplugin"
@@ -202,7 +204,7 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 			Entries:      len(document.Entries()),
 			Imported:     importedCount,
 			Skipped:      skippedCount,
-			MaximumBytes: observeopencode.MaximumConfigBytes,
+			MaximumBytes: opencodeorder.MaximumConfigBytes,
 		})
 	}
 	return nil
