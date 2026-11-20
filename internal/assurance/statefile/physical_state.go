@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
@@ -19,6 +20,7 @@ import (
 type PhysicalState struct {
 	snapshot durable.Snapshot
 	codec    PhysicalCodec
+	missing  MissingState
 }
 
 type physicalStateMissingError struct{ cause error }
@@ -30,6 +32,10 @@ func (failure *physicalStateMissingError) Unwrap() error { return failure.cause 
 func (state PhysicalState) Snapshot() durable.Snapshot { return state.snapshot }
 
 func (state PhysicalState) Codec() PhysicalCodec { return state.codec }
+
+func (state PhysicalState) Missing() (MissingState, bool) {
+	return state.missing, state.missing.Path() != ""
+}
 
 // LoadPhysical reads State without projecting away its physical reference.
 func LoadPhysical(ctx context.Context, path string) (PhysicalState, error) {
@@ -75,22 +81,22 @@ func LoadOptionalPhysicalWithOptions(ctx context.Context, path string, options R
 }
 
 func selectMissingPhysicalState(ctx context.Context, path string, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, error) {
-	var observed mutation.DirectoryEntryAuthorityObservation
-	var err error
 	if budget == nil {
-		observed, err = mutation.ObserveDirectoryEntryAuthority(path)
-	} else {
-		observed, err = mutation.ObserveDirectoryEntryAuthorityBounded(path, mutationfs.MaximumPhysicalPathDepth, budget)
+		budget = physicalwork.NewCaptureBudget(nil)
+	}
+	missing, err := ObserveMissingState(ctx, path, budget)
+	if cancellation := ctx.Err(); cancellation != nil {
+		return PhysicalState{}, cancellation
+	}
+	if errors.Is(err, ErrStatefilePresent) {
+		return PhysicalState{}, mutation.StaleSnapshotError{}
 	}
 	if err != nil {
 		return PhysicalState{}, err
 	}
-	if err := ctx.Err(); err != nil {
-		return PhysicalState{}, err
-	}
-	reference, _ := observed.Reference()
+	reference, _ := missing.OwnerPath().Reference()
 	codec.selection = &physicalStateSelection{after: reference}
-	return PhysicalState{snapshot: durable.EmptySnapshot(), codec: codec}, nil
+	return PhysicalState{snapshot: durable.EmptySnapshot(), codec: codec, missing: missing}, nil
 }
 
 func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, error) {

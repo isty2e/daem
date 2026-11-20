@@ -13,6 +13,7 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
 	legacyUserState := flags.Bool("legacy-user-state", false, "recover the default user manifest's former local state")
+	releaseOutputs := flags.Bool("release-output-ownership", false, "release recorded output ownership when the selected state file is missing")
 	dryRun := flags.Bool("dry-run", false, "classify recovery or cleanup evidence without writing")
 	flags.Bool("json", false, "emit structured JSON output with --dry-run")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
@@ -34,6 +35,9 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		if *dryRun && *yes {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --dry-run and --yes are mutually exclusive"))
 		}
+		if *releaseOutputs && *legacyUserState {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --release-output-ownership and --legacy-user-state are mutually exclusive"))
+		}
 		if err := validatePresentationFlags("recover", arguments.output == requestedJSON, *verbose, false); err != nil {
 			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}
@@ -43,17 +47,67 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		interactiveConfirmation := !*dryRun && !*yes
 		if interactiveConfirmation && !options.confirmation.allowsInteractiveAuthorization() {
 			printInteractiveConfirmationRequired(stderr, "recover", "recovery")
-			fmt.Fprintln(stderr, "next: run daem recover --dry-run first, then rerun with --yes when the plan is acceptable")
+			if *releaseOutputs {
+				fmt.Fprintln(stderr, "next: preview with daem recover --release-output-ownership --dry-run and the same manifest selection; rerun with --yes to authorize the release")
+			} else {
+				fmt.Fprintln(stderr, "next: run daem recover --dry-run first, then rerun with --yes when the plan is acceptable")
+			}
 			return 2
 		}
 
-		prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{ManifestPath: *manifestPath, LegacyUserState: *legacyUserState})
+		prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{
+			ManifestPath: *manifestPath, LegacyUserState: *legacyUserState, ReleaseOutputOwnership: *releaseOutputs,
+		})
 		if err != nil {
 			return response.failure(operationFailure, clipresent.RecoverPlanningDiagnostic(err, clipresent.HumanOptions{Verbose: *verbose}))
 		}
 		defer prepared.Close()
 		if err := response.selectOrdinaryResult(); err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err))
+		}
+		if release, selected := prepared.OutputReleaseDisclosure(); selected {
+			jsonOutput := arguments.output == requestedJSON
+			phase := recoverworkflow.OutputReleasePlanned
+			if release.Empty() {
+				phase = recoverworkflow.OutputReleaseNothing
+			}
+			if *dryRun {
+				if jsonOutput {
+					if err := clipresent.PrintOutputReleaseJSON(stdout, "dry-run", release, phase, nil); err != nil {
+						return response.failure(operationFailure, humanFailureDiagnostic(err))
+					}
+				} else {
+					clipresent.PrintOutputRelease(stdout, release, phase, nil)
+				}
+				return 0
+			}
+			if interactiveConfirmation && !release.Empty() {
+				clipresent.PrintOutputRelease(stdout, release, phase, nil)
+				confirmed, err := options.confirmation.prompt("recover")
+				if err != nil {
+					printConfirmationFailure(stderr, "recover", err)
+					return 1
+				}
+				if !confirmed {
+					fmt.Fprintln(stderr, "recover canceled")
+					return 1
+				}
+			}
+			result, err := recoverworkflow.Execute(options.context, prepared, options.recoverExecuteOptions)
+			phase = result.OutputReleasePhase()
+			if jsonOutput {
+				if jsonErr := clipresent.PrintOutputReleaseJSON(stdout, "write", release, phase, err); jsonErr != nil {
+					return response.failure(operationFailure, humanFailureDiagnostic(jsonErr))
+				}
+			} else if err != nil {
+				clipresent.PrintOutputRelease(stderr, release, phase, err)
+			} else {
+				clipresent.PrintOutputRelease(stdout, release, phase, nil)
+			}
+			if err != nil {
+				return 1
+			}
+			return 0
 		}
 		if safety, selected := prepared.PermissionDisclosure(); selected {
 			if arguments.output != requestedJSON {

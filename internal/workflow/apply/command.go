@@ -428,6 +428,7 @@ type CommandInput struct {
 	environmentPresent     environmentSourcePresence
 	nativeReplacement      *topologyprojection.AgentConfigKeySelection
 	persistenceBudget      *physicalwork.Budget
+	ownedRequalification   bool
 }
 
 type CommandResult struct {
@@ -961,6 +962,15 @@ func loadCommandInputsAtPaths(
 	}
 	if err != nil {
 		return commandContext{}, result, err
+	}
+	if !input.ownedRequalification {
+		budget, err := persistenceEpoch.PhysicalBudget()
+		if err != nil {
+			return commandContext{}, result, err
+		}
+		if err := ownershipobserve.RequireMissingStateClear(ctx, paths, persistenceEpoch.MissingState(), budget); err != nil {
+			return commandContext{}, result, err
+		}
 	}
 	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {

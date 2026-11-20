@@ -26,6 +26,7 @@ exit-code behavior.
   [missing or stale lockfile](#lockfile-is-missing-or-stale),
   [skipped import](#import-skipped-an-instruction-hook-or-mcp-file).
 - Ownership: [user-state selection changed](#user-state-selection-changed),
+  [state file is missing](#state-file-is-missing),
   [`ownership_conflict`](#ownership_conflict),
   [`unmanaged_output_exists`](#unmanaged_output_exists),
   [drift](#a-managed-output-drifted),
@@ -79,6 +80,36 @@ fixed by `--yes`. See the complete
 [migration boundary](state-and-recovery.md#user-state-authority-migration),
 including the matching-old-writer requirement for interrupted legacy authoring
 metadata and the retained-cache limitation.
+
+## State File Is Missing
+
+If daem reports that the state file is missing but output ownership remains,
+keep the registry and host files. If you have a backup of the matching state
+file from before the loss, restore it with mode `0600` and run
+`daem status --check`. Use the same manifest and HOME/XDG selection as before.
+Daem cannot infer what it last applied from the current settings.
+
+If you have no backup, preview the ownership release:
+
+```bash
+daem recover --release-output-ownership --dry-run
+```
+
+Add the original `--manifest` argument if you use one. The preview covers all
+settled output claims and document bindings for that state file, even if some
+come from another manifest that shares it. If you want to stop managing those
+outputs, rerun with `--yes` in place of `--dry-run`, or confirm at the terminal.
+Host files are left in place, but daem no longer protects them under those
+claims or remembers their applied baselines. If you later want to manage the
+existing settings again, review a separate `daem apply --dry-run --manage-existing`
+preview; adoption requires a match rather than overwriting a difference.
+
+This release does not clear pending journals, permission recovery, or published
+metadata transactions. Follow the reported recovery instructions for those
+records. Keep any reserved claims whose journal is missing; a state backup alone
+cannot settle them. Daem also refuses release if it cannot match the owner to
+the current state location. Check the original manifest and HOME/XDG selection
+before retrying; do not edit the registry or remove migration receipts.
 
 ## Pre-1.0 Durable Authority Schemas
 

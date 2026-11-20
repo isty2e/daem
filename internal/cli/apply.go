@@ -491,6 +491,9 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 			if diagnostic, globalMetadata := clipresent.GlobalMetadataFailureDiagnostic(err); globalMetadata {
 				return diagnostic, failure.Reason()
 			}
+			if diagnostic, missing := clipresent.MissingStateFailureDiagnostic(err); missing {
+				return diagnostic, failure.Reason()
+			}
 		}
 		if stage == applyFailurePlanning {
 			if cause, ok := applyInputErrorCause(err, failure); ok {

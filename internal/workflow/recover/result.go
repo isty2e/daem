@@ -36,12 +36,15 @@ const (
 // states carry no stale plan or action authority.
 type ExecutionResult struct {
 	permission         *permissions.Result
+	outputRelease      OutputReleasePhase
 	authorityState     durableAuthorityState
 	disclosure         journal.RecoverablePlan
 	operationID        string
 	executionSucceeded bool
 	fileSetFence       fileset.FileSetFenceObservation
 }
+
+func (result ExecutionResult) OutputReleasePhase() OutputReleasePhase { return result.outputRelease }
 
 type terminalExecutionFailure struct {
 	cause error

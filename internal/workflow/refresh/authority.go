@@ -145,6 +145,11 @@ func buildAuthorityEvidence(
 			}
 		}
 	}
+	if planned.missingState.Path() != "" && planned.native == nil && planned.protectionFence.identity == "" {
+		if err := builder.AddOwnershipRegistry(planned.paths.OwnershipRegistryPath, mutation.AccessShared, "missing-state-admission"); err != nil {
+			return authorityEvidence{}, err
+		}
+	}
 	builder.AddDomains(planned.barrier.Domains())
 	barrierRevisions := make(map[mutation.RevisionRequest]struct{})
 	for _, revision := range planned.barrier.RevisionRequests() {

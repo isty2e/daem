@@ -277,6 +277,9 @@ func FailureDiagnosticFromError(err error) FailureDiagnostic {
 	if diagnostic, recognized := GlobalMetadataFailureDiagnostic(err); recognized {
 		return diagnostic
 	}
+	if diagnostic, recognized := MissingStateFailureDiagnostic(err); recognized {
+		return diagnostic
+	}
 	if operation, ok := err.(authoring.OperationError); ok && operation.Phase == authoring.OperationPhaseBuildLockfile && operation.Err != nil {
 		return FailureDiagnosticFromError(operation.Err)
 	}

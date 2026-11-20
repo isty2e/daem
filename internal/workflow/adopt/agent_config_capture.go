@@ -9,7 +9,9 @@ import (
 	"slices"
 
 	captureconfig "github.com/isty2e/daem/internal/adopt/agentconfig"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
@@ -53,6 +55,7 @@ type AgentConfigCapturePlan struct {
 	input          AgentConfigUpdateInput
 	initial        *AgentConfigInitialInput
 	barrier        recoverygate.EffectAuthority
+	missingState   statefile.MissingState
 	manifest       declarationartifact.MutationTarget
 	originalSource declarationartifact.MutationTarget
 	source         declarationartifact.MutationTarget
@@ -255,6 +258,14 @@ func buildAgentConfigCapturePlan(ctx context.Context, input AgentConfigUpdateInp
 	}
 	epoch, err := nativeconfig.LoadPersistenceEpoch(ctx, input.Paths)
 	if err != nil {
+		return plan, err
+	}
+	plan.missingState = epoch.MissingState()
+	budget, err := epoch.PhysicalBudget()
+	if err != nil {
+		return plan, err
+	}
+	if err := ownershipobserve.RequireMissingStateClear(ctx, input.Paths, plan.missingState, budget); err != nil {
 		return plan, err
 	}
 	address, err := aggregate.NewDocumentAddress(placement.Target(), placement.Scope(), placement.Destination())

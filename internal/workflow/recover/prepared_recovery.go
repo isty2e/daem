@@ -48,7 +48,7 @@ type permissionPreparation struct{ prepared permissions.Prepared }
 
 func (permissionPreparation) recoveryOperation() {}
 
-// PreparedRecovery owns one exact journal or permission recovery operation.
+// PreparedRecovery owns one selected recovery or output ownership release operation.
 // Value copies share its single execution lifecycle; disclosures grant no rights.
 type PreparedRecovery struct {
 	disclosure   preparedRecoveryOperation
@@ -99,8 +99,7 @@ func (prepared *PreparedRecovery) ContinuingFileSetFence() (fileset.FileSetFence
 	}
 }
 
-// Disclosure returns the independent journal snapshot, or nil for permission
-// recovery. PermissionDisclosure explicitly selects the other closed variant.
+// Disclosure returns the journal snapshot, or nil for a non-journal operation.
 func (prepared *PreparedRecovery) Disclosure() journal.RecoverablePlan {
 	if prepared == nil || prepared.lifecycle == nil {
 		return nil
@@ -125,6 +124,17 @@ func (prepared *PreparedRecovery) PermissionDisclosure() (permissions.Plan, bool
 		return permissions.Plan{}, false
 	}
 	return selection.prepared.Disclosure(), true
+}
+
+func (prepared *PreparedRecovery) OutputReleaseDisclosure() (OutputReleasePlan, bool) {
+	if prepared == nil || prepared.lifecycle == nil {
+		return OutputReleasePlan{}, false
+	}
+	selected, ok := prepared.disclosure.(outputReleasePreparation)
+	if !ok {
+		return OutputReleasePlan{}, false
+	}
+	return selected.disclose(), true
 }
 
 func (prepared *PreparedRecovery) beginExecution() (preparedRecoveryOperation, error) {

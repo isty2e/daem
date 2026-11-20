@@ -36,7 +36,7 @@ func replanAfterMetadataConversion(ctx context.Context, execution *preparedExecu
 	if err != nil {
 		return err
 	}
-	if !original.currentState.Equal(current.currentState) ||
+	if !original.missingState.Equal(current.missingState) || !original.currentState.Equal(current.currentState) ||
 		!original.fingerprint.Equal(current.fingerprint) ||
 		!original.authority.authorityFingerprint.Equal(current.authority.authorityFingerprint) {
 		return mutation.StalePlanError{}

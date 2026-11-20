@@ -35,7 +35,7 @@ const (
 	PathInventoryJSON      = 2
 	ReconciliationPlanJSON = 20
 	ApplyResultJSON        = 26
-	RecoveryJSON           = 10
+	RecoveryJSON           = 11
 	StateMigrationJSON     = 1
 	MetadataMigrationJSON  = 1
 	DoctorJSON             = 2

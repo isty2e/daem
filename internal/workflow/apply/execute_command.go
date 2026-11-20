@@ -148,12 +148,18 @@ func executeWithDependencies(
 	}
 
 	var metadataErr error
+	revalidateState := func(ctx context.Context) error {
+		return ownershipobserve.RevalidateStateAdmission(ctx, planned.context.Paths, planned.context.PersistenceEpoch.MissingState())
+	}
 	if planned.cleanup != nil {
 		cleanupSteps, err = planned.cleanup.Retire(ctx, options.RecoveryCleanupFilesystem, func(ctx context.Context) error {
 			if err := executionGuard.requireDeclarationsCurrent(ctx, "retire approved recovery records"); err != nil {
 				return err
 			}
-			return planned.projectRoot.ValidateSelection(planned.context.Paths.ManifestRoot)
+			if err := planned.projectRoot.ValidateSelection(planned.context.Paths.ManifestRoot); err != nil {
+				return err
+			}
+			return revalidateState(ctx)
 		})
 		if err != nil {
 			if errors.Is(err, mutation.StaleSnapshotError{}) {
@@ -162,6 +168,12 @@ func executeWithDependencies(
 			return disclose(planned), fmt.Errorf("%w: %w", errRecoveryCleanupFailed, err)
 		}
 	} else {
+		if err := planned.barrier.Validate(ctx); err != nil {
+			return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
+		}
+		if err := revalidateState(ctx); err != nil {
+			return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
+		}
 		metadataErr = attemptMetadataConversion(ctx, planned)
 	}
 	if recoverygate.IsCancellation(metadataErr) {
@@ -240,6 +252,9 @@ func executeWithDependencies(
 	defer func() { current.projectRoot = nil; returnErr = errors.Join(returnErr, closeCommandPlan(&current)) }()
 	if err != nil {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
+	}
+	if !planned.context.PersistenceEpoch.MissingState().Equal(current.context.PersistenceEpoch.MissingState()) {
+		return disclose(planned), staleApplyError(options.PlanWasDisclosed, nil)
 	}
 	if err := rejectLocalSourceMutationOverlap(current); err != nil {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, err)

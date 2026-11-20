@@ -475,6 +475,10 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		if err := builder.AddOwnershipRegistry(planned.context.Paths.OwnershipRegistryPath, registryAccess, identity); err != nil {
 			return applyAuthorityEvidence{}, err
 		}
+	} else if planned.context.PersistenceEpoch.MissingState().Path() != "" {
+		if err := builder.AddOwnershipRegistry(planned.context.Paths.OwnershipRegistryPath, mutation.AccessShared, "missing-state-admission"); err != nil {
+			return applyAuthorityEvidence{}, err
+		}
 	}
 	plan := builder.Compile()
 	domains, err := lowerApplyAuthorityDomainSteps(plan.DomainSteps())
