@@ -89,14 +89,14 @@ ownership = "keys"
 	}
 }
 
-func TestLockSchemaSixRequiresRegeneration(t *testing.T) {
+func TestLockSchemaFiveRequiresRegeneration(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	manifest := filepath.Join(root, "daem.toml")
 	lockPath := filepath.Join(root, "daem.lock.toml")
 	testkit.WriteFile(t, root, "daem.toml", "version = 1\ntargets = ['codex']\n")
-	legacy := []byte("version = 6\n[locked]\n")
+	legacy := []byte("version = 5\n[locked]\n")
 	testkit.WriteFile(t, root, "daem.lock.toml", string(legacy))
 	for _, command := range [][]string{{"status"}, {"apply", "--yes"}} {
 		args := append(command, "--manifest", manifest)

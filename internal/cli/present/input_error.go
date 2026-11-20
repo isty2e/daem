@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	"github.com/isty2e/daem/internal/encoding/toml"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/supply/source/backend/localfs"
 	"github.com/isty2e/daem/internal/workflow/authoring"
@@ -32,6 +33,11 @@ func RecognizedInputError(err error) (string, bool) {
 func RecognizedInputDiagnostic(err error) (FailureDiagnostic, bool) {
 	if err == nil {
 		return FailureDiagnostic{}, false
+	}
+	if errors.Is(err, lockfile.ErrUnusableV6) {
+		return NewFailureDiagnostic(err.Error()).WithGuidance(
+			InstructionGuidance("run daem lock --dry-run for the same manifest to preview a replacement; run daem lock if the result is acceptable"),
+		), true
 	}
 	var guidance *skillrepair.GuidanceError
 	if errors.As(err, &guidance) {

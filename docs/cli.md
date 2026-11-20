@@ -1294,7 +1294,9 @@ daem outdated [--manifest <path>] [--check] [--json|--verbose]
 
 Outdated runs the same lockable-source resolution and validation path as lock,
 compares the candidate exact identities with the current lockfile, and writes
-nothing persistent. Default current output is count-only; stale output lists
+nothing persistent. A valid schema 6 lockfile works as a baseline for
+`outdated`; `lock --dry-run` previews its replacement without a comparison.
+Default current output is count-only; stale output lists
 every added, changed, or removed identity and the lock next step. `--verbose`
 adds checked current identities and bounded refs. `--check` exits `1` when any
 lock identity would change. Changed entries use the same `changed=` reasons

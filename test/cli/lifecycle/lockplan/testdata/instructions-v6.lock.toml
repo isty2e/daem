@@ -1,0 +1,98 @@
+version = 6
+
+[locked]
+
+  [[locked.subject]]
+    entity_id = "instructions:project"
+    subject_id = "projection/instructions.project.agents/instructions:project"
+    ownership = "manifest"
+    on_absent = "apply"
+    [locked.subject.realization]
+      [locked.subject.realization.managed_path]
+        placement_id = "instructions.project.agents"
+        consumer_targets = ["codex"]
+        scope = "project"
+        destination = "AGENTS.md"
+        content_kind = "file"
+        placement_mode = "copy"
+        permission_policy = "executable-class"
+        adapter_contract_version = "managed-instruction-file-v1"
+    [locked.subject.replay]
+      invocation = "exact"
+      outcome = "exact"
+      derivation = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "remove_projection"
+      actuation = "direct_projection"
+      authority = "remove"
+      route_id = "managed-path.remove"
+      route_adapter_contract_version = "managed-instruction-file-v1"
+      preconditions = ["fresh_path_evidence", "managed_state_authority", "ownership_authority"]
+      effect_envelope = "complete"
+      idempotency = "conditionally_idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "bounded_compensation"
+
+    [[locked.subject.operation]]
+      operation = "write_projection"
+      actuation = "direct_projection"
+      authority = "manage"
+      route_id = "managed-instruction-file.write"
+      route_adapter_contract_version = "managed-instruction-file-v1"
+      preconditions = ["fresh_path_evidence", "ownership_authority"]
+      effect_envelope = "complete"
+      idempotency = "conditionally_idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "bounded_compensation"
+
+  [[locked.subject]]
+    entity_id = "instructions:project"
+    subject_id = "resource/instructions/project"
+    ownership = "manifest"
+    on_absent = "apply"
+    [locked.subject.exact_supply]
+      source_id = "local:source.md?mode=vendor"
+      kind = "file"
+      content_hash = "sha256:dd2d909379f879b4ecc2bd98caeca4a44b6f9ca2ec386293ab150bb110f1da5f"
+    [locked.subject.exact_file_use]
+      scope = "project"
+      executable = false
+    [locked.subject.derivation]
+      [locked.subject.derivation.direct_resolution]
+        source_id = "local:source.md?mode=vendor"
+        kind = "file"
+        content_hash = "sha256:dd2d909379f879b4ecc2bd98caeca4a44b6f9ca2ec386293ab150bb110f1da5f"
+    [locked.subject.replay]
+      invocation = "unavailable"
+      outcome = "exact"
+      derivation = "not_applicable"
+
+      [[locked.subject.replay.exclusion]]
+        component = "source resolver invocation"
+        reason = "RUNTIME_DEPENDENCY"
+
+    [[locked.subject.operation]]
+      operation = "observe"
+      actuation = "no_mutation"
+      authority = "observe"
+      effect_envelope = "not_applicable"
+      idempotency = "not_applicable"
+      verification = "exact_artifact"
+      trust_activation = "not_required"
+      recovery = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "write_projection"
+      actuation = "direct_projection"
+      authority = "manage"
+      route_id = "exact-supply.write"
+      route_adapter_contract_version = "exact-supply.v1"
+      preconditions = ["content_hash_locked", "source_identity_locked"]
+      effect_envelope = "complete"
+      idempotency = "idempotent"
+      verification = "exact_artifact"
+      trust_activation = "not_required"
+      recovery = "atomic"

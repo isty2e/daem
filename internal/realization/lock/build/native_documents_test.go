@@ -406,10 +406,10 @@ func TestNativeDocumentProducerBoundsAndMidAssemblyCancellation(t *testing.T) {
 	}
 }
 
-func TestNativeDocumentLockReaderChecksVersionBeforeNestedDecode(t *testing.T) {
+func TestNativeDocumentLockReaderRejectsUnsupportedVersionsBeforeNestedDecode(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "input.lock.toml")
-	for _, version := range []int{lock.CurrentVersion - 1, lock.CurrentVersion + 1} {
+	for _, version := range []int{5, lock.CurrentVersion + 1} {
 		content := []byte(fmt.Sprintf("version = %d\n[locked.subject\nmalformed nested artifact", version))
 		if err := os.WriteFile(path, content, 0o600); err != nil {
 			t.Fatal(err)

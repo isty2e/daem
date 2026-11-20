@@ -12,7 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
-// Current lockfiles are collection-dense and can legitimately approach the
+// Lockfiles are collection-dense and can legitimately approach the
 // selected-skill ceiling. Capacity follows observed structure rather than raw
 // bytes so comments, formatting, and primitive payload length cannot expand
 // the amount of container or path material admitted before decoding.
@@ -24,7 +24,7 @@ const (
 	lockfileContextCheckInterval                   = 4096
 )
 
-func currentLockfileStructureLimits(structuralUnits int) tomlsyntax.Limits {
+func lockfileStructureLimits(structuralUnits int) tomlsyntax.Limits {
 	limits := tomlsyntax.StandardLimits()
 	limits.MaximumContainers += structuralUnits / lockfileStructuralUnitsPerExtraContainer
 	if structuralUnits%lockfileStructuralUnitsPerExtraContainer != 0 {
@@ -35,13 +35,13 @@ func currentLockfileStructureLimits(structuralUnits int) tomlsyntax.Limits {
 	return limits
 }
 
-func admitCurrentLockfileStructure(ctx context.Context, content []byte) error {
-	maximumLimits := currentLockfileStructureLimits(int(declarationartifact.MaximumBytes))
+func admitLockfileStructure(ctx context.Context, content []byte) error {
+	maximumLimits := lockfileStructureLimits(int(declarationartifact.MaximumBytes))
 	usage, err := tomlsyntax.AdmitWithUsage(ctx, content, maximumLimits)
 	if err != nil {
 		return err
 	}
-	return usage.Validate(currentLockfileStructureLimits(usage.StructuralUnits()))
+	return usage.Validate(lockfileStructureLimits(usage.StructuralUnits()))
 }
 
 // UnsupportedVersionError reports a lock schema that this reader cannot use.
@@ -93,7 +93,7 @@ func (err UnsupportedVersionError) RelockSupported() bool {
 // version envelope. Only the standalone lock workflow may rebuild it.
 var ErrDamagedCurrent = errors.New("damaged current lockfile TOML")
 
-// Load reads a daem.lock.toml file.
+// Load reads a current lock or translates a schema 6 lock without rewriting it.
 func Load(ctx context.Context, path string) (lock.File, error) {
 	content, err := declarationartifact.Read(ctx, path)
 	if err != nil {
@@ -105,10 +105,7 @@ func Load(ctx context.Context, path string) (lock.File, error) {
 // DecodeForRelock decodes the previous lock for standalone lock generation.
 // It distinguishes damaged current TOML from an unreadable or unsupported lock.
 func DecodeForRelock(ctx context.Context, content []byte) (lock.File, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return decodeContent(ctx, content, true)
+	return decodeContent(ctx, content, readForRelock)
 }
 
 func loadContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog) (lock.File, error) {
@@ -155,13 +152,26 @@ func validateReplacementContent(ctx context.Context, content []byte) error {
 }
 
 func loadContent(ctx context.Context, content []byte) (lock.File, error) {
-	return decodeContent(ctx, content, false)
+	return decodeContent(ctx, content, readLockedPlan)
 }
 
-func decodeContent(ctx context.Context, content []byte, inspectDamage bool) (lock.File, error) {
+type lockfileReadPurpose uint8
+
+const (
+	readLockedPlan lockfileReadPurpose = iota
+	readForRelock
+)
+
+func decodeContent(ctx context.Context, content []byte, purpose lockfileReadPurpose) (lock.File, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	version, err := lockfileVersion(ctx, content)
 	if err != nil {
 		return lock.File{}, err
+	}
+	if version == lockfileVersion6 && currentLockfileVersion == v6TranslationTarget && purpose == readLockedPlan {
+		return loadV6Content(ctx, content)
 	}
 	if version != currentLockfileVersion {
 		return lock.File{}, UnsupportedVersionError{
@@ -169,7 +179,7 @@ func decodeContent(ctx context.Context, content []byte, inspectDamage bool) (loc
 			Supported: currentLockfileVersion,
 		}
 	}
-	return loadCurrentContent(ctx, content, inspectDamage)
+	return loadCurrentContent(ctx, content, purpose == readForRelock)
 }
 
 func lockfileVersion(ctx context.Context, content []byte) (int64, error) {
@@ -270,7 +280,7 @@ func loadCurrentContent(ctx context.Context, content []byte, inspectDamage bool)
 }
 
 func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contributions aggregate.ContributionCatalog, inspectDamage bool) (lock.File, error) {
-	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
+	if err := admitLockfileStructure(ctx, content); err != nil {
 		if inspectDamage && errors.Is(err, tomlsyntax.ErrMalformed) {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return lock.File{}, ctxErr
@@ -280,13 +290,17 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contrib
 		return lock.File{}, err
 	}
 
-	dto, err := decodeLockfileDTO(ctx, content)
+	dto, err := decodeLockfileDTO[fileDTO](ctx, content)
 	if err != nil {
 		if inspectDamage {
 			err = classifyLockfileWireFailure(ctx, content, err)
 		}
 		return lock.File{}, err
 	}
+	return validatedSnapshotFromDTO(ctx, dto, contributions)
+}
+
+func validatedSnapshotFromDTO(ctx context.Context, dto fileDTO, contributions aggregate.ContributionCatalog) (lock.File, error) {
 	file, err := snapshotFromDTO(dto)
 	if err != nil {
 		return lock.File{}, err
@@ -306,23 +320,24 @@ func loadSnapshotContentWithCatalog(ctx context.Context, content []byte, contrib
 	return file, nil
 }
 
-func decodeLockfileDTO(ctx context.Context, content []byte) (fileDTO, error) {
+func decodeLockfileDTO[DTO fileDTO | v6FileDTO](ctx context.Context, content []byte) (DTO, error) {
+	var zero DTO
 	var header versionEnvelopeDTO
 	headerMetadata, err := tomlfields.DecodeAdmitted(ctx, content, &header)
 	if err != nil {
-		return fileDTO{}, err
+		return zero, err
 	}
 	if err := validateLockedShapes(&headerMetadata); err != nil {
-		return fileDTO{}, err
+		return zero, err
 	}
 
-	var dto fileDTO
+	var dto DTO
 	metadata, err := tomlfields.DecodeAdmitted(ctx, content, &dto)
 	if err != nil {
-		return fileDTO{}, err
+		return zero, err
 	}
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
-		return fileDTO{}, fmt.Errorf("unknown lockfile key %q", undecoded[0].String())
+		return zero, fmt.Errorf("unknown lockfile key %q", undecoded[0].String())
 	}
 	return dto, nil
 }
@@ -380,7 +395,7 @@ func marshalValidatedWithCatalog(ctx context.Context, file lock.File, contributi
 		return nil, err
 	}
 	content := output.Bytes()
-	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
+	if err := admitLockfileStructure(ctx, content); err != nil {
 		return nil, fmt.Errorf("lockfile TOML structure: %w", err)
 	}
 	return content, nil

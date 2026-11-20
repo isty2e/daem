@@ -1,0 +1,485 @@
+version = 6
+
+[locked]
+
+  [[locked.subject]]
+    entity_id = "extension:pi-adapter"
+    subject_id = "host_relation/pi.package-carrier/pi-adapter"
+    ownership = "manifest"
+    on_absent = "block"
+    [locked.subject.realization]
+      [locked.subject.realization.delegated_relation]
+        placement_id = "pi-package"
+        target = "pi"
+        scope = "project"
+        source_namespace = "host-source:npm:pi-mcp-adapter@^2.13.0"
+        relation_subject_key = "npm:pi-mcp-adapter@^2.13.0"
+        managed_instance_key = "host-relation:v1:{\"carrier\":\"pi-package\",\"target\":\"pi\",\"scope\":\"project\",\"source_kind\":\"host-source\",\"source_ref\":\"npm:pi-mcp-adapter@^2.13.0\",\"subject_kind\":\"host_relation\",\"subject_namespace\":\"pi.package-carrier\",\"subject_key\":\"pi-adapter\"}"
+        route_id = "pi.package-carrier.install"
+        route_contract_version = "pi-package-carrier-v1"
+        canonical_request_hash = "sha256:0b424e5633104cca3bbd404f48114ac03b00b254e2a71d5579421d99118932b8"
+        verified_relation_fields = ["managed_instance_key", "relation_subject_key", "scope", "source_kind", "source_ref", "target"]
+    [locked.subject.replay]
+      invocation = "partial"
+      outcome = "unavailable"
+      derivation = "not_applicable"
+
+      [[locked.subject.replay.exclusion]]
+        component = "host-selected package artifact or version"
+        reason = "HOST_SELECTED_ARTIFACT"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi host source selected outcome"
+        reason = "HOST_SOURCE"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi package cache and dependency state"
+        reason = "RUNTIME_DEPENDENCY"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi trust, auth, or session state"
+        reason = "HOST_APPROVAL"
+
+      [[locked.subject.replay.exclusion]]
+        component = "package activation and runtime readiness"
+        reason = "RUNTIME_READINESS"
+
+      [[locked.subject.replay.exclusion]]
+        component = "package-bundled MCP, command, hook, or tool inventory"
+        reason = "TOOL_INVENTORY"
+
+    [[locked.subject.operation]]
+      operation = "install"
+      actuation = "delegated_host_route"
+      authority = "manage"
+      route_id = "pi.package-carrier.install"
+      route_adapter_contract_version = "pi-package-carrier-v1"
+      preconditions = ["managed_instance_correlation_known", "passive_inventory_fresh", "route_dossier_admitted", "same_name_unmanaged_absent"]
+      effect_envelope = "incomplete"
+      idempotency = "unknown"
+      verification = "host_relation"
+      trust_activation = "unknown"
+      recovery = "unknown"
+
+    [[locked.subject.operation]]
+      operation = "observe"
+      actuation = "no_mutation"
+      authority = "observe"
+      effect_envelope = "not_applicable"
+      idempotency = "not_applicable"
+      verification = "host_relation"
+      trust_activation = "not_required"
+      recovery = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "refresh"
+      actuation = "delegated_host_route"
+      authority = "none"
+      route_id = "pi.package-carrier.refresh"
+      route_adapter_contract_version = "pi-package-refresh-v1"
+      preconditions = ["explicit_refresh_intent", "passive_inventory_unsupported", "route_dossier_admitted"]
+      effect_envelope = "incomplete"
+      idempotency = "unknown"
+      verification = "insufficient"
+      trust_activation = "unknown"
+      recovery = "unknown"
+
+    [[locked.subject.operation]]
+      operation = "remove"
+      actuation = "delegated_host_route"
+      authority = "remove"
+      route_id = "pi.package-carrier.remove"
+      route_adapter_contract_version = "pi-package-remove-v1"
+      preconditions = ["daem_managed_claim_exact", "exact_relation_present", "managed_instance_correlation_known", "no_remaining_daem_known_consumers", "passive_inventory_fresh", "project_trust_already_granted", "route_dossier_admitted"]
+      effect_envelope = "complete"
+      effect_postconditions = ["carrier_artifacts_absent"]
+      idempotency = "conditionally_idempotent"
+      verification = "host_relation"
+      trust_activation = "required"
+      recovery = "safe_retry"
+
+  [[locked.subject]]
+    entity_id = "extension:pi-formatter"
+    subject_id = "host_relation/pi.package-carrier/pi-formatter"
+    ownership = "manifest"
+    on_absent = "block"
+    [locked.subject.realization]
+      [locked.subject.realization.delegated_relation]
+        placement_id = "pi-package"
+        target = "pi"
+        scope = "project"
+        source_namespace = "host-source:npm:@example/pi-formatter@2.0.0"
+        relation_subject_key = "npm:@example/pi-formatter@2.0.0"
+        managed_instance_key = "host-relation:v1:{\"carrier\":\"pi-package\",\"target\":\"pi\",\"scope\":\"project\",\"source_kind\":\"host-source\",\"source_ref\":\"npm:@example/pi-formatter@2.0.0\",\"subject_kind\":\"host_relation\",\"subject_namespace\":\"pi.package-carrier\",\"subject_key\":\"pi-formatter\"}"
+        route_id = "pi.package-carrier.install"
+        route_contract_version = "pi-package-carrier-v1"
+        canonical_request_hash = "sha256:4471003347aae2360055447a56535f0715bff433f1f48b34a27de8bfdd069985"
+        verified_relation_fields = ["managed_instance_key", "relation_subject_key", "scope", "source_kind", "source_ref", "target"]
+    [locked.subject.replay]
+      invocation = "partial"
+      outcome = "unavailable"
+      derivation = "not_applicable"
+
+      [[locked.subject.replay.exclusion]]
+        component = "host-selected package artifact or version"
+        reason = "HOST_SELECTED_ARTIFACT"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi host source selected outcome"
+        reason = "HOST_SOURCE"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi package cache and dependency state"
+        reason = "RUNTIME_DEPENDENCY"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi trust, auth, or session state"
+        reason = "HOST_APPROVAL"
+
+      [[locked.subject.replay.exclusion]]
+        component = "package activation and runtime readiness"
+        reason = "RUNTIME_READINESS"
+
+      [[locked.subject.replay.exclusion]]
+        component = "package-bundled MCP, command, hook, or tool inventory"
+        reason = "TOOL_INVENTORY"
+
+    [[locked.subject.operation]]
+      operation = "install"
+      actuation = "delegated_host_route"
+      authority = "manage"
+      route_id = "pi.package-carrier.install"
+      route_adapter_contract_version = "pi-package-carrier-v1"
+      preconditions = ["managed_instance_correlation_known", "passive_inventory_fresh", "route_dossier_admitted", "same_name_unmanaged_absent"]
+      effect_envelope = "incomplete"
+      idempotency = "unknown"
+      verification = "host_relation"
+      trust_activation = "unknown"
+      recovery = "unknown"
+
+    [[locked.subject.operation]]
+      operation = "observe"
+      actuation = "no_mutation"
+      authority = "observe"
+      effect_envelope = "not_applicable"
+      idempotency = "not_applicable"
+      verification = "host_relation"
+      trust_activation = "not_required"
+      recovery = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "refresh"
+      actuation = "delegated_host_route"
+      authority = "none"
+      route_id = "pi.package-carrier.refresh"
+      route_adapter_contract_version = "pi-package-refresh-v1"
+      preconditions = ["explicit_refresh_intent", "passive_inventory_unsupported", "route_dossier_admitted"]
+      effect_envelope = "incomplete"
+      idempotency = "unknown"
+      verification = "insufficient"
+      trust_activation = "unknown"
+      recovery = "unknown"
+
+    [[locked.subject.operation]]
+      operation = "remove"
+      actuation = "delegated_host_route"
+      authority = "remove"
+      route_id = "pi.package-carrier.remove"
+      route_adapter_contract_version = "pi-package-remove-v1"
+      preconditions = ["daem_managed_claim_exact", "exact_relation_present", "managed_instance_correlation_known", "no_remaining_daem_known_consumers", "passive_inventory_fresh", "project_trust_already_granted", "route_dossier_admitted"]
+      effect_envelope = "complete"
+      effect_postconditions = ["carrier_artifacts_absent"]
+      idempotency = "conditionally_idempotent"
+      verification = "host_relation"
+      trust_activation = "required"
+      recovery = "safe_retry"
+
+  [[locked.subject]]
+    entity_id = "mcp_server:context7"
+    subject_id = "projection/claude-code.project.mcp-server/context7"
+    ownership = "manifest"
+    on_absent = "remove_binding"
+    [locked.subject.realization]
+      [locked.subject.realization.managed_aggregate]
+        placement_id = "claude-code.project.project-config"
+        target = "claude-code"
+        scope = "project"
+        aggregate_root = ".mcp.json"
+        content_path = "/mcpServers/context7"
+        merge_unit = "mcp-server-entry"
+        contribution_cardinality = "exclusive"
+        sibling_retention = "preserve_unmanaged_siblings"
+        sibling_preservation = "canonical_semantic"
+        equivalence = "canonical_semantic"
+        canonical_contribution = "{\n  \"type\": \"stdio\",\n  \"command\": \"npx\",\n  \"args\": [\n    \"-y\",\n    \"@upstash/context7-mcp@1.2.3\"\n  ],\n  \"env\": {}\n}\n"
+        codec_contract = "claude-project-mcp-stdio-v1"
+        compared_fields = ["adapter_contract", "args", "command", "config_path", "content_path", "env", "scope", "server_id", "target", "type"]
+    [locked.subject.delegate_plan]
+      identity_key = "delegate:v3:{\"runner_kind\":\"npx\",\"command\":\"npx\",\"args\":[\"-y\",\"@upstash/context7-mcp@1.2.3\"],\"env\":[],\"packages\":[{\"ecosystem\":\"npm\",\"name\":\"@upstash/context7-mcp\",\"selector\":\"1.2.3\"}],\"pin_policy\":\"pinned\"}"
+      runner_kind = "npx"
+      command = "npx"
+      args = ["-y", "@upstash/context7-mcp@1.2.3"]
+      pin_policy = "pinned"
+
+      [[locked.subject.delegate_plan.package]]
+        ecosystem = "npm"
+        name = "@upstash/context7-mcp"
+        selector = "1.2.3"
+    [locked.subject.replay]
+      invocation = "exact"
+      outcome = "exact"
+      derivation = "not_applicable"
+
+      [[locked.subject.replay.exclusion]]
+        component = "launcher executable and package manager state"
+        reason = "RUNTIME_DEPENDENCY"
+
+      [[locked.subject.replay.exclusion]]
+        component = "OAuth/session/auth cache state"
+        reason = "OAUTH_SESSION"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Claude project approval state"
+        reason = "HOST_APPROVAL"
+
+      [[locked.subject.replay.exclusion]]
+        component = "endpoint health and server startup"
+        reason = "RUNTIME_READINESS"
+
+      [[locked.subject.replay.exclusion]]
+        component = "runtime tool inventory"
+        reason = "TOOL_INVENTORY"
+
+      [[locked.subject.replay.exclusion]]
+        component = "plugin or carrier installation"
+        reason = "PLUGIN_CARRIER"
+
+    [[locked.subject.operation]]
+      operation = "observe"
+      actuation = "no_mutation"
+      authority = "observe"
+      effect_envelope = "not_applicable"
+      idempotency = "not_applicable"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "remove_projection"
+      actuation = "direct_projection"
+      authority = "remove"
+      route_id = "claude-project-mcp-stdio.remove_binding"
+      route_adapter_contract_version = "claude-project-mcp-stdio-v1"
+      preconditions = ["adapter_contract_current", "managed_binding_baseline", "project_config_json_valid", "unsupported_managed_fields_absent"]
+      effect_envelope = "complete"
+      idempotency = "idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "atomic"
+
+    [[locked.subject.operation]]
+      operation = "write_projection"
+      actuation = "direct_projection"
+      authority = "manage"
+      route_id = "claude-project-mcp-stdio.write_projection"
+      route_adapter_contract_version = "claude-project-mcp-stdio-v1"
+      preconditions = ["adapter_contract_current", "managed_subtree_absent_or_managed", "project_config_json_valid_or_missing", "unsupported_managed_fields_absent"]
+      effect_envelope = "complete"
+      idempotency = "idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "atomic"
+
+  [[locked.subject]]
+    entity_id = "mcp_server:pi-context"
+    subject_id = "projection/pi.project.mcp-server/pi-context"
+    mcp_environment_sources = ["CONTEXT7_API_TOKEN"]
+    mcp_provider_contribution = "contribution/pi.package-carrier.contribution/%7B%22provider%22:%22carrier%2Fpi.package-carrier%2F%257B%2522target%2522:%2522pi%2522%252C%2522scope%2522:%2522project%2522%252C%2522source_kind%2522:%2522host-source%2522%252C%2522source_ref%2522:%2522npm:pi-mcp-adapter@%255E2.13.0%2522%257D%22%2C%22kind%22:%22mcp-client%22%2C%22key%22:%22default%22%7D"
+    ownership = "manifest"
+    on_absent = "remove_binding"
+    [locked.subject.realization]
+      [locked.subject.realization.managed_aggregate]
+        placement_id = "pi.project.pi-config"
+        target = "pi"
+        scope = "project"
+        aggregate_root = ".pi/mcp.json"
+        content_path = "/mcpServers/pi-context"
+        merge_unit = "mcp-server-entry"
+        contribution_cardinality = "exclusive"
+        sibling_retention = "preserve_unmanaged_siblings"
+        sibling_preservation = "canonical_semantic"
+        equivalence = "canonical_semantic"
+        canonical_contribution = "{\n  \"command\": \"npx\",\n  \"args\": [\n    \"-y\",\n    \"@upstash/context7-mcp@1.2.3\"\n  ],\n  \"env\": {\n    \"CONTEXT7_API_TOKEN\": \"${CONTEXT7_API_TOKEN}\"\n  },\n  \"lifecycle\": \"lazy\",\n  \"disabled\": false\n}\n"
+        codec_contract = "pi-mcp-adapter-stdio-v1"
+        compared_fields = ["adapter_contract", "args", "command", "config_path", "content_path", "disabled", "env", "lifecycle", "scope", "server_id", "target"]
+    [locked.subject.replay]
+      invocation = "exact"
+      outcome = "exact"
+      derivation = "not_applicable"
+
+      [[locked.subject.replay.exclusion]]
+        component = "pi-mcp-adapter package installation and exact current version"
+        reason = "PLUGIN_CARRIER"
+
+      [[locked.subject.replay.exclusion]]
+        component = "lower config layers, imports, and host config discovery"
+        reason = "HOST_APPROVAL"
+
+      [[locked.subject.replay.exclusion]]
+        component = "Pi project trust and global-provider pre-trust exposure"
+        reason = "HOST_APPROVAL"
+
+      [[locked.subject.replay.exclusion]]
+        component = "launcher executable and package manager state"
+        reason = "RUNTIME_DEPENDENCY"
+
+      [[locked.subject.replay.exclusion]]
+        component = "endpoint health and server startup"
+        reason = "RUNTIME_READINESS"
+
+      [[locked.subject.replay.exclusion]]
+        component = "runtime tool inventory"
+        reason = "TOOL_INVENTORY"
+
+    [[locked.subject.operation]]
+      operation = "observe"
+      actuation = "no_mutation"
+      authority = "observe"
+      effect_envelope = "not_applicable"
+      idempotency = "not_applicable"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "remove_projection"
+      actuation = "direct_projection"
+      authority = "remove"
+      route_id = "pi-mcp-adapter-stdio.project.remove_binding"
+      route_adapter_contract_version = "pi-mcp-adapter-stdio-v1"
+      preconditions = ["adapter_contract_current", "effective_config_collision_free", "managed_binding_baseline", "project_adapter_config_strict_json", "provider_contribution_available", "provider_jsonc_absent", "provider_version_compatible", "unsupported_managed_fields_absent"]
+      effect_envelope = "complete"
+      idempotency = "idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "atomic"
+
+    [[locked.subject.operation]]
+      operation = "write_projection"
+      actuation = "direct_projection"
+      authority = "manage"
+      route_id = "pi-mcp-adapter-stdio.project.write_projection"
+      route_adapter_contract_version = "pi-mcp-adapter-stdio-v1"
+      preconditions = ["adapter_contract_current", "effective_config_collision_free", "managed_subtree_absent_or_managed", "project_adapter_config_strict_json_or_missing", "provider_contribution_available", "provider_jsonc_absent", "provider_version_compatible", "unsupported_managed_fields_absent"]
+      effect_envelope = "complete"
+      idempotency = "idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "atomic"
+
+  [[locked.subject]]
+    entity_id = "skill:review"
+    subject_id = "projection/skill.project.agents/skill:review"
+    ownership = "manifest"
+    on_absent = "apply"
+    [locked.subject.realization]
+      [locked.subject.realization.managed_path]
+        placement_id = "skill.project.agents"
+        consumer_targets = ["codex"]
+        scope = "project"
+        destination = ".agents/skills/review"
+        content_kind = "directory"
+        placement_mode = "copy"
+        permission_policy = "none"
+        adapter_contract_version = "managed-directory-v1"
+    [locked.subject.replay]
+      invocation = "exact"
+      outcome = "exact"
+      derivation = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "remove_projection"
+      actuation = "direct_projection"
+      authority = "remove"
+      route_id = "managed-path.remove"
+      route_adapter_contract_version = "managed-directory-v1"
+      preconditions = ["fresh_path_evidence", "managed_state_authority", "ownership_authority"]
+      effect_envelope = "complete"
+      idempotency = "conditionally_idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "bounded_compensation"
+
+    [[locked.subject.operation]]
+      operation = "write_projection"
+      actuation = "direct_projection"
+      authority = "manage"
+      route_id = "managed-directory.write"
+      route_adapter_contract_version = "managed-directory-v1"
+      preconditions = ["fresh_path_evidence", "ownership_authority"]
+      effect_envelope = "complete"
+      idempotency = "conditionally_idempotent"
+      verification = "exact_projection"
+      trust_activation = "not_required"
+      recovery = "bounded_compensation"
+
+  [[locked.subject]]
+    entity_id = "skill:review"
+    subject_id = "resource/skill/review"
+    ownership = "manifest"
+    on_absent = "apply"
+    [locked.subject.exact_supply]
+      source_id = "local:skills/review?mode=vendor"
+      kind = "directory"
+      content_hash = "sha256:687415715cfd21199fde1e15a9290e8ae9bff7d0affe0dbccbfd4affbe316370"
+    [locked.subject.derivation]
+      [locked.subject.derivation.direct_resolution]
+        source_id = "local:skills/review?mode=vendor"
+        kind = "directory"
+        content_hash = "sha256:687415715cfd21199fde1e15a9290e8ae9bff7d0affe0dbccbfd4affbe316370"
+    [locked.subject.skill_set_member]
+      declaration_identity = "skill-set-declaration:v2:sha256:a0a3bbc62731533c0462a072ca075628eb3110ef49f72e1ab7b12fa3a0263dac"
+    [locked.subject.replay]
+      invocation = "unavailable"
+      outcome = "exact"
+      derivation = "not_applicable"
+
+      [[locked.subject.replay.exclusion]]
+        component = "source resolver invocation"
+        reason = "RUNTIME_DEPENDENCY"
+
+    [[locked.subject.operation]]
+      operation = "observe"
+      actuation = "no_mutation"
+      authority = "observe"
+      effect_envelope = "not_applicable"
+      idempotency = "not_applicable"
+      verification = "exact_artifact"
+      trust_activation = "not_required"
+      recovery = "not_applicable"
+
+    [[locked.subject.operation]]
+      operation = "write_projection"
+      actuation = "direct_projection"
+      authority = "manage"
+      route_id = "exact-supply.write"
+      route_adapter_contract_version = "exact-supply.v1"
+      preconditions = ["content_hash_locked", "source_identity_locked"]
+      effect_envelope = "complete"
+      idempotency = "idempotent"
+      verification = "exact_artifact"
+      trust_activation = "not_required"
+      recovery = "atomic"
+
+  [[locked.order_constraint]]
+    class_id = "extension:pi:project:packages"
+    contract_version = "pi-package-load-identity-v1"
+    runtime_meaning = "runtime-precedence"
+
+    [[locked.order_constraint.member]]
+      subject_id = "host_relation/pi.package-carrier/pi-adapter"
+      host_load_identity = "npm:pi-mcp-adapter"
+
+    [[locked.order_constraint.member]]
+      subject_id = "host_relation/pi.package-carrier/pi-formatter"
+      host_load_identity = "npm:@example/pi-formatter"

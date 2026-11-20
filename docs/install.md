@@ -99,8 +99,10 @@ may migrate or reject persisted formats according to their own contracts.
 ### Lockfile Schema 7
 
 This version writes schema 7 for all lockfiles, including manifests with
-`agent_config`. Regenerate an existing schema 3–6 lockfile before using
-`status`, `apply`, or other lockfile readers:
+`agent_config`. `status`, `apply`, and `outdated` can read a valid schema 6
+lockfile without rewriting it or changing its pinned sources. If your lockfile
+is schema 3–5, or daem reports that the schema 6 contents cannot be used as a
+locked plan, preview and regenerate it explicitly:
 
 ```sh
 daem lock --dry-run
@@ -109,12 +111,14 @@ daem status
 daem apply --dry-run --diff
 ```
 
-Relocking resolves the current manifest sources again and cannot compare them
-with an older-schema file. Review the generated lock and the apply preview
-above before applying. Relocking does not change host configuration. Older daem
-versions cannot read the regenerated lockfile. If a team shares that file,
-coordinate the daem upgrade before committing the new lockfile. Rolling back
-only the executable does not restore lockfile compatibility.
+Relocking resolves the current manifest sources again. A readable schema 6
+lock works as a comparison baseline for `outdated`; `lock --dry-run` previews
+the new resolution without comparing it to the older file. Review the new lock
+and the apply preview before applying. Relocking does not change host
+configuration. Older daem versions cannot read the regenerated lockfile. If a
+team shares that file, coordinate the daem upgrade before committing the new
+lockfile. Rolling back only the executable does not restore lockfile
+compatibility.
 
 Other unsupported schemas remain refusals; these commands do not grant a generic
 lockfile migration or downgrade path.
