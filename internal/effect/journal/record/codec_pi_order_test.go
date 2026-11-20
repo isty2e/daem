@@ -84,6 +84,8 @@ func TestPiOrderEvidenceRefusesMismatchedOrIncompleteSemanticFacts(t *testing.T)
 		{"runtime meaning", func(record *recoveryPiOrderEvidence) { record.Constraint.RuntimeMeaning = "unknown" }},
 		{"missing home", func(record *recoveryPiOrderEvidence) { record.SettingsContext.HomeRoot = "" }},
 		{"changed command home", func(record *recoveryPiOrderEvidence) { record.Relations[1].SourceContext.HomeRoot = t.TempDir() }},
+		{"untrimmed command base", func(record *recoveryPiOrderEvidence) { record.Relations[1].SourceContext.BaseRoot += " " }},
+		{"NUL in command base", func(record *recoveryPiOrderEvidence) { record.Relations[1].SourceContext.BaseRoot += "\x00" }},
 		{"changed settings base", func(record *recoveryPiOrderEvidence) { record.SettingsContext.BaseRoot = t.TempDir() }},
 		{"missing relation", func(record *recoveryPiOrderEvidence) { record.Relations = record.Relations[:1] }},
 		{"duplicate relation", func(record *recoveryPiOrderEvidence) {

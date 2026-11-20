@@ -170,8 +170,7 @@ func NewOpenCodeDocumentEdit(view opencodeorder.SelectedDocumentOrderView) (Sele
 	return edit, nil
 }
 
-// SelectedEdits consumes only operation-selected retirement claims. Normalizers
-// derive exact row positions; callers supply neither slots nor loose subject joins.
+// RetiringCorrelations selects the retired relations for one target, scope and carrier.
 func RetiringCorrelations(claims []durablecarrier.ManagedCarrierClaim, selectedTarget target.Target, scope target.Scope, family desiredextension.Carrier) ([]observerelation.CorrelationKey, error) {
 	var result []observerelation.CorrelationKey
 	for _, claim := range claims {

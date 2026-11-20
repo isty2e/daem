@@ -149,6 +149,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 			input.Lockfile,
 			capability,
 			input.Constraint,
+			input.Paths.ManifestRoot,
 		)
 		if err != nil {
 			return OrderObservation{}, err
@@ -343,12 +344,18 @@ func piOrderRelations(
 	locked lock.File,
 	capability profile.ExtensionOrderCapability,
 	constraint hostrelation.RelationOrderConstraint,
+	commandRoot string,
 ) ([]relationobserve.CorrelationKey, error) {
 	relations := make([]relationobserve.CorrelationKey, 0, len(constraint.Members()))
 	for index, member := range constraint.Members() {
 		key, err := lockedOrderCorrelation(locked, capability, member)
 		if err != nil {
 			return nil, fmt.Errorf("Pi order member[%d]: %w", index, err)
+		}
+		if index == 0 {
+			if _, err := piorder.CleanPackageRoot("Pi package command root", commandRoot); err != nil {
+				return nil, fmt.Errorf("Pi order member[%d]: %w", index, err)
+			}
 		}
 		relations = append(relations, key)
 	}

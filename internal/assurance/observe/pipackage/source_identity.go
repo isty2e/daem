@@ -48,7 +48,7 @@ func parseSourceIdentity(source string, base string, scope target.Scope) (piorde
 	if interpreted.Class() != extensiontopology.CarrierSourceLocal {
 		return piorder.ResolveSourceIdentity(interpreted, extensiontopology.LocalSourceContext{})
 	}
-	root, err := cleanAbsoluteRoot("Pi package source base", base)
+	root, err := piorder.CleanPackageRoot("Pi package source base", base)
 	if err != nil {
 		return piorder.SourceIdentity{}, err
 	}

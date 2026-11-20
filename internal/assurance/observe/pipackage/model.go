@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -33,7 +34,7 @@ func NewScopedRelation(
 	default:
 		return ScopedRelation{}, fmt.Errorf("Pi relation scope %q is not observable", parsedScope)
 	}
-	root, err := cleanAbsoluteRoot("Pi package command root", commandRoot)
+	root, err := piorder.CleanPackageRoot("Pi package command root", commandRoot)
 	if err != nil {
 		return ScopedRelation{}, err
 	}

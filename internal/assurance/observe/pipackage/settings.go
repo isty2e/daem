@@ -3,7 +3,6 @@ package pipackage
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 	"github.com/isty2e/daem/internal/filesnapshot"
@@ -147,7 +146,7 @@ func SettingsPath(input SettingsInput) (string, error) {
 	}
 	switch scope {
 	case target.ScopeProject:
-		root, err := cleanAbsoluteRoot("Pi project root", input.ProjectRoot)
+		root, err := piorder.CleanPackageRoot("Pi project root", input.ProjectRoot)
 		if err != nil {
 			return "", err
 		}
@@ -164,24 +163,4 @@ func SettingsPath(input SettingsInput) (string, error) {
 	default:
 		return "", fmt.Errorf("Pi package settings scope %q is not observable", scope)
 	}
-}
-
-func cleanAbsoluteRoot(label string, root string) (string, error) {
-	if strings.TrimSpace(root) == "" || strings.TrimSpace(root) != root {
-		return "", fmt.Errorf("%s must be non-empty and trimmed", label)
-	}
-	if strings.ContainsRune(root, '\x00') {
-		return "", fmt.Errorf("%s must not contain a NUL byte", label)
-	}
-	if !filepath.IsAbs(root) {
-		return "", fmt.Errorf("%s must be absolute", label)
-	}
-	return filepath.Clean(root), nil
-}
-
-func validateSourceText(source string) (string, error) {
-	if err := piconfig.ValidatePackageSource(source); err != nil {
-		return "", err
-	}
-	return source, nil
 }
