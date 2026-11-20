@@ -96,6 +96,7 @@ func ExecuteAgentConfigCapture(ctx context.Context, plan *AgentConfigCapturePlan
 
 func sameAgentConfigCapture(left, right *AgentConfigCapturePlan) bool {
 	if left.source.Path() != right.source.Path() || left.originalSource.Path() != right.originalSource.Path() ||
+		!left.missingState.Equal(right.missingState) ||
 		left.retire != right.retire || left.narrowing != right.narrowing || !left.native.Equal(right.native) ||
 		!bytes.Equal(left.manifestBefore, right.manifestBefore) || !bytes.Equal(left.manifestAfter, right.manifestAfter) ||
 		!bytes.Equal(left.sourceBefore, right.sourceBefore) || !bytes.Equal(left.sourceAfter, right.sourceAfter) ||
@@ -148,6 +149,15 @@ func (plan *AgentConfigCapturePlan) captureDomains() ([]mutation.Domain, error) 
 			return nil, err
 		}
 		domains = append(domains, domain)
+	}
+	for _, path := range []string{plan.input.Paths.StatefilePath, plan.input.Paths.OwnershipRegistryPath} {
+		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+			domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Effect: effect, Access: mutation.AccessShared})
+			if err != nil {
+				return nil, err
+			}
+			domains = append(domains, domain)
+		}
 	}
 	facts, _ := plan.observation.NativeInput()
 	for _, namespace := range facts.Documents.Evidence().Namespaces() {

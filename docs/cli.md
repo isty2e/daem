@@ -320,7 +320,7 @@ flags.
 | `lock` | `--dry-run`, `--json`, `--manifest`, `--verbose` |
 | `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
-| `recover` | `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--verbose`, `--yes` |
+| `recover` | `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--release-output-ownership`, `--verbose`, `--yes` |
 | `migrate state` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--yes` |
 | `migrate metadata` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--reference`, `--yes` |
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
@@ -354,7 +354,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | confirmed `apply` | Apply result | `26` |
 | `replace agent-config` | Selected-key replacement | `1` |
 | `import agent-config` | Selected physical-value capture or its terminal recovery | `1` |
-| `recover` | Recovery plan/result | `10` |
+| `recover` | Recovery plan/result | `11` |
 | `migrate state` | State-authority migration | `1` |
 | `migrate metadata` | Management metadata conversion | `1` |
 | `doctor` | Passive diagnostics | `2` |
@@ -391,6 +391,10 @@ Resource inventory version `4` adds `hook_asset` declaration rows. Their
 including an empty string for unreferenced assets, rather than a target set
 declared on the asset. Every resource inventory emits version `4`, including
 empty results; consumers of version `3` must update before interpreting it.
+
+Recovery version `11` adds the `output_ownership_release` authority and its
+disclosure. Journal and permission recovery keep their result fields and also
+emit version `11`. Scripts that accept only version `10` must update.
 
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
 optional dimension `detail`, the unsupported Pi backend-transition
@@ -1902,11 +1906,11 @@ cancellation, signal or exit facts.
 ## `recover`
 
 ```bash
-daem recover [--manifest <path>] [--legacy-user-state] [--dry-run|--yes] [--json|--verbose]
+daem recover [--manifest <path>] [--legacy-user-state|--release-output-ownership] [--dry-run|--yes] [--json|--verbose]
 ```
 
-Recovery classifies and resolves one interrupted apply operation or finishes
-the exact retained cleanup of an already retired apply journal. Bare recover
+Recovery classifies an interrupted apply, finishes retained journal cleanup,
+or handles pending permission recovery. Bare recover
 uses the shared three-stream terminal contract and asks after disclosing the
 current recovery plan; non-interactive execution requires `--yes`. It does not
 read desired resources from the manifest or lockfile: the manifest selects the
@@ -1922,6 +1926,17 @@ apply-journal root, before state migration. It is not an arbitrary state-path
 selector and cannot bypass a canonical migration fence or a retired source.
 See [User-State Authority Migration](state-and-recovery.md#user-state-authority-migration)
 for the separate legacy authoring-metadata recovery boundary.
+
+If the state file is missing and no matching backup is available, preview
+`daem recover --release-output-ownership --dry-run`. The option is separate
+from journal and permission recovery and cannot be combined with
+`--legacy-user-state`. The preview covers all settled output ownership for
+the selected state file, including records from other manifests that share it.
+Interactive confirmation or `--yes` releases those records only, leaving
+installed files and host settings in place. The command refuses if the state
+file is present, ownership cannot be matched, or recovery is pending. See
+[State File Is Missing](troubleshooting.md#state-file-is-missing) before
+releasing ownership.
 
 | Classification | Meaning |
 | --- | --- |
@@ -1968,9 +1983,19 @@ authority facts. Partial containment and failed publication return nonzero.
 See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery)
 for its no-content-repair boundary.
 
+Output ownership release uses `authority_kind = "output_ownership_release"`.
+Its `output_ownership_release` object reports `claim_count`, `binding_count`,
+`recorded_manifests` and `locations`. `manifest` identifies the selected
+manifest when displayable; `withheld_manifest_count` and
+`withheld_location_count` account for references that cannot be shown. The
+counts describe recorded ownership, not files changed. `phase` is `planned`,
+`nothing_to_release`, `released`, `refused`, or `unconfirmed`. A write of
+unconfirmed durability exits unsuccessfully; inspect a new preview before
+trying again. Planning failures before a release is disclosed use `cli_error`.
+
 Both `--dry-run --json` and `--yes --json` use the
 [recovery family](#json-schema-contract). Every result declares one `phase`.
-Dry-run results and write attempts rejected before execution use `planned`.
+Journal dry-run results and write attempts rejected before execution use `planned`.
 After execution begins, a
 freshly reclassified active journal uses `active_authority_retained`; a
 freshly reclassified cleanup-only continuation uses

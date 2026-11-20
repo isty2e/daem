@@ -7,6 +7,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -16,6 +17,8 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -235,7 +238,7 @@ func stabilizePlan(
 	if err != nil {
 		return current, err
 	}
-	if !initial.fingerprint.Equal(current.fingerprint) ||
+	if !initial.missingState.Equal(current.missingState) || !initial.fingerprint.Equal(current.fingerprint) ||
 		!authority.authorityFingerprint.Equal(
 			currentAuthority.authorityFingerprint,
 		) {
@@ -292,6 +295,12 @@ func planAtPathsWithBarrier(
 	physicalState, err := statefile.LoadOptionalPhysical(ctx, paths.StatefilePath)
 	if err != nil {
 		return refusedPlan(result, ReasonMutationAuthority, err, "repair or remove the invalid statefile before retrying")
+	}
+	missing, absent := physicalState.Missing()
+	if absent {
+		if err := ownershipobserve.RequireMissingStateClear(ctx, paths, missing, physicalwork.NewCaptureBudget(nil)); err != nil {
+			return missingStateRefusedPlan(result, err)
+		}
 	}
 	currentState := physicalState.Snapshot()
 
@@ -423,6 +432,7 @@ func planAtPathsWithBarrier(
 		pinClaimRegistry:   pinClaimRegistry,
 		currentState:       currentState,
 		physicalStateCodec: physicalState.Codec(),
+		missingState:       missing,
 		timeout:            timeout,
 	}
 	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState, settingsProfile)
@@ -529,13 +539,40 @@ func isPreservedReplanCause(err error) bool {
 	if recoverygate.IsCancellation(err) {
 		return true
 	}
-	return recoverygate.IsBarrierRefusal(err)
+	var missing *ownershipobserve.MissingStateRefusal
+	return recoverygate.IsBarrierRefusal(err) || errors.As(err, &missing)
 }
 
 func mapPreservedReplanCause(result CommandResult, err error) (CommandResult, error, bool) {
 	if !isPreservedReplanCause(err) {
 		return CommandResult{}, nil, false
 	}
+	var missing *ownershipobserve.MissingStateRefusal
+	if !recoverygate.IsCancellation(err) && !recoverygate.IsBarrierRefusal(err) && errors.As(err, &missing) {
+		planned, mapped := missingStateRefusedPlan(result, err)
+		return cloneCommandResult(planned.result), mapped, true
+	}
 	planned, mapped := journalAndFileSetRefusal(result, err)
 	return cloneCommandResult(planned.result), mapped, true
+}
+
+func missingStateRefusedPlan(result CommandResult, err error) (plan, error) {
+	if recoverygate.IsCancellation(err) {
+		return journalAndFileSetRefusal(result, err)
+	}
+	var protection *ownership.ProtectionPendingError
+	var remediation string
+	switch {
+	case errors.As(err, &protection):
+		remediation = "preserve the records and preview permission recovery with daem recover --dry-run for the manifest that owns the pending protection"
+	case errors.Is(err, ownership.ErrOwnerOutputsReserved):
+		remediation = "preserve the reserved claims; resume journal recovery only with the matching recovery records"
+	case errors.Is(err, ownershipobserve.ErrAmbiguousStateOwner):
+		remediation = "check the original manifest and HOME/XDG selection; restore a matching state backup if available"
+	case errors.Is(err, ownershipobserve.ErrMissingStateWithOutputs):
+		remediation = "restore a matching state backup, or preview daem recover --release-output-ownership --dry-run with the same manifest selection"
+	default:
+		remediation = "preserve the records and restore access to the output ownership registry before retrying"
+	}
+	return refusedPlan(result, ReasonMutationAuthority, err, remediation)
 }

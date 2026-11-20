@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationedit "github.com/isty2e/daem/internal/declaration"
@@ -172,6 +173,11 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 		}
 	}
 	if declaration == nil && candidate.management == nil {
+		if missing, absent := state.Missing(); absent {
+			if err := ownershipobserve.RequireMissingStateClear(ctx, paths, missing, budget); err != nil {
+				return agentConfigReleaseCandidate{}, err
+			}
+		}
 		return agentConfigReleaseCandidate{}, ErrAgentConfigManagementNotFound
 	}
 	if declaration != nil {
@@ -239,6 +245,11 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 	registry, err := ownershipstore.ReadProtectionRegistryBounded(ctx, paths.OwnershipRegistryPath, physicalwork.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		return agentConfigReleaseCandidate{}, err
+	}
+	if missing, absent := state.Missing(); absent {
+		if err := ownershipobserve.RequireMissingStateRegistryClear(ctx, missing, paths.ManifestPath, registry); err != nil {
+			return agentConfigReleaseCandidate{}, err
+		}
 	}
 	if err := candidate.qualifyMetadata(ctx, registry, budget); err != nil {
 		return agentConfigReleaseCandidate{}, err

@@ -17,6 +17,7 @@ import (
 type PersistenceEpoch struct {
 	currentState        durable.Snapshot
 	physicalStateCodec  statefile.PhysicalCodec
+	missingState        statefile.MissingState
 	globalCarrierClaims durablecarrier.GlobalCarrierClaims
 	physicalBudget      *physicalwork.Budget
 	initialized         bool
@@ -35,8 +36,11 @@ func NewPersistenceEpochWithBudget(currentState durable.Snapshot, globalCarrierC
 func NewPersistenceEpochWithPhysicalState(state statefile.PhysicalState, claims durablecarrier.GlobalCarrierClaims, budget *physicalwork.Budget) PersistenceEpoch {
 	epoch := NewPersistenceEpochWithBudget(state.Snapshot(), claims, budget)
 	epoch.physicalStateCodec = state.Codec()
+	epoch.missingState, _ = state.Missing()
 	return epoch
 }
+
+func (epoch PersistenceEpoch) MissingState() statefile.MissingState { return epoch.missingState }
 
 func (epoch PersistenceEpoch) PhysicalStateCodec(template statefile.PhysicalCodec) (statefile.PhysicalCodec, error) {
 	if !epoch.initialized {

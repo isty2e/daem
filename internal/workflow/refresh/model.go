@@ -320,6 +320,7 @@ type plan struct {
 	pinClaimRegistry   bool
 	currentState       durable.Snapshot
 	physicalStateCodec statefile.PhysicalCodec
+	missingState       statefile.MissingState
 	timeout            HostCommandTimeout
 	fingerprint        mutation.OperationFingerprint
 	authority          authorityEvidence

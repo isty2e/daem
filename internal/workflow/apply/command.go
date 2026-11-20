@@ -117,6 +117,7 @@ type Failure struct {
 	nativeSupport          nativeSupportReason
 	documentAdmission      *nativeoperation.DocumentAdmissionError
 	staleAgentConfigSource entity.ID
+	missingState           *ownershipobserve.MissingStateRefusal
 	cleanupAttempted       bool
 	cleanupRecordsCleared  bool
 }
@@ -138,6 +139,9 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		phase:   phase,
 		outcome: outcome,
 		barrier: recoverygate.StateOf(err),
+	}
+	if phase == FailurePhasePreflight && failure.reason != FailureReasonCancelled {
+		errors.As(err, &failure.missingState)
 	}
 	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
 	for _, step := range result.RecoveryCleanup {
@@ -274,7 +278,11 @@ func (failure Failure) StaleAgentConfigSource() (entity.ID, bool) {
 
 // Detail derives bounded public prose only from closed failure facts.
 func (failure Failure) Detail() string {
-	return failure.withOutcomeFacts(failure.reasonDetail())
+	detail := failure.withOutcomeFacts(failure.reasonDetail())
+	if failure.missingState != nil {
+		detail += "; " + failure.missingState.Error()
+	}
+	return detail
 }
 
 // PrimaryDetail retains failure facts without presenter-owned repair advice.
@@ -428,6 +436,7 @@ type CommandInput struct {
 	environmentPresent     environmentSourcePresence
 	nativeReplacement      *topologyprojection.AgentConfigKeySelection
 	persistenceBudget      *physicalwork.Budget
+	ownedRequalification   bool
 }
 
 type CommandResult struct {
@@ -594,18 +603,22 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		)
 	}
 	var pending *workspacecleanup.Pending
+	var pendingFence error
 	var validate func(context.Context) error
 	if canPlanRecoveryCleanup(input, paths, lockfilePath) {
 		validate = func(ctx context.Context) error {
 			fenceErr := barrier.Validate(ctx)
 			var err error
 			pending, err = workspacecleanup.Observe(ctx, barrier, fenceErr)
+			if pending != nil {
+				pendingFence = fenceErr
+			}
 			return recoveryCleanupPlanningError(fenceErr, err)
 		}
 	}
 	planned, err := planReadinessAtPathsWithBarrierValidation(ctx, input, operationContext, paths, &barrier, validate)
 	if err != nil {
-		return unavailablePreparedWrite(planned.result), err
+		return unavailablePreparedWrite(planned.result), pendingRecoveryInputError(pendingFence, err)
 	}
 	if err := rejectUnsupportedCommandPlan(planned); err != nil {
 		return unavailablePreparedWrite(planned.result), err
@@ -961,6 +974,15 @@ func loadCommandInputsAtPaths(
 	}
 	if err != nil {
 		return commandContext{}, result, err
+	}
+	if !input.ownedRequalification {
+		budget, err := persistenceEpoch.PhysicalBudget()
+		if err != nil {
+			return commandContext{}, result, err
+		}
+		if err := ownershipobserve.RequireMissingStateClear(ctx, paths, persistenceEpoch.MissingState(), budget); err != nil {
+			return commandContext{}, result, err
+		}
 	}
 	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {

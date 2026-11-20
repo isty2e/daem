@@ -177,6 +177,13 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	if err != nil {
 		return commandInputs{}, result, err
 	}
+	budget, err := persistenceEpoch.PhysicalBudget()
+	if err != nil {
+		return commandInputs{}, result, err
+	}
+	if err := ownershipobserve.RequireMissingStateClear(ctx, paths, persistenceEpoch.MissingState(), budget); err != nil {
+		return commandInputs{}, result, err
+	}
 	currentState, err := persistenceEpoch.Snapshot()
 	if err != nil {
 		return commandInputs{}, result, err

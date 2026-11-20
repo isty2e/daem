@@ -88,7 +88,11 @@ func requalifyApplyPlan[T any](
 	if err := input.guard.requireDeclarationsCurrent(ctx, label); err != nil {
 		return requalifiedApplyPlan{}, empty, err
 	}
-	fresh, err := planReadinessAtPathsWithAssessor(ctx, input.request, input.operationContext, input.current.context.Paths, &input.current.barrier, input.validateBarrier, retainedReadiness)
+	request := input.request
+	// The retained invocation can already have reserved ownership or permission
+	// records. These are not an orphaned first-run baseline.
+	request.ownedRequalification = true
+	fresh, err := planReadinessAtPathsWithAssessor(ctx, request, input.operationContext, input.current.context.Paths, &input.current.barrier, input.validateBarrier, retainedReadiness)
 	if err != nil {
 		return requalifiedApplyPlan{}, empty, err
 	}

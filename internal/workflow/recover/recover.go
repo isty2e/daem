@@ -30,8 +30,9 @@ import (
 )
 
 type PlanInput struct {
-	ManifestPath    string
-	LegacyUserState bool
+	ManifestPath           string
+	LegacyUserState        bool
+	ReleaseOutputOwnership bool
 }
 
 // ExecuteOptions supplies effect-boundary dependencies without changing
@@ -45,6 +46,16 @@ type ExecuteOptions struct {
 func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("recovery context is required")
+	}
+	if input.ReleaseOutputOwnership {
+		if input.LegacyUserState {
+			return nil, fmt.Errorf("output ownership release cannot recover legacy user state")
+		}
+		planned, err := planOutputRelease(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return newPreparedRecovery(planned), nil
 	}
 	return planRecoveryOperation(ctx, input)
 }
@@ -200,6 +211,14 @@ func Execute(
 	selected, err := prepared.beginExecution()
 	if err != nil {
 		return ExecutionResult{}, err
+	}
+	if release, ok := selected.(outputReleasePreparation); ok {
+		var writer mutationfs.RootedEntryCommitter = storagecommit.Adapter{}
+		if options.Filesystem != nil {
+			writer = options.Filesystem
+		}
+		phase, err := release.execute(ctx, writer)
+		return ExecutionResult{outputRelease: phase}, err
 	}
 	if safety, ok := selected.(permissionPreparation); ok {
 		if options.Filesystem != nil {

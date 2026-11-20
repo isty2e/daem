@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -32,6 +33,14 @@ func recoveryCleanupPlanningError(fence, proof error) error {
 	return errors.Join(fence, fmt.Errorf("verify recovery cleanup: %w", proof))
 }
 
+func pendingRecoveryInputError(fence, err error) error {
+	var loss *ownershipobserve.MissingStateRefusal
+	if fence != nil && errors.As(err, &loss) {
+		return errors.Join(fence, err)
+	}
+	return err
+}
+
 func planDryRunWithRecoveryCleanup(ctx context.Context, input CommandInput, paths daempaths.Paths, strict commandPlan, fence error) (_ DryRunPlan, returnErr error) {
 	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
 	if err != nil {
@@ -52,7 +61,7 @@ func planDryRunWithRecoveryCleanup(ctx context.Context, input CommandInput, path
 	}
 	planned, err := planReadinessAtPathsWithBarrierValidation(ctx, input, reconcile.ContextDryRun, paths, &barrier, pending.Validate)
 	if err != nil {
-		return newDryRunPlan(planned), err
+		return newDryRunPlan(planned), pendingRecoveryInputError(fence, err)
 	}
 	if err := rejectLocalSourceMutationOverlap(planned); err != nil {
 		return newDryRunPlan(planned), err
