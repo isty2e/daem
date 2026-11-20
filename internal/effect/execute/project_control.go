@@ -169,7 +169,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 			kind: operationplan.EffectStepObservation,
 		},
 		func() error {
-			if plan.Blocked() || plan.HasErrors() {
+			if plan.HasErrors() {
 				return fmt.Errorf("recovery journal retirement requires an effect-admissible clean plan")
 			}
 			if classification := plan.Classification(); classification != recovery.ClassificationCleanBefore &&

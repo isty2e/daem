@@ -574,7 +574,7 @@ func reloadRecoveryPlanAfterEffects(
 	if err := requireSameActiveJournal(expected, current, "after effects"); err != nil {
 		return recovery.Plan{}, err
 	}
-	if current.Blocked() || current.HasErrors() {
+	if current.HasErrors() {
 		return recovery.Plan{}, fmt.Errorf("recovery is blocked by current evidence")
 	}
 	switch current.Classification() {
@@ -635,7 +635,7 @@ func recoveryPlanBeforeEffects(
 	if err := requireSameActiveJournal(plan, current, "before effects"); err != nil {
 		return recovery.Plan{}, err
 	}
-	if current.Blocked() || current.HasErrors() {
+	if current.HasErrors() {
 		return recovery.Plan{}, fmt.Errorf("recovery is blocked by current evidence")
 	}
 	if !plan.SameExecutionAuthority(current) {

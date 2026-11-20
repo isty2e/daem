@@ -18,6 +18,13 @@ import (
 	"github.com/isty2e/daem/test/testkit/stateimage"
 )
 
+func TestUninitializedNativeRecoveryRefusesExecution(t *testing.T) {
+	var plan NativeRecoveryPlan
+	if !plan.HasErrors() || plan.DisclosedClassification() != recovery.ClassificationBlocked || len(plan.OrdinaryRollbackActions()) != 0 {
+		t.Fatal("native recovery without operation evidence disclosed an executable phase")
+	}
+}
+
 func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 	for _, create := range []bool{true, false} {
 		t.Run(map[bool]string{true: "new-document", false: "existing-document"}[create], func(t *testing.T) {
@@ -51,7 +58,7 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 					t.Error(err)
 				}
 			}()
-			if operation.Plan().Classification() != recovery.ClassificationCleanBefore {
+			if !operation.InitialAssessment().CleanBefore() {
 				t.Fatal("unchanged actual Before was not clean-before")
 			}
 			if requests, err := operation.OrdinaryPhysicalAuthorityRequests(); err != nil || len(requests) != 0 {
@@ -90,7 +97,7 @@ func TestCapturedNativeRecoveryRetainsInertLegacyInventory(t *testing.T) {
 				t.Fatal(err)
 			}
 			closedAliases, err := plan.DocumentWriteAliases()
-			if err != nil || !reflect.DeepEqual(aliases, closedAliases) || plan.Classification() != recovery.ClassificationCleanBefore {
+			if err != nil || !reflect.DeepEqual(aliases, closedAliases) || plan.DisclosedClassification() != recovery.ClassificationCleanBefore {
 				t.Fatal("closing live recovery invalidated immutable plan facts", err)
 			}
 			if len(operation.Documents()) != 0 || operation.InitialAssessment().CleanBefore() {

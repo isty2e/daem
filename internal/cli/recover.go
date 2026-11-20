@@ -172,7 +172,7 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 			return 0
 		}
 
-		if plan.Blocked() || plan.HasErrors() {
+		if plan.HasErrors() {
 			if arguments.output == requestedJSON {
 				if err := clipresent.PrintRecoverResultJSONWithFence(stdout, "write", plan, fileSetFence, nil, nil); err != nil {
 					return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("recover failed: write json: "))

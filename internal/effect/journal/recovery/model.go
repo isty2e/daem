@@ -461,16 +461,9 @@ func (plan Plan) RetirementReady(discharged []RemovalCleanupObligation) bool {
 }
 
 func (plan Plan) Blocked() bool {
-	if plan.classification == ClassificationBlocked {
-		return true
-	}
-	for _, obligation := range plan.removalObligations {
-		if obligation.Readiness() == RemovalCleanupBlocked {
-			return true
-		}
-	}
-	return false
+	return plan.classification == ClassificationBlocked || RemovalCleanupRefusal(plan.removalObligations) == RemovalCleanupBlocked
 }
+
 func (plan Plan) Classification() Classification    { return plan.classification }
 func (plan Plan) OperationID() string               { return plan.authority.operationID }
 func (plan Plan) OperationDir() string              { return plan.authority.operationDir }
@@ -488,13 +481,8 @@ func (plan Plan) JournalAuthorityFingerprint() (string, error) {
 }
 
 func (plan Plan) HasErrors() bool {
-	if plan.Blocked() {
+	if plan.classification == ClassificationBlocked || RemovalCleanupRefusal(plan.removalObligations) != "" {
 		return true
-	}
-	for _, obligation := range plan.removalObligations {
-		if obligation.Readiness() == RemovalCleanupRetry {
-			return true
-		}
 	}
 	for _, action := range plan.actions {
 		if action.Kind == ActionKindError {

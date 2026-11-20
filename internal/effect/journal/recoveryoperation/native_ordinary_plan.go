@@ -12,10 +12,10 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
-// OrdinaryActions projects only the rollback phase selected by the complete
-// operation. Committed After-state recovery never replays host restoration.
-func (plan NativeRecoveryPlan) OrdinaryActions() []recovery.Action {
-	if plan.Blocked() || plan.assessment.Classification() != recovery.ClassificationNeedsRollback {
+// OrdinaryRollbackActions selects host restoration from the assessed phase.
+// The schedule may be compiled before cleanup admits execution.
+func (plan NativeRecoveryPlan) OrdinaryRollbackActions() []recovery.Action {
+	if plan.phaseUnavailable() || plan.assessment.Classification() != recovery.ClassificationNeedsRollback {
 		return nil
 	}
 	return plan.assessment.OrdinaryActions()
