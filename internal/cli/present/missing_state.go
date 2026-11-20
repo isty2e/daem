@@ -63,7 +63,8 @@ func MissingStateEvidenceGuidance(err error) ([]Guidance, bool) {
 	guidance := []Guidance{NoteGuidance(refusal.Error())}
 	state := recoverygate.StateOf(err)
 	if state.JournalKnown() && state.Journal() == journal.InterruptionClear && state.FileSet() == fileset.FileSetFencePublishedTransaction {
-		guidance = append(guidance, missingStateCommand(refusal.ManifestPath(), "to verify and clear a completed manifest and lockfile update", "lock"))
+		guidance = append(guidance, missingStateCommand(refusal.ManifestPath(),
+			"if you intend to refresh the lockfile; lock can clear a verified completed update before refreshing it", "lock"))
 	}
 	return guidance, true
 }
