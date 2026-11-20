@@ -23,10 +23,10 @@ func TestCurrentLockRejectsLegacyMixedMissingAndInvalidKeyPath(t *testing.T) {
 }
 
 func TestPreviousLockBodyIsOpaqueOnlyForRegeneration(t *testing.T) {
-	content := []byte("version = 6\nlegacy_payload = { malformed = [\n")
+	content := []byte("version = 5\nlegacy_payload = { malformed = [\n")
 	file, err := loadContent(t.Context(), content)
 	var versionErr UnsupportedVersionError
-	if !errors.As(err, &versionErr) || versionErr.Found != 6 || !versionErr.RelockSupported() || file.Version != 0 {
+	if !errors.As(err, &versionErr) || versionErr.Found != 5 || !versionErr.RelockSupported() || file.Version != 0 {
 		t.Fatalf("previous lock body acquired authority or lost regeneration policy: %v", err)
 	}
 	if err := validateReplacementContent(t.Context(), content); err != nil {

@@ -1705,25 +1705,29 @@ Current lock behavior:
   property is `/`, while `/a~1b` identifies the literal property `a/b`. The field
   records canonical key identity, not permission to mutate that key. The old
   `content_path` wire field is not accepted in the current schema.
-- Lock readers accept only schema version 7 and reject unsupported versions,
-  invalid UTF-8, unknown keys/shapes, duplicate or zero-facet subjects, unknown
-  realizations, invalid correlations, unsupported exact-Supply forms, malformed
-  identities/contracts, missing `exact_permission_mode` for exact projections,
-  and noncanonical persisted values. Schemas 3–6 are not interpreted: `status`,
-  `apply`, and `outdated` require regeneration; `daem lock` and transactional
-  authoring may atomically replace them. Schema 3 was published by daem v0.1.0;
-  earlier unknown and future schemas are not replacement-authorized, and future
-  schemas require newer daem.
+- Daem writes schema 7. Commands that use a lock as a plan can also read
+  schema 6. They read its released file structure, translate legacy aggregate
+  paths to `key_path` in memory, and validate the values under the current lock
+  rules. This preserves source identities and leaves the lockfile untouched.
+  Lock readers reject unsupported versions, invalid UTF-8, unknown
+  keys and shapes, duplicate or zero-facet subjects, unknown realizations,
+  invalid correlations, unsupported exact-Supply forms, malformed identities
+  or contracts, missing `exact_permission_mode` for exact projections, and
+  noncanonical values. `daem lock` and transactional authoring that regenerate
+  the lock may atomically replace schemas 3–6 without reading their contents.
+  Schemas 3–5 must be regenerated before use as plans. Schema 3 was published by
+  daem v0.1.0; earlier unknown and future schemas cannot be replaced, and
+  future schemas require newer daem.
 - Standalone `daem lock` can replace a file with an intact current version
   header and malformed TOML. The rebuild does not relax what lock readers
   accept. Valid TOML with unrecognized lock contents is kept. Incompatible
   changes to a released lockfile's grammar or schema require a new version.
 - Schema version 7 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- Schema v7 records canonical delegated package inputs recognized from argv and
-  an ecosystem-derived `pin_policy`. Legacy rows are not interpreted because
-  version-like tags, ranges, or unmodeled inputs can overstate `pinned`; the
-  public manifest remains schema version 1 and needs no migration.
+- Interpreted lockfiles record canonical delegated package inputs recognized
+  from argv and an ecosystem-derived `pin_policy`. Version-like tags, ranges,
+  and unmodeled inputs do not establish `pinned`. The public manifest remains
+  schema version 1 and needs no migration.
 - Existing lockfiles are not replaced when lock generation fails.
 - Resolver cache artifacts live under the selected source cache, but cache paths are not serialized into the lockfile.
 
