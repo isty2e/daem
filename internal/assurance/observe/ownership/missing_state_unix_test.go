@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -60,6 +61,63 @@ func TestMissingStateOwnerComparison(t *testing.T) {
 				}
 			} else if !errors.Is(err, scenario.want) || !outputs.Empty() {
 				t.Fatalf("release authorizes unexpected rows: %v (%v), want %v", outputs.Claims(), err, scenario.want)
+			}
+		})
+	}
+}
+
+func TestMissingStateBindingWithoutClaimsDoesNotProveLoss(t *testing.T) {
+	root := canonicalRoot(t)
+	manifest := filepath.Join(root, "daem.toml")
+	missing, err := statefile.ObserveMissingState(t.Context(), filepath.Join(root, "state.json"), physicalwork.NewCaptureBudget(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact, known := missing.OwnerPath().Exact()
+	if !known {
+		t.Fatal("a missing ASCII leaf must have exact comparison authority")
+	}
+	selected := missingStateOwner(t, exact, manifest)
+	conflict := missingStateOwner(t, pathtest.Exact(filepath.Join(root, "other", "state.json")), manifest)
+	destination, err := output.NewDestination(output.RootProject, "settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name          string
+		bindingOwner  stateauthority.Authority
+		claims        []outputownership.Claim
+		wantAdmission error
+		wantRelease   error
+	}{
+		{name: "related binding only", bindingOwner: selected},
+		{name: "ambiguous binding only", bindingOwner: conflict, wantRelease: ErrAmbiguousStateOwner},
+		{
+			name: "related binding with ambiguous claim", bindingOwner: selected,
+			claims: missingStateClaims(t, root, conflict).Claims(), wantAdmission: ErrAmbiguousStateOwner, wantRelease: ErrAmbiguousStateOwner,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			binding, err := outputownership.NewDocumentBinding(test.bindingOwner, destination, pathtest.Exact(filepath.Join(root, "settings.json")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			registry, err := outputownership.NewRegistryWithProtections(test.claims, []outputownership.DocumentBinding{binding}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := RequireMissingStateRegistryClear(t.Context(), missing, manifest, registry); !errors.Is(err, test.wantAdmission) {
+				t.Fatalf("normal admission: %v, want %v", err, test.wantAdmission)
+			}
+			outputs, err := MatchMissingStateOutputs(t.Context(), missing, manifest, registry)
+			if !errors.Is(err, test.wantRelease) {
+				t.Fatalf("release selection: %v, want %v", err, test.wantRelease)
+			}
+			if test.wantRelease == nil && (len(outputs.Bindings()) != 1 || !outputs.Bindings()[0].Equal(binding) || len(outputs.Claims()) != 0) {
+				t.Fatalf("did not select precisely the binding to release: %+v", outputs)
+			}
+			if test.wantRelease != nil && !outputs.Empty() {
+				t.Fatal("ambiguous evidence selected releasable records")
 			}
 		})
 	}

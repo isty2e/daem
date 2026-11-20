@@ -162,6 +162,12 @@ func executeWithDependencies(
 			return revalidateState(ctx)
 		})
 		if err != nil {
+			var loss *ownershipobserve.MissingStateRefusal
+			if errors.As(err, &loss) && !recoverygate.IsCancellation(err) {
+				// A prior cleanup step may have succeeded. Report only fences
+				// still observed, without replacing the retirement receipts.
+				err = errors.Join(planned.barrier.Validate(ctx), err)
+			}
 			if errors.Is(err, mutation.StaleSnapshotError{}) {
 				err = staleApplyError(options.PlanWasDisclosed, err)
 			}

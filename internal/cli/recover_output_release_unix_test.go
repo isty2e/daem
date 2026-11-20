@@ -143,9 +143,11 @@ targets = ["codex"]
 	assertCLIPathMissing(t, filepath.Join(paths.ManifestRoot, "AGENTS.md"))
 	marker := stageApplyPair(t, paths, true)
 	markerBytes := readCleanupFile(t, marker)
+	lockCommand := []string{"daem", "lock", "--manifest", paths.ManifestPath}
 	for _, mode := range []string{"--dry-run", "--yes"} {
 		blocked := readStateLossFailure(t, runStateLossCommand(t, paths.ManifestPath, 1, "apply", mode, "--json"))
 		if !slices.ContainsFunc(blocked.Guidance, func(hint stateLossGuidance) bool { return hint.Kind == "note" }) ||
+			!slices.ContainsFunc(blocked.Guidance, func(hint stateLossGuidance) bool { return slices.Equal(hint.Argv, lockCommand) }) ||
 			slices.ContainsFunc(blocked.Guidance, func(hint stateLossGuidance) bool { return slices.Contains(hint.Argv, "--release-output-ownership") }) {
 			t.Fatalf("pending recovery hid the loss or offered an unavailable release: %+v", blocked.Guidance)
 		}
@@ -289,6 +291,22 @@ func TestApprovedApplyKeepsCleanupRecordWhenStateDisappears(t *testing.T) {
 	var loss *ownershipobserve.MissingStateRefusal
 	if !errors.As(err, &loss) || result.ExecutionAttempted || len(result.RecoveryCleanup) != 1 || result.RecoveryCleanup[0].Outcome != workspacecleanup.NotAttempted {
 		t.Fatalf("state loss did not stop approved cleanup before effects: %+v (%v)", result.RecoveryCleanup, err)
+	}
+	failure := applyworkflow.ClassifyFailure(err, result)
+	if failure.Reason() != applyworkflow.FailureReasonInterruptedFileSetTransaction || !strings.Contains(failure.Detail(), loss.Error()) {
+		t.Fatalf("apply result lost the fence or the State diagnosis: %+v", failure)
+	}
+	diagnostic := applyFailureDiagnostic(paths.ManifestPath, err, applyFailureExecution, result, true)
+	guidance := diagnostic.Guidance()
+	lockCommand := []string{"daem", "lock", "--manifest", paths.ManifestPath}
+	if !slices.ContainsFunc(guidance, func(hint clipresent.Guidance) bool {
+		return hint.Kind() == clipresent.GuidanceNote && hint.Message() == loss.Error()
+	}) || !slices.ContainsFunc(guidance, func(hint clipresent.Guidance) bool {
+		return hint.Kind() == clipresent.GuidanceCommand && slices.Equal(hint.Argv(), lockCommand)
+	}) || slices.ContainsFunc(guidance, func(hint clipresent.Guidance) bool {
+		return slices.Contains(hint.Argv(), "--release-output-ownership")
+	}) {
+		t.Fatalf("approved apply did not direct the user to the remaining fence: %s", diagnostic.HumanText())
 	}
 	assertCLIPathMissing(t, paths.StatefilePath)
 	assertApplyConfirmationFileContent(t, marker, markerBytes)

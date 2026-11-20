@@ -427,6 +427,7 @@ func applyFailureDiagnostic(
 ) clipresent.FailureDiagnostic {
 	diagnostic, reason := applyFailurePrimary(stage, err, result, requestedManifestPath != "")
 	diagnostic = diagnostic.WithPermissionProtection(result.PermissionProtection)
+	stateGuidance, missingState := clipresent.MissingStateEvidenceGuidance(err)
 	var instruction string
 	switch reason {
 	case applyworkflow.FailureReasonApplyRefused:
@@ -442,7 +443,9 @@ func applyFailureDiagnostic(
 	case applyworkflow.FailureReasonJournalCleanupFileSetFence:
 		diagnostic = diagnostic.WithGuidance(applyRecoverGuidance(result.ManifestPath, requestedManifestPath, "to finish journal cleanup; the file-set fence remains afterward"))
 	case applyworkflow.FailureReasonInterruptedFileSetTransaction:
-		instruction = "retry the interrupted authoring or unmanage operation before apply"
+		if !missingState {
+			instruction = "retry the interrupted authoring or unmanage operation before apply"
+		}
 	case applyworkflow.FailureReasonFileSetEvidenceInvalid:
 		instruction = "preserve and repair the invalid file-set evidence before apply or recover"
 	case applyworkflow.FailureReasonAbandonedFileSetResidue:
@@ -457,8 +460,8 @@ func applyFailureDiagnostic(
 	if instruction != "" {
 		diagnostic = diagnostic.WithGuidance(clipresent.InstructionGuidance(instruction))
 	}
-	if note, missing := clipresent.MissingStateEvidenceGuidance(err); missing {
-		diagnostic = diagnostic.WithGuidance(note)
+	if missingState {
+		diagnostic = diagnostic.WithGuidance(stateGuidance...)
 	} else if verbose && err != nil {
 		diagnostic = diagnostic.WithGuidance(clipresent.BoundedEvidenceGuidance(err, maximumVerboseApplyFailureEvidenceRunes, "apply failure evidence: "))
 	}

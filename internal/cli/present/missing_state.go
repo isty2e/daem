@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
+	"github.com/isty2e/daem/internal/effect/fileset"
+	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
@@ -50,15 +52,20 @@ func MissingStateFailureDiagnostic(err error) (FailureDiagnostic, bool) {
 
 // MissingStateEvidenceGuidance adds the loss as context when a recovery fence
 // takes priority, and replaces raw verbose evidence for missing-state errors.
-func MissingStateEvidenceGuidance(err error) (Guidance, bool) {
+func MissingStateEvidenceGuidance(err error) ([]Guidance, bool) {
 	var refusal *ownershipobserve.MissingStateRefusal
 	if !errors.As(err, &refusal) {
-		return Guidance{}, false
+		return nil, false
 	}
 	if recoverygate.IsCancellation(err) || !recoverygate.IsBarrierRefusal(err) {
-		return Guidance{}, true
+		return nil, true
 	}
-	return NoteGuidance(refusal.Error()), true
+	guidance := []Guidance{NoteGuidance(refusal.Error())}
+	state := recoverygate.StateOf(err)
+	if state.JournalKnown() && state.Journal() == journal.InterruptionClear && state.FileSet() == fileset.FileSetFencePublishedTransaction {
+		guidance = append(guidance, missingStateCommand(refusal.ManifestPath(), "to verify and clear a completed manifest and lockfile update", "lock"))
+	}
+	return guidance, true
 }
 
 func missingStateCommand(manifest, purpose, command string, flags ...string) Guidance {

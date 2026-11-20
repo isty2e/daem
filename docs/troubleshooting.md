@@ -105,8 +105,10 @@ existing settings again, review a separate `daem apply --dry-run --manage-existi
 preview; adoption requires a match rather than overwriting a difference.
 
 This release does not clear pending journals, permission recovery, or published
-metadata transactions. Follow the reported recovery instructions for those
-records. Keep any reserved claims whose journal is missing; a state backup alone
+metadata transactions. Follow the reported recovery instructions first. For a
+completed manifest and lockfile update, `daem lock` with the same manifest
+selection verifies and clears the record before updating the lockfile. Keep any
+reserved claims whose journal is missing; a state backup alone
 cannot settle them. Daem also refuses release if it cannot match the owner to
 the current state location. Check the original manifest and HOME/XDG selection
 before retrying; do not edit the registry or remove migration receipts.

@@ -117,6 +117,7 @@ type Failure struct {
 	nativeSupport          nativeSupportReason
 	documentAdmission      *nativeoperation.DocumentAdmissionError
 	staleAgentConfigSource entity.ID
+	missingState           *ownershipobserve.MissingStateRefusal
 	cleanupAttempted       bool
 	cleanupRecordsCleared  bool
 }
@@ -138,6 +139,9 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		phase:   phase,
 		outcome: outcome,
 		barrier: recoverygate.StateOf(err),
+	}
+	if phase == FailurePhasePreflight && failure.reason != FailureReasonCancelled {
+		errors.As(err, &failure.missingState)
 	}
 	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
 	for _, step := range result.RecoveryCleanup {
@@ -274,7 +278,11 @@ func (failure Failure) StaleAgentConfigSource() (entity.ID, bool) {
 
 // Detail derives bounded public prose only from closed failure facts.
 func (failure Failure) Detail() string {
-	return failure.withOutcomeFacts(failure.reasonDetail())
+	detail := failure.withOutcomeFacts(failure.reasonDetail())
+	if failure.missingState != nil {
+		detail += "; " + failure.missingState.Error()
+	}
+	return detail
 }
 
 // PrimaryDetail retains failure facts without presenter-owned repair advice.
