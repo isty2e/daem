@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -57,19 +58,16 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	context, explicit := input.Relations[0].SourceContext()
-	if !explicit {
-		t.Fatal("fixture is not explicitly scoped")
-	}
-	retiring := func(name, source string) pipackage.ScopedRelation {
-		relation, err := pipackage.NewScopedRelationWithContext(selectedRetirementKey(t, "pi.package-carrier", name, source), target.ScopeProject, context)
+	context := input.Relations[0].SourceContext()
+	retiring := func(name, source string) piorder.ScopedRelation {
+		relation, err := piorder.NewScopedRelation(selectedRetirementKey(t, "pi.package-carrier", name, source), target.ScopeProject, context)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return relation
 	}
 	candidate, exists := base.pi.Candidate()
-	view, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{retiring("r", "npm:r@1")})
+	view, err := base.pi.WithRetiringRelations([]piorder.ScopedRelation{retiring("r", "npm:r@1")})
 	if err != nil {
 		t.Fatal("retirement correlation ran the removal-free normalizer", err)
 	}
@@ -100,11 +98,11 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 		t.Fatal("retirement mutated the historical16 observation")
 	}
 	for _, source := range []string{"npm:a@1", "npm:a@2"} {
-		if _, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{retiring("renamed", source)}); err == nil {
+		if _, err := base.pi.WithRetiringRelations([]piorder.ScopedRelation{retiring("renamed", source)}); err == nil {
 			t.Fatal("retirement stole a desired source/load identity", source)
 		}
 	}
-	for name, relations := range map[string][]pipackage.ScopedRelation{
+	for name, relations := range map[string][]piorder.ScopedRelation{
 		"duplicate subject":       {retiring("r", "npm:r@1"), retiring("r", "npm:other@1")},
 		"duplicate source":        {retiring("r", "npm:r@1"), retiring("other", "npm:r@1")},
 		"duplicate load identity": {retiring("r", "npm:r@1"), retiring("other", "npm:r@2")},
@@ -115,7 +113,7 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 			}
 		})
 	}
-	absent, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{retiring("absent", "npm:absent@1")})
+	absent, err := base.pi.WithRetiringRelations([]piorder.ScopedRelation{retiring("absent", "npm:absent@1")})
 	if err != nil || len(absent.SelectedSequence().RemovedSlots()) != 0 || view.SameSelection(absent) {
 		t.Fatal("pending absent retirement or intent comparison is incorrect", err)
 	}
@@ -123,16 +121,16 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	relation, err := pipackage.NewScopedRelationWithContext(selectedRetirementKey(t, "pi.package-carrier", "r", "npm:r@1"), target.ScopeProject, wrongContext)
+	relation, err := piorder.NewScopedRelation(selectedRetirementKey(t, "pi.package-carrier", "r", "npm:r@1"), target.ScopeProject, wrongContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := base.pi.WithRetiringRelations([]pipackage.ScopedRelation{relation}); err == nil {
+	if _, err := base.pi.WithRetiringRelations([]piorder.ScopedRelation{relation}); err == nil {
 		t.Fatal("retirement changed its selected command context")
 	}
 
 	pureOriginal := aggregate.ExistingDocument([]byte(`{"packages":["npm:r@1"],"model":"slow"}`))
-	pure, err := pipackage.ReconstructRetirement(pipackage.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: pureOriginal, Relations: []pipackage.ScopedRelation{retiring("r", "npm:r@1")}})
+	pure, err := piorder.ReconstructRetirement(piorder.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: pureOriginal, Relations: []piorder.ScopedRelation{retiring("r", "npm:r@1")}})
 	if err != nil {
 		t.Fatal("pure retirement required an invented desired constraint", err)
 	}
@@ -145,7 +143,7 @@ func TestSelectedPiRetirementDoesNotChangeHistoricalObservation(t *testing.T) {
 	if err != nil || ordered || !completed.Expected().Exists() || string(completed.Expected().Content()) != `{"packages":[],"model":"slow"}` {
 		t.Fatal("last-row retirement invented parent/document deletion", err)
 	}
-	absentOnly, err := pipackage.ReconstructRetirement(pipackage.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: aggregate.AbsentDocument(), Relations: []pipackage.ScopedRelation{retiring("r", "npm:r@1")}})
+	absentOnly, err := piorder.ReconstructRetirement(piorder.LoadedRetirementInput{Capability: input.Capability, SettingsContext: input.SettingsContext, CommandContext: context, Document: aggregate.AbsentDocument(), Relations: []piorder.ScopedRelation{retiring("r", "npm:r@1")}})
 	if err != nil || absentOnly.SelectedSequence().Changed() {
 		t.Fatal("pending removal recreated an absent document", err)
 	}

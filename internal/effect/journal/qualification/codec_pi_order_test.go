@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostsurfacecatalog "github.com/isty2e/daem/internal/hostsurface/catalog"
@@ -64,7 +65,7 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root.PhysicalRoot(), filepath.FromSlash(reference)), input.Document.Content(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original, expected, err := journalqualification.LoadImages(t.Context(), demand.Original(), demand.Expected(), fixture.read.Artifacts, journalTestFilesystem(), nativeFixtureBudget(t), pipackage.MaximumSettingsBytes)
+	original, expected, err := journalqualification.LoadImages(t.Context(), demand.Original(), demand.Expected(), fixture.read.Artifacts, journalTestFilesystem(), nativeFixtureBudget(t), piorder.MaximumSettingsBytes)
 	if err != nil || !expected.Document().Equal(input.Document) {
 		t.Fatal("wrong-order image did not reach semantic validation with a valid hash", err)
 	}
@@ -76,7 +77,7 @@ func TestPiOrderEvidenceJoinsRealImageCustodyAndSelectedRecovery(t *testing.T) {
 	}
 }
 
-func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderInput, pipackage.OrderObservation) {
+func piEvidenceFixture(t *testing.T, scope target.Scope) (piorder.LoadedOrderInput, piorder.OrderObservation) {
 	t.Helper()
 	root := t.TempDir()
 	command, home := filepath.Join(root, "command"), filepath.Join(root, "home")
@@ -92,7 +93,7 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []pipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for index, source := range []string{"./a", "~/b"} {
 		name := []string{"a", "b"}[index]
@@ -116,12 +117,12 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(key, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
 		relations = append(relations, relation)
-		identity, err := pipackage.HostLoadIdentityForContext(source, scope, commandContext)
+		identity, err := piorder.HostLoadIdentityForContext(source, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -159,11 +160,11 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := pipackage.LoadedOrderInput{
+	input := piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
 		Document: aggregate.ExistingDocument([]byte(`{"packages":[{"source":` + string(quotedB) + `,"opaque":{"User-Key":null}},"npm:foreign@1",` + string(quotedA) + `],"theme":"day"}`)),
 	}
-	observation, err := pipackage.ReconstructOrder(input)
+	observation, err := piorder.ReconstructOrder(input)
 	if err != nil {
 		t.Fatal(err)
 	}

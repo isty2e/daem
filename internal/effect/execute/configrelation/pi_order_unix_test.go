@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
@@ -333,7 +335,7 @@ func TestPiOrderExecuteRejectsUnsafeConcurrentEntryChanges(t *testing.T) {
 		{
 			name: "oversized",
 			mutate: func(t *testing.T, path string) {
-				content := make([]byte, observepipackage.MaximumSettingsBytes+1)
+				content := make([]byte, piorder.MaximumSettingsBytes+1)
 				for index := range content {
 					content[index] = ' '
 				}
@@ -553,7 +555,7 @@ func mustPiOrderObservation(
 	commandRoot string,
 	scope target.Scope,
 	specs []piOrderSpec,
-) observepipackage.OrderObservation {
+) piorder.OrderObservation {
 	t.Helper()
 	path, err := observepipackage.SettingsPath(settings)
 	if err != nil {
@@ -579,7 +581,7 @@ func mustPiOrderObservation(
 		t.Fatalf("Pi %s order capability is absent", scope)
 	}
 	members := make([]hostrelation.RelationOrderMember, 0, len(specs))
-	relations := make([]observepipackage.ScopedRelation, 0, len(specs))
+	relations := make([]piorder.ScopedRelation, 0, len(specs))
 	for _, spec := range specs {
 		subject, err := topology.NewSubjectID(
 			topology.SubjectHostRelation,
@@ -605,7 +607,7 @@ func mustPiOrderObservation(
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := observepipackage.NewScopedRelationWithContext(key, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -641,7 +643,7 @@ func mustPiOrderObservation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
+	observation, err := piorder.ReconstructOrder(piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext,
 		Document: inventory.Document(), Constraint: constraint, Relations: relations,
 	})
@@ -663,7 +665,7 @@ func piOrderSettings(root string, scope target.Scope) observepipackage.SettingsI
 func bindPiOrder(
 	t *testing.T,
 	root string,
-	observation observepipackage.OrderObservation,
+	observation piorder.OrderObservation,
 ) *BoundOrder {
 	t.Helper()
 	view, err := observation.WithRetiringRelations(nil)

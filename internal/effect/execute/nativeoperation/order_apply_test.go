@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
@@ -319,7 +321,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []pipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for _, name := range []string{"a", "b"} {
 		source := "npm:" + name + "@1"
@@ -343,12 +345,12 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(correlation, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(correlation, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
 		relations = append(relations, relation)
-		identity, err := pipackage.HostLoadIdentityForContext(source, scope, commandContext)
+		identity, err := piorder.HostLoadIdentityForContext(source, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -371,7 +373,7 @@ func nativeOrderApplyInput(t *testing.T, scope target.Scope) (NativeApplyInput, 
 		t.Fatal(err)
 	}
 	original := []byte(`{"packages":["npm:b@1","npm:foreign@1","npm:a@1"],"theme":"day"}`)
-	order, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
+	order, err := piorder.ReconstructOrder(piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint,
 		Relations: relations, Document: aggregate.ExistingDocument(original),
 	})

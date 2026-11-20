@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/target"
@@ -124,7 +126,7 @@ func TestReadSettingsRejectsSymlinkAndNonRegularPath(t *testing.T) {
 func TestReadSettingsRejectsOversizedInput(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent", "settings.json")
-	content := bytes.Repeat([]byte(" "), observepipackage.MaximumSettingsBytes+1)
+	content := bytes.Repeat([]byte(" "), piorder.MaximumSettingsBytes+1)
 	writeSettingsBytes(t, path, content)
 
 	_, err := observepipackage.ReadSettings(observepipackage.SettingsInput{

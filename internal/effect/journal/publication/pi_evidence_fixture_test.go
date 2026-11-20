@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -17,7 +18,7 @@ import (
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
-func selectedPiDocument(t *testing.T, observation pipackage.OrderObservation) relationhost.SelectedDocumentEdit {
+func selectedPiDocument(t *testing.T, observation piorder.OrderObservation) relationhost.SelectedDocumentEdit {
 	t.Helper()
 	view, err := observation.WithRetiringRelations(nil)
 	if err != nil {
@@ -30,7 +31,7 @@ func selectedPiDocument(t *testing.T, observation pipackage.OrderObservation) re
 	return edit
 }
 
-func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderInput, pipackage.OrderObservation) {
+func piEvidenceFixture(t *testing.T, scope target.Scope) (piorder.LoadedOrderInput, piorder.OrderObservation) {
 	t.Helper()
 	root := t.TempDir()
 	command, home := filepath.Join(root, "command"), filepath.Join(root, "home")
@@ -46,7 +47,7 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []pipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for index, source := range []string{"./a", "~/b"} {
 		name := []string{"a", "b"}[index]
@@ -70,12 +71,12 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(key, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
 		relations = append(relations, relation)
-		identity, err := pipackage.HostLoadIdentityForContext(source, scope, commandContext)
+		identity, err := piorder.HostLoadIdentityForContext(source, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -113,11 +114,11 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := pipackage.LoadedOrderInput{
+	input := piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
 		Document: aggregate.ExistingDocument([]byte(`{"packages":[{"source":` + string(quotedB) + `,"opaque":{"User-Key":null}},"npm:foreign@1",` + string(quotedA) + `],"theme":"day"}`)),
 	}
-	observation, err := pipackage.ReconstructOrder(input)
+	observation, err := piorder.ReconstructOrder(input)
 	if err != nil {
 		t.Fatal(err)
 	}

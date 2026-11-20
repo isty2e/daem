@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -59,8 +60,8 @@ func TestPiOrderEvidenceRoundtripsActualContextsAndSemanticCandidate(t *testing.
 				t.Fatal("record lost the selected settings base or home")
 			}
 			for _, relation := range captured.Relations {
-				context, bound := relation.SourceContext()
-				if !bound || context.HomeRoot() != input.SettingsContext.HomeRoot() || relation.Scope() != scope {
+				context := relation.SourceContext()
+				if context.HomeRoot() != input.SettingsContext.HomeRoot() || relation.Scope() != scope {
 					t.Fatal("scoped relation lost the actual captured context")
 				}
 			}
@@ -105,7 +106,7 @@ func TestPiOrderEvidenceRefusesMismatchedOrIncompleteSemanticFacts(t *testing.T)
 	if _, err := original.canonical(ctx, input.Document); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation was not preserved: %v", err)
 	}
-	if _, err := original.canonical(t.Context(), aggregate.ExistingDocument(bytes.Repeat([]byte(" "), 2*pipackage.MaximumSettingsBytes))); err == nil {
+	if _, err := original.canonical(t.Context(), aggregate.ExistingDocument(bytes.Repeat([]byte(" "), 2*piorder.MaximumSettingsBytes))); err == nil {
 		t.Fatal("order replay admitted an oversized original image")
 	}
 }
@@ -128,7 +129,7 @@ func TestPiOrderEvidenceDoesNotPersistOrReconstructUnchangedOrder(t *testing.T) 
 		t.Fatal(err)
 	}
 	input.Document = aggregate.ExistingDocument(content)
-	unchanged, err := pipackage.ReconstructOrder(input)
+	unchanged, err := piorder.ReconstructOrder(input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func clonePiEvidence(t *testing.T, record recoveryPiOrderEvidence) recoveryPiOrd
 	return result
 }
 
-func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderInput, pipackage.OrderObservation) {
+func piEvidenceFixture(t *testing.T, scope target.Scope) (piorder.LoadedOrderInput, piorder.OrderObservation) {
 	t.Helper()
 	root := t.TempDir()
 	command, home := filepath.Join(root, "command"), filepath.Join(root, "home")
@@ -189,7 +190,7 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []pipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for index, source := range []string{"./a", "~/b"} {
 		name := []string{"a", "b"}[index]
@@ -213,12 +214,12 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(key, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
 		relations = append(relations, relation)
-		identity, err := pipackage.HostLoadIdentityForContext(source, scope, commandContext)
+		identity, err := piorder.HostLoadIdentityForContext(source, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -256,11 +257,11 @@ func piEvidenceFixture(t *testing.T, scope target.Scope) (pipackage.LoadedOrderI
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := pipackage.LoadedOrderInput{
+	input := piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext, Constraint: constraint, Relations: relations,
 		Document: aggregate.ExistingDocument([]byte(`{"packages":[{"source":` + string(quotedB) + `,"opaque":{"User-Key":null}},"npm:foreign@1",` + string(quotedA) + `],"theme":"day"}`)),
 	}
-	observation, err := pipackage.ReconstructOrder(input)
+	observation, err := piorder.ReconstructOrder(input)
 	if err != nil {
 		t.Fatal(err)
 	}

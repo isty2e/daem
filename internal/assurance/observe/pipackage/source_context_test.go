@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -34,7 +36,7 @@ func TestPiSourceContextUsesCapturedLexicalRootsInsteadOfLiveHome(t *testing.T) 
 			{"encoded file URL", fileURL, filePath},
 		} {
 			for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-				identity, err := observepipackage.HostLoadIdentityForContext(test.source, scope, context)
+				identity, err := piorder.HostLoadIdentityForContext(test.source, scope, context)
 				if err != nil || identity != "local:"+string(scope)+":"+test.absolute {
 					t.Fatalf("%s with explicit %s context: identity=%q error=%v", test.name, scope, identity, err)
 				}
@@ -75,7 +77,7 @@ func TestPiSourceContextAgreesWithLiveInterpreterUnderTheSameContext(t *testing.
 	} {
 		for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 			live, liveErr := observepipackage.HostLoadIdentityForInput(test.source, base, scope)
-			captured, capturedErr := observepipackage.HostLoadIdentityForContext(test.source, scope, context)
+			captured, capturedErr := piorder.HostLoadIdentityForContext(test.source, scope, context)
 			if (liveErr == nil) != (capturedErr == nil) || (liveErr == nil && live != captured) {
 				t.Fatalf("%s: live/captured identity or admission differed", test.name)
 			}
@@ -97,8 +99,8 @@ func TestPiSourceContextKeepsIdentityPartitionsAndRefusesInvalidLocalEvidence(t 
 		t.Fatal(err)
 	}
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
-		left, leftErr := observepipackage.HostLoadIdentityForContext("~/package", scope, first)
-		right, rightErr := observepipackage.HostLoadIdentityForContext("~/package", scope, second)
+		left, leftErr := piorder.HostLoadIdentityForContext("~/package", scope, first)
+		right, rightErr := piorder.HostLoadIdentityForContext("~/package", scope, second)
 		if leftErr != nil || rightErr != nil || left == right {
 			t.Fatalf("distinct captured homes collapsed: %v, %v", leftErr, rightErr)
 		}
@@ -106,19 +108,19 @@ func TestPiSourceContextKeepsIdentityPartitionsAndRefusesInvalidLocalEvidence(t 
 			{"npm:@acme/tools@1.0.0", "npm:@acme/tools@2.0.0"},
 			{"https://github.com/acme/tools.git@v1", "git:https://github.com/acme/tools@v2"},
 		} {
-			left, leftErr := observepipackage.HostLoadIdentityForContext(pair[0], scope, first)
-			right, rightErr := observepipackage.HostLoadIdentityForContext(pair[1], scope, second)
+			left, leftErr := piorder.HostLoadIdentityForContext(pair[0], scope, first)
+			right, rightErr := piorder.HostLoadIdentityForContext(pair[1], scope, second)
 			if leftErr != nil || rightErr != nil || left != right {
 				t.Fatalf("non-local selector equivalence depended on local context: %v, %v", leftErr, rightErr)
 			}
 		}
 	}
 	for _, source := range []string{"./package", "~/package", "file://remote.example/package"} {
-		if identity, err := observepipackage.HostLoadIdentityForContext(source, target.ScopeProject, extensiontopology.LocalSourceContext{}); err == nil || identity != "" {
+		if identity, err := piorder.HostLoadIdentityForContext(source, target.ScopeProject, extensiontopology.LocalSourceContext{}); err == nil || identity != "" {
 			t.Fatal("invalid local context produced usable source identity")
 		}
 	}
-	if identity, err := observepipackage.HostLoadIdentityForContext("npm:tools@1", target.Scope("invalid"), first); err == nil || identity != "" {
+	if identity, err := piorder.HostLoadIdentityForContext("npm:tools@1", target.Scope("invalid"), first); err == nil || identity != "" {
 		t.Fatal("invalid scope produced usable source identity")
 	}
 }

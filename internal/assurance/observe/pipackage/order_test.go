@@ -2,10 +2,14 @@ package pipackage_test
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -44,7 +48,7 @@ func TestReadOrderBuildsLosslessFixedSlotCandidateAndRiskFacts(t *testing.T) {
 		[]orderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}},
 	)
 
-	observation, err := observepipackage.ReadOrder(input)
+	observation, err := readFixtureOrder(input)
 	if err != nil {
 		t.Fatalf("ReadOrder: %v", err)
 	}
@@ -68,15 +72,6 @@ func TestReadOrderBuildsLosslessFixedSlotCandidateAndRiskFacts(t *testing.T) {
 		"}\r\n")
 	if !slices.Equal(candidate, want) {
 		t.Fatalf("candidate = %q, want %q", candidate, want)
-	}
-	if err := observation.VerifyBaseline(content, true); err != nil {
-		t.Fatalf("VerifyBaseline: %v", err)
-	}
-	if err := observation.VerifyPostContent(candidate, true); err != nil {
-		t.Fatalf("VerifyPostContent: %v", err)
-	}
-	if err := observation.VerifyPostContent(content, true); err == nil {
-		t.Fatal("VerifyPostContent accepted the stale pre-mutation order")
 	}
 
 	changes := observedPrecedenceChanges(t, input.Constraint, observation.Sequence())
@@ -108,7 +103,7 @@ func TestReadOrderTreatsMissingSettingsAsNonCreatingEmptyEvidence(t *testing.T) 
 				scope,
 				[]orderSpec{{id: "a", source: "npm:a@1"}},
 			)
-			observation, err := observepipackage.ReadOrder(input)
+			observation, err := readFixtureOrder(input)
 			if err != nil {
 				t.Fatalf("ReadOrder: %v", err)
 			}
@@ -122,15 +117,6 @@ func TestReadOrderTreatsMissingSettingsAsNonCreatingEmptyEvidence(t *testing.T) 
 					candidate,
 					len(observation.Sequence().OrderedRows()),
 				)
-			}
-			if err := observation.VerifyBaseline(nil, false); err != nil {
-				t.Fatalf("VerifyBaseline: %v", err)
-			}
-			if err := observation.VerifyPostContent(nil, false); err != nil {
-				t.Fatalf("VerifyPostContent: %v", err)
-			}
-			if err := observation.VerifyBaseline([]byte(`{}`), true); err == nil {
-				t.Fatal("VerifyBaseline accepted concurrent file creation")
 			}
 		})
 	}
@@ -158,7 +144,7 @@ func TestReadOrderRejectsDuplicateAndEquivalentLoadIdentities(t *testing.T) {
 				target.ScopeProject,
 				[]orderSpec{{id: "a", source: "npm:a@1"}},
 			)
-			_, err := observepipackage.ReadOrder(input)
+			_, err := readFixtureOrder(input)
 			if err == nil || !strings.Contains(err.Error(), "appears more than once") {
 				t.Fatalf("ReadOrder error = %v", err)
 			}
@@ -196,7 +182,7 @@ func TestReadOrderSupportsNPMGitAndLocalObjectRows(t *testing.T) {
 		},
 	)
 
-	observation, err := observepipackage.ReadOrder(input)
+	observation, err := readFixtureOrder(input)
 	if err != nil {
 		t.Fatalf("ReadOrder: %v", err)
 	}
@@ -235,7 +221,7 @@ func TestReadOrderProjectsConstraintToOnlyPresentManagedMembers(t *testing.T) {
 		},
 	)
 
-	observation, err := observepipackage.ReadOrder(input)
+	observation, err := readFixtureOrder(input)
 	if err != nil {
 		t.Fatalf("ReadOrder: %v", err)
 	}
@@ -272,7 +258,7 @@ func TestReadOrderKeepsZeroAndSingleManagedSequencesStable(t *testing.T) {
 				[]orderSpec{{id: "a", source: "npm:a@1"}},
 			)
 
-			observation, err := observepipackage.ReadOrder(input)
+			observation, err := readFixtureOrder(input)
 			if err != nil {
 				t.Fatalf("ReadOrder: %v", err)
 			}
@@ -316,12 +302,12 @@ func TestReadOrderRejectsIncoherentConstraintAndRelationSelection(t *testing.T) 
 	missing.Relations = nil
 	duplicate := valid
 	duplicate.Relations = append(
-		append([]observepipackage.ScopedRelation(nil), valid.Relations...),
+		append([]piorder.ScopedRelation(nil), valid.Relations...),
 		valid.Relations[0],
 	)
 	extra := valid
 	extra.Relations = append(
-		append([]observepipackage.ScopedRelation(nil), valid.Relations...),
+		append([]piorder.ScopedRelation(nil), valid.Relations...),
 		other.Relations[0],
 	)
 	mismatched := valid
@@ -362,7 +348,7 @@ func TestReadOrderRejectsIncoherentConstraintAndRelationSelection(t *testing.T) 
 
 	for _, test := range []struct {
 		name  string
-		input observepipackage.OrderInput
+		input settingsOrderFixture
 	}{
 		{name: "missing relation", input: missing},
 		{name: "duplicate relation", input: duplicate},
@@ -371,7 +357,7 @@ func TestReadOrderRejectsIncoherentConstraintAndRelationSelection(t *testing.T) 
 		{name: "wrong profile class", input: wrongClass},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := observepipackage.ReadOrder(test.input); err == nil {
+			if _, err := readFixtureOrder(test.input); err == nil {
 				t.Fatal("ReadOrder accepted incoherent order input")
 			}
 		})
@@ -410,7 +396,7 @@ func TestReadOrderExhaustiveSmallSequencesPreserveFixedSlotsAndIdempotency(t *te
 				target.ScopeProject,
 				desired,
 			)
-			observation, err := observepipackage.ReadOrder(input)
+			observation, err := readFixtureOrder(input)
 			if err != nil {
 				t.Fatalf("ReadOrder physical=%v desired=%v: %v", physical, desired, err)
 			}
@@ -443,7 +429,7 @@ func TestReadOrderExhaustiveSmallSequencesPreserveFixedSlotsAndIdempotency(t *te
 				input.Constraint,
 				observation.Sequence(),
 			))
-			sameBaseline, err := observepipackage.ReadOrder(input)
+			sameBaseline, err := readFixtureOrder(input)
 			if err != nil {
 				t.Fatalf("same-baseline ReadOrder: %v", err)
 			}
@@ -458,7 +444,7 @@ func TestReadOrderExhaustiveSmallSequencesPreserveFixedSlotsAndIdempotency(t *te
 				t.Fatalf("risk ordering = %v, want %v", sameRisks, firstRisks)
 			}
 			writeSettingsBytes(t, settingsPath, candidate)
-			repeated, err := observepipackage.ReadOrder(input)
+			repeated, err := readFixtureOrder(input)
 			if err != nil {
 				t.Fatalf("repeated ReadOrder: %v", err)
 			}
@@ -478,7 +464,7 @@ func mustOrderInput(
 	commandRoot string,
 	scope target.Scope,
 	specs []orderSpec,
-) observepipackage.OrderInput {
+) settingsOrderFixture {
 	t.Helper()
 	capability, admitted := profile.Profile(target.TargetPi).ExtensionOrder(
 		desiredextension.CarrierPiPackage,
@@ -488,7 +474,15 @@ func mustOrderInput(
 		t.Fatalf("Pi %s order capability is absent", scope)
 	}
 	members := make([]hostrelation.RelationOrderMember, 0, len(specs))
-	relations := make([]observepipackage.ScopedRelation, 0, len(specs))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = commandRoot
+	}
+	ctx, err := extensiontopology.NewLocalSourceContext(commandRoot, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relations := make([]piorder.ScopedRelation, 0, len(specs))
 	for _, spec := range specs {
 		subject, err := topology.NewSubjectID(
 			topology.SubjectHostRelation,
@@ -514,7 +508,7 @@ func mustOrderInput(
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := observepipackage.NewScopedRelation(key, scope, commandRoot)
+		relation, err := piorder.NewScopedRelation(key, scope, ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -546,8 +540,8 @@ func mustOrderInput(
 	if err != nil {
 		t.Fatal(err)
 	}
-	return observepipackage.OrderInput{
-		Settings:   settings,
+	return settingsOrderFixture{
+		Settings: settings, Home: home,
 		Constraint: constraint,
 		Relations:  relations,
 	}

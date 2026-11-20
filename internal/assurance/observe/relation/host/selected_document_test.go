@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -38,7 +39,7 @@ func selectedPiFixture(t *testing.T, root, namespace, content string) OrderObser
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []pipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for _, name := range []string{"a", "b"} {
 		subject, err := topology.NewSubjectID(topology.SubjectHostRelation, namespace, name)
@@ -61,11 +62,11 @@ func selectedPiFixture(t *testing.T, root, namespace, content string) OrderObser
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(key, target.ScopeProject, commandContext)
+		relation, err := piorder.NewScopedRelation(key, target.ScopeProject, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
-		identity, err := pipackage.HostLoadIdentityForContext("npm:"+name+"@1", target.ScopeProject, commandContext)
+		identity, err := piorder.HostLoadIdentityForContext("npm:"+name+"@1", target.ScopeProject, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +80,7 @@ func selectedPiFixture(t *testing.T, root, namespace, content string) OrderObser
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{Scope: target.ScopeProject, Capability: capability, SettingsContext: settingsContext, Document: aggregate.ExistingDocument([]byte(content)), Constraint: constraint, Relations: relations})
+	observation, err := piorder.ReconstructOrder(piorder.LoadedOrderInput{Scope: target.ScopeProject, Capability: capability, SettingsContext: settingsContext, Document: aggregate.ExistingDocument([]byte(content)), Constraint: constraint, Relations: relations})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestSelectedDocumentFactoryCompletesCompositionBeforeEveryVerifier(t *testi
 	if strings.TrimSpace(string(completed.Expected().Content())) != want || !completed.Original().Equal(before) {
 		t.Fatal("completion changed a tuple, foreign slot or unrelated composition", string(completed.Expected().Content()))
 	}
-	operationLimits := configdocument.Limits{MaximumBytes: 2 * pipackage.MaximumSettingsBytes, MaximumDepth: 32}
+	operationLimits := configdocument.Limits{MaximumBytes: 2 * piorder.MaximumSettingsBytes, MaximumDepth: 32}
 	operationImage, err := CompleteSelectedImage(t.Context(), before, operationLimits, []compose.ProjectionEdit{projection}, edits)
 	if err != nil || operationImage.Limits() != operationLimits || !operationImage.Expected().Equal(completed.Expected()) {
 		t.Fatal("private host limits replaced the containing operation contract", err)

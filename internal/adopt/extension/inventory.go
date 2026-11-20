@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observeantigravity "github.com/isty2e/daem/internal/assurance/observe/antigravityplugin"
 	observeclaude "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observecodex "github.com/isty2e/daem/internal/assurance/observe/codexplugin"
@@ -313,7 +315,7 @@ func (collector *importCollector) collectPi(scope target.Scope) error {
 		Scope:        scope,
 		Entries:      len(entries),
 		Imported:     len(entries),
-		MaximumBytes: observepi.MaximumSettingsBytes,
+		MaximumBytes: piorder.MaximumSettingsBytes,
 	})
 	return nil
 }

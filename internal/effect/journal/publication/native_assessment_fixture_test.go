@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	journalqualification "github.com/isty2e/daem/internal/effect/journal/qualification"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -42,7 +43,7 @@ type nativeAssessmentGroup struct {
 	bindings           []ownership.DocumentBindingIntent
 	provisional        []journaldocument.ProvisionalAcquire
 	whole              bool
-	order              *pipackage.OrderObservation
+	order              *piorder.OrderObservation
 }
 
 func newNativeAssessmentFixture(t *testing.T) nativeAssessmentFixture {

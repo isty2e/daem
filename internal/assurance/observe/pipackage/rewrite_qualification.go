@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/output"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
@@ -27,7 +29,7 @@ func PreservesOutsidePackageRewrite(
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	selectedIdentity, err := HostLoadIdentityForContext(selectedSource, scope, sourceContext)
+	selectedIdentity, err := piorder.HostLoadIdentityForContext(selectedSource, scope, sourceContext)
 	if err != nil {
 		return false, fmt.Errorf("selected Pi package source: %w", err)
 	}
@@ -66,7 +68,7 @@ func packageRewriteRegion(
 			if err := ctx.Err(); err != nil {
 				return configdocument.RewriteRegion{}, err
 			}
-			identity, err := HostLoadIdentityForContext(entry.Source(), scope, sourceContext)
+			identity, err := piorder.HostLoadIdentityForContext(entry.Source(), scope, sourceContext)
 			if err != nil {
 				return configdocument.RewriteRegion{}, fmt.Errorf("Pi package source[%d]: %w", index, err)
 			}

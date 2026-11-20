@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeopencode "github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
@@ -56,7 +58,7 @@ func (observation PhysicalOrderObservation) Sequence() relationobserve.ObservedR
 // this specialization owner.
 type OrderObservation struct {
 	physical []PhysicalOrderObservation
-	pi       *observepipackage.OrderObservation
+	pi       *piorder.OrderObservation
 	openCode *observeopencode.OrderObservation
 }
 
@@ -139,12 +141,11 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	}
 
 	var physical []PhysicalOrderObservation
-	var piObservation *observepipackage.OrderObservation
+	var piObservation *piorder.OrderObservation
 	var openCodeObservation *observeopencode.OrderObservation
 	switch selectedTarget {
 	case target.TargetPi:
 		relations, err := piOrderRelations(
-			input.Paths,
 			input.Lockfile,
 			capability,
 			input.Constraint,
@@ -214,34 +215,34 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	)
 }
 
-func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []observepipackage.ScopedRelation, capability profile.ExtensionOrderCapability, document aggregate.Document) (observepipackage.OrderObservation, error) {
+func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInput, relations []relationobserve.CorrelationKey, capability profile.ExtensionOrderCapability, document aggregate.Document) (piorder.OrderObservation, error) {
 	home, err := input.Paths.UserHomeDir()
 	if err != nil {
-		return observepipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	path, err := observepipackage.SettingsPath(settings)
 	if err != nil {
-		return observepipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	settingsContext, err := extensiontopology.NewLocalSourceContext(filepath.Dir(path), home)
 	if err != nil {
-		return observepipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	commandContext, err := extensiontopology.NewLocalSourceContext(input.Paths.ManifestRoot, home)
 	if err != nil {
-		return observepipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 
-	bound := make([]observepipackage.ScopedRelation, 0, len(relations))
+	bound := make([]piorder.ScopedRelation, 0, len(relations))
 	for _, relation := range relations {
-		value, err := observepipackage.NewScopedRelationWithContext(relation.CorrelationKey(), relation.Scope(), commandContext)
+		value, err := piorder.NewScopedRelation(relation, capability.Scope(), commandContext)
 		if err != nil {
-			return observepipackage.OrderObservation{}, err
+			return piorder.OrderObservation{}, err
 		}
 		bound = append(bound, value)
 	}
 
-	return observepipackage.ReconstructOrder(observepipackage.LoadedOrderInput{
+	return piorder.ReconstructOrder(piorder.LoadedOrderInput{
 		Scope: settings.Scope, Capability: capability, SettingsContext: settingsContext,
 		Document: document, Constraint: input.Constraint, Relations: bound,
 	})
@@ -250,7 +251,7 @@ func reconstructPiOrder(input OrderInput, settings observepipackage.SettingsInpu
 func newOrderObservation(
 	capability profile.ExtensionOrderCapability,
 	values []PhysicalOrderObservation,
-	piObservation *observepipackage.OrderObservation,
+	piObservation *piorder.OrderObservation,
 	openCodeObservation *observeopencode.OrderObservation,
 ) (OrderObservation, error) {
 	expectedIDs := capability.PhysicalSequenceIDs()
@@ -338,26 +339,17 @@ func newOrderObservation(
 }
 
 func piOrderRelations(
-	paths daempaths.Paths,
 	locked lock.File,
 	capability profile.ExtensionOrderCapability,
 	constraint hostrelation.RelationOrderConstraint,
-) ([]observepipackage.ScopedRelation, error) {
-	relations := make([]observepipackage.ScopedRelation, 0, len(constraint.Members()))
+) ([]relationobserve.CorrelationKey, error) {
+	relations := make([]relationobserve.CorrelationKey, 0, len(constraint.Members()))
 	for index, member := range constraint.Members() {
 		key, err := lockedOrderCorrelation(locked, capability, member)
 		if err != nil {
 			return nil, fmt.Errorf("Pi order member[%d]: %w", index, err)
 		}
-		relation, err := observepipackage.NewScopedRelation(
-			key,
-			capability.Scope(),
-			paths.ManifestRoot,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("Pi order member[%d]: %w", index, err)
-		}
-		relations = append(relations, relation)
+		relations = append(relations, key)
 	}
 	return relations, nil
 }

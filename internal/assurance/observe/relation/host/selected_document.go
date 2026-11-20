@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -39,7 +40,7 @@ type selectedDocumentOrigin interface {
 }
 
 type (
-	piSelectedOrigin       struct{ observation pipackage.SelectedOrderView }
+	piSelectedOrigin       struct{ observation piorder.SelectedOrderView }
 	openCodeSelectedOrigin struct {
 		observation opencodeplugin.SelectedDocumentOrderView
 	}
@@ -152,13 +153,13 @@ func (edit SelectedDocumentEdit) AfterRetiringClaims(claims []durablecarrier.Man
 	return edit.origin.afterRetiring(claims)
 }
 
-func NewPiDocumentEdit(view pipackage.SelectedOrderView) (SelectedDocumentEdit, error) {
+func NewPiDocumentEdit(view piorder.SelectedOrderView) (SelectedDocumentEdit, error) {
 	selected := view.SelectedSequence()
 	address, err := aggregate.NewDocumentAddress(target.TargetPi, view.Scope(), selected.Projection().Destination())
 	if err != nil {
 		return SelectedDocumentEdit{}, err
 	}
-	edit := SelectedDocumentEdit{selected: selected, document: address, original: view.OriginalDocument(), path: view.SettingsPath(), maximumBytes: pipackage.MaximumSettingsBytes, origin: piSelectedOrigin{view}}
+	edit := SelectedDocumentEdit{selected: selected, document: address, original: view.OriginalDocument(), path: view.SettingsPath(), maximumBytes: piorder.MaximumSettingsBytes, origin: piSelectedOrigin{view}}
 	if err := edit.Validate(); err != nil {
 		return SelectedDocumentEdit{}, err
 	}
@@ -195,16 +196,13 @@ func (observation OrderObservation) SelectedHandoffEdits(retiring []durablecarri
 		if err != nil {
 			return nil, err
 		}
-		var relations []pipackage.ScopedRelation
+		var relations []piorder.ScopedRelation
 		for _, key := range keys {
 			if len(original.Relations) == 0 {
 				return nil, fmt.Errorf("Pi ordered retirement requires its selected command context")
 			}
-			context, explicit := original.Relations[0].SourceContext()
-			if !explicit {
-				return nil, fmt.Errorf("Pi retirement command context is not explicit")
-			}
-			relation, err := pipackage.NewScopedRelationWithContext(key, original.Scope, context)
+			context := original.Relations[0].SourceContext()
+			relation, err := piorder.NewScopedRelation(key, original.Scope, context)
 			if err != nil {
 				return nil, err
 			}

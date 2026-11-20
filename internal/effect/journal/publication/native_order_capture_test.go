@@ -1,15 +1,17 @@
 package publication
 
 import (
+	"bytes"
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 
 	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -51,8 +53,9 @@ func TestCaptureNativeJournalPublishesPiOrderOnlyWork(t *testing.T) {
 			if mode == nil || *mode != 0o644 {
 				t.Fatal("Pi order-only work changed the host mode")
 			}
-			if err := order.VerifyPostContent(expected.Content(), expected.Exists()); err != nil {
-				t.Fatal(err)
+			want, exists := order.Candidate()
+			if expected.Exists() != exists || !bytes.Equal(expected.Content(), want) {
+				t.Fatal("completed image differs from the selected order candidate")
 			}
 			input.requireUnchanged(t)
 		})
@@ -83,7 +86,7 @@ func TestCaptureMembersRetainsOnlyChangedObservedPiOrderNamespaces(t *testing.T)
 				t.Fatal("changed order lost its candidate")
 			}
 			loaded.Document = aggregate.ExistingDocument(content)
-			unchanged, err := pipackage.ReconstructOrder(loaded)
+			unchanged, err := piorder.ReconstructOrder(loaded)
 			if err != nil || unchanged.Changed() {
 				t.Fatalf("converged order was not unchanged: %v", err)
 			}
@@ -105,13 +108,10 @@ func TestCaptureMembersRetainsOnlyChangedObservedPiOrderNamespaces(t *testing.T)
 	}
 }
 
-func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTestInput, pipackage.OrderObservation) {
+func nativeOrderCaptureInput(t *testing.T, scope target.Scope) (nativeCaptureTestInput, piorder.OrderObservation) {
 	t.Helper()
 	loaded, order := piEvidenceFixture(t, scope)
-	command, known := loaded.Relations[0].SourceContext()
-	if !known {
-		t.Fatal("Pi order fixture has no command context")
-	}
+	command := loaded.Relations[0].SourceContext()
 	roots := namespacetest.LegacyRoots(t, map[output.RootRole]journalnamespace.RootSelection{output.RootProject: nativeNamespaceRoot(t, command.BaseRoot())})
 	selectedRoot := namespacetest.LegacyRoot(t, roots, output.RootProject)
 	if scope == target.ScopeGlobal {

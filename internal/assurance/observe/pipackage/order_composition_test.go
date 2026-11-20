@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -30,15 +32,6 @@ func TestPiOrderAndNativeSettingsShareOneCandidateWithoutWeakeningRootChecks(t *
 	candidate := composeTheme(t, original, aggregate.ExistingDocument(ordered))
 	if err := observation.VerifyPackageContent(candidate.Content(), candidate.Exists()); err != nil {
 		t.Fatalf("combined settings lost exact package evidence: %v", err)
-	}
-	if err := observation.VerifyPostContent(candidate.Content(), candidate.Exists()); err == nil {
-		t.Fatal("standalone verification accepted a different whole-document candidate")
-	}
-	if err := observation.VerifyBaseline(candidate.Content(), candidate.Exists()); err == nil {
-		t.Fatal("standalone baseline accepted a different root revision")
-	}
-	if err := observation.VerifyPostContent(ordered, true); err != nil {
-		t.Fatalf("original standalone postcondition changed: %v", err)
 	}
 	if err := observation.VerifyPackageContent(content, true); err == nil {
 		t.Fatal("package-only verification accepted the old order")
@@ -118,19 +111,16 @@ func TestPackageVerificationDistinguishesMissingArrayFromEmptyAndMissingFile(t *
 				if err := observation.VerifyPackageContent(candidate.Content(), true); err != nil {
 					t.Fatalf("native-only creation fabricated package presence: %v", err)
 				}
-				if err := observation.VerifyPostContent(candidate.Content(), true); err == nil {
-					t.Fatal("standalone non-creating no-op accepted a created root")
-				}
 			}
 		})
 	}
-	var zero observepipackage.OrderObservation
+	var zero piorder.OrderObservation
 	if err := zero.VerifyPackageContent(nil, false); err == nil {
 		t.Fatal("uninitialized order observation became valid scoped evidence")
 	}
 }
 
-func readCompositionOrder(t *testing.T, content []byte, exists bool) observepipackage.OrderObservation {
+func readCompositionOrder(t *testing.T, content []byte, exists bool) piorder.OrderObservation {
 	t.Helper()
 	root := t.TempDir()
 	if exists {
@@ -138,7 +128,7 @@ func readCompositionOrder(t *testing.T, content []byte, exists bool) observepipa
 	}
 	input := mustOrderInput(t, observepipackage.SettingsInput{ProjectRoot: root, Scope: target.ScopeProject}, root, target.ScopeProject,
 		[]orderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}})
-	observation, err := observepipackage.ReadOrder(input)
+	observation, err := readFixtureOrder(input)
 	if err != nil {
 		t.Fatal(err)
 	}

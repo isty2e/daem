@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -52,7 +53,7 @@ func (capture selectedGroupCaptureFixture) recordedGroup(t *testing.T, group jou
 	return recorded
 }
 
-func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *pipackage.OrderObservation, roots journalnamespace.Roots) selectedGroupCaptureFixture {
+func selectedCaptureFixture(t *testing.T, fixture nativeRecordFixture, original aggregate.Document, edits []compose.ProjectionEdit, order *piorder.OrderObservation, roots journalnamespace.Roots) selectedGroupCaptureFixture {
 	t.Helper()
 	alias := fixture.claims.alias
 	if namespacetest.LegacyRoot(t, roots, output.RootProject).Root == nil {

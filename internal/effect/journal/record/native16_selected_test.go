@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/document"
@@ -46,7 +47,7 @@ func TestNative16SelectedPreparesAndReconstructsActualNativeAndPiEdits(t *testin
 	}
 	t.Setenv("HOME", "")
 	t.Setenv("USERPROFILE", "")
-	replayed, err := pipackage.ReconstructOrder(captured)
+	replayed, err := piorder.ReconstructOrder(captured)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,9 +168,9 @@ func TestNative16SelectedRejectsPiExpectedLimitBeforeCopying(t *testing.T) {
 	order := candidateOrder(t, before)
 	mode := recovery.PermissionMode(0o600)
 	input := document.ComparisonInput{
-		Before: before, Expected: aggregate.ExistingDocument(bytes.Repeat([]byte(" "), 2*pipackage.MaximumSettingsBytes)),
+		Before: before, Expected: aggregate.ExistingDocument(bytes.Repeat([]byte(" "), 2*piorder.MaximumSettingsBytes)),
 		BeforeMode: &mode, ExpectedMode: &mode,
-		Limits: configdocument.Limits{MaximumBytes: 2 * pipackage.MaximumSettingsBytes, MaximumDepth: 32},
+		Limits: configdocument.Limits{MaximumBytes: 2 * piorder.MaximumSettingsBytes, MaximumDepth: 32},
 	}
 	read := func() error {
 		_, err := ReconstructNative16Selected(t.Context(), input, nil, &order)
@@ -187,7 +188,7 @@ func TestNative16SelectedRejectsPiExpectedLimitBeforeCopying(t *testing.T) {
 	})
 	allocated := result.AllocedBytesPerOp()
 	t.Logf("oversized expected Pi rejection: %d B/op", allocated)
-	if result.N == 0 || allocated >= pipackage.MaximumSettingsBytes {
+	if result.N == 0 || allocated >= piorder.MaximumSettingsBytes {
 		t.Fatalf("Pi expected rejection allocated %d B/op before refusing", allocated)
 	}
 }
@@ -216,7 +217,7 @@ func TestNative16SelectedVerifiesCompletedImageEvenForUnchangedOrder(t *testing.
 	})
 }
 
-func prepareNative16Selected(t *testing.T, ctx context.Context, input document.SelectedPreparationInput, edits []compose.ProjectionEdit, order *pipackage.OrderObservation) (document.SelectedCandidate, error) {
+func prepareNative16Selected(t *testing.T, ctx context.Context, input document.SelectedPreparationInput, edits []compose.ProjectionEdit, order *piorder.OrderObservation) (document.SelectedCandidate, error) {
 	t.Helper()
 	expected, participants, err := PrepareNative16SelectedImage(ctx, input.Before, input.Limits, edits, order)
 	if err != nil {
@@ -319,19 +320,19 @@ func candidateNativeEdit(t *testing.T, before aggregate.Document, name, desired 
 	return edit
 }
 
-func candidateOrder(t *testing.T, document aggregate.Document) pipackage.OrderObservation {
+func candidateOrder(t *testing.T, document aggregate.Document) piorder.OrderObservation {
 	t.Helper()
 	return candidateOrderForScope(t, document, target.ScopeProject)
 }
 
-func candidateOrderForScope(t *testing.T, document aggregate.Document, scope target.Scope) pipackage.OrderObservation {
+func candidateOrderForScope(t *testing.T, document aggregate.Document, scope target.Scope) piorder.OrderObservation {
 	t.Helper()
 	root := t.TempDir()
 	local, err := extensiontopology.NewLocalSourceContext(root, filepath.Join(root, "home"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []pipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	var members []hostrelation.RelationOrderMember
 	for _, name := range []string{"a", "b"} {
 		subject, err := topology.NewSubjectID(topology.SubjectHostRelation, "pi.package-carrier", name)
@@ -354,12 +355,12 @@ func candidateOrderForScope(t *testing.T, document aggregate.Document, scope tar
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := pipackage.NewScopedRelationWithContext(key, scope, local)
+		relation, err := piorder.NewScopedRelation(key, scope, local)
 		if err != nil {
 			t.Fatal(err)
 		}
 		relations = append(relations, relation)
-		identity, err := pipackage.HostLoadIdentityForContext("npm:"+name, scope, local)
+		identity, err := piorder.HostLoadIdentityForContext("npm:"+name, scope, local)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -381,7 +382,7 @@ func candidateOrderForScope(t *testing.T, document aggregate.Document, scope tar
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
+	observation, err := piorder.ReconstructOrder(piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: local, Document: document, Constraint: constraint, Relations: relations,
 	})
 	if err != nil {

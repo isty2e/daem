@@ -5,7 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -91,7 +92,7 @@ func TestNative16PiOrderCaptureRefusesAnUnrecordableProjectionContract(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation, err := pipackage.ReconstructOrder(input)
+	observation, err := piorder.ReconstructOrder(input)
 	if err != nil || !observation.Changed() {
 		t.Fatal("fixture did not establish a different but valid selected contract", err)
 	}

@@ -1,4 +1,4 @@
-package pipackage
+package piorder
 
 import (
 	"fmt"
@@ -31,11 +31,8 @@ func ReconstructOrder(input LoadedOrderInput) (OrderObservation, error) {
 		return OrderObservation{}, err
 	}
 	for index, relation := range input.Relations {
-		if relation.sourceContext == nil {
-			return OrderObservation{}, fmt.Errorf("Pi loaded order relation[%d] requires explicit source context", index)
-		}
 		if err := relation.sourceContext.Validate(); err != nil {
-			return OrderObservation{}, err
+			return OrderObservation{}, fmt.Errorf("Pi order relation[%d]: %w", index, err)
 		}
 	}
 	selection, err := newOrderSelectionWithCapability(input.Scope, input.Constraint, input.Relations, input.Capability)
@@ -46,9 +43,9 @@ func ReconstructOrder(input LoadedOrderInput) (OrderObservation, error) {
 		return OrderObservation{}, fmt.Errorf("Pi settings exceeds %d bytes", MaximumSettingsBytes)
 	}
 	context := input.SettingsContext
-	inventory, err := inventoryFromContent(Inventory{
+	inventory, err := inventoryFromContent(settingsImage{
 		scope: input.Scope, settingsBase: context.BaseRoot(),
-		settingsPath: filepath.Join(context.BaseRoot(), "settings.json"), sourceContext: &context,
+		settingsPath: filepath.Join(context.BaseRoot(), "settings.json"), sourceContext: context,
 	}, input.Document.Content(), input.Document.Exists())
 	if err != nil {
 		return OrderObservation{}, err

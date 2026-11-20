@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -40,11 +42,11 @@ func TestLoadedPiOrderMatchesLiveObservationAndKeepsContextThroughVerification(t
 			loaded, liveInput := loadedOrderFixture(t, scope, settingsBase, commandRoot, home,
 				[]orderSpec{{id: "a", source: "./packages/a"}, {id: "b", source: "~/b"}}, aggregate.ExistingDocument(content))
 			writeSettingsBytes(t, filepath.Join(settingsBase, "settings.json"), content)
-			live, err := observepipackage.ReadOrder(liveInput)
+			live, err := readFixtureOrder(liveInput)
 			if err != nil {
 				t.Fatal(err)
 			}
-			observation, err := observepipackage.ReconstructOrder(loaded)
+			observation, err := piorder.ReconstructOrder(loaded)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -56,13 +58,10 @@ func TestLoadedPiOrderMatchesLiveObservationAndKeepsContextThroughVerification(t
 				observation.SettingsPath() != live.SettingsPath() {
 				t.Fatal("loaded reconstruction differs from the actual live fixed-slot observation")
 			}
-			if err := observation.VerifyBaseline(content, true); err != nil {
-				t.Fatal(err)
-			}
 			for _, liveHome := range []string{filepath.Join(root, "changed-home"), ""} {
 				t.Setenv("HOME", liveHome)
 				t.Setenv("USERPROFILE", liveHome)
-				rebuilt, err := observepipackage.ReconstructOrder(loaded)
+				rebuilt, err := piorder.ReconstructOrder(loaded)
 				if err != nil {
 					t.Fatalf("reconstruction used ambient home: %v", err)
 				}
@@ -73,9 +72,6 @@ func TestLoadedPiOrderMatchesLiveObservationAndKeepsContextThroughVerification(t
 				if err := observation.Validate(); err != nil {
 					t.Fatalf("canonical validation lost selected context: %v", err)
 				}
-				if err := observation.VerifyPostContent(candidate, true); err != nil {
-					t.Fatalf("whole post-observation lost selected context: %v", err)
-				}
 				combined := bytes.Replace(candidate, []byte(`"theme":"day"`), []byte(`"theme":"night"`), 1)
 				if bytes.Equal(combined, candidate) {
 					t.Fatal("fixture did not change the independent native root value")
@@ -83,11 +79,8 @@ func TestLoadedPiOrderMatchesLiveObservationAndKeepsContextThroughVerification(t
 				if err := observation.VerifyPackageContent(combined, true); err != nil {
 					t.Fatalf("package-only post-observation lost context or consumed another root value: %v", err)
 				}
-				if err := observation.VerifyPostContent(combined, true); err == nil {
-					t.Fatal("whole candidate verification accepted an independent native edit")
-				}
 			}
-			loaded.Relations[0] = observepipackage.ScopedRelation{}
+			loaded.Relations[0] = piorder.ScopedRelation{}
 			if err := observation.Validate(); err != nil {
 				t.Fatal("caller relation-slice mutation changed immutable observation")
 			}
@@ -111,7 +104,7 @@ func TestLoadedPiOrderPreservesDocumentAndPackagePresenceWithoutReadingAFile(t *
 				[]orderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}}, test.document)
 			t.Setenv("HOME", "")
 			t.Setenv("USERPROFILE", "")
-			observation, err := observepipackage.ReconstructOrder(input)
+			observation, err := piorder.ReconstructOrder(input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -131,18 +124,18 @@ func TestLoadedPiOrderPreservesDocumentAndPackagePresenceWithoutReadingAFile(t *
 
 func TestLoadedPiOrderRejectsAmbientIncompleteAndUnboundedInput(t *testing.T) {
 	root := t.TempDir()
-	input, live := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, root,
+	input, _ := loadedOrderFixture(t, target.ScopeProject, filepath.Join(root, ".pi"), root, root,
 		[]orderSpec{{id: "a", source: "npm:a@1"}, {id: "b", source: "npm:b@1"}}, aggregate.ExistingDocument([]byte(`{"packages":["npm:b@1","npm:a@1"]}`)))
 	badContext := input
 	badContext.SettingsContext = extensiontopology.LocalSourceContext{}
 	liveRelation := input
-	liveRelation.Relations = live.Relations
+	liveRelation.Relations = []piorder.ScopedRelation{{}}
 	wrongScope := input
 	wrongScope.Scope = target.ScopeGlobal
 	missingCapability := input
 	missingCapability.Capability = profile.ExtensionOrderCapability{}
-	for _, bad := range []observepipackage.LoadedOrderInput{badContext, liveRelation, wrongScope, missingCapability} {
-		if observation, err := observepipackage.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
+	for _, bad := range []piorder.LoadedOrderInput{badContext, liveRelation, wrongScope, missingCapability} {
+		if observation, err := piorder.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
 			t.Fatal("incomplete or ambient input returned a valid observation")
 		}
 	}
@@ -150,51 +143,25 @@ func TestLoadedPiOrderRejectsAmbientIncompleteAndUnboundedInput(t *testing.T) {
 		`{"packages":["npm:a@1","npm:a@2"]}`, `{"packages":[],"packages":[]}`, `[]`,
 		`{"packages":["npm:a@1",]}`, `{"packages":[]}//comment`,
 		`{"deep":` + strings.Repeat("[", 33) + "0" + strings.Repeat("]", 33) + "}",
-		`{"packages":[],"padding":"` + strings.Repeat("x", observepipackage.MaximumSettingsBytes) + `"}`,
+		`{"packages":[],"padding":"` + strings.Repeat("x", piorder.MaximumSettingsBytes) + `"}`,
 	} {
 		bad := input
 		bad.Document = aggregate.ExistingDocument([]byte(content))
-		if observation, err := observepipackage.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
+		if observation, err := piorder.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
 			t.Fatal("invalid or oversized loaded settings returned a valid observation")
 		}
 	}
-	observation, err := observepipackage.ReconstructOrder(input)
+	observation, err := piorder.ReconstructOrder(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	oversized := []byte(`{"packages":["npm:a@1","npm:b@1"],"padding":"` + strings.Repeat("x", observepipackage.MaximumSettingsBytes) + `"}`)
+	oversized := []byte(`{"packages":["npm:a@1","npm:b@1"],"padding":"` + strings.Repeat("x", piorder.MaximumSettingsBytes) + `"}`)
 	if err := observation.VerifyPackageContent(oversized, true); err == nil {
 		t.Fatal("post-observation bypassed the existing settings byte bound")
 	}
-	if _, err := observepipackage.NewScopedRelationWithContext(mustCorrelationKey(t, "npm:a@1"), target.ScopeProject, extensiontopology.LocalSourceContext{}); err == nil {
+	if _, err := piorder.NewScopedRelation(mustCorrelationKey(t, "npm:a@1"), target.ScopeProject, extensiontopology.LocalSourceContext{}); err == nil {
 		t.Fatal("zero lexical context became a bound relation")
 	}
-}
-
-func TestContextBoundPiCorrelationUsesTheSameSelectedCommandContext(t *testing.T) {
-	root := t.TempDir()
-	commandRoot, settingsBase, home := filepath.Join(root, "project"), filepath.Join(root, "project", ".pi"), filepath.Join(root, "captured-home")
-	context, err := extensiontopology.NewLocalSourceContext(commandRoot, home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	relation, err := observepipackage.NewScopedRelationWithContext(mustCorrelationKey(t, "~/plugin"), target.ScopeProject, context)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored, err := filepath.Rel(settingsBase, filepath.Join(home, "plugin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeSettingsBytes(t, filepath.Join(settingsBase, "settings.json"), []byte(`{"packages":[`+quoted(stored)+`]}`))
-	inventory := mustReadSettings(t, observepipackage.SettingsInput{Scope: target.ScopeProject, ProjectRoot: commandRoot})
-	t.Setenv("HOME", filepath.Join(root, "different-home"))
-	t.Setenv("USERPROFILE", filepath.Join(root, "different-home"))
-	result, err := observepipackage.Correlate(relation, inventory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertCorrelationState(t, result, observerelation.StateExactCorrelation)
 }
 
 func TestLoadedPiOrderRefusesOtherCarrierAndIncompleteMembership(t *testing.T) {
@@ -218,13 +185,13 @@ func TestLoadedPiOrderRefusesOtherCarrierAndIncompleteMembership(t *testing.T) {
 		}
 		bad := input
 		bad.Capability = capability
-		if observation, err := observepipackage.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
+		if observation, err := piorder.ReconstructOrder(bad); err == nil || observation.Validate() == nil {
 			t.Fatal("another semantic contract became a Pi loaded observation")
 		}
 	}
 }
 
-func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandRoot, home string, specs []orderSpec, document aggregate.Document) (observepipackage.LoadedOrderInput, observepipackage.OrderInput) {
+func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandRoot, home string, specs []orderSpec, document aggregate.Document) (piorder.LoadedOrderInput, settingsOrderFixture) {
 	t.Helper()
 	live := mustOrderInput(t, observepipackage.SettingsInput{
 		Scope: scope, ConfigRoot: settingsBase, ProjectRoot: filepath.Dir(settingsBase), WorkDir: commandRoot,
@@ -237,7 +204,7 @@ func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandR
 	if err != nil {
 		t.Fatal(err)
 	}
-	var relations []observepipackage.ScopedRelation
+	var relations []piorder.ScopedRelation
 	for _, spec := range specs {
 		subject, err := topology.NewSubjectID(topology.SubjectHostRelation, "pi.package-carrier", spec.id)
 		if err != nil {
@@ -259,7 +226,7 @@ func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandR
 		if err != nil {
 			t.Fatal(err)
 		}
-		relation, err := observepipackage.NewScopedRelationWithContext(key, scope, commandContext)
+		relation, err := piorder.NewScopedRelation(key, scope, commandContext)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,7 +236,7 @@ func loadedOrderFixture(t *testing.T, scope target.Scope, settingsBase, commandR
 	if !admitted {
 		t.Fatal("Pi loaded-order fixture capability is unavailable")
 	}
-	return observepipackage.LoadedOrderInput{
+	return piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settingsContext,
 		Document: document, Constraint: live.Constraint, Relations: relations,
 	}, live

@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	"github.com/isty2e/daem/internal/assurance/observe/opencodeplugin"
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -23,8 +24,8 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	context, _ := input.Relations[0].SourceContext()
-	var retiring []pipackage.ScopedRelation
+	context := input.Relations[0].SourceContext()
+	var retiring []piorder.ScopedRelation
 	var pairs []observerelation.OrderHandoffSpec
 	for _, desired := range input.Relations {
 		source := "npm:a@1"
@@ -32,7 +33,7 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 			source = "npm:b@1"
 		}
 		key := selectedRetirementKey(t, "pi.package-carrier", desired.CorrelationKey().Subject().Key(), source)
-		old, err := pipackage.NewScopedRelationWithContext(key, target.ScopeProject, context)
+		old, err := piorder.NewScopedRelation(key, target.ScopeProject, context)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -40,7 +41,7 @@ func TestSelectedPiHandoffUsesExactSourcesAndKeepsOriginalCAS(t *testing.T) {
 		pairs = append(pairs, observerelation.OrderHandoffSpec{Before: key, After: desired.CorrelationKey()})
 	}
 	extra := selectedRetirementKey(t, "pi.package-carrier", "extra", "npm:foreign@2")
-	foreign, err := pipackage.NewScopedRelationWithContext(extra, target.ScopeProject, context)
+	foreign, err := piorder.NewScopedRelation(extra, target.ScopeProject, context)
 	if err != nil {
 		t.Fatal(err)
 	}

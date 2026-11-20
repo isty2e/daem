@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
@@ -317,7 +318,7 @@ func (facts documentGroupCaptureFacts) documentClaims(observation mutation.Direc
 	return recoveryDocumentClaimSet{Kind: "absent"}, nil
 }
 
-func (draft DocumentGroupDraft) WithPiOrder(order pipackage.OrderObservation) (DocumentGroupDraft, PiQualification, error) {
+func (draft DocumentGroupDraft) WithPiOrder(order piorder.OrderObservation) (DocumentGroupDraft, PiQualification, error) {
 	if draft.phase != documentGroupMetadataComplete || draft.legacy == nil {
 		return DocumentGroupDraft{}, PiQualification{}, fmt.Errorf("document group draft cannot record Pi order in its current phase")
 	}

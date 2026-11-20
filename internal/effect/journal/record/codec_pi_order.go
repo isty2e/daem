@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	"github.com/isty2e/daem/internal/assurance/observe/relation/piorder"
+
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -63,7 +64,7 @@ func (record *recoveryPiOrderEvidence) UnmarshalJSON(content []byte) error {
 	return nil
 }
 
-func persistedPiOrderEvidence(observation pipackage.OrderObservation) (recoveryPiOrderEvidence, error) {
+func persistedPiOrderEvidence(observation piorder.OrderObservation) (recoveryPiOrderEvidence, error) {
 	input, err := observation.CaptureInput()
 	if err != nil {
 		return recoveryPiOrderEvidence{}, err
@@ -95,10 +96,7 @@ func persistedPiOrderEvidence(observation pipackage.OrderObservation) (recoveryP
 		})
 	}
 	for _, relation := range input.Relations {
-		sourceContext, bound := relation.SourceContext()
-		if !bound {
-			return recoveryPiOrderEvidence{}, fmt.Errorf("Pi order relation has no captured source context")
-		}
+		sourceContext := relation.SourceContext()
 		key := relation.CorrelationKey()
 		subject, expected := key.Subject(), key.ExpectedRelation()
 		record.Relations = append(record.Relations, recoveryPiScopedRelation{
@@ -114,55 +112,55 @@ func persistedLocalSourceContext(value extensiontopology.LocalSourceContext) rec
 	return recoveryLocalSourceContext{BaseRoot: value.BaseRoot(), HomeRoot: value.HomeRoot()}
 }
 
-func (record recoveryPiOrderEvidence) canonical(ctx context.Context, original aggregate.Document) (pipackage.OrderObservation, error) {
+func (record recoveryPiOrderEvidence) canonical(ctx context.Context, original aggregate.Document) (piorder.OrderObservation, error) {
 	if ctx == nil {
-		return pipackage.OrderObservation{}, fmt.Errorf("Pi order evidence context is required")
+		return piorder.OrderObservation{}, fmt.Errorf("Pi order evidence context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	scope, err := target.ParseScope(record.Scope)
 	if err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	capability, err := native16PiOrderCapability(scope)
 	if err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	sequenceID, err := hostrelation.NewPhysicalSequenceID(record.SequenceID)
 	if err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	settings, err := extensiontopology.NewLocalSourceContext(record.SettingsContext.BaseRoot, record.SettingsContext.HomeRoot)
 	if err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	constraint, err := record.Constraint.canonical(ctx)
 	if err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
-	relations := make([]pipackage.ScopedRelation, 0, len(record.Relations))
+	relations := make([]piorder.ScopedRelation, 0, len(record.Relations))
 	for _, row := range record.Relations {
 		if err := ctx.Err(); err != nil {
-			return pipackage.OrderObservation{}, err
+			return piorder.OrderObservation{}, err
 		}
 		relation, err := row.canonical()
 		if err != nil {
-			return pipackage.OrderObservation{}, err
+			return piorder.OrderObservation{}, err
 		}
 		relations = append(relations, relation)
 	}
-	observation, err := pipackage.ReconstructOrder(pipackage.LoadedOrderInput{
+	observation, err := piorder.ReconstructOrder(piorder.LoadedOrderInput{
 		Scope: scope, Capability: capability, SettingsContext: settings, Document: original, Constraint: constraint, Relations: relations,
 	})
 	if err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	if !observation.Changed() || observation.Sequence().SequenceID() != sequenceID {
-		return pipackage.OrderObservation{}, fmt.Errorf("Pi order evidence has no matching changed physical sequence")
+		return piorder.OrderObservation{}, fmt.Errorf("Pi order evidence has no matching changed physical sequence")
 	}
 	if err := ctx.Err(); err != nil {
-		return pipackage.OrderObservation{}, err
+		return piorder.OrderObservation{}, err
 	}
 	return observation, nil
 }
@@ -194,34 +192,34 @@ func (record recoveryRelationOrderConstraint) canonical(ctx context.Context) (ho
 	return hostrelation.NewRelationOrderConstraint(classID, record.MemberIdentityContract, hostrelation.RuntimeMeaning(record.RuntimeMeaning), members)
 }
 
-func (record recoveryPiScopedRelation) canonical() (pipackage.ScopedRelation, error) {
+func (record recoveryPiScopedRelation) canonical() (piorder.ScopedRelation, error) {
 	subject, err := record.Subject.canonical()
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
 	source, err := hostrelation.NewSubjectKey(record.SubjectKey)
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
 	managed, err := hostrelation.NewManagedInstanceKey(record.ManagedInstanceKey)
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
 	expected, err := hostrelation.NewExpectedRelation(source, managed)
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
 	key, err := observerelation.NewCorrelationKey(subject, expected)
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
 	scope, err := target.ParseScope(record.Scope)
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
 	sourceContext, err := extensiontopology.NewLocalSourceContext(record.SourceContext.BaseRoot, record.SourceContext.HomeRoot)
 	if err != nil {
-		return pipackage.ScopedRelation{}, err
+		return piorder.ScopedRelation{}, err
 	}
-	return pipackage.NewScopedRelationWithContext(key, scope, sourceContext)
+	return piorder.NewScopedRelation(key, scope, sourceContext)
 }
