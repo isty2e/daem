@@ -53,39 +53,21 @@ func (NativeRecoveryPlan) AuthorityKind() RecoveryAuthorityKind {
 	return RecoveryAuthorityActiveJournal
 }
 
+func (plan NativeRecoveryPlan) phaseUnavailable() bool {
+	return plan.blocked || plan.capture.OperationID == ""
+}
+
 func (plan NativeRecoveryPlan) Blocked() bool {
-	if plan.blocked || plan.capture.OperationID == "" {
-		return true
-	}
-	for _, obligation := range plan.cleanup {
-		if obligation.Readiness() == recovery.RemovalCleanupBlocked {
-			return true
-		}
-	}
-	return false
+	return plan.phaseUnavailable() || recovery.RemovalCleanupRefusal(plan.cleanup) == recovery.RemovalCleanupBlocked
 }
 
 func (plan NativeRecoveryPlan) HasErrors() bool {
-	if plan.Blocked() {
-		return true
-	}
-	for _, obligation := range plan.cleanup {
-		if obligation.Readiness() == recovery.RemovalCleanupRetry {
-			return true
-		}
-	}
-	return false
+	return plan.phaseUnavailable() || recovery.RemovalCleanupRefusal(plan.cleanup) != ""
 }
+
 func (plan NativeRecoveryPlan) OperationID() string       { return plan.capture.OperationID }
 func (plan NativeRecoveryPlan) OperationDir() string      { return plan.capture.Directory }
 func (plan NativeRecoveryPlan) RecordFingerprint() string { return plan.capture.RecordFingerprint }
-
-func (plan NativeRecoveryPlan) Classification() recovery.Classification {
-	if plan.Blocked() {
-		return recovery.ClassificationBlocked
-	}
-	return plan.assessment.Classification()
-}
 
 func (plan NativeRecoveryPlan) SameExecutionAuthority(other RecoverablePlan) bool {
 	typed, ok := other.(NativeRecoveryPlan)

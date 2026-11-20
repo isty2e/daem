@@ -14,6 +14,34 @@ func testRemovalIntent(t *testing.T) RemovalIntent {
 	return testRemovalIntentForKind(t, PathKindFile)
 }
 
+func TestPlanRefusesCleanupWithoutChangingOperationState(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		observations       []RemovalCleanupReadiness
+		blocked, hasErrors bool
+	}{
+		{"pending", []RemovalCleanupReadiness{RemovalCleanupPending}, false, false},
+		{"retry", []RemovalCleanupReadiness{RemovalCleanupRetry}, false, true},
+		{"retry then blocked", []RemovalCleanupReadiness{RemovalCleanupRetry, RemovalCleanupBlocked}, true, true},
+		{"blocked then retry", []RemovalCleanupReadiness{RemovalCleanupBlocked, RemovalCleanupRetry}, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan := Plan{classification: ClassificationCleanBefore}
+			for _, readiness := range tc.observations {
+				plan.removalObligations = append(plan.removalObligations, RemovalCleanupObligation{readiness: readiness})
+			}
+			if plan.Blocked() != tc.blocked || plan.HasErrors() != tc.hasErrors || plan.Classification() != ClassificationCleanBefore {
+				t.Fatalf("classification=%s blocked=%t hasErrors=%t", plan.Classification(), plan.Blocked(), plan.HasErrors())
+			}
+		})
+	}
+
+	plan := Plan{classification: ClassificationNeedsRollback, actions: []Action{{Kind: ActionKindError}}}
+	if plan.Blocked() || !plan.HasErrors() {
+		t.Fatal("an action error must refuse execution without classifying cleanup as blocked")
+	}
+}
+
 func testRemovalIntentForKind(t *testing.T, kind string) RemovalIntent {
 	t.Helper()
 	destination, err := output.Parse("skills/runner")

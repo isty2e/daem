@@ -514,6 +514,21 @@ type RemovalCleanupObligation struct {
 	detail    string
 }
 
+// RemovalCleanupRefusal reports blocked in preference to retry. An empty
+// result means no refusal was observed; it does not discharge pending work.
+func RemovalCleanupRefusal(obligations []RemovalCleanupObligation) RemovalCleanupReadiness {
+	var refusal RemovalCleanupReadiness
+	for _, obligation := range obligations {
+		switch obligation.Readiness() {
+		case RemovalCleanupBlocked:
+			return RemovalCleanupBlocked
+		case RemovalCleanupRetry:
+			refusal = RemovalCleanupRetry
+		}
+	}
+	return refusal
+}
+
 // NewPendingRemovalCleanupObligation creates the obligation established by a
 // complete intent before fresh residue reconciliation.
 func NewPendingRemovalCleanupObligation(intent RemovalIntent) (RemovalCleanupObligation, error) {

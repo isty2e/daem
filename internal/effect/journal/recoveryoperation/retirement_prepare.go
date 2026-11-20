@@ -803,7 +803,7 @@ func (prepared *RetirementContinuation) ExecuteCleanupWithGate(
 }
 
 func validateActiveRetirementPlan(plan recovery.Plan, execution retirementExecution) error {
-	if plan.Blocked() || plan.HasErrors() {
+	if plan.HasErrors() {
 		return fmt.Errorf("active recovery plan is not clean enough to retire")
 	}
 	if classification := plan.Classification(); classification != recovery.ClassificationCleanBefore &&

@@ -184,7 +184,7 @@ func finishRecoveryPreparation(
 		fileSetFence:       fileSetFence,
 		physicalPathBudget: physicalPathBudget,
 	}
-	if !plan.Blocked() && !plan.HasErrors() {
+	if !plan.HasErrors() {
 		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir, physicalPathBudget)
 		if err != nil {
 			return recoveryPreparation{}, fmt.Errorf("derive recovery mutation authority: %w", err)
@@ -247,7 +247,7 @@ func Execute(
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if execution.plan.Blocked() || execution.plan.HasErrors() {
+	if execution.plan.HasErrors() {
 		return result, fmt.Errorf("recovery is blocked")
 	}
 	if execution.activeStateDir {
@@ -316,7 +316,7 @@ func Execute(
 		}
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
-	if current.plan.Blocked() || current.plan.HasErrors() {
+	if current.plan.HasErrors() {
 		return result, errors.Join(mutation.StaleSnapshotError{}, fmt.Errorf("recovery is blocked by current evidence"))
 	}
 	if !execution.operationEvidence.Equal(current.operationEvidence) ||

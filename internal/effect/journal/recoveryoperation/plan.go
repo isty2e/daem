@@ -68,7 +68,6 @@ type RecoverablePlan interface {
 	recoverablePlan()
 	Clone() RecoverablePlan
 	AuthorityKind() RecoveryAuthorityKind
-	Blocked() bool
 	HasErrors() bool
 	SameExecutionAuthority(RecoverablePlan) bool
 }
@@ -91,10 +90,6 @@ func (plan activeRecoverablePlan) Clone() RecoverablePlan {
 
 func (activeRecoverablePlan) AuthorityKind() RecoveryAuthorityKind {
 	return RecoveryAuthorityActiveJournal
-}
-
-func (plan activeRecoverablePlan) Blocked() bool {
-	return plan.plan.Blocked()
 }
 
 func (plan activeRecoverablePlan) HasErrors() bool {
@@ -123,10 +118,6 @@ func (plan cleanupRecoverablePlan) Clone() RecoverablePlan {
 
 func (cleanupRecoverablePlan) AuthorityKind() RecoveryAuthorityKind {
 	return RecoveryAuthorityJournalCleanup
-}
-
-func (cleanupRecoverablePlan) Blocked() bool {
-	return false
 }
 
 func (cleanupRecoverablePlan) HasErrors() bool {
