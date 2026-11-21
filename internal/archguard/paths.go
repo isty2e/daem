@@ -73,11 +73,6 @@ func isForbiddenCLIImport(importPath string) bool {
 	return strings.HasPrefix(importPath, "internal/")
 }
 
-func isObserveAdapterPackage(packagePath string) bool {
-	return packagePath == "internal/assurance/observe/live" ||
-		packagePath == "internal/assurance/observe/lock"
-}
-
 func isObserveRootPackage(packagePath string) bool {
 	return packagePath == "internal/assurance/observe"
 }

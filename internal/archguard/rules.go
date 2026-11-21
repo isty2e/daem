@@ -152,7 +152,7 @@ var importRules = []importRule{
 		},
 	},
 	{
-		rule:    "reconciliation package imports forbidden phase",
+		rule:    ruleReconciliationForbiddenPhase,
 		subject: isReconciliationPackage,
 		forbiddenImports: []forbiddenImport{
 			forbiddenDeclaration(),
@@ -160,7 +160,6 @@ var importRules = []importRule{
 			forbiddenSource(),
 			forbiddenSourceBackend(),
 			forbiddenLockfile(),
-			forbiddenObserveAdapters(),
 			forbiddenOutputProject(),
 			forbiddenPayload(),
 			forbiddenJournal(),
@@ -185,20 +184,19 @@ var importRules = []importRule{
 	},
 	{
 		rule:    "observe adapter package imports forbidden phase",
-		subject: isObserveAdapterPackage,
+		subject: isLiveOrLockObserver,
 		forbiddenImports: []forbiddenImport{
 			forbiddenOutputProject(),
 		},
 	},
 	{
-		rule:    "journal or execute package imports forbidden phase",
+		rule:    ruleJournalOrExecuteForbiddenPhase,
 		subject: isJournalOrExecutePackage,
 		forbiddenImports: []forbiddenImport{
 			forbiddenDeclaration(),
 			forbiddenIntent(),
 			forbiddenSourceBackend(),
 			forbiddenLockBuild(),
-			forbiddenObserveAdapters(),
 			forbiddenOutputProject(),
 			forbiddenPayloadBuild(),
 			forbiddenDiagnose(),
@@ -303,13 +301,6 @@ func forbiddenPayloadBuild() forbiddenImport {
 
 func forbiddenObserve() forbiddenImport {
 	return forbiddenImport{name: "observe", paths: []string{"internal/assurance/observe"}}
-}
-
-func forbiddenObserveAdapters() forbiddenImport {
-	return forbiddenImport{name: "observe adapter", paths: []string{
-		"internal/assurance/observe/live",
-		"internal/assurance/observe/lock",
-	}}
 }
 
 func forbiddenReconciliation() forbiddenImport {

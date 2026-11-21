@@ -137,6 +137,7 @@ func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFindin
 
 func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 	var violations []GuardrailFinding
+	observerRule := observerImportRuleFor(packagePath)
 	for _, importPath := range sortedStrings(imports) {
 		importInternalPath, isInternal := internalPath(importPath)
 		if packagePath == "internal/realization/lock/refine" && !isInternal && !isAllowedLockRefineExternalImport(importPath) {
@@ -250,7 +251,15 @@ func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 
 		violations = append(violations, analyzeLockImports(packagePath, importInternalPath)...)
 
-		if isObserveAdapterPackage(packagePath) && matchesInternalImport(importInternalPath, "internal/reconcile") {
+		if observerRule != "" && isLiveObservationImport(importInternalPath) {
+			violations = append(violations, GuardrailFinding{
+				Rule:        observerRule,
+				PackagePath: packagePath,
+				ImportPath:  importInternalPath,
+			})
+		}
+
+		if isLiveOrLockObserver(packagePath) && matchesInternalImport(importInternalPath, "internal/reconcile") {
 			violations = append(violations, GuardrailFinding{
 				Rule:        ruleObserveReconciliationImport,
 				PackagePath: packagePath,
