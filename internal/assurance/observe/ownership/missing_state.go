@@ -70,24 +70,23 @@ func matchMissingStateOutputs(ctx context.Context, missing statefile.MissingStat
 		}
 		owner := recorded.Authority
 		retained := owner.StatefileAuthority()
-		var strict, legacy bool
+		if observed.MatchesRetainedWitness(retained) {
+			relevantClaim = relevantClaim || recorded.HasClaim
+			selected = owner.Key()
+			continue
+		}
+
+		var legacy bool
 		if exact, known := observed.Exact(); known {
-			strict = exact.Equal(retained)
 			legacy = exact.MatchesLegacyComparison(retained) || retained.MatchesLegacyComparison(exact)
 		} else {
 			provisional, _ := observed.Provisional()
-			strict = provisional.CandidateKey() == retained.Key() && provisional.CandidateWitness() == retained.Witness()
 			legacy = provisional.MatchesMissingExact(retained)
 		}
-		if !strict {
-			if legacy || observed.NamespaceKey() == retained.Key() || owner.ManifestPath() == manifest {
-				ambiguous = true
-				relevantClaim = relevantClaim || recorded.HasClaim
-			}
-			continue
+		if legacy || observed.NamespaceKey() == retained.Key() || owner.ManifestPath() == manifest {
+			ambiguous = true
+			relevantClaim = relevantClaim || recorded.HasClaim
 		}
-		relevantClaim = relevantClaim || recorded.HasClaim
-		selected = owner.Key()
 	}
 	if err := ctx.Err(); err != nil {
 		return outputownership.OwnerOutputs{}, err

@@ -112,6 +112,16 @@ func (observation DirectoryEntryAuthorityObservation) NamespaceKey() string {
 	return provisional.CandidateKey()
 }
 
+// MatchesRetainedWitness requires the recorded key and witness even when the
+// current entry is provisional. Historical aliases alone do not qualify.
+func (observation DirectoryEntryAuthorityObservation) MatchesRetainedWitness(retained pathauthority.Exact) bool {
+	if exact, present := observation.Exact(); present {
+		return exact.Equal(retained)
+	}
+	missing, present := observation.Provisional()
+	return present && missing.CandidateKey() == retained.Key() && missing.CandidateWitness() == retained.Witness()
+}
+
 // MatchesRetainedExact accepts the same exact entry or the corresponding
 // currently missing namespace; it does not supply fresh mutation authority.
 func (observation DirectoryEntryAuthorityObservation) MatchesRetainedExact(retained pathauthority.Exact) bool {
