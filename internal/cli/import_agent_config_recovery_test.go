@@ -223,6 +223,60 @@ func TestUninitializedCaptureRecoveryCannotExecute(t *testing.T) {
 	}
 }
 
+func TestImportAgentConfigRecoveryRecognizesExactBlockImages(t *testing.T) {
+	const header = "version=1\ntargets=['pi']\n"
+	const row = "[[agent_config]]\nid='chosen'\nscope='project'\npath='whole.json'\nsource='./prefs.json'\nownership='document'\n"
+	const footer = "\n# retained footer\n"
+	for _, tc := range []struct {
+		name, tail             string
+		switchSource, accepted bool
+	}{
+		{"earlier retirement", "", false, true},
+		{"earlier source switch", "", true, true},
+		{"preserved footer", footer, false, true},
+		{"partially removed footer", "\n", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, manifest, _, _ := captureCLIFixture(t, `{}`)
+			args := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
+			source := filepath.Join(root, "prefs.json")
+			after := header
+			var sourceAfter []byte
+			if tc.switchSource {
+				source = filepath.Join(root, "export.json")
+				args = append(args, "--source", source)
+				sourceAfter = []byte(`{"chosen":1}`)
+				after += fmt.Sprintf("[[agent_config]]\nid = \"chosen\"\ntargets = [\"pi\"]\nscope = \"project\"\npath = \"whole.json\"\nsource = %q\nownership = \"document\"\n", source)
+			}
+			after += tc.tail
+			marker := interruptedCapture(t, manifest, source, []byte(header+row+footer), []byte(after), nil, sourceAfter, true)
+			if tc.accepted {
+				fingerprint := captureFingerprint(t, args)
+				if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint)); code != 0 {
+					t.Fatal(code, out, err)
+				}
+				if _, err := os.Stat(marker); !os.IsNotExist(err) {
+					t.Fatal("recovery did not settle", err)
+				}
+			} else {
+				original, err := os.ReadFile(marker)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if code, _, _ := runCaptureCLI(t, append(args, "--dry-run")); code == 0 {
+					t.Fatal("accepted partial edit")
+				}
+				if current, err := os.ReadFile(marker); err != nil || !bytes.Equal(current, original) {
+					t.Fatal("refusal changed marker", err)
+				}
+			}
+			if current, err := os.ReadFile(manifest); err != nil || string(current) != after {
+				t.Fatal("manifest changed", err)
+			}
+		})
+	}
+}
+
 func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 	for _, retirement := range []bool{false, true} {
 		for _, finalized := range []bool{false, true} {
@@ -248,6 +302,14 @@ func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 					t.Fatal(code, out, err)
 				}
 				originalSource := filepath.Join(filepath.Dir(manifest), "daem.d", "agent-config", "chosen.json")
+				const footer = "\r\n# keep these notes\r\n"
+				content, err := os.ReadFile(manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(manifest, append(content, footer...), 0o600); err != nil {
+					t.Fatal(err)
+				}
 				originalBytes, err := os.ReadFile(originalSource)
 				if err != nil {
 					t.Fatal(err)
@@ -272,6 +334,9 @@ func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 					t.Fatal(err)
 				}
 				sourceAfter := plan.SourceAfter()
+				if !bytes.HasSuffix(plan.ManifestAfter(), []byte(footer)) {
+					t.Fatalf("manifest edit discarded the footer: %q", plan.ManifestAfter())
+				}
 				if retirement {
 					sourceAfter = nil
 				}

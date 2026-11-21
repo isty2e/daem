@@ -125,7 +125,7 @@ func buildRemoveAgentConfigChange(document ManifestDocument, request RemoveAgent
 	if err != nil {
 		return Change{}, fmt.Errorf("resulting manifest is invalid: %w", err)
 	}
-	if !slices.Equal(slices.Delete(configs, index, index+1), result.AgentConfigs()) {
+	if !declarationcodec.AgentConfigRemoval(id.Name()).MatchesDeclarations(configs, result.AgentConfigs()) {
 		return Change{}, fmt.Errorf("manifest edit did not remove only agent configuration %q", id.Name())
 	}
 	return Change{

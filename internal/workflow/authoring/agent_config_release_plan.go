@@ -12,7 +12,6 @@ import (
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
-	declarationedit "github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declarationartifact"
@@ -148,13 +147,15 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 	} else if len(identities) != 0 {
 		return agentConfigReleaseCandidate{}, ErrAgentConfigManagementNotFound
 	}
-	var declaration *agentconfig.Config
+	declarationFound := false
+	var configs []agentconfig.Config
 	if candidate.files[0].exists {
 		environment, err := declarationmanifest.Decode(candidate.files[0].content)
 		if err != nil {
 			return agentConfigReleaseCandidate{}, err
 		}
-		for _, config := range environment.AgentConfigs() {
+		configs = environment.AgentConfigs()
+		for _, config := range configs {
 			if config.ID() != id {
 				continue
 			}
@@ -169,10 +170,10 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 				return agentConfigReleaseCandidate{}, fmt.Errorf("agent configuration declaration conflicts with retained management identity")
 			}
 			candidate.selected, candidate.scope, candidate.destination = config.Target(), config.Scope(), placement.Destination()
-			declaration = &config
+			declarationFound = true
 		}
 	}
-	if declaration == nil && candidate.management == nil {
+	if !declarationFound && candidate.management == nil {
 		if missing, absent := state.Missing(); absent {
 			if err := ownershipobserve.RequireMissingStateClear(ctx, paths, missing, budget); err != nil {
 				return agentConfigReleaseCandidate{}, err
@@ -180,33 +181,24 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 		}
 		return agentConfigReleaseCandidate{}, ErrAgentConfigManagementNotFound
 	}
-	if declaration != nil {
-		blocks, err := declarationcodec.ScanAgentConfigBlocks(candidate.files[0].content)
-		if err != nil {
-			return agentConfigReleaseCandidate{}, err
-		}
-		removed := 0
-		for _, block := range blocks {
-			if block.AgentConfig.ID != request.ID {
-				continue
-			}
-			candidate.files[0].after = declarationedit.RemoveDocumentRange(candidate.files[0].content, declarationedit.DocumentRange{Start: block.Start, End: block.End})
-			removed++
-			candidate.files[0].write = !bytes.Equal(candidate.files[0].content, candidate.files[0].after)
-			candidate.manifestChanged = candidate.files[0].write
-		}
-		if removed != 1 {
+	if declarationFound {
+		edit := declarationcodec.AgentConfigRemoval(request.ID)
+		manifest := &candidate.files[0]
+		manifest.after, err = edit.ApplyBlock(manifest.content)
+		if errors.Is(err, declarationcodec.ErrAgentConfigBlockSelection) {
 			return agentConfigReleaseCandidate{}, fmt.Errorf("agent configuration declaration cannot be removed automatically: use [[agent_config]] blocks or remove the declaration manually, then rerun unmanage agent-config")
 		}
-		remaining, err := declarationmanifest.Decode(candidate.files[0].after)
 		if err != nil {
 			return agentConfigReleaseCandidate{}, err
 		}
-		for _, config := range remaining.AgentConfigs() {
-			if config.ID() == id {
-				return agentConfigReleaseCandidate{}, fmt.Errorf("agent configuration declaration remains after its source edit")
-			}
+		remaining, err := declarationmanifest.Decode(manifest.after)
+		if err != nil {
+			return agentConfigReleaseCandidate{}, err
 		}
+		if !edit.MatchesDeclarations(configs, remaining.AgentConfigs()) {
+			return agentConfigReleaseCandidate{}, fmt.Errorf("manifest edit did not remove only agent configuration %q", request.ID)
+		}
+		manifest.write, candidate.manifestChanged = true, true
 	}
 	if candidate.files[1].exists {
 		codec, err := lockfile.NewCodec(contributions)

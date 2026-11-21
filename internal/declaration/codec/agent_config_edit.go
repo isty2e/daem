@@ -3,6 +3,7 @@ package codec
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -60,24 +61,88 @@ func RemoveAgentConfigDeclaration(content []byte, id string) ([]byte, error) {
 		return array.remove(content, id)
 	}
 
-	blocks, err := ScanAgentConfigBlocks(content)
+	after, err := AgentConfigRemoval(id).ApplyBlock(content)
+	if errors.Is(err, ErrAgentConfigBlockSelection) {
+		return nil, fmt.Errorf("cannot locate TOML declaration for host configuration %q", id)
+	}
+	return after, err
+}
+
+// AgentConfigEdit selects one declaration by ID. A replacement retains that ID.
+type AgentConfigEdit struct {
+	id          string
+	replacement *agentconfig.Config
+}
+
+func AgentConfigRemoval(id string) AgentConfigEdit { return AgentConfigEdit{id: id} }
+
+func AgentConfigReplacement(config agentconfig.Config) AgentConfigEdit {
+	return AgentConfigEdit{id: config.ID().Name(), replacement: &config}
+}
+
+func (edit AgentConfigEdit) block(content []byte) (declaration.DocumentRange, []byte, error) {
+	span, err := selectAgentConfigBlock(content, edit.id)
+	if err != nil || edit.replacement == nil {
+		return span, nil, err
+	}
+	text, err := RenderAgentConfigBlock(*edit.replacement)
+	return span, []byte(text), err
+}
+
+// ApplyBlock leaves standalone comments and whitespace following the last expression intact.
+func (edit AgentConfigEdit) ApplyBlock(content []byte) ([]byte, error) {
+	span, replacement, err := edit.block(content)
 	if err != nil {
 		return nil, err
 	}
-	for _, block := range blocks {
-		if block.AgentConfig.ID == id {
-			end, err := agentConfigBlockEnd(content, block)
-			if err != nil {
-				return nil, err
-			}
-			span := declaration.DocumentRange{Start: block.Start, End: end}
-			return declaration.NewDocumentChangeSet(declaration.NewDocumentRemoval(span)).Apply(content)
-		}
+	span.End, err = agentConfigBlockEnd(content, span)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("cannot locate TOML declaration for host configuration %q", id)
+	return declaration.NewDocumentChangeSet(declaration.NewDocumentReplacement(span, replacement)).Apply(content)
 }
 
-func agentConfigBlockEnd(content []byte, block AgentConfigBlock) (int, error) {
+// MatchesCaptureAfter accepts the exact edit with or without the trailing trivia:
+// earlier generation-4 writers discarded it up to the next header or EOF.
+func (edit AgentConfigEdit) MatchesCaptureAfter(before, after []byte) (bool, error) {
+	span, replacement, err := edit.block(before)
+	if err != nil {
+		return false, err
+	}
+	tail, ok := bytes.CutPrefix(after, before[:span.Start])
+	if !ok {
+		return false, nil
+	}
+	tail, ok = bytes.CutPrefix(tail, replacement)
+	if !ok {
+		return false, nil
+	}
+	if bytes.Equal(tail, before[span.End:]) {
+		return true, nil
+	}
+	end, err := agentConfigBlockEnd(before, span)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(tail, before[end:]), nil
+}
+
+func (edit AgentConfigEdit) MatchesDeclarations(before, after []agentconfig.Config) bool {
+	i := slices.IndexFunc(before, func(c agentconfig.Config) bool { return c.ID().Name() == edit.id })
+	if i < 0 || i > len(after) || !slices.Equal(before[:i], after[:i]) {
+		return false
+	}
+	tail := after[i:]
+	if edit.replacement != nil {
+		if len(tail) == 0 || tail[0] != *edit.replacement {
+			return false
+		}
+		tail = tail[1:]
+	}
+	return slices.Equal(before[i+1:], tail)
+}
+
+func agentConfigBlockEnd(content []byte, block declaration.DocumentRange) (int, error) {
 	fragment := content[block.Start:block.End]
 	index, err := tomlsyntax.IndexDocument(context.Background(), fragment)
 	if err != nil {
@@ -85,7 +150,7 @@ func agentConfigBlockEnd(content []byte, block AgentConfigBlock) (int, error) {
 	}
 	expressions := index.Expressions()
 	if len(expressions) == 0 {
-		return 0, fmt.Errorf("cannot locate final expression for host configuration %q", block.AgentConfig.ID)
+		return 0, fmt.Errorf("cannot locate final expression in agent_config block")
 	}
 	return block.Start + tomlsyntax.SkipLine(string(fragment), expressions[len(expressions)-1].Span.End), nil
 }

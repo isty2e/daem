@@ -2,6 +2,7 @@ package codec_test
 
 import (
 	"bytes"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -40,70 +41,106 @@ func TestAgentConfigBlockPreservesPreviouslyAdmittedCaptureEscapes(t *testing.T)
 	}
 }
 
-func TestScanAgentConfigBlocksKeepsNestedSourceAndFindsNextRow(t *testing.T) {
-	content := []byte(`version = 1
+func TestAgentConfigEditsPreserveNeighboringBytes(t *testing.T) {
+	const prefix = `version = 1
 targets = ["pi"]
-
-[[agent_config]]
-id = "git-settings"
-path = "config.toml"
+[defaults]
+scope = "project"
+`
+	const authored = `[['agent_config']]
+"id" = "git-settings"
+path = "settings.json"
 
 [agent_config.source]
 git = "https://github.com/example/settings.git"
-path = "config.toml"
-ref = "main"
-
-[[agent_config]]
-id = "local-settings"
 path = "settings.json"
-source = "/workbench/settings.json"
-`)
-	blocks, err := declarationcodec.ScanAgentConfigBlocks(content)
+ref = "main" # selected line
+`
+	const adjacent = "\n# local settings follow\n"
+	const sibling = `[[agent_config]]
+id = "local-settings"
+path = "other.json"
+source = "./other.json"`
+	const replacement = `[[agent_config]]
+id = "git-settings"
+targets = ["pi"]
+scope = "project"
+path = "settings.json"
+source = "updated.json"
+`
+	crlf := func(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
+	before := []byte(crlf(prefix + authored + adjacent + sibling))
+	prior, err := manifest.Decode(before)
 	if err != nil {
-		t.Fatalf("ScanHostConfigBlocks() error = %v", err)
+		t.Fatal(err)
 	}
-	if len(blocks) != 2 {
-		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	updated, err := manifest.Decode([]byte(prefix + replacement))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if blocks[0].AgentConfig.ID != "git-settings" ||
-		blocks[0].AgentConfig.Source.Source.Git != "https://github.com/example/settings.git" ||
-		blocks[0].AgentConfig.Source.Source.Path != "config.toml" ||
-		blocks[0].AgentConfig.Source.Source.Ref != "main" {
-		t.Fatalf("first block = %#v, want decoded nested Git source", blocks[0].AgentConfig)
+	for _, tc := range []struct {
+		edit declarationcodec.AgentConfigEdit
+		text string
+	}{
+		{declarationcodec.AgentConfigRemoval("git-settings"), ""},
+		{declarationcodec.AgentConfigReplacement(updated.AgentConfigs()[0]), replacement},
+	} {
+		after, err := tc.edit.ApplyBlock(before)
+		want := crlf(prefix) + tc.text + crlf(adjacent+sibling)
+		if err != nil || string(after) != want {
+			t.Fatalf("edit = %q, %v; want %q", after, err, want)
+		}
+		decoded, err := manifest.Decode(after)
+		if err != nil || !tc.edit.MatchesDeclarations(prior.AgentConfigs(), decoded.AgentConfigs()) {
+			t.Fatalf("unexpected declarations: %v", err)
+		}
+		for _, image := range []struct {
+			text     string
+			accepted bool
+		}{
+			{want, true},
+			{crlf(prefix) + tc.text + crlf(sibling), true},
+			{strings.Replace(want, "./other.json", "./changed.json", 1), false},
+			{crlf(prefix) + tc.text + "\r\n" + crlf(sibling), false},
+		} {
+			if ok, err := tc.edit.MatchesCaptureAfter(before, []byte(image.text)); err != nil || ok != image.accepted {
+				t.Fatalf("recovery accepted=%t, err=%v for %q", ok, err, image.text)
+			}
+		}
 	}
-	firstBlock := string(content[blocks[0].Start:blocks[0].End])
-	if !bytes.Contains([]byte(firstBlock), []byte("[agent_config.source]")) ||
-		bytes.Contains([]byte(firstBlock), []byte(`id = "local-settings"`)) {
-		t.Fatalf("first block range = %q, want nested source and no following row", firstBlock)
+}
+
+func TestAgentConfigBlockSelectionDistinguishesSyntaxErrors(t *testing.T) {
+	const row = "[[agent_config]]\nid = 'chosen'\n"
+	for _, content := range []string{"agent_config = []", row + row} {
+		if _, err := declarationcodec.AgentConfigRemoval("chosen").ApplyBlock([]byte(content)); !errors.Is(err, declarationcodec.ErrAgentConfigBlockSelection) {
+			t.Fatal("missing or ambiguous selection not reported", err)
+		}
 	}
-	if key := blocks[1].AgentConfig.Key(); key != (declaration.Key{Kind: declaration.KindAgentConfig, Name: "local-settings"}) {
-		t.Fatalf("second row key = %#v, want agent-config/local-settings", key)
+	if _, err := declarationcodec.AgentConfigRemoval("chosen").ApplyBlock([]byte(row + "path = 'unterminated")); err == nil || errors.Is(err, declarationcodec.ErrAgentConfigBlockSelection) {
+		t.Fatal("malformed block treated as a missing selection", err)
 	}
 }
 
 func TestUnrelatedAuthoringAndImportEditsPreserveAgentConfigRows(t *testing.T) {
-	original := []byte(`version = 1
-targets = ["pi"]
-[defaults]
-scope = "global"
-
-[[agent_config]]
+	const originalBlock = `[[agent_config]]
 id = "existing-settings"
 path = "settings.json"
 source = "/workbench/settings.json"
 ownership = "document"
 syntax = "jsonc"
 
-[instructions.existing]
+`
+	original := []byte(`version = 1
+targets = ["pi"]
+[defaults]
+scope = "global"
+
+` + originalBlock + `[instructions.existing]
 source = "/workbench/existing.md"
 targets = ["pi"]
 scope = "global"
 `)
-	originalBlocks, err := declarationcodec.ScanAgentConfigBlocks(original)
-	if err != nil || len(originalBlocks) != 1 {
-		t.Fatalf("ScanHostConfigBlocks(original) = %#v, %v", originalBlocks, err)
-	}
-	originalBlock := bytes.Clone(original[originalBlocks[0].Start:originalBlocks[0].End])
 	header := declaration.ManifestHeader{
 		Targets: []string{"pi"}, Defaults: declaration.Defaults{Scope: "global"},
 	}
@@ -114,9 +151,11 @@ scope = "global"
 	if err != nil {
 		t.Fatalf("ApplyInstructionAdd() error = %v", err)
 	}
-	assertAgentConfigRowUnchanged(t, originalBlock, instructionEdit.Content)
-	if _, err := manifest.Decode(instructionEdit.Content); err != nil {
-		t.Fatalf("manifest with unrelated authoring edit no longer decodes: %v", err)
+	if !bytes.Contains(instructionEdit.Content, []byte(originalBlock)) {
+		t.Fatal("instruction add changed the agent_config row")
+	}
+	if env, err := manifest.Decode(instructionEdit.Content); err != nil || len(env.AgentConfigs()) != 1 {
+		t.Fatalf("instruction add did not retain exactly one agent_config: %v", err)
 	}
 
 	body, err := declarationcodec.RenderImportManifestBody(declarationcodec.ImportManifestBody{
@@ -129,19 +168,10 @@ scope = "global"
 		t.Fatalf("RenderImportManifestBody() error = %v", err)
 	}
 	merged := declarationcodec.AppendImportManifestBody(original, body)
-	assertAgentConfigRowUnchanged(t, originalBlock, merged)
-	if _, err := manifest.Decode(merged); err != nil {
-		t.Fatalf("manifest with unrelated import merge no longer decodes: %v", err)
+	if !bytes.Contains(merged, []byte(originalBlock)) {
+		t.Fatal("import merge changed the agent_config row")
 	}
-}
-
-func assertAgentConfigRowUnchanged(t *testing.T, expected []byte, content []byte) {
-	t.Helper()
-	blocks, err := declarationcodec.ScanAgentConfigBlocks(content)
-	if err != nil || len(blocks) != 1 {
-		t.Fatalf("ScanHostConfigBlocks() = %#v, %v", blocks, err)
-	}
-	if !bytes.Equal(content[blocks[0].Start:blocks[0].End], expected) {
-		t.Fatalf("agent_config row changed:\n%s\nwant:\n%s", content[blocks[0].Start:blocks[0].End], expected)
+	if env, err := manifest.Decode(merged); err != nil || len(env.AgentConfigs()) != 1 {
+		t.Fatalf("import merge did not retain exactly one agent_config: %v", err)
 	}
 }

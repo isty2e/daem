@@ -46,6 +46,44 @@ func captureHostScopes(selected string) []string {
 	return []string{"project", "global"}
 }
 
+func TestImportAgentConfigInlineCollection(t *testing.T) {
+	root, manifest, _, initial := captureCLIFixture(t, `{"chosen":2}`)
+	initial[2] = "new"
+	initial = append(initial, "--merge", "--key", "/chosen")
+	const header = "version=1\ntargets=['pi']\n"
+	if err := os.WriteFile(manifest, []byte(header+"agent_config=[]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captureFingerprint(t, initial)
+
+	source := filepath.Join(root, "chosen.json")
+	if err := os.WriteFile(source, []byte(`{"chosen":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const existing = header + "agent_config=[{id='chosen',scope='project',path='settings.json',source='chosen.json'}]\n"
+	if err := os.WriteFile(manifest, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	update := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
+	for _, args := range [][]string{initial, append(update, "--source", filepath.Join(root, "export.json"))} {
+		if code, _, _ := runCaptureCLI(t, append(args, "--dry-run")); code == 0 {
+			t.Fatal("capture accepted a block edit on a nonempty inline collection", args)
+		}
+	}
+	fingerprint := captureFingerprint(t, update)
+	if code, out, err := runCaptureCLI(t, append(update, "--yes", "--expect-plan", fingerprint)); code != 0 {
+		t.Fatal(code, out, err)
+	}
+	if after, err := os.ReadFile(manifest); err != nil || string(after) != existing {
+		t.Fatal("source-only update rewrote the inline manifest", err)
+	}
+	var result struct{ Chosen int }
+	content, err := os.ReadFile(source)
+	if err != nil || json.Unmarshal(content, &result) != nil || result.Chosen != 2 {
+		t.Fatal("source-only update did not capture the selected value", string(content), err)
+	}
+}
+
 func captureHostDocument(t *testing.T, manifest, selected, scope, path, ownership string) (string, string) {
 	t.Helper()
 	root := filepath.Dir(manifest)
