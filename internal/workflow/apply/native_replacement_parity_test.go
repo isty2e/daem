@@ -25,10 +25,12 @@ func TestReplacementTokenMatchesLegacyPlan(t *testing.T) {
 	workspace := filepath.Join(root, "project")
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
-	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
+	codexHome := filepath.Join(root, "codex")
+	t.Setenv("CODEX_HOME", codexHome)
 	manifest := filepath.Join(workspace, "daem.toml")
-	writeApplyFile(t, manifest, "version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\npath='prefs.toml'\nsource='preferences.toml'\n")
-	writeApplyFile(t, filepath.Join(workspace, "preferences.toml"), "model='managed'\nnotify=true\n")
+	source := filepath.Join(workspace, "preferences.toml")
+	writeApplyFile(t, manifest, fmt.Sprintf("version=1\ntargets=['codex']\n[[agent_config]]\nid='preferences'\nscope='global'\npath='config.toml'\nsource=%q\n", source))
+	writeApplyFile(t, source, "model='managed'\nnotify=true\n")
 	if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{ManifestPath: manifest}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +41,7 @@ func TestReplacementTokenMatchesLegacyPlan(t *testing.T) {
 	if _, err := ExecuteWithOptions(t.Context(), initial, ExecuteOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	writeApplyFile(t, filepath.Join(workspace, ".codex", "prefs.toml"), "model='local'\nnotify=true\n")
+	writeApplyFile(t, filepath.Join(codexHome, "config.toml"), "model='local'\nnotify=true\n")
 
 	plan, err := PlanNativeReplacement(t.Context(), NativeReplacementInput{ManifestPath: manifest, ID: "preferences", Keys: []string{"/model"}})
 	if err != nil {
