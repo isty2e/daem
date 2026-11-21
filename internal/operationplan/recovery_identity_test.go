@@ -99,3 +99,24 @@ func TestActiveRecoveryOperationFingerprintRejectsMalformedOwnerProjection(t *te
 		t.Fatal("malformed owner projection was accepted")
 	}
 }
+
+func TestNativeRecoveryPositionalIdentities(t *testing.T) {
+	active := NativeActiveRecoveryIdentityInput{
+		ManifestRoot: "root", StatefilePath: "statefile", RecoveryDir: "recover",
+		OperationID: "op", Observation: "seen", StateDirIdentity: "state-dir",
+	}
+	if got, want := string(active.canonicalBytes()), "root\x00statefile\x00recover\x00op\x00seen\x00state-dir"; got != want {
+		t.Fatalf("active bytes = %q, want %q", got, want)
+	}
+	release := NativeReleaseRecoveryIdentityInput{
+		RecoveryDir: "recover", LocalManifest: "manifest", LocalDefaultLock: "lock", LocalState: "local-state",
+		OperationID: "op", Observation: "seen", StateDirIdentity: "state-dir",
+	}
+	if got, want := string(release.canonicalBytes()), "recover\x00manifest\x00lock\x00local-state\x00op\x00seen\x00state-dir"; got != want {
+		t.Fatalf("release bytes = %q, want %q", got, want)
+	}
+	release.LocalDefaultLock, release.Observation = "", ""
+	if got, want := string(release.canonicalBytes()), "recover\x00manifest\x00\x00local-state\x00op\x00\x00state-dir"; got != want {
+		t.Fatalf("empty slots = %q, want %q", got, want)
+	}
+}

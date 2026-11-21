@@ -1,7 +1,6 @@
 package recover
 
 import (
-	"fmt"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/fileset"
@@ -19,7 +18,11 @@ func nativeReleaseRecoveryFingerprint(paths daempaths.Paths, plan journal.Native
 		return mutation.OperationFingerprint{}, err
 	}
 	local := plan.LocalPaths()
-	return mutation.NewOperationFingerprint([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s", paths.RecoveryDir, local.Manifest, local.DefaultLock, local.State, plan.OperationID(), plan.ObservationFingerprint(), state))), nil
+	input := operationplan.NativeReleaseRecoveryIdentityInput{
+		RecoveryDir: paths.RecoveryDir, LocalManifest: local.Manifest, LocalDefaultLock: local.DefaultLock, LocalState: local.State,
+		OperationID: plan.OperationID(), Observation: plan.ObservationFingerprint(), StateDirIdentity: state,
+	}
+	return input.Fingerprint(), nil
 }
 
 func buildNativeReleaseRecoveryAuthority(paths daempaths.Paths, plan journal.NativeReleaseRecoveryPlan, authority recoverygate.StateDirAuthority) (recoveryAuthorityEvidence, error) {
