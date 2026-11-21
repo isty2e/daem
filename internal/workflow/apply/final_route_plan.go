@@ -126,8 +126,12 @@ func compileApplyFinalRoutePlan(
 ) (applyFinalRoutePlan, error) {
 	retained := append([]applyRouteScheduleFact(nil), routes...)
 	actionIndexes := make(map[mutation.OperationFingerprint][]int, len(retained))
-	for index := range retained {
-		fingerprint, err := applyRelationActionFingerprint(retained[index].action)
+	input := operationplan.FinalRoutePlanIdentityInput{
+		PhaseEstablished: phaseEstablished, StatefileInitiallyBound: statefileInitiallyBound,
+		Routes: make([]operationplan.FinalRouteIdentity, len(retained)),
+	}
+	for index, route := range retained {
+		action, err := marshalRelationActionIdentity(route.action)
 		if err != nil {
 			return applyFinalRoutePlan{}, fmt.Errorf(
 				"final host route action[%d] identity: %w",
@@ -135,14 +139,23 @@ func compileApplyFinalRoutePlan(
 				err,
 			)
 		}
-		actionIndexes[fingerprint] = append(actionIndexes[fingerprint], index)
+		key := mutation.NewOperationFingerprint(action)
+		actionIndexes[key] = append(actionIndexes[key], index)
+		input.Routes[index] = operationplan.FinalRouteIdentity{Reference: route.ref, Action: action, Work: route.work}
 	}
 
-	fingerprint, err := applyFinalRoutePlanFingerprint(
-		retained,
-		phaseEstablished,
-		statefileInitiallyBound,
-	)
+	for index, route := range retained {
+		preflight, err := applyRoutePreflightFingerprintFor(route.preflight)
+		if err != nil {
+			return applyFinalRoutePlan{}, fmt.Errorf("final host route preflight[%d]: %w", index, err)
+		}
+		input.Routes[index].Preflight, err = json.Marshal(preflight)
+		if err != nil {
+			return applyFinalRoutePlan{}, fmt.Errorf("marshal final host route plan: %w", err)
+		}
+	}
+
+	fingerprint, err := input.Fingerprint()
 	if err != nil {
 		return applyFinalRoutePlan{}, err
 	}
@@ -204,11 +217,11 @@ func (plan applyFinalRoutePlan) routeFor(
 	if !plan.available {
 		return applyRouteScheduleFact{}, fmt.Errorf("final host route plan is unavailable")
 	}
-	fingerprint, err := applyRelationActionFingerprint(action)
+	canonical, err := marshalRelationActionIdentity(action)
 	if err != nil {
 		return applyRouteScheduleFact{}, fmt.Errorf("final host route action identity: %w", err)
 	}
-	indexes := plan.actionIndexes[fingerprint]
+	indexes := plan.actionIndexes[mutation.NewOperationFingerprint(canonical)]
 	matched := -1
 	for _, index := range indexes {
 		if !applyRelationActionsEqual(plan.routes[index].action, action) {
@@ -236,32 +249,17 @@ func applyRouteScheduleFactsEqual(left, right applyRouteScheduleFact) bool {
 
 func applyRelationActionsEqual(left, right reconcile.RelationAction) bool {
 	return reflect.DeepEqual(
-		relationFingerprintRows([]reconcile.RelationAction{left}),
-		relationFingerprintRows([]reconcile.RelationAction{right}),
+		relationFingerprintRow(left),
+		relationFingerprintRow(right),
 	)
 }
 
-func applyRelationActionFingerprint(
-	action reconcile.RelationAction,
-) (mutation.OperationFingerprint, error) {
-	canonical, err := json.Marshal(relationFingerprintRows([]reconcile.RelationAction{action})[0])
+func marshalRelationActionIdentity(action reconcile.RelationAction) (json.RawMessage, error) {
+	canonical, err := json.Marshal(relationFingerprintRow(action))
 	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("marshal relation action identity: %w", err)
+		return nil, fmt.Errorf("marshal relation action identity: %w", err)
 	}
-	return mutation.NewOperationFingerprint(canonical), nil
-}
-
-type applyFinalRoutePlanFingerprintInput struct {
-	PhaseEstablished        bool                                `json:"phase_established"`
-	StatefileInitiallyBound bool                                `json:"statefile_initially_bound"`
-	Routes                  []applyFinalRoutePlanFingerprintRow `json:"routes"`
-}
-
-type applyFinalRoutePlanFingerprintRow struct {
-	Reference string                         `json:"reference"`
-	Action    relationFingerprintFacts       `json:"action"`
-	Work      operationplan.RouteWork        `json:"work"`
-	Preflight applyRoutePreflightFingerprint `json:"preflight"`
+	return canonical, nil
 }
 
 type applyRoutePreflightFingerprint struct {
@@ -294,39 +292,6 @@ type applyHostRouteDisclosureFacts struct {
 	EffectClasses         []string `json:"effect_classes"`
 	RetainedEffectClasses []string `json:"retained_effect_classes"`
 	NonClaims             []string `json:"non_claims"`
-}
-
-func applyFinalRoutePlanFingerprint(
-	routes []applyRouteScheduleFact,
-	phaseEstablished bool,
-	statefileInitiallyBound bool,
-) (mutation.OperationFingerprint, error) {
-	rows := make([]applyFinalRoutePlanFingerprintRow, 0, len(routes))
-	for index := range routes {
-		preflight, err := applyRoutePreflightFingerprintFor(routes[index].preflight)
-		if err != nil {
-			return mutation.OperationFingerprint{}, fmt.Errorf(
-				"final host route preflight[%d]: %w",
-				index,
-				err,
-			)
-		}
-		rows = append(rows, applyFinalRoutePlanFingerprintRow{
-			Reference: routes[index].ref,
-			Action:    relationFingerprintRows([]reconcile.RelationAction{routes[index].action})[0],
-			Work:      routes[index].work,
-			Preflight: preflight,
-		})
-	}
-	canonical, err := json.Marshal(applyFinalRoutePlanFingerprintInput{
-		PhaseEstablished:        phaseEstablished,
-		StatefileInitiallyBound: statefileInitiallyBound,
-		Routes:                  rows,
-	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("marshal final host route plan: %w", err)
-	}
-	return mutation.NewOperationFingerprint(canonical), nil
 }
 
 func applyRoutePreflightFingerprintFor(

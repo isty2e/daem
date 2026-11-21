@@ -18,3 +18,33 @@ func NativeApplyOperationFingerprint(base ApplyIdentityInput, native json.RawMes
 	}
 	return mutation.NewOperationFingerprint(content), nil
 }
+
+type ReplacementSource struct{ Subject, SourceID, ResolvedRef, ContentHash, Profile, Grammar string }
+
+type ReplacementRoot struct{ Identity, Policy string }
+
+type ReplacementRole struct {
+	Root                               ReplacementRoot
+	Target, Scope, Path, Child, Policy string
+}
+
+type ReplacementMember struct{ Subject, Target, Scope, Path, Footprint, Key, Codec string }
+
+type ReplacementProtection struct {
+	Namespace  json.RawMessage
+	Protection string
+	Roles      []ReplacementRole
+	Global     []ReplacementRoot
+	Members    []ReplacementMember
+}
+
+// NativeReplacementPayload is shared by the disclosed v1 token and the under-lease identity.
+func NativeReplacementPayload(identity ApplyIdentityInput, source ReplacementSource, protections []ReplacementProtection, limits json.RawMessage) ([]byte, error) {
+	return json.Marshal(struct {
+		Operation  string
+		Identity   ApplyIdentityInput
+		Source     ReplacementSource
+		Protection []ReplacementProtection
+		Limits     json.RawMessage
+	}{"replace-agent-config/v1", identity, source, protections, limits})
+}

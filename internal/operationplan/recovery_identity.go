@@ -3,10 +3,43 @@ package operationplan
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	footprintcodec "github.com/isty2e/daem/internal/encoding/footprint"
 )
+
+type NativeActiveRecoveryIdentityInput struct {
+	ManifestRoot, StatefilePath, RecoveryDir   string
+	OperationID, Observation, StateDirIdentity string
+}
+
+func (input NativeActiveRecoveryIdentityInput) canonicalBytes() []byte {
+	return []byte(strings.Join([]string{
+		input.ManifestRoot, input.StatefilePath, input.RecoveryDir,
+		input.OperationID, input.Observation, input.StateDirIdentity,
+	}, "\x00"))
+}
+
+func (input NativeActiveRecoveryIdentityInput) Fingerprint() mutation.OperationFingerprint {
+	return mutation.NewOperationFingerprint(input.canonicalBytes())
+}
+
+type NativeReleaseRecoveryIdentityInput struct {
+	RecoveryDir, LocalManifest, LocalDefaultLock, LocalState string
+	OperationID, Observation, StateDirIdentity               string
+}
+
+func (input NativeReleaseRecoveryIdentityInput) canonicalBytes() []byte {
+	return []byte(strings.Join([]string{
+		input.RecoveryDir, input.LocalManifest, input.LocalDefaultLock, input.LocalState,
+		input.OperationID, input.Observation, input.StateDirIdentity,
+	}, "\x00"))
+}
+
+func (input NativeReleaseRecoveryIdentityInput) Fingerprint() mutation.OperationFingerprint {
+	return mutation.NewOperationFingerprint(input.canonicalBytes())
+}
 
 // RecoveryPathAuthorityFingerprint is one owner-supplied exact path-authority
 // identity projected into an active recovery fingerprint.

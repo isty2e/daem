@@ -85,7 +85,11 @@ func nativeRecoveryOperationFingerprint(paths daempaths.Paths, plan journal.Nati
 	if err != nil {
 		return mutation.OperationFingerprint{}, err
 	}
-	return mutation.NewOperationFingerprint([]byte(paths.ManifestRoot + "\x00" + paths.StatefilePath + "\x00" + paths.RecoveryDir + "\x00" + plan.OperationID() + "\x00" + plan.ObservationFingerprint() + "\x00" + stateFingerprint)), nil
+	input := operationplan.NativeActiveRecoveryIdentityInput{
+		ManifestRoot: paths.ManifestRoot, StatefilePath: paths.StatefilePath, RecoveryDir: paths.RecoveryDir,
+		OperationID: plan.OperationID(), Observation: plan.ObservationFingerprint(), StateDirIdentity: stateFingerprint,
+	}
+	return input.Fingerprint(), nil
 }
 
 func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.NativeRecoveryPlan, stateDir recoverygate.StateDirAuthority, budget rootedpath.PhysicalTraversalBudget) (recoveryAuthorityEvidence, error) {

@@ -160,7 +160,6 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	type sourceFacts struct{ Subject, SourceID, ResolvedRef, ContentHash, Profile, Grammar string }
 	observed := planned.assessment.NativeSources[0].SourceContract()
 	supply, _ := observed.ExactSupply()
 	placement, _ := observed.AgentConfigPlacement()
@@ -168,15 +167,11 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	source := sourceFacts{observed.SubjectID().String(), string(supply.SourceID()), string(supply.ResolvedRef()), string(supply.ContentHash()), placement.ID(), string(placement.Grammar())}
-	type protectionFacts struct {
-		Namespace  []ownershipObservationFingerprintFacts
-		Protection string
-		Roles      []replacementDocumentRole
-		Global     []replacementRootReference
-		Members    []replacementDocumentMember
+	source := operationplan.ReplacementSource{
+		Subject: observed.SubjectID().String(), SourceID: string(supply.SourceID()), ResolvedRef: string(supply.ResolvedRef()),
+		ContentHash: string(supply.ContentHash()), Profile: placement.ID(), Grammar: string(placement.Grammar()),
 	}
-	var protections []protectionFacts
+	var protections []operationplan.ReplacementProtection
 	for _, evidence := range planned.assessment.NativeApproval {
 		if !slices.Contains(evidence.Aliases, selected) {
 			continue
@@ -197,17 +192,22 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 			}
 			namespaces = append(namespaces, fact)
 		}
-		var roles []replacementDocumentRole
+		namespace, err := json.Marshal(namespaces)
+		if err != nil {
+			return nil, err
+		}
+		protection := operationplan.ReplacementProtection{Namespace: namespace, Protection: evidence.Protection}
 		for _, role := range evidence.Roles {
 			child, _ := role.Coordinate().DirectoryChild()
 			root := role.RootReference()
-			roles = append(roles, replacementDocumentRole{Root: replacementRootReference{root.Identity(), root.LocatorPolicy()}, Target: string(role.Target()), Scope: string(role.Scope()), Path: role.Destination().String(), Child: child, Policy: role.PolicyID()})
+			protection.Roles = append(protection.Roles, operationplan.ReplacementRole{
+				Root:   operationplan.ReplacementRoot{Identity: root.Identity(), Policy: root.LocatorPolicy()},
+				Target: string(role.Target()), Scope: string(role.Scope()), Path: role.Destination().String(), Child: child, Policy: role.PolicyID(),
+			})
 		}
-		var global []replacementRootReference
 		for _, root := range evidence.GlobalLocations {
-			global = append(global, replacementRootReference{root.Identity(), root.LocatorPolicy()})
+			protection.Global = append(protection.Global, operationplan.ReplacementRoot{Identity: root.Identity(), Policy: root.LocatorPolicy()})
 		}
-		var members []replacementDocumentMember
 		for _, row := range planned.assessment.CurrentState.ManagedAggregates() {
 			contribution := row.Contribution()
 			address := contribution.Address()
@@ -215,27 +215,19 @@ func nativeReplacementApprovalPayload(planned commandPlan) ([]byte, error) {
 				continue
 			}
 			key, _ := address.Footprint().Key()
-			members = append(members, replacementDocumentMember{Subject: row.Subject().String(), Target: string(address.Document().Target()), Scope: string(address.Document().Scope()), Path: address.Document().AggregateRoot().String(), Footprint: address.Footprint().Kind().String(), Key: key.String(), Codec: string(contribution.CodecContractID())})
+			protection.Members = append(protection.Members, operationplan.ReplacementMember{
+				Subject: row.Subject().String(), Target: string(address.Document().Target()), Scope: string(address.Document().Scope()),
+				Path: address.Document().AggregateRoot().String(), Footprint: address.Footprint().Kind().String(), Key: key.String(), Codec: string(contribution.CodecContractID()),
+			})
 		}
-		protections = append(protections, protectionFacts{namespaces, evidence.Protection, roles, global, members})
+		protections = append(protections, protection)
 	}
-	return json.Marshal(struct {
-		Operation  string
-		Identity   operationplan.ApplyIdentityInput
-		Source     sourceFacts
-		Protection []protectionFacts
-		Limits     configdocument.Limits
-	}{"replace-agent-config/v1", identity, source, protections, nativeconfig.DocumentLimits()})
+	limits, err := json.Marshal(nativeconfig.DocumentLimits())
+	if err != nil {
+		return nil, err
+	}
+	return operationplan.NativeReplacementPayload(identity, source, protections, limits)
 }
-
-type replacementRootReference struct{ Identity, Policy string }
-
-type replacementDocumentRole struct {
-	Root                               replacementRootReference
-	Target, Scope, Path, Child, Policy string
-}
-
-type replacementDocumentMember struct{ Subject, Target, Scope, Path, Footprint, Key, Codec string }
 
 func normalizeNativeReplacementInput(input NativeReplacementInput) (topologyprojection.AgentConfigKeySelection, error) {
 	id, err := entity.New(entity.KindAgentConfig, input.ID)
