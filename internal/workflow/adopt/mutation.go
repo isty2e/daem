@@ -355,7 +355,7 @@ func executeImportOperationProgram(
 			return nil, nil, nil, err
 		}
 		if domainStep, ok := step.Domain(); ok {
-			domain, err := lowerImportDomainStep(domainStep)
+			domain, err := recoverygate.LowerDomainStep(domainStep)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -370,24 +370,6 @@ func executeImportOperationProgram(
 		return nil, nil, nil, err
 	}
 	return domains, revisions.Revisions(), revisions.StableRevisions(), nil
-}
-
-func lowerImportDomainStep(step operationplan.DomainStep) (mutation.Domain, error) {
-	if domain, ok := step.Compiled(); ok {
-		return domain, nil
-	}
-	request, ok := step.Path()
-	if !ok {
-		return mutation.Domain{}, fmt.Errorf("import operation domain step is invalid")
-	}
-	if logical, ok := request.Logical(); ok {
-		return mutation.NewLogicalPathDomain(logical)
-	}
-	physical, ok := request.Physical()
-	if !ok {
-		return mutation.Domain{}, fmt.Errorf("import operation path-domain request is invalid")
-	}
-	return mutation.NewPhysicalPathDomain(physical)
 }
 
 func equalImportRevisionRequests(left []mutation.RevisionRequest, right []mutation.RevisionRequest) bool {

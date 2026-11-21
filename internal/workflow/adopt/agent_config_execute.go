@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type AgentConfigCaptureResult struct {
@@ -130,25 +131,9 @@ func (plan *AgentConfigCapturePlan) captureDomains() ([]mutation.Domain, error) 
 	steps := operationplan.CompileMetadataDomains(operationplan.MetadataDomainInput{
 		TargetPaths: paths, MarkerPath: marker, TrailingDomains: plan.barrier.Domains(),
 	})
-	var domains []mutation.Domain
-	for _, step := range steps {
-		if domain, compiled := step.Compiled(); compiled {
-			domains = append(domains, domain)
-			continue
-		}
-		request, present := step.Path()
-		if !present {
-			return nil, fmt.Errorf("capture metadata domain is invalid")
-		}
-		logical, present := request.Logical()
-		if !present {
-			return nil, fmt.Errorf("capture metadata domain is not logical")
-		}
-		domain, err := mutation.NewLogicalPathDomain(logical)
-		if err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
+	domains, err := recoverygate.LowerLogicalDomainSteps(steps)
+	if err != nil {
+		return nil, err
 	}
 	for _, path := range []string{plan.input.Paths.StatefilePath, plan.input.Paths.OwnershipRegistryPath} {
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {

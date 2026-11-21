@@ -367,7 +367,7 @@ func TestUnmanageMutationAuthorityConflictsWithRecoveryWriters(t *testing.T) {
 		nil,
 		barrier,
 	)
-	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}

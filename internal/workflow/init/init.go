@@ -97,7 +97,7 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 		BarrierDomains:          barrier.Domains(),
 		BarrierRevisions:        barrier.RevisionRequests(),
 	})
-	domains, err := lowerInitDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		return Plan{}, err
 	}
@@ -154,30 +154,6 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 		return Plan{}, err
 	}
 	return plan, nil
-}
-
-func lowerInitDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
-	domains := make([]mutation.Domain, 0, len(steps))
-	for _, step := range steps {
-		if domain, ok := step.Compiled(); ok {
-			domains = append(domains, domain)
-			continue
-		}
-		request, ok := step.Path()
-		if !ok {
-			return nil, fmt.Errorf("init operation domain step is invalid")
-		}
-		if logical, logicalPath := request.Logical(); logicalPath {
-			domain, err := mutation.NewLogicalPathDomain(logical)
-			if err != nil {
-				return nil, err
-			}
-			domains = append(domains, domain)
-			continue
-		}
-		return nil, fmt.Errorf("init operation path-domain request is not logical")
-	}
-	return domains, nil
 }
 
 func writePlan(ctx context.Context, plan Plan, force bool) error {

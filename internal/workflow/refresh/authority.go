@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type authorityEvidence struct {
@@ -200,7 +201,7 @@ func buildAuthorityEvidence(
 	}
 
 	plan := builder.Compile()
-	domains, err := lowerRefreshAuthorityDomainSteps(plan.DomainSteps())
+	domains, err := recoverygate.LowerDomainSteps(plan.DomainSteps())
 	if err != nil {
 		return authorityEvidence{}, err
 	}
@@ -234,36 +235,4 @@ func buildAuthorityEvidence(
 		),
 		authorityFingerprint: authorityFingerprint,
 	}, nil
-}
-
-func lowerRefreshAuthorityDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
-	domains := make([]mutation.Domain, 0, len(steps))
-	for _, step := range steps {
-		if domain, ok := step.Compiled(); ok {
-			domains = append(domains, domain)
-			continue
-		}
-		request, ok := step.Path()
-		if !ok {
-			return nil, fmt.Errorf("refresh authority domain step is invalid")
-		}
-		if logical, logicalPath := request.Logical(); logicalPath {
-			domain, err := mutation.NewLogicalPathDomain(logical)
-			if err != nil {
-				return nil, err
-			}
-			domains = append(domains, domain)
-			continue
-		}
-		physical, physicalPath := request.Physical()
-		if !physicalPath {
-			return nil, fmt.Errorf("refresh authority path-domain request is invalid")
-		}
-		domain, err := mutation.NewPhysicalPathDomain(physical)
-		if err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
-	}
-	return domains, nil
 }

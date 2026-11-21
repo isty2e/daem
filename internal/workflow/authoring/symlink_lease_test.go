@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 func TestDeclarationAliasesContendAcrossStateDirectories(t *testing.T) {
@@ -51,7 +52,7 @@ func TestDeclarationAliasesContendAcrossStateDirectories(t *testing.T) {
 						t.Fatal("physical declaration write target is not exclusive")
 					}
 				}
-				lowered, err := lowerAuthoringDomainSteps(program.DomainSteps())
+				lowered, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 				if err != nil {
 					t.Fatal(err)
 				}

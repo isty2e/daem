@@ -62,7 +62,7 @@ func buildNativeReleaseRecoveryAuthority(paths daempaths.Paths, plan journal.Nat
 		return recoveryAuthorityEvidence{}, err
 	}
 	compiled := builder.Compile()
-	domains, err := lowerRecoveryAuthorityDomainSteps(compiled.DomainSteps())
+	domains, err := recoverygate.LowerDomainSteps(compiled.DomainSteps())
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}

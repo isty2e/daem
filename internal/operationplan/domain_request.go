@@ -10,8 +10,7 @@ const (
 )
 
 // PathDomainRequest is one pure logical-or-physical mutation-domain request.
-// Workflow code lowers it through mutation so path canonicalization and
-// filesystem authority remain outside operationplan.
+// The State Barrier resolves its path before lease acquisition.
 type PathDomainRequest struct {
 	kind     pathDomainKind
 	logical  mutation.LogicalPathRequest
