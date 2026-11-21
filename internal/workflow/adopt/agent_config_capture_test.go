@@ -244,6 +244,40 @@ func TestAgentConfigCaptureExportsAndRetiresWholeDocumentsWithoutRoundtrip(t *te
 	}
 }
 
+func TestCaptureRefusesToReattachASeparatedSourceTable(t *testing.T) {
+	const before = `version = 1
+targets = ['pi']
+[[agent_config]]
+id = 'sibling'
+scope = 'project'
+path = 'other.json'
+source = 'other.json'
+[[agent_config]]
+id = 'selected'
+scope = 'project'
+path = 'settings.json'
+ownership = 'document'
+[defaults]
+scope = 'global'
+[agent_config.source]
+path = 'prefs.json'
+mode = 'vendor'
+`
+	env, err := declarationmanifest.Decode([]byte(before))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, found, err := captureDeclaration([]byte(before), "selected")
+	if !found || err != nil {
+		t.Fatal("invalid before-image", err)
+	}
+	for _, retire := range []bool{false, true} {
+		if _, err := captureManifestChange([]byte(before), env.AgentConfigs(), selected, "export.json", retire); err == nil {
+			t.Fatalf("accepted edit leaving selected source outside the block: retirement=%t", retire)
+		}
+	}
+}
+
 func TestAgentConfigCaptureRejectsHostCacheReadonlyAndExistingExportTargets(t *testing.T) {
 	for _, scenario := range []string{"host", "host-unselected", "cache", "metadata", "legacy", "readonly", "export-existing"} {
 		t.Run(scenario, func(t *testing.T) {

@@ -46,6 +46,49 @@ func captureHostScopes(selected string) []string {
 	return []string{"project", "global"}
 }
 
+func TestImportAgentConfigInlineCollection(t *testing.T) {
+	root, manifest, host, initial := captureCLIFixture(t, `{"new":1}`)
+	initial = append(initial, "--merge", "--key", "/new")
+	const header = "version=1\ntargets=['pi']\n"
+	if err := os.WriteFile(manifest, []byte(header+"agent_config=[]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	captureFingerprint(t, initial)
+
+	if err := os.WriteFile(filepath.Join(filepath.Dir(host), "existing.json"), []byte(`{"chosen":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "source.json")
+	if err := os.WriteFile(source, []byte(`{"chosen":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const existing = header + "agent_config=[{id='existing',scope='project',path='existing.json',source='source.json'}]\n"
+	if err := os.WriteFile(manifest, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, _ := runCaptureCLI(t, append(initial, "--dry-run")); code == 0 {
+		t.Fatal("initial capture appended a block to a nonempty inline collection")
+	}
+
+	update := []string{"import", "agent-config", "existing", "--manifest", manifest, "--update-source"}
+	switchArgs := append(update, "--source", filepath.Join(root, "export.json"), "--dry-run")
+	if code, _, stderr := runCaptureCLI(t, switchArgs); code == 0 || !strings.Contains(stderr, "use [[agent_config]] blocks") {
+		t.Fatalf("source switch: expected block conversion guidance, got exit %d: %s", code, stderr)
+	}
+	fingerprint := captureFingerprint(t, update)
+	if code, out, err := runCaptureCLI(t, append(update, "--yes", "--expect-plan", fingerprint)); code != 0 {
+		t.Fatal(code, out, err)
+	}
+	if after, err := os.ReadFile(manifest); err != nil || string(after) != existing {
+		t.Fatal("source-only update rewrote the inline manifest", err)
+	}
+	var result struct{ Chosen int }
+	content, err := os.ReadFile(source)
+	if err != nil || json.Unmarshal(content, &result) != nil || result.Chosen != 2 {
+		t.Fatal("source-only update did not capture the selected value", string(content), err)
+	}
+}
+
 func captureHostDocument(t *testing.T, manifest, selected, scope, path, ownership string) (string, string) {
 	t.Helper()
 	root := filepath.Dir(manifest)

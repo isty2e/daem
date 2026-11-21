@@ -1,6 +1,7 @@
 package codec
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -11,48 +12,35 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 )
 
-// AgentConfigBlock is one agent_config array-table range and its decoded value.
-type AgentConfigBlock struct {
-	Start       int
-	End         int
-	AgentConfig declaration.AgentConfig
-}
+var ErrAgentConfigBlockSelection = errors.New("expected one matching [[agent_config]] block")
 
-// ScanAgentConfigBlocks finds top-level agent_config rows and their byte ranges.
-func ScanAgentConfigBlocks(content []byte) ([]AgentConfigBlock, error) {
+func selectAgentConfigBlock(content []byte, id string) (declaration.DocumentRange, error) {
 	ranges := declaration.ScanDocumentRanges(
 		content,
 		func(trimmed string) bool { return tomlsyntax.StartsArrayTableRoot(trimmed, "agent_config") },
-		startsNewAgentConfigTable,
+		func(trimmed string) bool { return tomlsyntax.StartsTableOutsideRoot(trimmed, "agent_config") },
 	)
-	blocks := make([]AgentConfigBlock, 0, len(ranges))
+	var selected declaration.DocumentRange
+	matches := 0
 	for _, targetRange := range ranges {
-		block, err := parseAgentConfigBlock(content, targetRange.Start, targetRange.End)
-		if err != nil {
-			return nil, err
+		var decoded struct {
+			AgentConfigs []declaration.AgentConfig `toml:"agent_config"`
 		}
-		blocks = append(blocks, block)
+		if err := decodeBlockFields(content, targetRange, &decoded); err != nil {
+			return declaration.DocumentRange{}, fmt.Errorf("parse existing agent_config block: %w", err)
+		}
+		if len(decoded.AgentConfigs) != 1 {
+			return declaration.DocumentRange{}, fmt.Errorf("parse existing agent_config block: expected one agent_config")
+		}
+		if decoded.AgentConfigs[0].ID == id {
+			selected = targetRange
+			matches++
+		}
 	}
-	return blocks, nil
-}
-
-func startsNewAgentConfigTable(trimmedLine string) bool {
-	return tomlsyntax.StartsTableOutsideRoot(trimmedLine, "agent_config")
-}
-
-func parseAgentConfigBlock(content []byte, start int, end int) (AgentConfigBlock, error) {
-	var decoded struct {
-		AgentConfigs []declaration.AgentConfig `toml:"agent_config"`
+	if matches != 1 || id == "" {
+		return declaration.DocumentRange{}, ErrAgentConfigBlockSelection
 	}
-	if err := decodeBlockFields(content, declaration.DocumentRange{Start: start, End: end}, &decoded); err != nil {
-		return AgentConfigBlock{}, fmt.Errorf("parse existing agent_config block: %w", err)
-	}
-	if len(decoded.AgentConfigs) != 1 {
-		return AgentConfigBlock{}, fmt.Errorf("parse existing agent_config block: expected one agent_config")
-	}
-	return AgentConfigBlock{
-		Start: start, End: end, AgentConfig: decoded.AgentConfigs[0],
-	}, nil
+	return selected, nil
 }
 
 // RenderAgentConfigBlock encodes one validated agent configuration declaration.

@@ -183,11 +183,11 @@ func (plan *AgentConfigCaptureRecovery) validateDeclarationTransition(ctx contex
 		if !oldExists || updatedExists || old.Ownership() != agentconfig.OwnershipDocument {
 			return fmt.Errorf("pending transaction is not the selected whole-document retirement")
 		}
-		expected, err := captureManifestChange(before, old, "", true)
+		matches, err := declarationcodec.AgentConfigRemoval(old.ID().Name()).MatchesCaptureAfter(before, after)
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(expected, after) {
+		if !matches {
 			return fmt.Errorf("pending retirement changes other declarations")
 		}
 		oldSource, err := localCaptureSourcePath(plan.input.Paths.ManifestRoot, old.Source())
@@ -221,11 +221,15 @@ func (plan *AgentConfigCaptureRecovery) validateDeclarationTransition(ctx contex
 		if bytes.Equal(before, after) {
 			return nil
 		}
-		expected, err := captureManifestChange(before, old, selected, false)
+		expected, err := captureSourceConfig(old, selected)
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(expected, after) {
+		matches, err := declarationcodec.AgentConfigReplacement(expected).MatchesCaptureAfter(before, after)
+		if err != nil {
+			return err
+		}
+		if !matches {
 			return fmt.Errorf("pending capture changes more than the selected source reference")
 		}
 		return nil

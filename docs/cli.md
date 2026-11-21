@@ -802,6 +802,12 @@ the invocation or current declaration, mismatching evidence, or other pending
 work is refused rather than recovered from marker-supplied paths. Capture and
 its recovery return `command = "import agent-config"` in JSON results.
 
+When switching sources or retiring a declaration, daem keeps any blank lines
+and standalone comments after the edited block. It can also finish an interrupted
+switch or retirement from a version that removed those lines, if the transaction
+uses a version 4 marker. Finish pending capture recovery before downgrading:
+older versions may reject the edit that preserves those lines.
+
 ## `add`
 
 ```bash

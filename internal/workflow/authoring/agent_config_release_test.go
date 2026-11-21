@@ -175,6 +175,8 @@ func TestAgentConfigUnmanageReleasesMetadataAndPreservesHostDrift(t *testing.T) 
 	for _, claimless := range []bool{false, true} {
 		t.Run(map[bool]string{false: "owned", true: "claimless-with-foreign-reservation"}[claimless], func(t *testing.T) {
 			fixture := newHostReleaseFixture(t, claimless)
+			const footer = "\n# project notes"
+			writeUnmanageFile(t, fixture.paths.ManifestPath, append(readUnmanageFile(t, fixture.paths.ManifestPath), footer...))
 			hostBefore := readUnmanageFile(t, fixture.host)
 			previewRequest := fixture.request
 			previewRequest.Mode = UnmanageModeDryRun
@@ -191,6 +193,9 @@ func TestAgentConfigUnmanageReleasesMetadataAndPreservesHostDrift(t *testing.T) 
 			}
 			if after := readUnmanageFile(t, fixture.host); !bytes.Equal(after, hostBefore) {
 				t.Fatal("unmanage changed drifted host bytes")
+			}
+			if after := readUnmanageFile(t, fixture.paths.ManifestPath); !bytes.HasSuffix(after, []byte(footer)) {
+				t.Fatalf("unmanage discarded the manifest footer: %q", after)
 			}
 			if state, err := statefile.LoadOptional(t.Context(), fixture.paths.StatefilePath); err != nil || len(state.ManagedAggregates()) != 0 || state.NativeDocumentCommit() != fixture.before.NativeDocumentCommit() {
 				t.Fatal("unmanage did not release exactly retained membership", err)

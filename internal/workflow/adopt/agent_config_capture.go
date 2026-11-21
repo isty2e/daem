@@ -196,7 +196,8 @@ func buildAgentConfigCapturePlan(ctx context.Context, input AgentConfigUpdateInp
 	if err != nil {
 		return plan, err
 	}
-	for _, config := range environment.AgentConfigs() {
+	configs := environment.AgentConfigs()
+	for _, config := range configs {
 		placement, err := profile.ResolveAgentConfigPlacement(configuration.PlacementInput{Target: config.Target(), Scope: config.Scope(), Path: config.Path(), Ownership: config.Ownership(), Syntax: config.Syntax()})
 		if err != nil {
 			return plan, err
@@ -204,7 +205,7 @@ func buildAgentConfigCapturePlan(ctx context.Context, input AgentConfigUpdateInp
 		plan.hostOutputs = append(plan.hostOutputs, placement.Document())
 	}
 	found := false
-	for _, config := range environment.AgentConfigs() {
+	for _, config := range configs {
 		if config.ID().Name() == input.Name {
 			plan.config, found = config, true
 			break
@@ -370,7 +371,7 @@ func buildAgentConfigCapturePlan(ctx context.Context, input AgentConfigUpdateInp
 			return plan, err
 		}
 	} else if plan.retire || input.SourcePath != "" {
-		plan.manifestAfter, err = captureManifestChange(plan.manifestBefore, plan.config, input.SourcePath, plan.retire)
+		plan.manifestAfter, err = captureManifestChange(plan.manifestBefore, configs, plan.config, input.SourcePath, plan.retire)
 		if err != nil {
 			return plan, err
 		}
@@ -381,37 +382,30 @@ func buildAgentConfigCapturePlan(ctx context.Context, input AgentConfigUpdateInp
 	return plan, nil
 }
 
-func captureManifestChange(before []byte, config agentconfig.Config, newSource string, retire bool) ([]byte, error) {
-	blocks, err := declarationcodec.ScanAgentConfigBlocks(before)
-	if err != nil {
-		return nil, err
-	}
-	for _, block := range blocks {
-		if block.AgentConfig.ID != config.ID().Name() {
-			continue
-		}
-		change := declaration.NewDocumentRemoval(declaration.DocumentRange{Start: block.Start, End: block.End})
-		if !retire {
-			updated, err := captureSourceConfig(config, newSource)
-			if err != nil {
-				return nil, err
-			}
-			content, err := declarationcodec.RenderAgentConfigBlock(updated)
-			if err != nil {
-				return nil, err
-			}
-			change = declaration.NewDocumentReplacement(declaration.DocumentRange{Start: block.Start, End: block.End}, []byte(content))
-		}
-		after, err := declaration.NewDocumentChangeSet(change).Apply(before)
+func captureManifestChange(before []byte, configs []agentconfig.Config, config agentconfig.Config, newSource string, retire bool) ([]byte, error) {
+	edit := declarationcodec.AgentConfigRemoval(config.ID().Name())
+	if !retire {
+		updated, err := captureSourceConfig(config, newSource)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := declarationmanifest.Decode(after); err != nil {
-			return nil, err
-		}
-		return after, nil
+		edit = declarationcodec.AgentConfigReplacement(updated)
 	}
-	return nil, fmt.Errorf("capture declaration block is missing")
+	after, err := edit.ApplyBlock(before)
+	if errors.Is(err, declarationcodec.ErrAgentConfigBlockSelection) {
+		return nil, fmt.Errorf("capture declaration block is missing or ambiguous; use [[agent_config]] blocks")
+	}
+	if err != nil {
+		return nil, err
+	}
+	result, err := declarationmanifest.Decode(after)
+	if err != nil {
+		return nil, err
+	}
+	if !edit.MatchesDeclarations(configs, result.AgentConfigs()) {
+		return nil, fmt.Errorf("manifest edit changed more than the selected agent configuration")
+	}
+	return after, nil
 }
 
 func (plan *AgentConfigCapturePlan) qualifyCapturePaths(ctx context.Context) error {
