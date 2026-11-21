@@ -101,7 +101,7 @@ func recoverUnmanageFileSetBeforeRead(
 	if err != nil {
 		return err
 	}
-	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(
+	domains, err := recoverygate.LowerLogicalDomainSteps(operationplan.CompileMetadataDomains(
 		operationplan.MetadataDomainInput{
 			TargetPaths:     targetPaths,
 			MarkerPath:      markerPath,
@@ -172,7 +172,7 @@ func commitUnmanageCandidate(
 		optimistic.localPaths,
 		optimistic.barrier,
 	)
-	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}

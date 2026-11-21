@@ -395,8 +395,8 @@ only for a real dependency or change-amplification boundary.
 | Boundary | Location | Keep outside the compiler |
 | --- | --- | --- |
 | Host-Surface | `internal/hostsurface/catalog` | Topology/Realization validity, codecs and consumer-local importability; owner-internal `aggregate.MCPPlacementForSubject` must not reverse-import the catalog. |
-| Operation authority | `internal/operationplan` | Workflow path observation/lowering before leases, source freshness, rollback evidence and Adopt's `Plan.IdentityBytes`; do not invent fingerprints for operations without them. |
-| State Barrier | `internal/recoverygate` | Generic `internal/effect/fileset`, journal, storage and subprocess protocols. Preserve file-set-only lock/init/authoring checks, read-only joint refusal without effect authority, and RecoveryDir-only cleanup. |
+| Operation authority | `internal/operationplan` | Workflows decide when to observe paths before acquiring leases. Source freshness, rollback evidence and Adopt's `Plan.IdentityBytes` also stay outside the compiler; do not invent fingerprints for operations without them. |
+| State Barrier | `internal/recoverygate` | Resolve operation-plan steps into lease domains before acquisition. Keep generic `internal/effect/fileset`, journal, storage and subprocess protocols separate. Preserve file-set-only lock/init/authoring checks, read-only joint refusal without effect authority, and RecoveryDir-only cleanup. |
 | Readiness | `internal/workflow/readiness` | Effectful observations remain separate from pure assessment/inventory/order; probe authority proves neither durable readiness nor a new fingerprint. |
 
 ## Forbidden Shapes

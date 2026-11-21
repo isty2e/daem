@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/fileset"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/recoverygate"
 )
@@ -49,6 +52,46 @@ func writeFixture(t *testing.T, path string, content []byte) {
 	}
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStateMigrationReservesAllWriteTargetsBeforeBarriers(t *testing.T) {
+	paths, legacy := migrationFixture(t)
+	plan, err := PlanState(t.Context(), StateInput{ManifestPath: paths.ManifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plan.Close()
+
+	var want []mutation.Domain
+	addExclusive := func(path string, effect mutation.PathEffect) {
+		t.Helper()
+		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: mutation.AccessExclusive, Effect: effect})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, domain)
+	}
+	for _, target := range []string{legacy.StatefilePath, paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath} {
+		addExclusive(target, mutation.PathEffectDirectoryEntry)
+		addExclusive(target, mutation.PathEffectReferent)
+	}
+	marker, err := fileset.FileSetAuthorityPath(paths.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addExclusive(marker, mutation.PathEffectDirectoryEntry)
+	want = append(want, plan.sourceBarrier.Domains()...)
+	want = append(want, plan.targetBarrier.Domains()...)
+
+	got, err := plan.domains()
+	if err != nil || len(got) != len(want) {
+		t.Fatalf("migration returned %d domains, error %v; want %d", len(got), err, len(want))
+	}
+	for i := range want {
+		if !reflect.DeepEqual(got[i], want[i]) {
+			t.Fatalf("migration domain %d = %#v; want %#v", i, got[i], want[i])
+		}
 	}
 }
 

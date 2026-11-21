@@ -80,7 +80,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		paths.StateDir,
 		stateDirAuthority.PresentAtCapture(),
 	)
-	domains, err := lowerLockDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
@@ -276,28 +276,4 @@ func compileLockOperationProgram(
 		StateDirPresent:         stateDirPresent,
 		DocumentMaximumBytes:    declarationartifact.MaximumBytes,
 	})
-}
-
-func lowerLockDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
-	domains := make([]mutation.Domain, 0, len(steps))
-	for _, step := range steps {
-		if domain, ok := step.Compiled(); ok {
-			domains = append(domains, domain)
-			continue
-		}
-		request, ok := step.Path()
-		if !ok {
-			return nil, fmt.Errorf("lock operation domain step is not a path request")
-		}
-		logical, logicalPath := request.Logical()
-		if !logicalPath {
-			return nil, fmt.Errorf("lock operation path-domain request is not logical")
-		}
-		domain, err := mutation.NewLogicalPathDomain(logical)
-		if err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
-	}
-	return domains, nil
 }

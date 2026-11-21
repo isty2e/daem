@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/operationplan"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 func (prepared *PreparedState) Execute(ctx context.Context) (result StateDisclosure, returnErr error) {
@@ -128,32 +129,7 @@ func (prepared *PreparedState) domains() ([]mutation.Domain, error) {
 		TargetPaths: prepared.targetPaths(), MarkerPath: marker,
 		TrailingDomains: append(prepared.sourceBarrier.Domains(), prepared.targetBarrier.Domains()...),
 	})
-	domains := make([]mutation.Domain, 0, len(steps))
-	for _, step := range steps {
-		if compiled, ok := step.Compiled(); ok {
-			domains = append(domains, compiled)
-			continue
-		}
-		request, ok := step.Path()
-		if !ok {
-			return nil, fmt.Errorf("state migration domain step is invalid")
-		}
-		logical, ok := request.Logical()
-		if !ok {
-			return nil, fmt.Errorf("state migration domain is not logical")
-		}
-		// All targets are metadata writes, not declaration symlinks. Their
-		// referents need exclusive namespace coverage for owned root creation.
-		if logical.Effect == mutation.PathEffectReferent {
-			logical.Access = mutation.AccessExclusive
-		}
-		domain, err := mutation.NewLogicalPathDomain(logical)
-		if err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
-	}
-	return domains, nil
+	return recoverygate.LowerLogicalDomainSteps(steps)
 }
 
 func (prepared *PreparedState) afterImages(ctx context.Context, to stateauthority.Authority, reference pathauthority.Reference) ([]fileset.FileTarget, error) {
