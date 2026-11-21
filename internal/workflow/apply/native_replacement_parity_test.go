@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	journalobservation "github.com/isty2e/daem/internal/effect/journal/observation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	"github.com/isty2e/daem/internal/operationplan"
@@ -49,6 +50,11 @@ func TestReplacementTokenMatchesLegacyPlan(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = plan.Close() })
 	planned := plan.prepared.lifecycle.planned
+	if !slices.ContainsFunc(planned.assessment.NativeApproval, func(group journalobservation.ApprovalEvidence) bool {
+		return len(group.Roles) != 0 && len(group.GlobalLocations) != 0
+	}) {
+		t.Fatal("fixture needs a selected global document with a host role")
+	}
 	legacy := legacyReplacementBytes(t, planned)
 	if token := fmt.Sprintf("v1:%x", sha256.Sum256(legacy)); plan.Disclosure().Fingerprint != token {
 		t.Fatal("replacement token differs from the legacy payload")
