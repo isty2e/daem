@@ -95,7 +95,7 @@ func UnmanageAgentConfig(ctx context.Context, request UnmanageAgentConfigRequest
 	for _, file := range optimistic.files {
 		allPaths = append(allPaths, file.path)
 	}
-	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(operationplan.MetadataDomainInput{TargetPaths: allPaths, MarkerPath: marker, TrailingDomains: barrier.Domains()}))
+	domains, err := recoverygate.LowerLogicalDomainSteps(operationplan.CompileMetadataDomains(operationplan.MetadataDomainInput{TargetPaths: allPaths, MarkerPath: marker, TrailingDomains: barrier.Domains()}))
 	if err != nil {
 		return result, err
 	}
@@ -256,7 +256,7 @@ func recoverAgentConfigAuthoringFileSet(ctx context.Context, paths daempaths.Pat
 	if err != nil {
 		return err
 	}
-	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(operationplan.MetadataDomainInput{TargetPaths: []string{paths.ManifestPath, paths.LockfilePath, paths.StatefilePath}, MarkerPath: marker, TrailingDomains: barrier.Domains()}))
+	domains, err := recoverygate.LowerLogicalDomainSteps(operationplan.CompileMetadataDomains(operationplan.MetadataDomainInput{TargetPaths: []string{paths.ManifestPath, paths.LockfilePath, paths.StatefilePath}, MarkerPath: marker, TrailingDomains: barrier.Domains()}))
 	if err != nil {
 		return err
 	}

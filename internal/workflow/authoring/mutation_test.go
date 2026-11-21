@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/operationplan"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 func TestAuthoringDomainsSerializeReadReferentAndReplacedEntry(t *testing.T) {
@@ -43,7 +44,7 @@ func TestAuthoringDomainsSerializeReadReferentAndReplacedEntry(t *testing.T) {
 		MarkerPath:           filepath.Join(root, ".daem", "metadata-transaction"),
 		DocumentMaximumBytes: 1024,
 	})
-	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}

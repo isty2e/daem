@@ -450,7 +450,7 @@ func TestLockManifestEntryLeaseConflictsWithSymlinkReplacement(t *testing.T) {
 		filepath.Join(root, ".daem"),
 		false,
 	)
-	domains, err := lowerLockDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		t.Fatal(err)
 	}

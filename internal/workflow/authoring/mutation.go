@@ -282,7 +282,7 @@ func executeAuthoringMutation(
 		optimistic.localPaths,
 		optimistic.barrier,
 	)
-	domains, err := lowerAuthoringDomainSteps(program.DomainSteps())
+	domains, err := recoverygate.LowerLogicalDomainSteps(program.DomainSteps())
 	if err != nil {
 		return OperationResult{}, OperationError{
 			Phase: OperationPhaseCommit,
@@ -420,30 +420,6 @@ func compileAuthoringOperationProgram(
 	})
 }
 
-func lowerAuthoringDomainSteps(steps []operationplan.DomainStep) ([]mutation.Domain, error) {
-	domains := make([]mutation.Domain, 0, len(steps))
-	for _, step := range steps {
-		if domain, ok := step.Compiled(); ok {
-			domains = append(domains, domain)
-			continue
-		}
-		request, ok := step.Path()
-		if !ok {
-			return nil, fmt.Errorf("authoring operation domain step is invalid")
-		}
-		logical, logicalPath := request.Logical()
-		if !logicalPath {
-			return nil, fmt.Errorf("authoring operation path-domain request is not logical")
-		}
-		domain, err := mutation.NewLogicalPathDomain(logical)
-		if err != nil {
-			return nil, err
-		}
-		domains = append(domains, domain)
-	}
-	return domains, nil
-}
-
 func recoverMetadataFileSetBeforeRead(
 	ctx context.Context,
 	paths daempaths.Paths,
@@ -463,7 +439,7 @@ func recoverMetadataFileSetBeforeRead(
 	if err != nil {
 		return err
 	}
-	domains, err := lowerAuthoringDomainSteps(operationplan.CompileMetadataDomains(
+	domains, err := recoverygate.LowerLogicalDomainSteps(operationplan.CompileMetadataDomains(
 		operationplan.MetadataDomainInput{
 			TargetPaths:     targetPaths,
 			MarkerPath:      markerPath,
