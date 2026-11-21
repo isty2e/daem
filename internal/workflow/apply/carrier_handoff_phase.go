@@ -9,6 +9,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/operationplan"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 )
@@ -131,33 +132,40 @@ func carrierHandoffRemainderFingerprint(result reconcile.Result, retirements []c
 	for index := range relations {
 		relations[index].Watchpoints = nil
 	}
-	adoptions := carrierAdoptionFingerprintRows(result.CarrierAdoptions())
 	orders := relationOrderFingerprintRows(result.RelationOrders())
-	for index, order := range result.RelationOrders() {
-		affected := false
+	for index, order := range orders {
 		for _, action := range retirements {
-			affected = affected || order.Target() == action.Target() && order.Scope() == action.Scope()
-		}
-		if affected {
-			orders[index].Revision = ""
+			if order.Target == string(action.Target()) && order.Scope == string(action.Scope()) {
+				orders[index].Revision = ""
+				break
+			}
 		}
 	}
-	payload, err := json.Marshal(struct {
-		Managed    []managedPathFingerprintFacts
-		Aggregates []aggregateFingerprintFacts
-		Relations  []relationFingerprintFacts
-		Absences   []carrierAbsenceFingerprintFacts
-		Adoptions  []carrierAdoptionFingerprintFacts
-		Orders     []relationOrderFingerprintFacts
-		Delegates  []delegateFingerprintFacts
-	}{
-		managedPathFingerprintRows(result.ManagedPaths()), aggregateFingerprintRows(result.Aggregates()), relations,
-		carrierAbsenceFingerprintRows(result.CarrierAbsences()), adoptions, orders, delegateFingerprintRows(result.Delegates()),
-	})
-	if err != nil {
+
+	var input operationplan.CarrierHandoffRemainderInput
+	var err error
+	if input.Managed, err = json.Marshal(managedPathFingerprintRows(result.ManagedPaths())); err != nil {
 		return mutation.OperationFingerprint{}, err
 	}
-	return mutation.NewOperationFingerprint(payload), nil
+	if input.Aggregates, err = json.Marshal(aggregateFingerprintRows(result.Aggregates())); err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	if input.Relations, err = json.Marshal(relations); err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	if input.Absences, err = json.Marshal(carrierAbsenceFingerprintRows(result.CarrierAbsences())); err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	if input.Adoptions, err = json.Marshal(carrierAdoptionFingerprintRows(result.CarrierAdoptions())); err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	if input.Orders, err = json.Marshal(orders); err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	if input.Delegates, err = json.Marshal(delegateFingerprintRows(result.Delegates())); err != nil {
+		return mutation.OperationFingerprint{}, err
+	}
+	return input.Fingerprint()
 }
 
 func handoffReservationActions(current commandPlan) []carrierabsence.Action {

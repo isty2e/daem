@@ -43,8 +43,21 @@ func TestAntigravitySourceHandoffPreservesEndpointAssurance(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer prepared.Close()
-			if _, present := prepared.Reconciliation.CarrierHandoff(); !present || prepared.Reconciliation.HasErrors() {
+			expectation, present := prepared.Reconciliation.CarrierHandoff()
+			if !present || prepared.Reconciliation.HasErrors() {
 				t.Fatal("Antigravity handoff was not conditionally admitted")
+			}
+			if !selector {
+				remainder := expectation.After()
+				relations := remainder.Relations()
+				if len(relations) != 1 || len(relations[0].Watchpoints()) == 0 {
+					t.Fatal("expected an attempt with an outstanding observation watchpoint")
+				}
+				retirements := expectation.Handoffs().Retirements()
+				got, err := carrierHandoffRemainderFingerprint(remainder, retirements)
+				if err != nil || !got.Equal(legacyHandoffIdentity(t, remainder, retirements)) {
+					t.Fatal("handoff watchpoints changed the remainder identity", err)
+				}
 			}
 			calls := 0
 			executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {

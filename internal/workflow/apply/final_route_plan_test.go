@@ -152,14 +152,19 @@ func TestApplyFinalRoutePlanPreservesClosedPreflightOutcomes(t *testing.T) {
 		action: action,
 		work:   operationplan.RouteWork{},
 	}
-	for _, facts := range [][]applyRouteScheduleFact{
-		{notApplicable},
-		accepted,
-		rejected,
-		{operational},
-	} {
-		if _, err := compileApplyFinalRoutePlan(facts, false, false); err != nil {
-			t.Fatalf("compile preflight kind %d: %v", facts[0].preflight.kind, err)
+	fingerprint := func(facts ...applyRouteScheduleFact) applyFinalRoutePlan {
+		plan, err := compileApplyFinalRoutePlan(facts, true, false)
+		if err != nil || !plan.fingerprint.Equal(legacyFinalRouteIdentity(t, facts, true, false)) {
+			t.Fatal("final routes differ from legacy projection", err)
 		}
+		return plan
+	}
+	ordered := fingerprint(notApplicable, accepted[0], rejected[0], operational)
+	if ordered.fingerprint.Equal(fingerprint(accepted[0], notApplicable, rejected[0], operational).fingerprint) {
+		t.Fatal("route order was lost")
+	}
+	operational.preflight = rejectedApplyRoutePreflight(errors.New(strings.Repeat("route codec failed ", maximumApplyRoutePreflightDiagnosticRunes) + "tail"))
+	if ordered.fingerprint.Equal(fingerprint(notApplicable, accepted[0], rejected[0], operational).fingerprint) {
+		t.Fatal("operational diagnostic tail was lost")
 	}
 }

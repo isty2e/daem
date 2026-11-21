@@ -251,19 +251,6 @@ func applyRelationActionFingerprint(
 	return mutation.NewOperationFingerprint(canonical), nil
 }
 
-type applyFinalRoutePlanFingerprintInput struct {
-	PhaseEstablished        bool                                `json:"phase_established"`
-	StatefileInitiallyBound bool                                `json:"statefile_initially_bound"`
-	Routes                  []applyFinalRoutePlanFingerprintRow `json:"routes"`
-}
-
-type applyFinalRoutePlanFingerprintRow struct {
-	Reference string                         `json:"reference"`
-	Action    relationFingerprintFacts       `json:"action"`
-	Work      operationplan.RouteWork        `json:"work"`
-	Preflight applyRoutePreflightFingerprint `json:"preflight"`
-}
-
 type applyRoutePreflightFingerprint struct {
 	Kind                   applyRoutePreflightKind     `json:"kind"`
 	Command                *applyHostRouteCommandFacts `json:"command,omitempty"`
@@ -301,9 +288,12 @@ func applyFinalRoutePlanFingerprint(
 	phaseEstablished bool,
 	statefileInitiallyBound bool,
 ) (mutation.OperationFingerprint, error) {
-	rows := make([]applyFinalRoutePlanFingerprintRow, 0, len(routes))
-	for index := range routes {
-		preflight, err := applyRoutePreflightFingerprintFor(routes[index].preflight)
+	input := operationplan.FinalRoutePlanIdentityInput{
+		PhaseEstablished: phaseEstablished, StatefileInitiallyBound: statefileInitiallyBound,
+		Routes: make([]operationplan.FinalRouteIdentity, 0, len(routes)),
+	}
+	for index, route := range routes {
+		preflight, err := applyRoutePreflightFingerprintFor(route.preflight)
 		if err != nil {
 			return mutation.OperationFingerprint{}, fmt.Errorf(
 				"final host route preflight[%d]: %w",
@@ -311,22 +301,19 @@ func applyFinalRoutePlanFingerprint(
 				err,
 			)
 		}
-		rows = append(rows, applyFinalRoutePlanFingerprintRow{
-			Reference: routes[index].ref,
-			Action:    relationFingerprintRows([]reconcile.RelationAction{routes[index].action})[0],
-			Work:      routes[index].work,
-			Preflight: preflight,
+		actionJSON, err := json.Marshal(relationFingerprintRows([]reconcile.RelationAction{route.action})[0])
+		if err != nil {
+			return mutation.OperationFingerprint{}, fmt.Errorf("marshal final host route plan: %w", err)
+		}
+		preflightJSON, err := json.Marshal(preflight)
+		if err != nil {
+			return mutation.OperationFingerprint{}, fmt.Errorf("marshal final host route plan: %w", err)
+		}
+		input.Routes = append(input.Routes, operationplan.FinalRouteIdentity{
+			Reference: route.ref, Action: actionJSON, Work: route.work, Preflight: preflightJSON,
 		})
 	}
-	canonical, err := json.Marshal(applyFinalRoutePlanFingerprintInput{
-		PhaseEstablished:        phaseEstablished,
-		StatefileInitiallyBound: statefileInitiallyBound,
-		Routes:                  rows,
-	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("marshal final host route plan: %w", err)
-	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return input.Fingerprint()
 }
 
 func applyRoutePreflightFingerprintFor(

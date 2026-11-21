@@ -246,6 +246,7 @@ func TestGlobalAlreadyAbsentHandoffKeepsUnrelatedRetirementInFinal(t *testing.T)
 	if !present || len(expectation.Handoffs().Retirements()) != 1 || len(expectation.After().CarrierAbsences()) != 1 {
 		t.Fatal("unrelated retirement was moved into the handoff prerequisite")
 	}
+	checkHandoffOrderIdentity(t, expectation.After(), expectation.Handoffs().Retirements())
 	calls := 0
 	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
 		calls++

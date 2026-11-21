@@ -93,7 +93,12 @@ func applyOrderDecision(
 	revisionValue string,
 ) reconcile.RelationOrderDecision {
 	t.Helper()
-	classID, err := hostrelation.NewOrderClassID("extension:pi:project:packages")
+	return applyOrderDecisionInScope(t, target.ScopeProject, members, revisionValue)
+}
+
+func applyOrderDecisionInScope(t testing.TB, scope target.Scope, members []hostrelation.RelationOrderMember, revisionValue string) reconcile.RelationOrderDecision {
+	t.Helper()
+	classID, err := hostrelation.NewOrderClassID("extension:pi:" + string(scope) + ":packages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,12 +111,12 @@ func applyOrderDecision(
 	if err != nil {
 		t.Fatal(err)
 	}
-	sequenceID, err := hostrelation.NewPhysicalSequenceID("pi:project:settings.packages")
+	sequenceID, err := hostrelation.NewPhysicalSequenceID("pi:" + string(scope) + ":settings.packages")
 	if err != nil {
 		t.Fatal(err)
 	}
 	authority, err := observerelation.NewSequenceAuthority(
-		"pi:project:settings.packages",
+		string(sequenceID),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +148,7 @@ func applyOrderDecision(
 	}
 	decision, err := reconcile.NewRelationOrderDecision(reconcile.RelationOrderDecisionInput{
 		Target:     target.TargetPi,
-		Scope:      target.ScopeProject,
+		Scope:      scope,
 		Constraint: constraint,
 		Sequence:   sequence,
 	})

@@ -53,3 +53,17 @@ func TestApplyFingerprintSerializersRejectMalformedOwnerProjections(t *testing.T
 		})
 	}
 }
+
+func TestFinalRoutePlanBytes(t *testing.T) {
+	input := FinalRoutePlanIdentityInput{PhaseEstablished: true}
+	got, err := input.canonicalBytes()
+	if err != nil || string(got) != `{"phase_established":true,"statefile_initially_bound":false,"routes":[]}` {
+		t.Fatalf("empty final routes = %s: %v", got, err)
+	}
+	input.Routes = []FinalRouteIdentity{{Reference: "next", Action: json.RawMessage(`{"Subject":{}}`), Work: RouteWork{InvokesHost: true}, Preflight: json.RawMessage(`{"kind":1}`)}}
+	got, err = input.canonicalBytes()
+	const want = `{"phase_established":true,"statefile_initially_bound":false,"routes":[{"reference":"next","action":{"Subject":{}},"work":{"PinChange":false,"InvokesHost":true,"Global":false,"Promotion":false},"preflight":{"kind":1}}]}`
+	if err != nil || string(got) != want {
+		t.Fatalf("populated final routes = %s: %v", got, err)
+	}
+}
