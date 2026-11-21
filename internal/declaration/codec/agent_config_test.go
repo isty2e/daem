@@ -94,13 +94,23 @@ source = "updated.json"
 		if err != nil || !tc.edit.MatchesDeclarations(prior.AgentConfigs(), decoded.AgentConfigs()) {
 			t.Fatalf("unexpected declarations: %v", err)
 		}
+
+		changedSibling := strings.Replace(want, "./other.json", "./changed.json", 1)
+		changed, err := manifest.Decode([]byte(changedSibling))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.edit.MatchesDeclarations(prior.AgentConfigs(), changed.AgentConfigs()) {
+			t.Fatal("accepted an edit that also changed a sibling's source")
+		}
+
 		for _, image := range []struct {
 			text     string
 			accepted bool
 		}{
 			{want, true},
 			{crlf(prefix) + tc.text + crlf(sibling), true},
-			{strings.Replace(want, "./other.json", "./changed.json", 1), false},
+			{changedSibling, false},
 			{crlf(prefix) + tc.text + "\r\n" + crlf(sibling), false},
 		} {
 			if ok, err := tc.edit.MatchesCaptureAfter(before, []byte(image.text)); err != nil || ok != image.accepted {

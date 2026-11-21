@@ -104,6 +104,7 @@ func (edit AgentConfigEdit) ApplyBlock(content []byte) ([]byte, error) {
 
 // MatchesCaptureAfter accepts the exact edit with or without the trailing trivia:
 // earlier generation-4 writers discarded it up to the next header or EOF.
+// Keep accepting that form while generation-4 capture markers remain readable.
 func (edit AgentConfigEdit) MatchesCaptureAfter(before, after []byte) (bool, error) {
 	span, replacement, err := edit.block(before)
 	if err != nil {

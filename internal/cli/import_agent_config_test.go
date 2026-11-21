@@ -47,28 +47,33 @@ func captureHostScopes(selected string) []string {
 }
 
 func TestImportAgentConfigInlineCollection(t *testing.T) {
-	root, manifest, _, initial := captureCLIFixture(t, `{"chosen":2}`)
-	initial[2] = "new"
-	initial = append(initial, "--merge", "--key", "/chosen")
+	root, manifest, host, initial := captureCLIFixture(t, `{"new":1}`)
+	initial = append(initial, "--merge", "--key", "/new")
 	const header = "version=1\ntargets=['pi']\n"
 	if err := os.WriteFile(manifest, []byte(header+"agent_config=[]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	captureFingerprint(t, initial)
 
-	source := filepath.Join(root, "chosen.json")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(host), "existing.json"), []byte(`{"chosen":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "source.json")
 	if err := os.WriteFile(source, []byte(`{"chosen":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	const existing = header + "agent_config=[{id='chosen',scope='project',path='settings.json',source='chosen.json'}]\n"
+	const existing = header + "agent_config=[{id='existing',scope='project',path='existing.json',source='source.json'}]\n"
 	if err := os.WriteFile(manifest, []byte(existing), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	update := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
-	for _, args := range [][]string{initial, append(update, "--source", filepath.Join(root, "export.json"))} {
-		if code, _, _ := runCaptureCLI(t, append(args, "--dry-run")); code == 0 {
-			t.Fatal("capture accepted a block edit on a nonempty inline collection", args)
-		}
+	if code, _, _ := runCaptureCLI(t, append(initial, "--dry-run")); code == 0 {
+		t.Fatal("initial capture appended a block to a nonempty inline collection")
+	}
+
+	update := []string{"import", "agent-config", "existing", "--manifest", manifest, "--update-source"}
+	switchArgs := append(update, "--source", filepath.Join(root, "export.json"), "--dry-run")
+	if code, _, stderr := runCaptureCLI(t, switchArgs); code == 0 || !strings.Contains(stderr, "use [[agent_config]] blocks") {
+		t.Fatalf("source switch: expected block conversion guidance, got exit %d: %s", code, stderr)
 	}
 	fingerprint := captureFingerprint(t, update)
 	if code, out, err := runCaptureCLI(t, append(update, "--yes", "--expect-plan", fingerprint)); code != 0 {
