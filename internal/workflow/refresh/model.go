@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -329,4 +330,8 @@ type plan struct {
 	native             *nativeRefreshInputs
 	protectionFence    refreshProtectionFence
 	settingsProfile    relationhost.NativeSettingsProfile
+}
+
+func (planned plan) stateAdmission() ownershipobserve.StateAdmission {
+	return ownershipobserve.ForPlannedState(planned.missingState)
 }

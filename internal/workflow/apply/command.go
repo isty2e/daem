@@ -497,6 +497,10 @@ type commandPlan struct {
 	handoffReservation []carrierabsence.Action
 }
 
+func (planned commandPlan) stateAdmission() ownershipobserve.StateAdmission {
+	return ownershipobserve.ForPlannedState(planned.context.PersistenceEpoch.MissingState())
+}
+
 // DryRunPlan is a capability-free dry-run result plus the immutable inputs
 // needed to render optional diffs without reloading command state.
 type DryRunPlan struct {

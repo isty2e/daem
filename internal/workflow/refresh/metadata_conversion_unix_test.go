@@ -14,6 +14,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/metadataconversion"
@@ -202,42 +203,12 @@ func TestRefreshMetadataReplanWithManagedNativeSettings(t *testing.T) {
 	root := t.TempDir()
 	configureMetadataRefreshHomes(t, root)
 	manifest := writeNoObserverRefreshFixture(t)
-	declaration := readTestFile(t, manifest)
 	paths, err := daempaths.Resolve(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := filepath.Join(paths.ManifestRoot, "preferences.toml")
-	if err := os.WriteFile(source, []byte("[tui]\nnotifications=false\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	native := fmt.Sprintf("\n[[agent_config]]\nid='preferences'\ntargets=['codex']\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", source)
-	if err := os.WriteFile(manifest, []byte("version=1\ntargets=['codex']\n"+native), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lockworkflow.RunLock(t.Context(), lockworkflow.LockInput{ManifestPath: manifest}); err != nil {
-		t.Fatal(err)
-	}
-	apply, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: manifest})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer apply.Close()
-	if _, err := applyworkflow.ExecuteWithOptions(t.Context(), apply, applyworkflow.ExecuteOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	store, err := ownershipstore.New(paths.OwnershipRegistryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry, err := store.Load(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy, err := ownershipstore.Marshal(registry)
-	if err != nil {
-		t.Fatal(err)
-	}
+	declaration := readTestFile(t, manifest)
+	native, legacy := seedRefreshManagedSettings(t, paths)
 	if err := os.WriteFile(paths.OwnershipRegistryPath, legacy, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -279,6 +250,89 @@ func TestRefreshMetadataReplanWithManagedNativeSettings(t *testing.T) {
 	if !bytes.Equal(before, readTestFile(t, host)) {
 		t.Fatal("refresh changed unrelated managed native settings")
 	}
+}
+
+func TestApprovedFirstRefreshRefusesNewClaimBeforeConversion(t *testing.T) {
+	configureMetadataRefreshHomes(t, t.TempDir())
+	manifest := writeNoObserverRefreshFixture(t)
+	paths, err := daempaths.Resolve(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := readTestFile(t, manifest)
+	_, legacy := seedRefreshManagedSettings(t, paths)
+	for _, path := range []string{paths.StatefilePath, paths.OwnershipRegistryPath} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(manifest, declaration, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockworkflow.RunLock(t.Context(), lockworkflow.LockInput{ManifestPath: manifest}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest, ExtensionID: "formatter"}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+
+	if err := os.WriteFile(paths.OwnershipRegistryPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Execute(t.Context(), prepared, ExecuteOptions{CommandOptions: subprocess.CommandOptions{
+		Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+			t.Fatal("refresh invoked the host after a claim appeared")
+			return subprocess.CommandResult{}
+		},
+	}})
+	if !errors.Is(err, ownershipobserve.ErrMissingStateWithOutputs) || result.Attempted || result.AttemptHistory.Persisted {
+		t.Fatalf("refresh did not refuse the new claim before execution: %+v (%v)", result, err)
+	}
+	if !bytes.Equal(legacy, readTestFile(t, paths.OwnershipRegistryPath)) {
+		t.Fatal("refresh converted the registry before checking ownership")
+	}
+	if _, err := os.Stat(paths.StatefilePath); !os.IsNotExist(err) {
+		t.Fatal("refusal did not leave State absent", err)
+	}
+}
+
+func seedRefreshManagedSettings(t *testing.T, paths daempaths.Paths) (string, []byte) {
+	t.Helper()
+	manifest := paths.ManifestPath
+	source := filepath.Join(paths.ManifestRoot, "preferences.toml")
+	if err := os.WriteFile(source, []byte("[tui]\nnotifications=false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	native := fmt.Sprintf("\n[[agent_config]]\nid='preferences'\ntargets=['codex']\nscope='project'\npath='config.toml'\nsource=%q\nownership='keys'\n", source)
+	if err := os.WriteFile(manifest, []byte("version=1\ntargets=['codex']\n"+native), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockworkflow.RunLock(t.Context(), lockworkflow.LockInput{ManifestPath: manifest}); err != nil {
+		t.Fatal(err)
+	}
+	apply, err := applyworkflow.PlanWrite(t.Context(), applyworkflow.CommandInput{ManifestPath: manifest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer apply.Close()
+	if _, err := applyworkflow.ExecuteWithOptions(t.Context(), apply, applyworkflow.ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	store, err := ownershipstore.New(paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := store.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := ownershipstore.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return native, legacy
 }
 
 func TestRefreshMetadataReplanRebindsGlobalPinRegistry(t *testing.T) {

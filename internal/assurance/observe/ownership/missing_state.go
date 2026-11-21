@@ -138,9 +138,22 @@ func RequireMissingStateRegistryClear(ctx context.Context, missing statefile.Mis
 	return nil
 }
 
-// RevalidateStateAdmission checks the approved State presence before an
+// StateAdmission binds execution checks to the State presence observed by a plan.
+type StateAdmission struct {
+	missing statefile.MissingState
+}
+
+func ForPlannedState(missing statefile.MissingState) StateAdmission {
+	return StateAdmission{missing: missing}
+}
+
+// NeedsRegistryRead reports whether the execution lease must cover the registry
+// even when the plan has no document ownership work of its own.
+func (admission StateAdmission) NeedsRegistryRead() bool { return admission.missing.Path() != "" }
+
+// Revalidate checks the approved State presence before an
 // early maintenance phase, without decoding a second State snapshot.
-func RevalidateStateAdmission(ctx context.Context, paths daempaths.Paths, planned statefile.MissingState) error {
+func (admission StateAdmission) Revalidate(ctx context.Context, paths daempaths.Paths) error {
 	budget := physicalwork.NewCaptureBudget(nil)
 	current, err := statefile.ObserveMissingState(ctx, paths.StatefilePath, budget)
 	if cancellation := ctx.Err(); cancellation != nil {
@@ -150,7 +163,7 @@ func RevalidateStateAdmission(ctx context.Context, paths daempaths.Paths, planne
 	case errors.Is(err, mutation.StaleSnapshotError{}):
 		return err
 	case errors.Is(err, statefile.ErrStatefilePresent):
-		if planned.Path() != "" {
+		if admission.NeedsRegistryRead() {
 			return mutation.StaleSnapshotError{}
 		}
 		return ctx.Err()
@@ -158,7 +171,7 @@ func RevalidateStateAdmission(ctx context.Context, paths daempaths.Paths, planne
 		return err
 	}
 	admissionErr := RequireMissingStateClear(ctx, paths, current, budget)
-	if !planned.Equal(current) {
+	if !admission.missing.Equal(current) {
 		return errors.Join(mutation.StaleSnapshotError{}, admissionErr)
 	}
 	return admissionErr
