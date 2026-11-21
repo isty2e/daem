@@ -407,31 +407,35 @@ func relationFingerprintRows(
 ) []relationFingerprintFacts {
 	relations := make([]relationFingerprintFacts, 0, len(actions))
 	for _, action := range actions {
-		admission := action.RouteAdmission()
-		relations = append(relations, relationFingerprintFacts{
-			PinChange:            relationPinFingerprint(action),
-			Basis:                action.Basis(),
-			Kind:                 action.Kind(),
-			Subject:              action.Subject(),
-			Target:               string(action.Target()),
-			Scope:                string(action.Scope()),
-			SourceNamespace:      action.SourceNamespace(),
-			RelationSubjectKey:   action.RelationSubjectKey(),
-			RouteRequest:         action.RouteRequest(),
-			CorrelationState:     action.CorrelationState(),
-			CorrelationReason:    action.CorrelationReason(),
-			EvidenceAvailability: action.EvidenceAvailability(),
-			EvidenceFreshness:    action.EvidenceFreshness(),
-			Watchpoints:          action.Watchpoints(),
-			Reason:               action.Reason(),
-			Execution:            action.Execution(),
-			AdmissionRow:         admission.Row(),
-			RequestedOutcome:     admission.RequestedOutcome(),
-			SelectedOutcome:      admission.SelectedOutcome(),
-			ObservationPolicy:    admission.ObservationPolicy(),
-		})
+		relations = append(relations, relationFingerprintRow(action))
 	}
 	return relations
+}
+
+func relationFingerprintRow(action reconcile.RelationAction) relationFingerprintFacts {
+	admission := action.RouteAdmission()
+	return relationFingerprintFacts{
+		PinChange:            relationPinFingerprint(action),
+		Basis:                action.Basis(),
+		Kind:                 action.Kind(),
+		Subject:              action.Subject(),
+		Target:               string(action.Target()),
+		Scope:                string(action.Scope()),
+		SourceNamespace:      action.SourceNamespace(),
+		RelationSubjectKey:   action.RelationSubjectKey(),
+		RouteRequest:         action.RouteRequest(),
+		CorrelationState:     action.CorrelationState(),
+		CorrelationReason:    action.CorrelationReason(),
+		EvidenceAvailability: action.EvidenceAvailability(),
+		EvidenceFreshness:    action.EvidenceFreshness(),
+		Watchpoints:          action.Watchpoints(),
+		Reason:               action.Reason(),
+		Execution:            action.Execution(),
+		AdmissionRow:         admission.Row(),
+		RequestedOutcome:     admission.RequestedOutcome(),
+		SelectedOutcome:      admission.SelectedOutcome(),
+		ObservationPolicy:    admission.ObservationPolicy(),
+	}
 }
 
 func mcpProviderFingerprintRows(
