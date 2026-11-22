@@ -20,6 +20,31 @@ func internalPath(importPath string) (string, bool) {
 	return importPath[index+1:], true
 }
 
+func (module goListModule) internalPath(importPath string) (string, bool) {
+	path, internal := internalPath(importPath)
+	if !internal || path == importPath {
+		return path, internal
+	}
+
+	// Workflow identity spans the whole subtree, including private Go packages.
+	// Keep the last-internal convention for unrelated architecture rules.
+	prefix := module.Path
+	if prefix == "" {
+		prefix, _, _ = strings.Cut(importPath, "/internal/")
+	}
+	relative, local := strings.CutPrefix(importPath, prefix+"/")
+	if local && isWorkflowPackage(relative) {
+		return relative, true
+	}
+	if module.Path != "" && isWorkflowPackage(path) {
+		if local && isPackageOrChild(relative, "internal") {
+			return relative, true
+		}
+		return "", false
+	}
+	return path, true
+}
+
 func architecturePath(importPath string) (string, bool) {
 	for _, root := range []string{"internal", "test"} {
 		if importPath == root || strings.HasPrefix(importPath, root+"/") {
@@ -191,48 +216,6 @@ func isJournalOrExecutePackage(packagePath string) bool {
 
 func isWorkflowPackage(packagePath string) bool {
 	return isPackageOrChild(packagePath, "internal/workflow")
-}
-
-func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool {
-	if !isWorkflowPackage(packagePath) || !matchesInternalImport(importPath, "internal/workflow") {
-		return false
-	}
-	if importPath == "internal/workflow/protection/invocation" {
-		return packagePath != "internal/workflow/apply" &&
-			packagePath != "internal/workflow/refresh" &&
-			packagePath != "internal/workflow/nativeconfig" &&
-			packagePath != "internal/workflow/nativeconfig/invocation"
-	}
-	if importPath == "internal/workflow/nativeconfig/invocation" {
-		return packagePath != "internal/workflow/apply" && packagePath != "internal/workflow/refresh"
-	}
-	if importPath == "internal/workflow/protection/recovery" {
-		return packagePath != "internal/workflow/recover"
-	}
-	if importPath == "internal/workflow/lock/generate" {
-		return packagePath != "internal/workflow/lock" && packagePath != "internal/workflow/authoring"
-	}
-	if importPath == "internal/workflow/workspacecleanup" {
-		return packagePath != "internal/workflow/apply" && packagePath != "internal/workflow/lock"
-	}
-	if importPath == "internal/workflow/readiness" {
-		return packagePath != "internal/workflow/apply" &&
-			packagePath != "internal/workflow/list" &&
-			packagePath != "internal/workflow/status" &&
-			packagePath != "internal/workflow/nativeconfig"
-	}
-	if importPath == "internal/workflow/nativeconfig" {
-		return packagePath != "internal/workflow/lock" &&
-			packagePath != "internal/workflow/list" &&
-			packagePath != "internal/workflow/adopt" &&
-			packagePath != "internal/workflow/apply" &&
-			packagePath != "internal/workflow/status" &&
-			packagePath != "internal/workflow/refresh" &&
-			packagePath != "internal/workflow/recover" &&
-			packagePath != "internal/workflow/workspacecleanup" &&
-			packagePath != "internal/workflow/nativeconfig/invocation"
-	}
-	return true
 }
 
 func isForbiddenGenericRolePackageShape(packagePath string) bool {

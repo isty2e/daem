@@ -21,16 +21,21 @@ func (report Report) HasShadowFindings() bool {
 
 // PackageRecord is the subset of go list -json package data used by archguard.
 type PackageRecord struct {
-	ImportPath   string   `json:"ImportPath"`
-	Name         string   `json:"Name"`
-	Dir          string   `json:"Dir"`
-	Imports      []string `json:"Imports"`
-	GoFiles      []string `json:"GoFiles"`
-	CgoFiles     []string `json:"CgoFiles"`
-	TestGoFiles  []string `json:"TestGoFiles"`
-	XTestGoFiles []string `json:"XTestGoFiles"`
+	Module       goListModule `json:"Module"`
+	ImportPath   string       `json:"ImportPath"`
+	Name         string       `json:"Name"`
+	Dir          string       `json:"Dir"`
+	Imports      []string     `json:"Imports"`
+	GoFiles      []string     `json:"GoFiles"`
+	CgoFiles     []string     `json:"CgoFiles"`
+	TestGoFiles  []string     `json:"TestGoFiles"`
+	XTestGoFiles []string     `json:"XTestGoFiles"`
 
 	FileContents map[string]string `json:"-"`
+}
+
+type goListModule struct {
+	Path string `json:"Path"`
 }
 
 // GuardrailFinding describes one topology guardrail finding.

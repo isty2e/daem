@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
+	return analyzeModuleImports(goListModule{}, packagePath, imports)
+}
+
 func TestAnalyzeRecordsAllowsStablePrimitiveImports(t *testing.T) {
 	records := []PackageRecord{
 		{

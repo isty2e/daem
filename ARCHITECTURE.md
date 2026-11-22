@@ -340,9 +340,24 @@ effect capability or make lock operations inherit an unrelated recovery block.
 
 Workflows select context/paths, gather evidence, invoke compilers, acquire
 leases/capabilities, sequence authorized effects, coordinate confirmation and
-cancellation, and assemble results. They do not import other workflows or
-redefine surface matrices, authority grammar, fingerprints, host syntax,
-physical reservation or StateDir protocols.
+cancellation, and assemble results. They do not redefine surface matrices,
+authority grammar, fingerprints, host syntax, physical reservation or StateDir
+protocols.
+
+Within `internal/workflow`, production code may import shared services according
+to the caller's role, but never a peer command. For planning, Adopt, Lock,
+Recover, and Refresh consume native inputs from `nativeconfig`. Apply, List, and
+Status assess the workspace and can use both `nativeconfig` and `readiness`.
+List can ask `readiness` for the output inventory without invoking Status.
+
+Execution roles grant separate imports. Apply and Refresh use both invocation
+services for forward host calls; only Recover uses `protection/recovery`.
+Lock and Authoring can generate prospective locks through `lock/generate`;
+Apply and Lock can retire completed records through `workspacecleanup`.
+Among the services, `nativeconfig` uses `readiness`, `workspacecleanup` uses
+`nativeconfig`, and `nativeconfig/invocation` uses both `nativeconfig` and
+`protection/invocation`. These permissions apply to direct imports by the named
+packages. A new subpackage does not inherit its parent's permissions.
 
 Operation-specific semantic count projections may remain workflow-owned under
 the retained compatibility seam. Physical lowering and capability consumption
