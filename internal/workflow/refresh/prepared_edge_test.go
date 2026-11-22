@@ -37,11 +37,18 @@ func TestRefreshCancelCannotMisreportConcurrentExecution(t *testing.T) {
 		})
 		executionDone <- executeErr
 	}()
-	<-started
+
+	select {
+	case err := <-executionDone:
+		t.Fatalf("Execute returned before the host runner started: %v", err)
+	case <-started:
+	}
 
 	cancelled, cancelErr := Cancel(prepared)
+	close(release)
+	executeErr := <-executionDone
+
 	if !errors.Is(cancelErr, ErrPreparedCommandConsumed) {
-		close(release)
 		t.Fatalf(
 			"Cancel result=%#v error=%v, want ErrPreparedCommandConsumed",
 			cancelled,
@@ -49,11 +56,9 @@ func TestRefreshCancelCannotMisreportConcurrentExecution(t *testing.T) {
 		)
 	}
 	if cancelled.ResultClass == ResultCancelled {
-		close(release)
 		t.Fatalf("Cancel falsely reported pre-attempt cancellation: %#v", cancelled)
 	}
-	close(release)
-	if executeErr := <-executionDone; executeErr != nil {
+	if executeErr != nil {
 		t.Fatalf("Execute returned error: %v", executeErr)
 	}
 }
