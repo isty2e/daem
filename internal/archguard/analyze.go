@@ -66,12 +66,13 @@ func AnalyzeReport(records []PackageRecord) Report {
 			findings = append(findings, analyzeProductionTestSupportImports(record)...)
 		}
 
-		packagePath, ok := internalPath(record.ImportPath)
+		module := record.Module
+		packagePath, ok := module.internalPath(record.ImportPath)
 		if !ok {
 			continue
 		}
 
-		findings = append(findings, analyzeImports(packagePath, record.Imports)...)
+		findings = append(findings, analyzeModuleImports(module, packagePath, record.Imports)...)
 		findings = append(findings, analyzeForbiddenShapes(packagePath, record)...)
 		findings = append(findings, analyzeCoreTerminalSideEffects(packagePath, record)...)
 		findings = append(findings, analyzeRestrictedStateCodecs(packagePath, record)...)
@@ -110,7 +111,7 @@ func productionReachablePackages(records []PackageRecord) map[string]bool {
 }
 
 func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFinding {
-	packagePath, owned := architecturePath(record.ImportPath)
+	packagePath, owned := record.Module.architecturePath(record.ImportPath)
 	if !owned || strings.HasPrefix(packagePath, "test/") {
 		return nil
 	}
@@ -121,7 +122,7 @@ func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFindin
 		if modulePrefix != "" && !strings.HasPrefix(importPath, modulePrefix) {
 			continue
 		}
-		imported, ownedImport := architecturePath(importPath)
+		imported, ownedImport := record.Module.architecturePath(importPath)
 		if !ownedImport || !isPackageOrChild(imported, "test") {
 			continue
 		}
@@ -135,11 +136,11 @@ func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFindin
 	return findings
 }
 
-func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
+func analyzeModuleImports(module goListModule, packagePath string, imports []string) []GuardrailFinding {
 	var violations []GuardrailFinding
 	observerRule := observerImportRuleFor(packagePath)
 	for _, importPath := range sortedStrings(imports) {
-		importInternalPath, isInternal := internalPath(importPath)
+		importInternalPath, isInternal := module.internalPath(importPath)
 		if packagePath == "internal/realization/lock/refine" && !isInternal && !isAllowedLockRefineExternalImport(importPath) {
 			violations = append(violations, GuardrailFinding{
 				Rule:        ruleLockRefineBoundaryImport,
@@ -365,7 +366,7 @@ func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 				Rule:        ruleWorkflowNestedImport,
 				PackagePath: packagePath,
 				ImportPath:  importInternalPath,
-				Detail:      "one workflow may not reuse another workflow; move shared sequencing to its exact boundary owner",
+				Detail:      "production workflow packages may import only shared services designated for the caller's responsibility",
 			})
 		}
 

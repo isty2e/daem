@@ -340,9 +340,25 @@ effect capability or make lock operations inherit an unrelated recovery block.
 
 Workflows select context/paths, gather evidence, invoke compilers, acquire
 leases/capabilities, sequence authorized effects, coordinate confirmation and
-cancellation, and assemble results. They do not import other workflows or
-redefine surface matrices, authority grammar, fingerprints, host syntax,
-physical reservation or StateDir protocols.
+cancellation, and assemble results. They do not redefine surface matrices,
+authority grammar, fingerprints, host syntax, physical reservation or StateDir
+protocols.
+
+Within `internal/workflow`, production code may import shared services according
+to the caller's role, but never a peer command. For planning, Adopt, Lock,
+Recover, and Refresh consume native inputs from `nativeconfig`. Apply, List, and
+Status assess the workspace and can use both `nativeconfig` and `readiness`.
+List can ask `readiness` for the output inventory without invoking Status.
+
+Execution roles grant separate imports. Apply and Refresh use both invocation
+services for forward host calls; only Recover uses `protection/recovery`.
+Lock and Authoring can generate prospective locks through `lock/generate`;
+Apply and Lock can retire completed records through `workspacecleanup`.
+Among the services, `nativeconfig` uses `readiness`, `workspacecleanup` uses
+`nativeconfig`, and `nativeconfig/invocation` uses both `nativeconfig` and
+`protection/invocation`. These permissions apply to direct imports by the named
+packages. Subpackages on either side need their own permission: access to
+`nativeconfig`, for example, does not grant access to `nativeconfig/invocation`.
 
 Operation-specific semantic count projections may remain workflow-owned under
 the retained compatibility seam. Physical lowering and capability consumption
@@ -409,6 +425,10 @@ In addition to the owner boundaries above, do not introduce:
 - resource-by-target, resource-by-operation, target-by-operation or
   operation-by-phase package matrices;
 - package, file, LOC or density reduction as acceptance criteria.
+
+The architecture checks use module-relative names for packages in the
+repository's `internal/` and `test/` trees. A second `internal/` directory
+inside a package path does not change which package the checks see.
 
 Semantic dependency and effect-boundary guards remain executable evidence.
 Report-only compiler and State Barrier shadow findings never fail the

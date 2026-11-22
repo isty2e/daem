@@ -15,7 +15,7 @@ const (
 func analyzeArchitectureDependencyDirections(records []PackageRecord) []GuardrailFinding {
 	var findings []GuardrailFinding
 	for _, record := range sortedRecords(records) {
-		packagePath, internal := internalPath(record.ImportPath)
+		packagePath, internal := record.Module.internalPath(record.ImportPath)
 		if !internal {
 			continue
 		}
@@ -25,16 +25,16 @@ func analyzeArchitectureDependencyDirections(records []PackageRecord) []Guardrai
 		}
 		if isPackageOrChild(packagePath, "internal/desired") &&
 			importingPlacement.role != roleTestSupport {
-			findings = append(findings, analyzeDesiredImports(packagePath, record.Imports)...)
+			findings = append(findings, analyzeDesiredImports(packagePath, record)...)
 			continue
 		}
 		if isPackageOrChild(packagePath, "internal/topology") {
-			findings = append(findings, analyzeTopologyImports(packagePath, record.Imports)...)
+			findings = append(findings, analyzeTopologyImports(packagePath, record)...)
 			continue
 		}
 
 		for _, importPath := range sortedStrings(record.Imports) {
-			importedPackage, importedInternal := internalPath(importPath)
+			importedPackage, importedInternal := record.Module.internalPath(importPath)
 			if !importedInternal {
 				continue
 			}
@@ -122,10 +122,10 @@ func allowsConcreteAggregateCodec(packagePath string) bool {
 	return false
 }
 
-func analyzeDesiredImports(packagePath string, imports []string) []GuardrailFinding {
+func analyzeDesiredImports(packagePath string, record PackageRecord) []GuardrailFinding {
 	var findings []GuardrailFinding
-	for _, importPath := range sortedStrings(imports) {
-		importedPackage, internal := internalPath(importPath)
+	for _, importPath := range sortedStrings(record.Imports) {
+		importedPackage, internal := record.Module.internalPath(importPath)
 		if !internal {
 			continue
 		}
@@ -151,10 +151,10 @@ func analyzeDesiredImports(packagePath string, imports []string) []GuardrailFind
 	return findings
 }
 
-func analyzeTopologyImports(packagePath string, imports []string) []GuardrailFinding {
+func analyzeTopologyImports(packagePath string, record PackageRecord) []GuardrailFinding {
 	var findings []GuardrailFinding
-	for _, importPath := range sortedStrings(imports) {
-		importedPackage, internal := internalPath(importPath)
+	for _, importPath := range sortedStrings(record.Imports) {
+		importedPackage, internal := record.Module.internalPath(importPath)
 		if !internal {
 			continue
 		}

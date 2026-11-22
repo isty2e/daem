@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
+	return analyzeModuleImports(goListModule{}, packagePath, imports)
+}
+
 func TestAnalyzeRecordsAllowsStablePrimitiveImports(t *testing.T) {
 	records := []PackageRecord{
 		{
@@ -24,25 +28,31 @@ func TestAnalyzeRecordsAllowsStablePrimitiveImports(t *testing.T) {
 }
 
 func TestAnalyzeRecordsRejectsProductionImportsOfTestSupport(t *testing.T) {
+	module := goListModule{Path: "example.com/internal/project"}
+	const production = "internal/workflow/apply"
 	report := AnalyzeReport([]PackageRecord{
 		{
-			ImportPath: "example.com/project/cmd/tool",
+			Module:     module,
+			ImportPath: module.Path + "/cmd/tool",
 			Name:       "main",
-			Imports:    []string{"example.com/project/internal/workflow/apply"},
+			Imports:    []string{module.Path + "/" + production},
 		},
 		{
-			ImportPath: "example.com/project/internal/workflow/apply",
+			Module:     module,
+			ImportPath: module.Path + "/" + production,
 			Imports: []string{
-				"example.com/project/test/testkit",
+				module.Path + "/test/testkit",
 				"example.org/library/test/helpers",
 			},
 		},
 		{
-			ImportPath: "example.com/project/test/cli",
-			Imports:    []string{"example.com/project/test/testkit"},
+			Module:     module,
+			ImportPath: module.Path + "/test/cli",
+			Imports:    []string{module.Path + "/test/testkit"},
 		},
 	})
-	if countViolationRule(report.Violations, ruleProductionTestSupportImport) != 1 {
+	if len(report.Violations) != 1 || report.Violations[0].Rule != ruleProductionTestSupportImport ||
+		report.Violations[0].PackagePath != production || report.Violations[0].ImportPath != "test/testkit" {
 		t.Fatalf("production test-support findings:\n%s", FormatAnalysisReport(report))
 	}
 }

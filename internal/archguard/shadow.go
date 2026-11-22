@@ -22,7 +22,7 @@ const (
 func analyzeCompilerShadow(records []PackageRecord) []GuardrailFinding {
 	var findings []GuardrailFinding
 	for _, record := range sortedRecords(records) {
-		packagePath, ok := internalPath(record.ImportPath)
+		packagePath, ok := record.Module.internalPath(record.ImportPath)
 		if !ok {
 			continue
 		}
@@ -37,7 +37,7 @@ func analyzeCompilerShadowPackage(packagePath string, record PackageRecord) []Gu
 		findings = append(findings, analyzeCompilerOSSpecialization(packagePath, record)...)
 	}
 	for _, importPath := range sortedStrings(record.Imports) {
-		imported, isInternal := internalPath(importPath)
+		imported, isInternal := record.Module.internalPath(importPath)
 		if !isInternal {
 			continue
 		}

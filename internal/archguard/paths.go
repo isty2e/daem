@@ -6,25 +6,31 @@ import (
 	"strings"
 )
 
-func internalPath(importPath string) (string, bool) {
-	if importPath == "internal" {
-		return importPath, true
+func (module goListModule) internalPath(importPath string) (string, bool) {
+	if path, ok := module.architecturePath(importPath); ok && isPackageOrChild(path, "internal") {
+		return path, true
 	}
-	if strings.HasPrefix(importPath, "internal/") {
-		return importPath, true
-	}
-	index := strings.LastIndex(importPath, "/internal/")
-	if index == -1 {
-		return "", false
-	}
-	return importPath[index+1:], true
+	return "", false
 }
 
-func architecturePath(importPath string) (string, bool) {
-	for _, root := range []string{"internal", "test"} {
-		if importPath == root || strings.HasPrefix(importPath, root+"/") {
-			return importPath, true
+func (module goListModule) architecturePath(importPath string) (string, bool) {
+	if module.Path != "" {
+		relative, local := strings.CutPrefix(importPath, module.Path+"/")
+		if local && (isPackageOrChild(relative, "internal") || isPackageOrChild(relative, "test")) {
+			return relative, true
 		}
+		return "", false
+	}
+
+	// Without Module, a qualified path can contain several internal directories.
+	// Preserve the workflow subtree; other fixtures use the last directory marker.
+	if isPackageOrChild(importPath, "internal") || isPackageOrChild(importPath, "test") {
+		return importPath, true
+	}
+	if index := strings.Index(importPath, "/internal/workflow/"); index >= 0 {
+		return importPath[index+1:], true
+	}
+	for _, root := range []string{"internal", "test"} {
 		marker := "/" + root + "/"
 		if index := strings.LastIndex(importPath, marker); index >= 0 {
 			return importPath[index+1:], true
@@ -191,48 +197,6 @@ func isJournalOrExecutePackage(packagePath string) bool {
 
 func isWorkflowPackage(packagePath string) bool {
 	return isPackageOrChild(packagePath, "internal/workflow")
-}
-
-func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool {
-	if !isWorkflowPackage(packagePath) || !matchesInternalImport(importPath, "internal/workflow") {
-		return false
-	}
-	if importPath == "internal/workflow/protection/invocation" {
-		return packagePath != "internal/workflow/apply" &&
-			packagePath != "internal/workflow/refresh" &&
-			packagePath != "internal/workflow/nativeconfig" &&
-			packagePath != "internal/workflow/nativeconfig/invocation"
-	}
-	if importPath == "internal/workflow/nativeconfig/invocation" {
-		return packagePath != "internal/workflow/apply" && packagePath != "internal/workflow/refresh"
-	}
-	if importPath == "internal/workflow/protection/recovery" {
-		return packagePath != "internal/workflow/recover"
-	}
-	if importPath == "internal/workflow/lock/generate" {
-		return packagePath != "internal/workflow/lock" && packagePath != "internal/workflow/authoring"
-	}
-	if importPath == "internal/workflow/workspacecleanup" {
-		return packagePath != "internal/workflow/apply" && packagePath != "internal/workflow/lock"
-	}
-	if importPath == "internal/workflow/readiness" {
-		return packagePath != "internal/workflow/apply" &&
-			packagePath != "internal/workflow/list" &&
-			packagePath != "internal/workflow/status" &&
-			packagePath != "internal/workflow/nativeconfig"
-	}
-	if importPath == "internal/workflow/nativeconfig" {
-		return packagePath != "internal/workflow/lock" &&
-			packagePath != "internal/workflow/list" &&
-			packagePath != "internal/workflow/adopt" &&
-			packagePath != "internal/workflow/apply" &&
-			packagePath != "internal/workflow/status" &&
-			packagePath != "internal/workflow/refresh" &&
-			packagePath != "internal/workflow/recover" &&
-			packagePath != "internal/workflow/workspacecleanup" &&
-			packagePath != "internal/workflow/nativeconfig/invocation"
-	}
-	return true
 }
 
 func isForbiddenGenericRolePackageShape(packagePath string) bool {
