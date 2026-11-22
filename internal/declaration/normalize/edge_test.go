@@ -633,7 +633,7 @@ func TestManifestEdgeRoundSevenPreservesDeterministicAuthoredOrder(t *testing.T)
 
 	t.Run("valid join control extension source", func(t *testing.T) {
 		raw := baseManifest(target.TargetOpenCode)
-		raw.Extensions = []declaration.Extension{{ID: "joiner", Carrier: "opencode-plugin", Source: declaration.ExtensionSource{HostSource: "emoji‍tool"}}}
+		raw.Extensions = []declaration.Extension{{ID: "joiner", Carrier: "opencode-plugin", Source: declaration.ExtensionSource{HostSource: "emoji\u200dtool"}}}
 		if _, err := Manifest(raw); err != nil {
 			t.Fatalf("Manifest rejected non-bidi format character: %v", err)
 		}
