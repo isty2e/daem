@@ -24,6 +24,8 @@ type PiInvocation struct {
 	InstructionsBefore                                                               string
 }
 
+const piToolsSource = "git:github.com/acme/pi-tools@v1"
+
 func NewPiInvocation(t *testing.T, mutation string) PiInvocation {
 	t.Helper()
 	return NewPiInvocationAtScope(t, mutation, target.ScopeProject)
@@ -31,10 +33,48 @@ func NewPiInvocation(t *testing.T, mutation string) PiInvocation {
 
 func NewPiInvocationAtScope(t *testing.T, mutation string, scope target.Scope) PiInvocation {
 	t.Helper()
-	return NewPiInvocationForSource(t, mutation, scope, "git:github.com/acme/pi-tools@v1")
+	return NewPiInvocationForSource(t, mutation, scope, piToolsSource)
 }
 
 func NewPiInvocationForSource(t *testing.T, mutation string, scope target.Scope, source string) PiInvocation {
+	t.Helper()
+	fixture := newPiInvocationEnvironment(t, mutation, scope, source)
+	fixture.Require(t, "add", "extension", "tools", source, "--target", "pi", "--scope", string(scope))
+	fixture.Require(t, "apply", "--yes")
+	testkit.AssertFileContent(t, fixture.Calls, "install\n")
+
+	// Model a host-side uninstall while retaining the actual producer's state.
+	testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
+	fixture.lockPiPreferences(t, scope)
+	return fixture
+}
+
+func NewInstalledPiWithPreferences(t *testing.T, scope target.Scope) PiInvocation {
+	t.Helper()
+	fixture := newPiInvocationEnvironment(t, "", scope, piToolsSource)
+	extension := fmt.Sprintf(`
+[[extension]]
+id = "tools"
+carrier = "pi-package"
+targets = ["pi"]
+scope = %q
+source = { host_source = %q }
+`, scope, piToolsSource)
+	testkit.WriteFile(t, fixture.Workspace, "daem.toml", string(testkit.ReadFile(t, fixture.Manifest))+extension)
+	fixture.lockPiPreferences(t, scope)
+	fixture.Require(t, "apply", "--yes", "--json")
+	return fixture
+}
+
+func (fixture PiInvocation) lockPiPreferences(t *testing.T, scope target.Scope) {
+	t.Helper()
+	declaration := string(testkit.ReadFile(t, fixture.Manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(fixture.Workspace, "preferences.json"))
+	testkit.WriteFile(t, fixture.Workspace, "daem.toml", declaration)
+	t.Setenv("DAEM_TEST_INSTALL_PHASE", "native")
+	fixture.Require(t, "lock")
+}
+
+func newPiInvocationEnvironment(t *testing.T, mutation string, scope target.Scope, source string) PiInvocation {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -93,7 +133,7 @@ else
   esac
 fi
 `
-	testkit.WriteFile(t, bin, "pi", strings.ReplaceAll(script, "git:github.com/acme/pi-tools@v1", source))
+	testkit.WriteFile(t, bin, "pi", strings.ReplaceAll(script, piToolsSource, source))
 	if err := os.Chmod(filepath.Join(bin, "pi"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -117,17 +157,6 @@ fi
 	t.Setenv("DAEM_TEST_MUTATION", mutation)
 	t.Setenv("DAEM_TEST_NATIVE_RESULT", "")
 	t.Setenv("DAEM_TEST_PIN_CLAIMS", "")
-	fixture.Require(t, "add", "extension", "tools", source, "--target", "pi", "--scope", string(scope))
-	fixture.Require(t, "apply", "--yes")
-	if got := string(testkit.ReadFile(t, calls)); got != "install\n" {
-		t.Fatal("real extension-only fixture did not invoke its command once")
-	}
-	// Model a host-side uninstall while retaining the actual producer's state.
-	testkit.WriteFile(t, filepath.Dir(settings), "settings.json", `{"foreign":{"retained":true},"packages":["npm:@acme/keep@1"]}`)
-	declaration := string(testkit.ReadFile(t, manifest)) + fmt.Sprintf("\n[[agent_config]]\nid='preferences'\nscope=%q\npath='settings.json'\nsource=%q\nownership='keys'\n", scope, filepath.Join(workspace, "preferences.json"))
-	testkit.WriteFile(t, workspace, "daem.toml", declaration)
-	t.Setenv("DAEM_TEST_INSTALL_PHASE", "native")
-	fixture.Require(t, "lock")
 	return fixture
 }
 
