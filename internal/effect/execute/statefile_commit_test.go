@@ -35,7 +35,6 @@ import (
 
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 
-	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/topology"
@@ -204,7 +203,7 @@ func TestStateOnlyApplyRetainsJournalForIndeterminateStatefileCommit(t *testing.
 	)
 	input := fixture.input(nil)
 	input.CurrentState = statefileCommitSnapshot(t, pending)
-	input.ConfirmedRelationActions = []reconciliation.RelationAction{action}
+	input.ConfirmedRelationActions = []reconcile.RelationAction{action}
 	writeRecoveryTestStatefile(t, fixture.paths.StatefilePath, input.CurrentState)
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
@@ -244,7 +243,7 @@ func TestStateOnlyApplyRetainsCleanBeforeJournalWhenIndeterminateCommitIsNotVisi
 	)
 	input := fixture.input(nil)
 	input.CurrentState = statefileCommitSnapshot(t, pending)
-	input.ConfirmedRelationActions = []reconciliation.RelationAction{action}
+	input.ConfirmedRelationActions = []reconcile.RelationAction{action}
 	writeRecoveryTestStatefile(t, fixture.paths.StatefilePath, input.CurrentState)
 
 	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
@@ -366,7 +365,7 @@ func statefileCommitRelationAction(
 	t *testing.T,
 	statefilePath string,
 	manifestPath string,
-) (reconciliation.RelationAction, durablecarrier.PendingCarrierInstall) {
+) (reconcile.RelationAction, durablecarrier.PendingCarrierInstall) {
 	t.Helper()
 	subjectKey, err := hostrelation.NewSubjectKey("context7@market")
 	if err != nil {
@@ -393,11 +392,11 @@ func statefileCommitRelationAction(
 	if err != nil {
 		t.Fatal(err)
 	}
-	admission, err := reconciliation.NewRelationRouteAdmissionDecision(reconciliation.RelationRouteAdmissionSpec{
-		Row:               reconciliation.RouteAdmissionRowInstallCarrier,
-		RequestedOutcome:  reconciliation.AdmissionOutcomeOrdinaryMutation,
-		SelectedOutcome:   reconciliation.AdmissionOutcomeHostDelegated,
-		ObservationPolicy: reconciliation.ObservationRequireCurrent,
+	admission, err := reconcile.NewRelationRouteAdmissionDecision(reconcile.RelationRouteAdmissionSpec{
+		Row:               reconcile.RouteAdmissionRowInstallCarrier,
+		RequestedOutcome:  reconcile.AdmissionOutcomeOrdinaryMutation,
+		SelectedOutcome:   reconcile.AdmissionOutcomeHostDelegated,
+		ObservationPolicy: reconcile.ObservationRequireCurrent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +409,7 @@ func statefileCommitRelationAction(
 	if err != nil {
 		t.Fatal(err)
 	}
-	action, err := reconciliation.NewRelationAction(reconciliation.RelationActionInput{
+	action, err := reconcile.NewRelationAction(reconcile.RelationActionInput{
 		CarrierIdentity:       identity,
 		RouteRequest:          routeRequest,
 		Correlation:           observerelation.Correlate(relation, inventory),
