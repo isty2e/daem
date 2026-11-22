@@ -8,7 +8,6 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
-	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -79,7 +78,7 @@ func Execute(
 	if err := execution.planned.barrier.Validate(ctx); err != nil {
 		return staleBeforeAttempt(result, err)
 	}
-	if err := ownershipobserve.RevalidateStateAdmission(ctx, execution.planned.paths, execution.planned.missingState); err != nil {
+	if err := execution.planned.stateAdmission().Revalidate(ctx, execution.planned.paths); err != nil {
 		return staleBeforeAttempt(result, err)
 	}
 	if matches, revisionErr := execution.planned.revisions.MatchesCurrent(ctx); revisionErr != nil {

@@ -146,8 +146,8 @@ func buildAuthorityEvidence(
 			}
 		}
 	}
-	if planned.missingState.Path() != "" && planned.native == nil && planned.protectionFence.identity == "" {
-		if err := builder.AddOwnershipRegistry(planned.paths.OwnershipRegistryPath, mutation.AccessShared, "missing-state-admission"); err != nil {
+	if planned.native == nil && planned.protectionFence.identity == "" && planned.stateAdmission().NeedsRegistryRead() {
+		if err := builder.AddMissingStateRegistryRead(planned.paths.OwnershipRegistryPath); err != nil {
 			return authorityEvidence{}, err
 		}
 	}

@@ -24,19 +24,11 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile/configuration"
 )
 
-func qualifiedReleaseStateMatches(observation mutation.DirectoryEntryAuthorityObservation, retained pathauthority.Exact) bool {
-	if fresh, present := observation.Exact(); present {
-		return fresh.Equal(retained)
-	}
-	missing, present := observation.Provisional()
-	return present && missing.CandidateKey() == retained.Key() && missing.CandidateWitness() == retained.Witness()
-}
-
 func selectAgentConfigReleaseOwner(pathsManifest string, observation mutation.DirectoryEntryAuthorityObservation, registry ownership.Registry) (stateauthority.Authority, error) {
 	var selected pathauthority.Exact
 	consider := func(owner stateauthority.Authority) error {
 		retained := owner.StatefileAuthority()
-		matches := qualifiedReleaseStateMatches(observation, retained)
+		matches := observation.MatchesRetainedWitness(retained)
 		// These provenance paths are already absolute and clean. Do not open
 		// a retained foreign manifest to classify its recorded owner.
 		sameManifest := owner.ManifestPath() == pathsManifest
@@ -184,7 +176,7 @@ func (candidate *agentConfigReleaseCandidate) qualifyMetadata(ctx context.Contex
 				continue
 			}
 			retained := claim.Address().PathAuthority()
-			if !qualifiedReleaseStateMatches(current, retained) {
+			if !current.MatchesRetainedWitness(retained) {
 				ambiguous := current.MatchesRetainedExact(retained)
 				if fresh, present := current.Exact(); present {
 					ambiguous = ambiguous || fresh.MatchesLegacyComparison(retained)

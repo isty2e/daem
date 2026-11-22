@@ -149,7 +149,7 @@ func executeWithDependencies(
 
 	var metadataErr error
 	revalidateState := func(ctx context.Context) error {
-		return ownershipobserve.RevalidateStateAdmission(ctx, planned.context.Paths, planned.context.PersistenceEpoch.MissingState())
+		return planned.stateAdmission().Revalidate(ctx, planned.context.Paths)
 	}
 	if planned.cleanup != nil {
 		cleanupSteps, err = planned.cleanup.Retire(ctx, options.RecoveryCleanupFilesystem, func(ctx context.Context) error {

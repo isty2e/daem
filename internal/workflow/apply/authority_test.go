@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -42,6 +44,38 @@ import (
 	"github.com/isty2e/daem/internal/workflow/readiness"
 	"github.com/isty2e/daem/test/outputtest"
 )
+
+func TestOrdinaryApplyReservesRegistryOnlyForMissingState(t *testing.T) {
+	manifest, _ := applyMetadataTransactionFixture(t)
+	paths := applyTestPaths(t, filepath.Dir(manifest))
+	for _, state := range []string{"absent", "present"} {
+		t.Run(state, func(t *testing.T) {
+			want := operationplan.NewBuilder(operationplan.RevisionsFirstEffect, nil, 0)
+			if state == "absent" {
+				if err := want.AddOwnershipRegistry(paths.OwnershipRegistryPath, mutation.AccessShared, "missing-state-admission"); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writeApplyStatefile(t, paths.StatefilePath, durable.EmptySnapshot())
+			}
+
+			prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifest})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer prepared.Close()
+			var registry []operationplan.Fact
+			for _, fact := range prepared.lifecycle.authorityEvidence.facts {
+				if fact.Kind() == operationplan.FactOwnershipRegistry {
+					registry = append(registry, fact)
+				}
+			}
+			if !slices.Equal(registry, want.Compile().Facts()) {
+				t.Fatalf("unexpected registry reservation for %s State: %+v", state, registry)
+			}
+		})
+	}
+}
 
 func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	planned := applyAuthorityTestPlan(t)

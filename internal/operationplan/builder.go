@@ -77,6 +77,12 @@ func (builder *Builder) AddOwnershipRegistry(path string, access mutation.Access
 	return nil
 }
 
+// AddMissingStateRegistryRead binds the admission check when no scoped
+// document reservation already covers the registry.
+func (builder *Builder) AddMissingStateRegistryRead(path string) error {
+	return builder.AddOwnershipRegistry(path, mutation.AccessShared, "missing-state-admission")
+}
+
 // AddDocumentWritePair distinguishes mutation/baseline intent from an
 // exclusive physical observation that must not become a protection scope.
 func (builder *Builder) AddDocumentWritePair(path, targetName, scope string) error {
