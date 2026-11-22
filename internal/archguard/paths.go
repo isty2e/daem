@@ -6,50 +6,31 @@ import (
 	"strings"
 )
 
-func internalPath(importPath string) (string, bool) {
-	if importPath == "internal" {
-		return importPath, true
+func (module goListModule) internalPath(importPath string) (string, bool) {
+	if path, ok := module.architecturePath(importPath); ok && isPackageOrChild(path, "internal") {
+		return path, true
 	}
-	if strings.HasPrefix(importPath, "internal/") {
-		return importPath, true
-	}
-	index := strings.LastIndex(importPath, "/internal/")
-	if index == -1 {
-		return "", false
-	}
-	return importPath[index+1:], true
+	return "", false
 }
 
-func (module goListModule) internalPath(importPath string) (string, bool) {
-	path, internal := internalPath(importPath)
-	if !internal || path == importPath {
-		return path, internal
-	}
-
-	// Workflow identity spans the whole subtree, including private Go packages.
-	// Keep the last-internal convention for unrelated architecture rules.
-	prefix := module.Path
-	if prefix == "" {
-		prefix, _, _ = strings.Cut(importPath, "/internal/")
-	}
-	relative, local := strings.CutPrefix(importPath, prefix+"/")
-	if local && isWorkflowPackage(relative) {
-		return relative, true
-	}
-	if module.Path != "" && isWorkflowPackage(path) {
-		if local && isPackageOrChild(relative, "internal") {
+func (module goListModule) architecturePath(importPath string) (string, bool) {
+	if module.Path != "" {
+		relative, local := strings.CutPrefix(importPath, module.Path+"/")
+		if local && (isPackageOrChild(relative, "internal") || isPackageOrChild(relative, "test")) {
 			return relative, true
 		}
 		return "", false
 	}
-	return path, true
-}
 
-func architecturePath(importPath string) (string, bool) {
+	// Without Module, a qualified path can contain several internal directories.
+	// Preserve the workflow subtree; other fixtures use the last directory marker.
+	if isPackageOrChild(importPath, "internal") || isPackageOrChild(importPath, "test") {
+		return importPath, true
+	}
+	if index := strings.Index(importPath, "/internal/workflow/"); index >= 0 {
+		return importPath[index+1:], true
+	}
 	for _, root := range []string{"internal", "test"} {
-		if importPath == root || strings.HasPrefix(importPath, root+"/") {
-			return importPath, true
-		}
 		marker := "/" + root + "/"
 		if index := strings.LastIndex(importPath, marker); index >= 0 {
 			return importPath[index+1:], true

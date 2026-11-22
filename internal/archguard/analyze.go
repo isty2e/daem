@@ -111,7 +111,7 @@ func productionReachablePackages(records []PackageRecord) map[string]bool {
 }
 
 func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFinding {
-	packagePath, owned := architecturePath(record.ImportPath)
+	packagePath, owned := record.Module.architecturePath(record.ImportPath)
 	if !owned || strings.HasPrefix(packagePath, "test/") {
 		return nil
 	}
@@ -122,7 +122,7 @@ func analyzeProductionTestSupportImports(record PackageRecord) []GuardrailFindin
 		if modulePrefix != "" && !strings.HasPrefix(importPath, modulePrefix) {
 			continue
 		}
-		imported, ownedImport := architecturePath(importPath)
+		imported, ownedImport := record.Module.architecturePath(importPath)
 		if !ownedImport || !isPackageOrChild(imported, "test") {
 			continue
 		}

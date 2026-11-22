@@ -357,7 +357,8 @@ Apply and Lock can retire completed records through `workspacecleanup`.
 Among the services, `nativeconfig` uses `readiness`, `workspacecleanup` uses
 `nativeconfig`, and `nativeconfig/invocation` uses both `nativeconfig` and
 `protection/invocation`. These permissions apply to direct imports by the named
-packages. A new subpackage does not inherit its parent's permissions.
+packages. Subpackages on either side need their own permission: access to
+`nativeconfig`, for example, does not grant access to `nativeconfig/invocation`.
 
 Operation-specific semantic count projections may remain workflow-owned under
 the retained compatibility seam. Physical lowering and capability consumption
@@ -424,6 +425,10 @@ In addition to the owner boundaries above, do not introduce:
 - resource-by-target, resource-by-operation, target-by-operation or
   operation-by-phase package matrices;
 - package, file, LOC or density reduction as acceptance criteria.
+
+The architecture checks use module-relative names for packages in the
+repository's `internal/` and `test/` trees. A second `internal/` directory
+inside a package path does not change which package the checks see.
 
 Semantic dependency and effect-boundary guards remain executable evidence.
 Report-only compiler and State Barrier shadow findings never fail the

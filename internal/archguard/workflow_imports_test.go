@@ -18,6 +18,8 @@ func TestWorkflowImportReport(t *testing.T) {
 		{"list", "status", []string{ruleWorkflowNestedImport}},
 		{"readiness", "status", []string{ruleWorkflowNestedImport}},
 		{"list", "protection/recovery", []string{ruleWorkflowNestedImport}},
+		{"list", "nativeconfig/invocation", []string{ruleWorkflowNestedImport}},
+		{"status", "workspacecleanup", []string{ruleWorkflowNestedImport}},
 		{"authoring", "workspacecleanup", []string{ruleWorkflowNestedImport}},
 		{"workspacecleanup", "readiness", []string{ruleWorkflowNestedImport}},
 		{"apply/internal/other", "status", []string{ruleWorkflowNestedImport}},
@@ -46,13 +48,42 @@ func TestWorkflowImportReport(t *testing.T) {
 	}
 }
 
-func TestUnclassifiedWorkflowWithoutWorkflowImports(t *testing.T) {
-	report := AnalyzeReport([]PackageRecord{{
-		Module:     goListModule{Path: "example.com/tool/plugin"},
-		ImportPath: "example.com/tool/plugin/internal/workflow/apply/other",
-		Imports:    []string{"fmt", "example.com/tool/internal/workflow/status"},
-	}})
-	if report.HasFailures() {
+func TestNestedWorkflowPackagesKeepTheirIdentityAcrossGuards(t *testing.T) {
+	module := goListModule{Path: "example.com/tool/plugin"}
+	const workflow = "internal/workflow/apply/internal/"
+	report := AnalyzeReport([]PackageRecord{
+		{
+			Module: module, ImportPath: module.Path + "/" + workflow + "desired",
+			Imports: []string{module.Path + "/internal/paths"},
+		},
+		{
+			Module: module, ImportPath: module.Path + "/" + workflow + "operationplan",
+			Imports: []string{"fmt"}, GoFiles: []string{"observe_darwin.go"},
+		},
+	})
+	if report.HasFailures() || report.HasShadowFindings() {
+		t.Fatalf("nested workflow packages were mistaken for top-level packages: %+v", report)
+	}
+}
+
+func TestForeignInternalImportsAreNotLocalPackages(t *testing.T) {
+	module := goListModule{Path: "example.com/tool/plugin"}
+	imports := []string{"example.com/tool/internal/workflow/status", "example.com/tool/internal/cli"}
+	report := AnalyzeReport([]PackageRecord{
+		{Module: module, ImportPath: module.Path + "/internal/desired", Imports: imports},
+		{Module: module, ImportPath: module.Path + "/internal/operationplan", Imports: imports},
+	})
+	if report.HasFailures() || report.HasShadowFindings() {
+		t.Fatalf("foreign imports were mistaken for repository packages: %+v", report)
+	}
+}
+
+func TestWorkflowReportWithoutModuleMetadata(t *testing.T) {
+	const prefix = "example.com/internal/project/"
+	const from, to = "internal/workflow/apply", "internal/workflow/apply/internal/other"
+	report := AnalyzeReport([]PackageRecord{{ImportPath: prefix + from, Imports: []string{prefix + to}}})
+	if len(report.Violations) != 1 || report.Violations[0].Rule != ruleWorkflowNestedImport ||
+		report.Violations[0].PackagePath != from || report.Violations[0].ImportPath != to {
 		t.Fatal(FormatAnalysisReport(report))
 	}
 }

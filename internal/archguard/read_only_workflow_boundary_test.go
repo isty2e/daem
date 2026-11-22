@@ -3,11 +3,9 @@ package archguard
 import "testing"
 
 func TestReadOnlyWorkflowBoundariesDoNotImportEffectOwners(t *testing.T) {
-	const modulePath = "github.com/isty2e/daem/"
-
 	readOnlyWorkflows := map[string]struct{}{
-		modulePath + "internal/workflow/diagnose": {},
-		modulePath + "internal/workflow/list":     {},
+		"internal/workflow/diagnose": {},
+		"internal/workflow/list":     {},
 	}
 	forbiddenImports := []string{
 		"internal/effect/execute",
@@ -19,11 +17,12 @@ func TestReadOnlyWorkflowBoundariesDoNotImportEffectOwners(t *testing.T) {
 	}
 
 	for _, record := range loadRepoPackageRecords(t) {
-		if _, isReadOnlyWorkflow := readOnlyWorkflows[record.ImportPath]; !isReadOnlyWorkflow {
+		packagePath, _ := record.Module.internalPath(record.ImportPath)
+		if _, isReadOnlyWorkflow := readOnlyWorkflows[packagePath]; !isReadOnlyWorkflow {
 			continue
 		}
 		for _, imported := range record.Imports {
-			internalImport, internal := internalPath(imported)
+			internalImport, internal := record.Module.internalPath(imported)
 			if internal && matchesAnyInternalImport(internalImport, forbiddenImports) {
 				t.Errorf("read-only workflow %q imports effect owner %q", record.ImportPath, imported)
 			}
