@@ -416,8 +416,21 @@ func requireDirectoryAncestor(path string) error {
 }
 
 func selectedAccessPath(selection pathSelection) string {
-	path := selection.anchorPath
-	for _, component := range selection.missingComponents {
+	path, suffix := selection.anchorPath, selection.missingComponents
+	if len(suffix) == 0 {
+		return filepath.Clean(path)
+	}
+	if filepath.Separator == '/' && filepath.IsAbs(path) {
+		if len(suffix) == 1 {
+			return filepath.Join(path, suffix[0])
+		}
+		parts := make([]string, len(suffix)+1)
+		parts[0] = path
+		copy(parts[1:], suffix)
+		return filepath.Join(parts...)
+	}
+
+	for _, component := range suffix {
 		path = filepath.Join(path, component)
 	}
 	return filepath.Clean(path)

@@ -23,18 +23,17 @@ scale_packages=(
 product_package_paths() {
 	local module_path
 	module_path=$(env GOENV=off GOFLAGS='' GOWORK=off go list -m -f '{{.Path}}')
+	# Start long-running CLI suites early so they can overlap with shorter tests.
 	env GOENV=off GOFLAGS='' GOWORK=off \
 		go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... |
-		while IFS= read -r package_path; do
-			case "${package_path}" in
-			"${module_path}/internal/archguard" | "${module_path}/test/tooling")
-				continue
-				;;
-			esac
-			if [[ -n ${package_path} ]]; then
-				printf '%s\n' "${package_path}"
-			fi
-		done
+		awk -v root="${module_path}/" '
+			BEGIN { lifecycle = root "test/cli/lifecycle/" }
+			!NF || $0 == root "internal/archguard" || $0 == root "test/tooling" { next }
+			$0 == lifecycle "hostconfig" || $0 == lifecycle "nativerefresh" ||
+				$0 == lifecycle "nativeextension/invocation" || $0 == lifecycle "nativeextension/settlement" { print; next }
+			{ remaining[++n] = $0 }
+			END { for (i = 1; i <= n; i++) print remaining[i] }
+		'
 }
 
 core_package_paths() {

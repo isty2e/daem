@@ -97,11 +97,18 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 		for _, fault := range []string{"key", "outside", "mode", "malformed", "command", "command-mode", "tighten"} {
 			t.Run(string(scope)+"/"+fault, func(t *testing.T) {
-				fixture := newNativePiRefreshFixture(t, scope, fault)
+				fixture := nativefixture.NewInstalledPiWithPreferences(t, scope)
+				setPiRefreshCommand(t, fixture, fault)
+				if fault == "tighten" {
+					if err := os.Chmod(fixture.Settings, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
 				before, err := os.Stat(fixture.Settings)
 				if err != nil {
 					t.Fatal(err)
 				}
+
 				code, stdout, stderr := fixture.Run("refresh", "extension", "tools", "--yes", "--json")
 				want := "partial"
 				if fault == "command" {
@@ -113,10 +120,14 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 				if (code == 0) != (fault == "tighten") || decodeNativeRefreshClass(t, stdout) != want {
 					t.Fatalf("wrong qualified outcome: %d %s %s", code, stdout, stderr)
 				}
-				testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+				testkit.AssertFileContent(t, fixture.Calls, "install\nrefresh\n")
+
 				after, err := os.Stat(fixture.Settings)
 				if err != nil || after.Mode().Perm()&^before.Mode().Perm() != 0 {
 					t.Fatal("refresh left broadened access", err)
+				}
+				if fault == "tighten" && (before.Mode().Perm() != 0o644 || after.Mode().Perm() != 0o600) {
+					t.Fatalf("refresh permissions: got %04o -> %04o, want 0644 -> 0600", before.Mode().Perm(), after.Mode().Perm())
 				}
 				if fault == "malformed" {
 					testkit.AssertFileContent(t, fixture.Settings, "[")
@@ -135,11 +146,12 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 						t.Fatal("refresh silently repaired unexpected content")
 					}
 				}
+
 				t.Setenv("DAEM_TEST_REFRESH_FAULT", "")
 				testkit.WriteFile(t, filepath.Dir(fixture.Settings), "settings.json", `{"theme":"fixture-theme","foreign":{"retained":true},"packages":["npm:@acme/keep@1","git:github.com/acme/pi-tools@v1"]}`)
 				fixture.Require(t, "refresh", "extension", "tools", "--yes", "--json")
 				fixture.Require(t, "status", "--check", "--json")
-				testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\nrefresh\n")
+				testkit.AssertFileContent(t, fixture.Calls, "install\nrefresh\nrefresh\n")
 				testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 			})
 		}
@@ -299,6 +311,12 @@ func newNativePiRefreshFixture(t *testing.T, scope target.Scope, fault string) n
 	t.Helper()
 	fixture := nativefixture.NewPiInvocationAtScope(t, "", scope)
 	fixture.Require(t, "apply", "--yes", "--json")
+	setPiRefreshCommand(t, fixture, fault)
+	return fixture
+}
+
+func setPiRefreshCommand(t *testing.T, fixture nativefixture.PiInvocation, fault string) {
+	t.Helper()
 	bin := filepath.Join(filepath.Dir(fixture.Workspace), "bin")
 	testkit.WriteFile(t, bin, "pi", `#!/bin/sh
 set -eu
@@ -329,7 +347,6 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("DAEM_TEST_REFRESH_FAULT", fault)
-	return fixture
 }
 
 func decodeNativeRefreshClass(t *testing.T, content string) string {
