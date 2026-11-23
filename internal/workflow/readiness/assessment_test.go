@@ -445,10 +445,9 @@ func parseTestManifest(t *testing.T, content string) desired.Environment {
 func testSelection(t *testing.T, environment desired.Environment, requested ...string) targetselection.Selection {
 	t.Helper()
 
-	availableTargets := fromEnvironment(environment)
-	selection, err := targetselection.ForAvailableTargets(availableTargets, requested)
+	selection, err := SelectOutputInventoryTargets(environment, lock.File{}, durable.EmptySnapshot(), requested)
 	if err != nil {
-		t.Fatalf("ForAvailableTargets returned error: %v", err)
+		t.Fatalf("SelectOutputInventoryTargets returned error: %v", err)
 	}
 	return selection
 }

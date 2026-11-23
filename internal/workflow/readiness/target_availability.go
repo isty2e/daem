@@ -15,12 +15,22 @@ func FromManifestLockAndState(
 	state durable.Snapshot,
 	globalClaims durablecarrier.GlobalCarrierClaims,
 ) ([]target.Target, error) {
-	available := fromEnvironment(environment)
-
-	targets := make(map[target.Target]struct{}, len(available)+locked.Locked.Len())
-	for _, selected := range available {
-		targets[selected] = struct{}{}
+	targets := projectionTargetSet(environment, locked, state)
+	for _, pending := range state.PendingCarrierInstalls() {
+		targets[pending.Identity().Target()] = struct{}{}
 	}
+	for _, claim := range state.ManagedCarrierClaims() {
+		targets[claim.Identity().Target()] = struct{}{}
+	}
+	for _, claim := range globalClaims.Claims() {
+		targets[claim.Identity().Target()] = struct{}{}
+	}
+
+	return orderedTargets(targets), nil
+}
+
+func projectionTargetSet(environment desired.Environment, locked lock.File, state durable.Snapshot) map[target.Target]struct{} {
+	targets := declaredTargetSet(environment)
 	for _, subject := range locked.Locked.Subjects() {
 		if realization, ok := subject.Realization(); ok {
 			for _, consumer := range realization.ConsumerTargets() {
@@ -36,23 +46,11 @@ func FromManifestLockAndState(
 	for _, managedAggregate := range state.ManagedAggregates() {
 		targets[managedAggregate.Contribution().Target()] = struct{}{}
 	}
-	for _, pending := range state.PendingCarrierInstalls() {
-		targets[pending.Identity().Target()] = struct{}{}
-	}
-	for _, claim := range state.ManagedCarrierClaims() {
-		targets[claim.Identity().Target()] = struct{}{}
-	}
-	for _, claim := range globalClaims.Claims() {
-		targets[claim.Identity().Target()] = struct{}{}
-	}
-
-	return orderedTargets(targets), nil
+	return targets
 }
 
-// fromEnvironment returns the exact target availability contributed by
-// authored desired families. Top-level targets and extension relations are
-// intentionally not part of this command-selection algebra.
-func fromEnvironment(environment desired.Environment) []target.Target {
+// Top-level targets and extension relations do not contribute declared projection targets.
+func declaredTargetSet(environment desired.Environment) map[target.Target]struct{} {
 	targets := make(map[target.Target]struct{})
 	add := func(values []target.Target) {
 		for _, selected := range values {
@@ -79,7 +77,7 @@ func fromEnvironment(environment desired.Environment) []target.Target {
 			add([]target.Target{binding.Target()})
 		}
 	}
-	return orderedTargets(targets)
+	return targets
 }
 
 func orderedTargets(targets map[target.Target]struct{}) []target.Target {
