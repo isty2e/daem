@@ -276,19 +276,31 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []pr
 	}
 	physical := resolved.path
 	var incomplete protectionFailures
-	routes := make([]mutation.DirectoryEntryAuthorityObservation, len(aliases))
+	type facetSelection struct {
+		route     mutation.DirectoryEntryAuthorityObservation
+		valid     [2]bool
+		sameExact bool
+	}
+	selections := make([]facetSelection, len(aliases))
 	for index, alias := range aliases {
+		selection := &selections[index]
+		selection.valid[1] = alias.observation.Validate() == nil
 		route, err := observer.entry(ctx, alias.route)
 		if err != nil {
 			incomplete.add(unverified(alias.address, ProtectionDocumentUnavailable, configuration.PathReservation{}, err))
 			continue
 		}
-		routes[index] = route
+		selection.route = route
+		selection.valid[0] = route.Validate() == nil
+		routeKey, routeExact := route.Exact()
+		aliasKey, aliasExact := alias.observation.Exact()
+		selection.sameExact = selection.valid[0] && selection.valid[1] && routeExact && aliasExact && routeKey.Equal(aliasKey)
 	}
 	checkRegion := func(root mutation.DirectoryEntryAuthorityObservation, prefix string) error {
 		for index, alias := range aliases {
-			for _, selected := range []mutation.DirectoryEntryAuthorityObservation{routes[index], alias.observation} {
-				if selected.Validate() != nil {
+			selection := &selections[index]
+			for i, selected := range [...]mutation.DirectoryEntryAuthorityObservation{selection.route, alias.observation} {
+				if !selection.valid[i] {
 					continue
 				}
 				exactRoot, exact := root.Exact()
@@ -319,11 +331,16 @@ func (observer *physicalObserver) requireFacet(ctx context.Context, aliases []pr
 	}
 	checkObservation := func(endpoint mutation.DirectoryEntryAuthorityObservation, reservation configuration.PathReservation, label string) error {
 		for index, alias := range aliases {
-			for _, selected := range []mutation.DirectoryEntryAuthorityObservation{routes[index], alias.observation} {
-				if selected.Validate() != nil {
+			selection := &selections[index]
+			var relation protectionRelation
+			for i, selected := range [...]mutation.DirectoryEntryAuthorityObservation{selection.route, alias.observation} {
+				if !selection.valid[i] {
 					continue
 				}
-				switch protectionPathRelation(endpoint, selected) {
+				if i == 0 || !selection.sameExact {
+					relation = protectionPathRelation(endpoint, selected)
+				}
+				switch relation {
 				case protectionOverlap:
 					return &ProtectionError{kind: ProtectionReserved, address: alias.address, host: host, reference: facet.Reference(), reservation: reservation, endpoint: label, cause: configuration.ErrReserved}
 				case protectionIndeterminate:
