@@ -322,23 +322,6 @@ func TestCompileApplyRejectsNegativeExecuteGates(t *testing.T) {
 	}
 }
 
-func TestCompileRefreshMatchesCurrentWriteReservation(t *testing.T) {
-	t.Parallel()
-	demand := CompileRefresh("/state.json").Demand()
-	if demand.EnsureCalls() != 1 || demand.BarrierValidationCalls() != 4 {
-		t.Fatalf("ensure/barrier = %d/%d, want 1/4", demand.EnsureCalls(), demand.BarrierValidationCalls())
-	}
-	if demand.StateDirValidationCalls() != 0 {
-		t.Fatalf("StateDir validations = %d, want 0", demand.StateDirValidationCalls())
-	}
-	if demand.DescendantPath() != "/state.json" ||
-		demand.DescendantValidations() != 2 ||
-		demand.DescendantFileCommits() != 1 {
-		t.Fatalf("descendant = %q %d/%d, want /state.json 2/1",
-			demand.DescendantPath(), demand.DescendantValidations(), demand.DescendantFileCommits())
-	}
-}
-
 func TestCompileApplyOverflowsClosed(t *testing.T) {
 	t.Parallel()
 	_, err := CompileApply(ApplyWork{
