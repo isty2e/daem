@@ -10,8 +10,6 @@ const (
 	EnvelopeNone EnvelopeKind = iota
 	// EnvelopeApply is the apply forward-effect envelope.
 	EnvelopeApply
-	// EnvelopeRefresh is the refresh attempt-persistence envelope.
-	EnvelopeRefresh
 )
 
 // ObligationKind is the closed semantic-work taxonomy. Physical path, entry,
@@ -142,7 +140,6 @@ func (demand Demand) Empty() bool {
 }
 
 // NewDemand reconstructs semantic demand for direct consumer test fixtures.
-// Production workflows currently use CompileApply or CompileRefresh.
 func NewDemand(
 	ensureCalls int,
 	barrierValidationCalls int,
@@ -413,24 +410,6 @@ func compileApplyPrerequisite(work ApplyWork) (Envelope, error) {
 	obligations := append(prefix.Obligations(), Obligation{kind: ObligationBarrierValidation, count: 1})
 	obligations = append(obligations, remainder.Obligations()...)
 	return Envelope{kind: EnvelopeApply, obligations: obligations, demand: demand}, nil
-}
-
-// CompileRefresh compiles the refresh attempt-persistence envelope.
-func CompileRefresh(statefilePath string) Envelope {
-	builder := envelopeBuilder{kind: EnvelopeRefresh}
-	builder.add(ObligationStateDirEnsure, 1)
-	builder.add(ObligationBarrierValidation, 4)
-	builder.add(ObligationStatefileValidation, 2)
-	builder.add(ObligationStatefileCommit, 1)
-	builder.demand = Demand{
-		ensureCalls:            1,
-		barrierValidationCalls: 4,
-		descendantPath:         statefilePath,
-		descendantBindings:     1,
-		descendantValidations:  2,
-		descendantFileCommits:  1,
-	}
-	return builder.compile()
 }
 
 // CompileNone returns the explicit no-effect envelope.

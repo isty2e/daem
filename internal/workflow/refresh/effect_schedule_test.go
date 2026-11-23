@@ -6,24 +6,37 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
-func TestRefreshEffectStructureMatchesLegacyReservationDemand(t *testing.T) {
+func TestRefreshReservationCoversPersistedAttempt(t *testing.T) {
 	t.Parallel()
 	structure, err := compileRefreshEffectStructure()
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled, err := structure.LegacyDemand()
+	alternatives, err := structure.DemandAlternatives()
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := operationplan.CompileRefresh("/state.json").Demand()
-	if compiled.EnsureCalls() != legacy.EnsureCalls() ||
-		compiled.BarrierValidationCalls() != legacy.BarrierValidationCalls() ||
-		compiled.StateDirValidationCalls() != legacy.StateDirValidationCalls() ||
-		compiled.DescendantBindings() != legacy.DescendantBindings() ||
-		compiled.DescendantValidations() != legacy.DescendantValidations() ||
-		compiled.DescendantFileCommits() != legacy.DescendantFileCommits() {
-		t.Fatalf("compiled demand = %#v, legacy = %#v", compiled, legacy)
+
+	// A persisted attempt covers all reserved work on the early-exit paths.
+	if len(alternatives) != 1 {
+		t.Fatalf("reservation alternatives = %+v, want one", alternatives)
+	}
+	demand := alternatives[0]
+	for _, check := range []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"state directory establishments", demand.EnsureCalls(), 1},
+		{"barrier validations", demand.BarrierValidationCalls(), 4},
+		{"state directory validations", demand.StateDirValidationCalls(), 0},
+		{"state file bindings", demand.DescendantBindings(), 1},
+		{"state file validations", demand.DescendantValidations(), 2},
+		{"state file publications", demand.DescendantFileCommits(), 1},
+	} {
+		if check.got != check.want {
+			t.Errorf("%s = %d, want %d", check.name, check.got, check.want)
+		}
 	}
 }
 
