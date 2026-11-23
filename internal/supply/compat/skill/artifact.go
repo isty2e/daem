@@ -22,6 +22,7 @@ func validateSkillFile(
 	sourceID artifact.SourceID,
 ) error {
 	var kind access.EntryKind
+	// Continue past a match so later entry errors and the final root verification are not skipped.
 	err := view.VisitDirectory(ctx, ".", func(entry access.Entry) error {
 		if entry.Name() == "SKILL.md" {
 			kind = entry.Kind()
