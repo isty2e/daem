@@ -7,7 +7,6 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
-	"github.com/isty2e/daem/internal/topology"
 )
 
 const (
@@ -66,7 +65,7 @@ func PrintHostRouteAttemptsWithOptions(output io.Writer, attempts []durableattem
 	fmt.Fprintf(output, "host route attempts: %s\n", CountLabel(len(attempts), "history-only diagnostic", "history-only diagnostics"))
 	for _, attempt := range attempts {
 		if !options.Verbose {
-			fmt.Fprintf(output, "  - last host %s attempt subject=%q target=%s scope=%s: %s; %s", attempt.Operation(), hostRouteAttemptSubjectString(attempt.Subject()), attempt.Target(), attempt.Scope(), attempt.ObservationSummary(), attempt.PostconditionSummary())
+			fmt.Fprintf(output, "  - last host %s attempt subject=%q target=%s scope=%s: %s; %s", attempt.Operation(), displaySubjectID(attempt.Subject()), attempt.Target(), attempt.Scope(), attempt.ObservationSummary(), attempt.PostconditionSummary())
 			printEffectPostconditionSummaries(output, attempt.EffectPostconditions())
 			fmt.Fprintln(output)
 			fmt.Fprintln(output, "    host may retain packages, caches, credentials, trust data, or logs")
@@ -77,7 +76,7 @@ func PrintHostRouteAttemptsWithOptions(output io.Writer, attempts []durableattem
 			"  - evidence=%s authority=%s subject=%q target=%s scope=%s operation=%s route_id=%q route_request_hash=%q result_class=%s reason=%s attempt_observed=%t observation=%s postcondition=%s grants_apply_skip_authority=%t non_claims=%q",
 			hostRouteAttemptEvidenceKind,
 			hostRouteAttemptAuthority,
-			hostRouteAttemptSubjectString(attempt.Subject()),
+			displaySubjectID(attempt.Subject()),
 			attempt.Target(),
 			attempt.Scope(),
 			attempt.Operation(),
@@ -119,7 +118,7 @@ func hostRouteJSONAttempts(attempts []durableattempt.HostRouteAttempt) []hostRou
 		row := hostRouteAttemptJSON{
 			EvidenceKind:             hostRouteAttemptEvidenceKind,
 			Authority:                hostRouteAttemptAuthority,
-			Subject:                  hostRouteAttemptSubjectJSON(attempt.Subject()),
+			Subject:                  subjectIDJSON(attempt.Subject()),
 			Target:                   string(attempt.Target()),
 			Scope:                    string(attempt.Scope()),
 			Operation:                string(attempt.Operation()),
@@ -184,16 +183,4 @@ func effectPostconditionSummariesJSON(
 
 func hostRouteNonClaims() []string {
 	return append([]string(nil), hostRouteAttemptNonClaims...)
-}
-
-func hostRouteAttemptSubjectJSON(subject topology.SubjectID) planJSONSubject {
-	return planJSONSubject{
-		Kind:      string(subject.Kind()),
-		Namespace: subject.Namespace(),
-		Name:      subject.Key(),
-	}
-}
-
-func hostRouteAttemptSubjectString(subject topology.SubjectID) string {
-	return subjectString(hostRouteAttemptSubjectJSON(subject))
 }

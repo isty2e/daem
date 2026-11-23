@@ -12,7 +12,6 @@ import (
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
-	"github.com/isty2e/daem/internal/topology"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
@@ -158,7 +157,7 @@ func printDelegateActionBody(output io.Writer, action reconcile.DelegateAction, 
 	}
 	fmt.Fprintf(output,
 		"    command plan: subject=%q target=%s scope=%s status=%s outcome=%s schedules_attempt=%t runner=%s command=%s args=%s env_bindings=%s environment=%s pin=%s timeout=%s",
-		subjectStringFromID(action.Subject()), action.Target(), action.Scope(), action.Disposition(),
+		action.Subject().String(), action.Target(), action.Scope(), action.Disposition(),
 		action.PolicyOutcome(), action.SchedulesAttempt(), plan.Runner().Kind(), Quote(command.Executable()),
 		quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy,
 		plan.PinPolicy(), delegateTimeoutPolicy())
@@ -192,7 +191,7 @@ func PrintDelegateAttemptsWithOptions(output io.Writer, results []DelegateAttemp
 	for _, result := range results {
 		attempt := result.Attempt
 		if !options.Verbose {
-			fmt.Fprintf(output, "  - subject=%q target=%s scope=%s: %s; %s\n", subjectString(subjectIDJSON(attempt.Subject())), attempt.Target(), attempt.Scope(), result.Observation, result.Postcondition)
+			fmt.Fprintf(output, "  - subject=%q target=%s scope=%s: %s; %s\n", displaySubjectID(attempt.Subject()), attempt.Target(), attempt.Scope(), result.Observation, result.Postcondition)
 			continue
 		}
 		fmt.Fprintf(
@@ -200,7 +199,7 @@ func PrintDelegateAttemptsWithOptions(output io.Writer, results []DelegateAttemp
 			"  - evidence=%s authority=%s subject=%q target=%s scope=%s status=%s reason=%s process_reason=%s workdir_authority_failed=%t observation=%s postcondition=%s",
 			delegateAttemptEvidenceKind,
 			delegateAttemptAuthority,
-			subjectString(subjectIDJSON(attempt.Subject())),
+			displaySubjectID(attempt.Subject()),
 			attempt.Target(),
 			attempt.Scope(),
 			attempt.Status(),
@@ -337,18 +336,6 @@ func delegateJSONDependencies(dependencies []reconcile.DelegateDependency) []del
 	return result
 }
 
-func subjectIDJSON(subject topology.SubjectID) planJSONSubject {
-	return planJSONSubject{
-		Kind:      string(subject.Kind()),
-		Namespace: subject.Namespace(),
-		Name:      subject.Key(),
-	}
-}
-
-func subjectStringFromID(subject topology.SubjectID) string {
-	return subject.String()
-}
-
 func delegateAttemptReason(reason delegate.Reason) string {
 	if reason == "" {
 		return "none"
@@ -397,7 +384,7 @@ func delegateDependencyList(dependencies []reconcile.DelegateDependency) string 
 	}
 	values := make([]string, 0, len(dependencies))
 	for _, dependency := range dependencies {
-		values = append(values, string(dependency.Kind)+":"+strconv.Quote(subjectStringFromID(dependency.Subject)))
+		values = append(values, string(dependency.Kind)+":"+strconv.Quote(dependency.Subject.String()))
 	}
 	return strings.Join(values, ",")
 }
