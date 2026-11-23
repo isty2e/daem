@@ -13,31 +13,36 @@ func ValidateSkillArtifact(ctx context.Context, view access.View, sourceID artif
 	if view.Kind() != artifact.ArtifactKindDirectory {
 		return fmt.Errorf("skill source %q must resolve to a directory", sourceID)
 	}
-	_, err := exactSkillFile(ctx, view, sourceID)
-	return err
+	return validateSkillFile(ctx, view, sourceID)
 }
 
-func exactSkillFile(
+func validateSkillFile(
 	ctx context.Context,
 	view access.View,
 	sourceID artifact.SourceID,
-) (access.Entry, error) {
-	entries, err := view.ReadDirectory(ctx, ".")
+) error {
+	var kind access.EntryKind
+	err := view.VisitDirectory(ctx, ".", func(entry access.Entry) error {
+		if entry.Name() == "SKILL.md" {
+			kind = entry.Kind()
+		}
+		return nil
+	})
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
-		return access.Entry{}, fmt.Errorf("read skill source %q directory: %w", sourceID, err)
+		return fmt.Errorf("read skill source %q directory: %w", sourceID, err)
 	}
-	for _, entry := range entries {
-		if entry.Name() != "SKILL.md" {
-			continue
-		}
-		switch entry.Kind() {
-		case access.EntryKindFile:
-			return entry, nil
-		case access.EntryKindSymlink:
-			return access.Entry{}, fmt.Errorf("skill source %q has SKILL.md as a symlink", sourceID)
-		default:
-			return access.Entry{}, fmt.Errorf("skill source %q has SKILL.md as a non-regular file", sourceID)
-		}
+
+	switch kind {
+	case "":
+		return fmt.Errorf("skill source %q is missing SKILL.md", sourceID)
+	case access.EntryKindFile:
+		return nil
+	case access.EntryKindSymlink:
+		return fmt.Errorf("skill source %q has SKILL.md as a symlink", sourceID)
+	default:
+		return fmt.Errorf("skill source %q has SKILL.md as a non-regular file", sourceID)
 	}
-	return access.Entry{}, fmt.Errorf("skill source %q is missing SKILL.md", sourceID)
 }
