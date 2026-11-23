@@ -299,6 +299,31 @@ type globalCarrierBatchSettlementCallbacks struct {
 	validateAfter  func() error
 }
 
+func guardedGlobalCarrierBatch(
+	ctx context.Context,
+	options runOptions,
+	persist func() (durablecarrier.GlobalCarrierClaims, int, error),
+) globalCarrierBatchSettlementCallbacks {
+	return globalCarrierBatchSettlementCallbacks{
+		validateBefore: func() error {
+			if options.validateBeforeEffects == nil {
+				return fmt.Errorf("global carrier settlement effect validation is required")
+			}
+			return options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
+		},
+		persist: persist,
+		validateAfter: func() error {
+			if options.validateStateDir == nil || options.acceptVisibilityChanges == nil {
+				return fmt.Errorf("global carrier settlement post-commit validation is required")
+			}
+			if err := options.validateStateDir(ctx); err != nil {
+				return err
+			}
+			return options.acceptVisibilityChanges(ctx)
+		},
+	}
+}
+
 // Keep the recovery successor without treating this publication's membership
 // changes as confirmed. Later validation failures do not carry this marker.
 // Execution stops at the first failed global publication.

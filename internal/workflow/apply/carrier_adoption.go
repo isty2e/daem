@@ -6,7 +6,6 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 )
@@ -178,51 +177,34 @@ func commitGlobalCarrierAdoptions(
 		registryPath,
 		adoptions,
 		current,
-		globalCarrierBatchSettlementCallbacks{
-			validateBefore: func() error {
-				if options.validateBeforeEffects == nil {
-					return fmt.Errorf("global carrier settlement effect validation is required")
-				}
-				return options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
-			},
-			persist: func() (durablecarrier.GlobalCarrierClaims, int, error) {
-				successor, _, err := current.WithClaims(adoptions)
-				if err != nil {
-					return current, 0, err
-				}
-				if err := ctx.Err(); err != nil {
-					return current, 0, err
-				}
-				options.markAttempted()
-				store, err := carrierclaimstore.New(registryPath)
-				if err != nil {
-					return current, 0, err
-				}
-				observed, persistErr := store.UpsertAllIfCurrent(ctx, current, adoptions, options.ownerReferences...)
-				next, persistErr := globalCarrierClaimsAfterPersistence(
-					current,
-					successor,
-					observed,
-					persistErr,
-				)
-				if persistErr != nil {
-					return next, 0, fmt.Errorf("commit global carrier adoptions: %w", persistErr)
-				}
-				count := len(next.Claims()) - len(current.Claims())
-				if count < 0 {
-					return current, 0, fmt.Errorf("global carrier adoption removed retained claims")
-				}
-				return next, count, nil
-			},
-			validateAfter: func() error {
-				if options.validateStateDir == nil || options.acceptVisibilityChanges == nil {
-					return fmt.Errorf("global carrier settlement post-commit validation is required")
-				}
-				if err := options.validateStateDir(ctx); err != nil {
-					return err
-				}
-				return options.acceptVisibilityChanges(ctx)
-			},
-		},
+		guardedGlobalCarrierBatch(ctx, options, func() (durablecarrier.GlobalCarrierClaims, int, error) {
+			successor, _, err := current.WithClaims(adoptions)
+			if err != nil {
+				return current, 0, err
+			}
+			if err := ctx.Err(); err != nil {
+				return current, 0, err
+			}
+			options.markAttempted()
+			store, err := carrierclaimstore.New(registryPath)
+			if err != nil {
+				return current, 0, err
+			}
+			observed, persistErr := store.UpsertAllIfCurrent(ctx, current, adoptions, options.ownerReferences...)
+			next, persistErr := globalCarrierClaimsAfterPersistence(
+				current,
+				successor,
+				observed,
+				persistErr,
+			)
+			if persistErr != nil {
+				return next, 0, fmt.Errorf("commit global carrier adoptions: %w", persistErr)
+			}
+			count := len(next.Claims()) - len(current.Claims())
+			if count < 0 {
+				return current, 0, fmt.Errorf("global carrier adoption removed retained claims")
+			}
+			return next, count, nil
+		}),
 	)
 }

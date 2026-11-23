@@ -15,7 +15,6 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -147,34 +146,5 @@ func AssessOutputInventory(
 
 // SelectOutputInventoryTargets uses only declared, locked and retained targets.
 func SelectOutputInventoryTargets(environment desired.Environment, locked lock.File, state durable.Snapshot, values []string) (targetselection.Selection, error) {
-	return targetselection.ForAvailableTargets(outputInventoryAvailableTargets(environment, locked, state), values)
-}
-
-func outputInventoryAvailableTargets(
-	environment desired.Environment,
-	locked lock.File,
-	state durable.Snapshot,
-) []target.Target {
-	targets := make(map[target.Target]struct{})
-	for _, selected := range fromEnvironment(environment) {
-		targets[selected] = struct{}{}
-	}
-	for _, subject := range locked.Locked.Subjects() {
-		realization, realized := subject.Realization()
-		if !realized {
-			continue
-		}
-		for _, consumer := range realization.ConsumerTargets() {
-			targets[consumer] = struct{}{}
-		}
-	}
-	for _, managedPath := range state.ManagedPaths() {
-		for _, consumer := range managedPath.ConsumerTargets() {
-			targets[consumer] = struct{}{}
-		}
-	}
-	for _, managedAggregate := range state.ManagedAggregates() {
-		targets[managedAggregate.Contribution().Target()] = struct{}{}
-	}
-	return orderedTargets(targets)
+	return targetselection.ForAvailableTargets(orderedTargets(projectionTargetSet(environment, locked, state)), values)
 }

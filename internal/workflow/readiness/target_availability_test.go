@@ -131,6 +131,11 @@ func TestFromManifestLockAndStateIncludesRetainedCarrierFactTarget(t *testing.T)
 	if !reflect.DeepEqual(got, []target.Target{target.TargetClaudeCode}) {
 		t.Fatalf("targets = %#v, want Claude Code from retained carrier authority", got)
 	}
+
+	inventory, err := SelectOutputInventoryTargets(emptyEnvironment(t), lock.File{}, state, nil)
+	if err != nil || len(inventory.Targets()) != 0 {
+		t.Fatalf("output inventory with only a pending carrier install = %v, %v; want no targets", inventory, err)
+	}
 }
 
 func TestFromManifestLockAndStateIncludesManagedCarrierClaimTarget(t *testing.T) {

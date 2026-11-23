@@ -125,7 +125,7 @@ func printVerboseAggregateRows(output io.Writer, decisions []reconcile.Aggregate
 			Escape(string(decision.Reason())),
 		)
 		if _, isMCP := topologymcp.ServerID(decision.Subject()); isMCP {
-			fmt.Fprintf(output, " subject=%s", Quote(subjectStringFromID(decision.Subject())))
+			fmt.Fprintf(output, " subject=%s", Quote(decision.Subject().String()))
 		}
 		if decision.Detail() != "" {
 			fmt.Fprintf(output, " detail=%s", Quote(decision.Detail()))

@@ -253,7 +253,12 @@ func planJSONSubjectFor(subject topology.SubjectID) *planJSONSubject {
 	if subject.IsZero() {
 		return nil
 	}
-	return &planJSONSubject{
+	row := subjectIDJSON(subject)
+	return &row
+}
+
+func subjectIDJSON(subject topology.SubjectID) planJSONSubject {
+	return planJSONSubject{
 		Kind:      string(subject.Kind()),
 		Namespace: subject.Namespace(),
 		Name:      subject.Key(),
@@ -262,6 +267,10 @@ func planJSONSubjectFor(subject topology.SubjectID) *planJSONSubject {
 
 func subjectString(subject planJSONSubject) string {
 	return subject.Kind + "/" + subject.Namespace + "/" + subject.Name
+}
+
+func displaySubjectID(subject topology.SubjectID) string {
+	return subjectString(subjectIDJSON(subject))
 }
 
 func managedPathSafetyState(decision reconcile.ManagedPathDecision) (string, bool) {
