@@ -211,6 +211,10 @@ distinct. [Exact parity](#exact-parity) includes every currently identity-bearin
 even diagnostic detail. Unifying or removing projections requires a separate
 versioned compatibility decision.
 
+For Apply, the workflow projects private reconciliation and observation facts
+into named JSON fragments. The operation-plan compiler owns the enclosing
+fields, their order, serialization and hashing; it treats each fragment as opaque.
+
 ### Effect envelopes
 
 Where an effect envelope is used, it is typed and ordered. It preserves the
