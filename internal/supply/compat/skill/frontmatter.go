@@ -19,7 +19,7 @@ func LoadSkillFrontmatter(
 	view access.View,
 	sourceID artifact.SourceID,
 ) (SkillFrontmatter, error) {
-	if _, err := exactSkillFile(ctx, view, sourceID); err != nil {
+	if err := validateSkillFile(ctx, view, sourceID); err != nil {
 		return SkillFrontmatter{}, err
 	}
 	content, err := ReadSkillDocument(ctx, view, "SKILL.md")
