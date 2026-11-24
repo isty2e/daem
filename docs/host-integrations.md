@@ -528,9 +528,10 @@ unrelated resources. It does not prove runtime unload or approve trust. Bundled
 contributions, ordinary update reconciliation, prune and runtime readiness remain
 deferred or blocked.
 
-Plugin commands can run alongside Codex/Pi settings keys when the private Claude
-config root (and project `.claude` namespace for project commands) is physically
-separate from those managed files. Overlapping root aliases refuse before effects.
+Claude Code plugin commands can run in the same apply as managed `agent_config`
+keys when the files containing those keys are outside Claude Code's private
+config root and, for project commands, outside the project's `.claude` directory.
+Daem rejects overlapping paths, including aliases, before applying changes.
 See [agent configuration](manifest.md#agent-configuration) for sequencing and recovery.
 
 ## OpenCode/Pi Plugin-Package Route Summary
@@ -632,9 +633,10 @@ stores, marketplace/source setup and IDE state. Opaque/local-source removal,
 project plugins, import/link, enable/disable, dedicated or ordinary update,
 prune, bundled contribution ownership and runtime readiness are not supported.
 
-Plugin commands can run alongside Codex/Pi settings keys when the shared config
-and plugin-store namespaces are physically separate from those managed files.
-Overlapping root aliases refuse before effects. See
+Antigravity CLI plugin commands can run in the same apply as managed
+`agent_config` keys when the files containing those keys are physically separate
+from the shared config and plugin-store paths. Daem rejects overlapping paths,
+including aliases, before applying changes. See
 [agent configuration](manifest.md#agent-configuration) for sequencing and recovery.
 
 ## Deferred Product Surfaces
@@ -646,8 +648,10 @@ operations. In particular:
   not part of the supported stdio config/probe slices.
 - Pi direct extensions and non-admitted bundled contributions remain deferred;
   global provider use does not confer ownership of unowned project config.
-- Antigravity IDE, Markdown slash-command skills, direct hooks, project/remote
-  MCP, rules, workflows and settings as separate resources remain unsupported.
+- For Antigravity, `agent_config` manages global CLI settings. Daem does not
+  manage the IDE or provide a separate settings resource. Markdown slash-command
+  skills, direct hooks, project or remote MCP, and standalone rule or workflow
+  resources remain unsupported.
 - `[[local_parameter]]`, `[[package_runner]]`, `[[executable_artifact]]` and MCP
   command references to those resources are design-only and rejected before
   normalization. Adding one requires its own parser, lock, status, apply,

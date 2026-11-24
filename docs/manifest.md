@@ -1376,9 +1376,10 @@ you include them in the source.
 
 To start from settings already on disk, preview [`daem import agent-config`](cli.md#import-agent-config)
 with `--dry-run`. You can select keys from one host file or capture a dedicated
-file in full. Check the destination before approving: even secrets masked in the
-preview are written to the local source in plaintext. Capture leaves the host
-file, lockfile and ownership records unchanged.
+file in full. Before approving, check the local source path (`source`) and the
+path it resolves to (`referent`). Secrets masked in the preview are written to
+that file in plaintext. Capture leaves the host file, lockfile and ownership
+records unchanged.
 
 ### Manage Selected Settings
 
@@ -1610,7 +1611,7 @@ you want in the source. Released keys stay in the host file; an empty selection
 releases the whole file without deleting it.
 
 If the host file has changed since the last whole-file apply, the retained
-values must match the source before the switch. For a writable local source,
+values must match the source before the switch. For a writable local source in `vendor` mode,
 `daem import agent-config <id> --update-source --dry-run --json` previews
 replacing the selected source values with the values now on disk. To approve
 noninteractively, replace `--dry-run` with `--yes --expect-plan <fingerprint>`
