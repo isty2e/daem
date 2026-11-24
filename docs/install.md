@@ -7,7 +7,8 @@ the full support policy.
 
 ## Install
 
-Download the installer and run it:
+If daem is already installed, follow [Upgrade](#upgrade). For a new
+installation, download the installer and run it:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/isty2e/daem/main/install.sh -o daem-install.sh &&
@@ -66,6 +67,16 @@ immutability: archive, checksum and metadata share GitHub's authority. Verify
 the expected repository and HTTPS endpoints.
 
 ## Upgrade
+
+Before upgrading from v0.7.2, run `daem status` with v0.7.2 for each manifest
+that uses the same daem data directory. By default, this includes your user
+manifest and any project manifests you use. Select each one with `--manifest`.
+If an `apply` was interrupted, run `daem recover --dry-run` for that manifest,
+review the plan, and finish recovery there with `daem recover` before switching
+versions. A write in another project can upgrade the shared ownership registry
+to a format v0.7.2 cannot read, even if the projects manage different files.
+For journals from earlier releases, follow the
+[version-specific recovery precautions](troubleshooting.md#pre-10-durable-authority-schemas).
 
 Run the installer again to select the latest stable release, or pass an exact
 `--version`. You can also repeat the download command above to get the current
@@ -138,11 +149,19 @@ sh daem-install.sh --rollback
 The previous executable must pass `version --json`, including when it is a
 source build. `--rollback` cannot be combined with `--version`.
 
-This does not roll back manifests, lockfiles, statefiles, recovery journals,
-or host mutations. If the previous executable rejects data written by the
-newer version, stop and reinstall the newer verified release. Do not delete
-or hand-edit managed state to force a downgrade. `daem recover` repairs
-interrupted apply operations; it is not a binary or schema downgrade command.
+Rollback restores only the executable. Manifests, lockfiles, statefiles, recovery
+journals, shared ownership records, and host changes remain in place. If you
+find a pending v0.7.2 journal after switching binaries and have made no writes
+with the new version in any workspace sharing the data directory, switch back
+to v0.7.2 to finish recovery, then upgrade again. If `daem.previous` is
+v0.7.2, use `--rollback`. Otherwise, install v0.7.2 in a separate directory
+with `--version v0.7.2` and `--bin-dir`, and run that copy for recovery.
+
+If the previous executable rejects data written by the newer version, use the
+newer verified release for that data. If the old version refuses the shared
+registry **and** the new version refuses the journal, stop and preserve the
+journal, its backups, the statefile and the shared registry for diagnosis.
+Do not delete or hand-edit them to force a downgrade.
 
 ## Release Mutability
 
