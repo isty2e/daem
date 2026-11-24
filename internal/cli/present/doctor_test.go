@@ -40,7 +40,7 @@ func TestPrintDoctorChecksCountsSkippedAndUnsupported(t *testing.T) {
 	}
 }
 
-func TestPrintDoctorJSONUsesStatusAndSchemaTwo(t *testing.T) {
+func TestPrintDoctorJSONReportsCheckStatus(t *testing.T) {
 	selection, err := targetselection.ForDiagnostics([]string{string(target.TargetCodex)})
 	if err != nil {
 		t.Fatal(err)

@@ -348,7 +348,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `add`, `remove`, `import`, `unmanage extension`, `unmanage agent-config` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `6` |
 | `list resources` | Resource inventory | `4` |
-| `list outputs` | Output inventory | `5` |
+| `list outputs` | Output inventory | `6` |
 | `list paths` | Agent location inventory | `2` |
 | `status`, `apply --dry-run` | Reconciliation plan | `20` |
 | confirmed `apply` | Apply result | `26` |
@@ -357,10 +357,10 @@ are unrelated and must not be compared as a product-wide sequence:
 | `recover` | Recovery plan/result | `11` |
 | `migrate state` | State-authority migration | `1` |
 | `migrate metadata` | Management metadata conversion | `1` |
-| `doctor` | Passive diagnostics | `2` |
+| `doctor` | Passive diagnostics | `3` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
-| Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `1` |
+| Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `2` |
 
 Agent configuration key addresses use a `key_path` array of literal names
 in lock comparisons, reconciliation actions/projections/previous state, and
@@ -375,9 +375,14 @@ siblings as blocked. Grouping does not change JSON actions or output-entry count
 Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys.
 `--verbose` retains per-key detail.
 
-`list outputs` displays native keys by declaration and literal key path too.
-Its JSON adds `resource` and `key_path` for native rows while retaining the
-existing machine `subject`, optional `resource_id`, row counts and other fields.
+`list outputs` version `6` adds `resource` and `key_path` to rows for individual
+agent configuration keys. Other rows omit both fields. The machine `subject`,
+optional `resource_id` and row counts are unchanged.
+
+`doctor` version `3` and common CLI failure version `2` can report
+`permission_protection` when permission recovery is pending or its inventory is
+unavailable or unsupported. All three families use their new versions even
+when the optional fields are absent.
 
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
@@ -513,8 +518,7 @@ source/schema syntax, and summary field names also retain their own spelling.
 
 When migrating from v0.5.x, accept the new family version and update comparisons
 against public resource names/references. Do not rename manifest keys, rewrite
-stored IDs or change valid command inputs. The common CLI failure family remains
-version `1`; its primary message is diagnostic prose, not a stable reason code.
+stored IDs or change valid command inputs.
 
 ### Common CLI Failures
 
@@ -524,7 +528,7 @@ error text. For example, `daem status --unknown --json` returns exit `2` with:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "result_type": "cli_error",
   "command": "status",
   "error": {
@@ -2221,7 +2225,7 @@ Default output prints ok/warn/error/skipped/unsupported totals plus every
 warning, error, skipped, and unsupported check. Successful `ok` checks are
 count-only. `--verbose` prints every check and bounded detail. Warnings,
 skipped checks, and unsupported checks do not fail doctor; errors do. Doctor
-JSON schema version is `2` and contains manifest context, selected targets, all
+JSON schema version is `3` and contains manifest context, selected targets, all
 typed checks with `status`, and `has_errors`. Check `status` is not diagnostic
 `severity`; apply diagnostics keep the three-value `severity` field.
 

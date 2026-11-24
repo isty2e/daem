@@ -11,24 +11,15 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/test/ownershiptest"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 type protectionCommandOutput struct {
-	ResultType           string `json:"result_type"`
-	CheckClean           *bool  `json:"check_clean"`
-	ActionCount          *int   `json:"action_count"`
-	PermissionProtection *struct {
-		Observation string `json:"observation"`
-		Reason      string `json:"reason"`
-		NextStep    string `json:"next_step"`
-		Records     []struct {
-			Invocation string `json:"invocation"`
-			Phase      string `json:"phase"`
-			Documents  []struct {
-				Destinations []string `json:"destinations"`
-			} `json:"documents"`
-		} `json:"observed_records"`
-	} `json:"permission_protection"`
+	SchemaVersion        int                           `json:"schema_version"`
+	ResultType           string                        `json:"result_type"`
+	CheckClean           *bool                         `json:"check_clean"`
+	ActionCount          *int                          `json:"action_count"`
+	PermissionProtection *clijson.PermissionProtection `json:"permission_protection"`
 }
 
 func runProtectionCommand(t *testing.T, manifest string, command string, arguments ...string) (protectionCommandOutput, int) {
@@ -159,13 +150,21 @@ func TestUnavailableProtectionInventoryRemainsExplicitOnSourceFailure(t *testing
 	if err := os.WriteFile(fixture.Paths.OwnershipRegistryPath, []byte("malformed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"status", "doctor", "apply"} {
-		args := []string{}
-		if command == "apply" {
-			args = append(args, "--yes")
+	for _, tc := range []struct {
+		command    string
+		args       []string
+		resultType string
+		version    int
+	}{
+		{"doctor", nil, "", 3},
+		{"status", nil, "cli_error", 2},
+		{"apply", []string{"--yes"}, "cli_error", 2},
+	} {
+		value, code := runProtectionCommand(t, fixture.Paths.ManifestPath, tc.command, tc.args...)
+		if code != 1 || value.ResultType != tc.resultType || value.SchemaVersion != tc.version {
+			t.Errorf("%s: got exit %d, result_type %q, schema_version %d; want 1, %q, %d", tc.command, code, value.ResultType, value.SchemaVersion, tc.resultType, tc.version)
 		}
-		value, code := runProtectionCommand(t, fixture.Paths.ManifestPath, command, args...)
-		if code == 0 || value.PermissionProtection == nil || value.PermissionProtection.Observation != "unavailable" || value.PermissionProtection.Reason == "" || len(value.PermissionProtection.Records) != 0 {
+		if value.PermissionProtection == nil || value.PermissionProtection.Observation != "unavailable" || value.PermissionProtection.Reason == "" || len(value.PermissionProtection.Records) != 0 {
 			t.Fatalf("unknown inventory became empty evidence: %d %+v", code, value)
 		}
 	}

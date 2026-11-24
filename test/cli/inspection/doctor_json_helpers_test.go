@@ -6,6 +6,8 @@ import (
 	"io"
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 type doctorJSONTestPayload struct {
@@ -27,6 +29,7 @@ type doctorJSONTestPayload struct {
 		ManualReasons []string `json:"manual_reasons"`
 		NextStep      string   `json:"next_step"`
 	} `json:"checks"`
+	PermissionProtection *clijson.PermissionProtection `json:"permission_protection"`
 }
 
 func decodeDoctorJSONTestPayload(t *testing.T, content []byte) doctorJSONTestPayload {

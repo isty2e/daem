@@ -25,20 +25,20 @@ const StateRelocation = 1
 // CLI JSON envelope schemas evolve independently. Equal values do not imply a
 // shared compatibility sequence.
 const (
-	CLIErrorJSON           = 1
+	CLIErrorJSON           = 2
 	VersionJSON            = 1
 	InitJSON               = 1
 	ManifestAuthoringJSON  = 7
 	LockComparisonJSON     = 6
 	ResourceInventoryJSON  = 4
-	OutputInventoryJSON    = 5
+	OutputInventoryJSON    = 6
 	PathInventoryJSON      = 2
 	ReconciliationPlanJSON = 20
 	ApplyResultJSON        = 26
 	RecoveryJSON           = 11
 	StateMigrationJSON     = 1
 	MetadataMigrationJSON  = 1
-	DoctorJSON             = 2
+	DoctorJSON             = 3
 	MCPProbeJSON           = 1
 	ExtensionRefreshJSON   = 4
 )
