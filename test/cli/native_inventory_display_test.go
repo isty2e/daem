@@ -17,7 +17,8 @@ func TestNativeOutputInventoryDisplaysDeclarationAndLiteralKey(t *testing.T) {
 		t.Fatalf("output inventory did not use readable key identity: %s", human)
 	}
 	var payload struct {
-		Managed []struct {
+		SchemaVersion int `json:"schema_version"`
+		Managed       []struct {
 			ResourceID string `json:"resource_id"`
 			Subject    string `json:"subject"`
 			Resource   struct {
@@ -30,6 +31,9 @@ func TestNativeOutputInventoryDisplaysDeclarationAndLiteralKey(t *testing.T) {
 	content := nativefixture.RunLifecycleCommand(t, "list", "outputs", "--manifest", fixture.Manifest, "--json")
 	if err := json.Unmarshal([]byte(content), &payload); err != nil {
 		t.Fatal(err)
+	}
+	if payload.SchemaVersion != 6 {
+		t.Fatalf("output inventory schema_version = %d, want 6", payload.SchemaVersion)
 	}
 	if len(payload.Managed) != 2 {
 		t.Fatalf("key rows were grouped or dropped in JSON: %s", content)

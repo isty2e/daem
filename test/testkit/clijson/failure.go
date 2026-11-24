@@ -6,20 +6,36 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 type Failure struct {
-	SchemaVersion int                            `json:"schema_version"`
-	ResultType    string                         `json:"result_type"`
-	Command       string                         `json:"command"`
-	Error         struct{ Kind, Message string } `json:"error"`
-	Guidance      []FailureGuidance              `json:"guidance"`
+	SchemaVersion        int                            `json:"schema_version"`
+	ResultType           string                         `json:"result_type"`
+	Command              string                         `json:"command"`
+	Error                struct{ Kind, Message string } `json:"error"`
+	Guidance             []FailureGuidance              `json:"guidance"`
+	PermissionProtection *PermissionProtection          `json:"permission_protection"`
 }
 
 type FailureGuidance struct {
 	Kind    string   `json:"kind"`
 	Message string   `json:"message,omitempty"`
 	Argv    []string `json:"argv,omitempty"`
+}
+
+type PermissionProtection struct {
+	Observation string `json:"observation"`
+	Reason      string `json:"reason"`
+	NextStep    string `json:"next_step"`
+	Records     []struct {
+		Invocation string `json:"invocation"`
+		Phase      string `json:"phase"`
+		Documents  []struct {
+			Destinations []string `json:"destinations"`
+		} `json:"documents"`
+	} `json:"observed_records"`
 }
 
 func DecodeFailure(t testing.TB, content string, command, kind string) Failure {
@@ -37,7 +53,8 @@ func DecodeFailure(t testing.TB, content string, command, kind string) Failure {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		t.Fatalf("common failure contains trailing output: %v", err)
 	}
-	if result.SchemaVersion != 1 || result.ResultType != "cli_error" || result.Command != command || result.Error.Kind != kind || result.Error.Message == "" || result.Guidance == nil {
+	requireSchemaVersion(t, "common CLI failure", result.SchemaVersion, contractversion.CLIErrorJSON)
+	if result.ResultType != "cli_error" || result.Command != command || result.Error.Kind != kind || result.Error.Message == "" || result.Guidance == nil {
 		t.Fatalf("incorrect common-failure identity: %+v", result)
 	}
 	for _, guidance := range result.Guidance {
@@ -76,6 +93,15 @@ func FailureText(t testing.TB, stdout, stderr, command, kind string, commonJSON 
 		text = append(text, guidance.Message)
 		if len(guidance.Argv) != 0 {
 			text = append(text, strings.Join(guidance.Argv, " "))
+		}
+	}
+	if protection := result.PermissionProtection; protection != nil {
+		text = append(text, protection.Observation, protection.Reason, protection.NextStep)
+		for _, record := range protection.Records {
+			text = append(text, record.Invocation, record.Phase)
+			for _, document := range record.Documents {
+				text = append(text, document.Destinations...)
+			}
 		}
 	}
 	return strings.Join(text, "\n")
