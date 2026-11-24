@@ -10,42 +10,6 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-func canonicalAggregateProjection(
-	codec aggregate.Codec,
-	contract aggregate.ProjectionContract,
-	set aggregate.ContributionSet,
-) (string, error) {
-	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
-	if err != nil {
-		return "", err
-	}
-	state, err := aggregate.NewProjectionState(contract, false, false, "")
-	if err != nil {
-		return "", err
-	}
-	snapshot, err := aggregate.NewSnapshot(false, selection, []aggregate.ProjectionState{state})
-	if err != nil {
-		return "", err
-	}
-	intent, err := aggregate.NewProjectionIntent(state, &set)
-	if err != nil {
-		return "", err
-	}
-	plan, err := aggregate.NewPlan(snapshot, []aggregate.ProjectionIntent{intent})
-	if err != nil {
-		return "", err
-	}
-	rendered, failure := codec.Render(aggregate.AbsentDocument(), plan)
-	if failure != nil {
-		return "", failure
-	}
-	states := rendered.Expected().States()
-	if len(states) != 1 || !states[0].Present() {
-		return "", fmt.Errorf("aggregate codec omitted desired projection")
-	}
-	return states[0].CanonicalProjection(), nil
-}
-
 func aggregateContributionFromLocked(
 	contract lock.LockedSubjectContract,
 ) (aggregate.SubjectContribution, bool, error) {

@@ -295,6 +295,10 @@ func (protocolOnlyCodec) ValidateContributions(ContributionSet) error {
 	return nil
 }
 
+func (protocolOnlyCodec) CanonicalProjection(ContributionSet) (string, error) {
+	return "", errors.New("test codec has no projection value")
+}
+
 func (protocolOnlyCodec) Read(Document, Selection) (Snapshot, *CodecFailure) {
 	return Snapshot{}, nil
 }

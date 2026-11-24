@@ -36,6 +36,10 @@ func (codec *codecCatalogTestCodec) ValidateContributions(ContributionSet) error
 	return codec.contributionErr
 }
 
+func (*codecCatalogTestCodec) CanonicalProjection(ContributionSet) (string, error) {
+	return "", errors.New("test codec has no projection value")
+}
+
 func (*codecCatalogTestCodec) Read(Document, Selection) (Snapshot, *CodecFailure) {
 	return Snapshot{}, nil
 }

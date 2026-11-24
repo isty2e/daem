@@ -119,6 +119,29 @@ func (codec mcpProjectionCodec) ContractID() aggregate.CodecContractID {
 	return codec.contractID
 }
 
+func (codec mcpProjectionCodec) CanonicalProjection(set aggregate.ContributionSet) (string, error) {
+	items := set.Contributions()
+	if len(items) != 1 {
+		return "", mcpCodecFailure(nil, aggregate.CodecFailureCanonicalInvalid, "")
+	}
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{set.Contract()})
+	if err != nil {
+		return "", err
+	}
+	operations, selected, failure := codec.selectedProjections(aggregate.AbsentDocument(), selection)
+	if failure != nil {
+		return "", failure
+	}
+	entry := items[0].Contribution().CanonicalContribution()
+	projection := selected[0]
+	// With no host entry, the comparison only decodes and validates the desired
+	// server entry. No enclosing JSON or TOML file needs to be rendered.
+	if _, err := operations.compareCanonicalEntry(nil, projection.serverID, []byte(entry)); err != nil {
+		return "", mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, projection.contentPath)
+	}
+	return entry, nil
+}
+
 func (mcpProjectionCodec) MaximumDocumentBytes() int64 { return maximumDocumentBytes }
 
 func (codec mcpProjectionCodec) RewriteLayout(selection aggregate.Selection) (string, []output.KeyPath, error) {

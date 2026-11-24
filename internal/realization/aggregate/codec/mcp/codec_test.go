@@ -85,10 +85,14 @@ func TestValidatePersistedContributionUsesMCPCodecContract(t *testing.T) {
 	}
 
 	malformed := mcpCodecContribution(t, placement, "context7", []byte("not canonical TOML"))
-	err := codec.ValidateContributions(mcpCodecExclusiveSet(t, malformed))
+	invalidSet := mcpCodecExclusiveSet(t, malformed)
+	err := codec.ValidateContributions(invalidSet)
 	var failure *aggregate.CodecFailure
 	if !errors.As(err, &failure) || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
 		t.Fatalf("ValidateContributions(malformed canonical) = %v, want canonical invalid", err)
+	}
+	if value, err := codec.CanonicalProjection(invalidSet); value != "" || !errors.As(err, &failure) || failure.Reason() != aggregate.CodecFailureCanonicalInvalid || strings.Contains(err.Error(), "not canonical TOML") {
+		t.Fatal("malformed server entry provided a baseline or exposed its value", err)
 	}
 
 	unsupportedCanonical := []byte("command = \"npx\"\nurl = \"https://example.invalid/mcp\"\n")
@@ -208,6 +212,17 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 	}
 	if !expected[string(outputtest.LegacyContentPath(t, gamma.Address()))].Present() {
 		t.Fatal("gamma expected state is absent")
+	}
+	observed, failure := codec.Read(rendered.Document(), selection)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	for _, set := range []aggregate.ContributionSet{alphaDesired, gammaDesired} {
+		state, found := observed.State(set.Contract())
+		baseline, err := codec.CanonicalProjection(set)
+		if err != nil || !found || !state.Present() || state.CanonicalProjection() != baseline {
+			t.Fatal("server entry baseline differs from the value read after rendering", err)
+		}
 	}
 }
 
