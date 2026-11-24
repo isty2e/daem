@@ -196,6 +196,26 @@ func TestPositiveNativePrefixDoesNotTurnBlockedOrUnselectedWorkIntoEffects(t *te
 	}
 }
 
+func TestNativeManagedBaselineFitsTheActualCompactDocument(t *testing.T) {
+	const compact = `{"m":"x"}`
+	keys := []nativePrefixKey{{"settings", "m", `"x"`}}
+	input := nativePrefixInput(t, compact, keys, keys)
+	documentLimits := configdocument.Limits{MaximumBytes: int64(len(compact)), MaximumDepth: 32}
+	valueLimits := configdocument.Limits{MaximumBytes: 1024, MaximumDepth: 32}
+	catalog, err := aggregatecodec.ForOperation(t.Context(), []aggregate.CodecContractID{"native-json-v1"}, documentLimits, valueLimits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Codecs = catalog
+	decisions, err := BuildAggregateDecisions(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current := onlyAggregateDecision(t, decisions); current.Kind() != reconcile.AggregateNoOp || string(current.Rendered().Document().Content()) != compact {
+		t.Fatal("an unchanged managed value depended on the size of a newly formatted document", current.Kind(), current.Detail())
+	}
+}
+
 type nativePrefixKey struct{ owner, name, value string }
 
 func nativePrefixInput(t *testing.T, current string, previous, desired []nativePrefixKey) AggregateInput {

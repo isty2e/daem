@@ -50,31 +50,17 @@ func (indexes SnapshotIndexes) ValidateExpectedBaselines(ctx context.Context, gr
 			aliases[alias] = index
 		}
 	}
-	for _, row := range indexes.after.aggregates {
+	sets, err := indexes.after.coveredContributionSets(ctx, groups, aliases)
+	if err != nil {
+		return err
+	}
+	for _, set := range sets {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		contribution := row.Contribution()
-		contract := contribution.Contract()
-		index, present := aliases[contract.Address().Document()]
-		if !present || !groups[index].Covers(contract) {
-			continue
-		}
-		codec, found := codecs.Lookup(contract.CodecContractID())
-		if !found {
-			return fmt.Errorf("expected baseline codec is not admitted by the operation")
-		}
-		selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
-		if err != nil {
+		group := groups[aliases[set.Address().Document()]]
+		if err := group.validateExpectedProjection(codecs, set); err != nil {
 			return err
-		}
-		snapshot, failure := codec.Read(groups[index].comparison.expected, selection)
-		if failure != nil {
-			return failure
-		}
-		state, found := snapshot.State(contract)
-		if !found || !state.Present() || state.CanonicalProjection() != contribution.CanonicalContribution() {
-			return fmt.Errorf("selected after baseline differs from the actual expected image")
 		}
 	}
 	for _, row := range indexes.after.paths {
@@ -112,4 +98,50 @@ func (indexes SnapshotIndexes) ValidateExpectedBaselines(ctx context.Context, gr
 		}
 	}
 	return ctx.Err()
+}
+
+func (index SnapshotIndex) coveredContributionSets(ctx context.Context, groups []StateGroup, aliases map[aggregate.DocumentAddress]int) ([]aggregate.ContributionSet, error) {
+	var selected []aggregate.SubjectContribution
+	for _, row := range index.aggregates {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		contribution := row.Contribution()
+		contract := contribution.Contract()
+		group, found := aliases[contract.Address().Document()]
+		if !found || !groups[group].Covers(contract) {
+			continue
+		}
+		item, err := aggregate.NewSubjectContribution(row.Subject(), contribution)
+		if err != nil {
+			return nil, err
+		}
+		selected = append(selected, item)
+	}
+	return aggregate.PartitionContributionSets(selected)
+}
+
+func (group StateGroup) validateExpectedProjection(codecs aggregate.CodecCatalog, set aggregate.ContributionSet) error {
+	contract := set.Contract()
+	codec, found := codecs.Lookup(contract.CodecContractID())
+	if !found {
+		return fmt.Errorf("expected baseline codec is not admitted by the operation")
+	}
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contract})
+	if err != nil {
+		return err
+	}
+	snapshot, failure := codec.Read(group.comparison.expected, selection)
+	if failure != nil {
+		return failure
+	}
+	expected, err := codec.CanonicalProjection(set)
+	if err != nil {
+		return err
+	}
+	state, found := snapshot.State(contract)
+	if !found || !state.Present() || state.CanonicalProjection() != expected {
+		return fmt.Errorf("selected after baseline differs from the actual expected image")
+	}
+	return nil
 }

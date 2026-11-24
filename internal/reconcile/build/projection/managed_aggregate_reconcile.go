@@ -310,7 +310,7 @@ func prepareAggregateProjection(
 		return blockAggregateProjectionFromFacts(projection, group), aggregate.ProjectionIntent{}, nil
 	}
 	if previous != nil {
-		previousProjection, err := canonicalAggregateProjection(codec, group.contract, *previous)
+		previousProjection, err := codec.CanonicalProjection(*previous)
 		if err != nil {
 			return aggregateProjectionDecision{}, aggregate.ProjectionIntent{}, err
 		}

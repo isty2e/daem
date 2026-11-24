@@ -58,6 +58,9 @@ type Codec interface {
 	// not whole replacements; document presence and write authority stay outside.
 	RewriteLayout(Selection) (string, []output.KeyPath, error)
 	Read(Document, Selection) (Snapshot, *CodecFailure)
+	// CanonicalProjection returns the value Read should observe for the complete
+	// contribution set at one address, independently of the surrounding document.
+	CanonicalProjection(ContributionSet) (string, error)
 	ClassifyContributionOccupancy(ProjectionState, ContributionSet) (ContributionOccupancySet, error)
 	Render(Document, Plan) (RenderedDocument, *CodecFailure)
 	Restore(Document, Snapshot) (RenderedDocument, *CodecFailure)

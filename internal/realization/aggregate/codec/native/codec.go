@@ -74,6 +74,13 @@ func (codec documentCodec) ValidateContributions(set aggregate.ContributionSet) 
 	return ValidateContributions(codec.ctx, codec.contractID, set, codec.valueLimits)
 }
 
+func (codec documentCodec) CanonicalProjection(set aggregate.ContributionSet) (string, error) {
+	if err := codec.ValidateContributions(set); err != nil {
+		return "", err
+	}
+	return set.Contributions()[0].Contribution().CanonicalContribution(), nil
+}
+
 func (codec documentCodec) parse(document aggregate.Document) (configdocument.Document, *aggregate.CodecFailure) {
 	if err := codec.ctx.Err(); err != nil {
 		return configdocument.Document{}, nativeCodecFailure(err, aggregate.CodecFailureDocumentMalformed, output.KeyPath{})
@@ -148,7 +155,8 @@ func (codec documentCodec) ClassifyContributionOccupancy(state aggregate.Project
 	if state.Validate() != nil || !state.Contract().Equal(set.Contract()) {
 		return aggregate.ContributionOccupancySet{}, nativeFailure(aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
 	}
-	if err := codec.ValidateContributions(set); err != nil {
+	desired, err := codec.CanonicalProjection(set)
+	if err != nil {
 		return aggregate.ContributionOccupancySet{}, err
 	}
 	occupancy := aggregate.ContributionAbsent
@@ -158,7 +166,7 @@ func (codec documentCodec) ClassifyContributionOccupancy(state aggregate.Project
 		if _, err := configdocument.DecodeValue(codec.ctx, codec.syntax, state.CanonicalProjection(), codec.valueLimits); err != nil {
 			return aggregate.ContributionOccupancySet{}, nativeCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, state.Contract().Address().KeyPath())
 		}
-		if state.CanonicalProjection() == set.Contributions()[0].Contribution().CanonicalContribution() {
+		if state.CanonicalProjection() == desired {
 			occupancy = aggregate.ContributionPresent
 		}
 	}

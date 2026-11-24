@@ -163,12 +163,19 @@ func (codec hookJSONCodec) RewriteLayout(selection aggregate.Selection) (string,
 }
 
 func (codec hookJSONCodec) ValidateContributions(contributions aggregate.ContributionSet) error {
-	decoded, err := codec.validatedHookContributions(contributions)
-	if err != nil {
-		return err
-	}
-	_, err = canonicalHookProjectionFromContributions(decoded)
+	_, err := codec.foldHookContributions(contributions)
 	return err
+}
+
+func (codec hookJSONCodec) CanonicalProjection(set aggregate.ContributionSet) (string, error) {
+	if set.Contract().CodecContractID() != codec.contractID {
+		return "", hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+	}
+	value, err := codec.foldHookContributions(set)
+	if err != nil {
+		return "", hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+	}
+	return value, nil
 }
 
 func (codec hookJSONCodec) validatedHookContribution(

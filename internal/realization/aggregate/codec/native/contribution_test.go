@@ -3,6 +3,7 @@ package nativecodec_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
@@ -22,9 +23,9 @@ func TestNativeStaticAdmissionUsesTheOperationValueInterpreter(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		object := `{"nested":true}`
+		object := `{"nested":"private-value"}`
 		if syntax == configdocument.TOML {
-			object = "{nested=true}"
+			object = `{nested="private-value"}`
 		}
 		set := fixtureSet(t, codec, key(t, "value"), fixtureValue(t, syntax, object))
 		var direct, operation *aggregate.CodecFailure
@@ -33,6 +34,9 @@ func TestNativeStaticAdmissionUsesTheOperationValueInterpreter(t *testing.T) {
 		}
 		if err := codec.ValidateContributions(set); !errors.As(err, &operation) || direct.Reason() != operation.Reason() || direct.Location() != operation.Location() {
 			t.Fatal("static and operation value admission disagree")
+		}
+		if value, err := codec.CanonicalProjection(set); value != "" || !errors.As(err, &operation) || operation.Reason() != direct.Reason() || strings.Contains(err.Error(), "private-value") {
+			t.Fatal("non-atomic object provided a key baseline or exposed its contents", err)
 		}
 	}
 }

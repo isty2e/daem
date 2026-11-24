@@ -27,6 +27,10 @@ func (registryTestCodec) ValidateContributions(aggregate.ContributionSet) error 
 	return nil
 }
 
+func (registryTestCodec) CanonicalProjection(aggregate.ContributionSet) (string, error) {
+	return "", errors.New("test codec has no projection value")
+}
+
 func (registryTestCodec) Read(
 	aggregate.Document,
 	aggregate.Selection,

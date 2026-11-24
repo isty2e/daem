@@ -142,7 +142,7 @@ func nativeDocumentSubset(source reconcile.AggregateDecision, selected []reconci
 			return reconcile.AggregateDecision{}, err
 		}
 		if previous != nil {
-			projection.managedBaseline, err = canonicalAggregateProjection(codec, projection.contract, *previous)
+			projection.managedBaseline, err = codec.CanonicalProjection(*previous)
 			if err != nil {
 				return reconcile.AggregateDecision{}, err
 			}

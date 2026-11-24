@@ -113,6 +113,10 @@ func TestHookCodecFoldsSubjectSortedContributionsAndPreservesSiblings(t *testing
 	if readBack.States()[0].CanonicalProjection() != rendered.Expected().States()[0].CanonicalProjection() {
 		t.Fatal("rendered postcondition does not match codec reread")
 	}
+	baseline, err := codec.CanonicalProjection(desired)
+	if err != nil || baseline != readBack.States()[0].CanonicalProjection() {
+		t.Fatal("hook set baseline does not match the hooks read from the rendered document", err)
+	}
 }
 
 func TestHookCodecPartialAndFinalRemoval(t *testing.T) {
@@ -356,7 +360,7 @@ func TestHookCodecRejectsUnrenderableLockedContributionAndSet(t *testing.T) {
 	items := make([]aggregate.SubjectContribution, 0, hookdocument.MaximumEvents+1)
 	for index := range hookdocument.MaximumEvents + 1 {
 		canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
-			Event: fmt.Sprintf("Event%03d", index), Type: "command", Command: "true",
+			Event: fmt.Sprintf("Event%03d", index), Type: "command", Command: "private-command",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -385,6 +389,10 @@ func TestHookCodecRejectsUnrenderableLockedContributionAndSet(t *testing.T) {
 	}
 	if err := codec.ValidateContributions(desired); !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
 		t.Fatalf("ValidateContributions error = %v, want structural budget error", err)
+	}
+	var refused *aggregate.CodecFailure
+	if value, err := codec.CanonicalProjection(desired); value != "" || !errors.As(err, &refused) || refused.Reason() != aggregate.CodecFailureCanonicalInvalid || strings.Contains(err.Error(), "private-command") {
+		t.Fatal("oversized hook set provided a baseline or exposed a command", err)
 	}
 
 	before, failure := codec.Read(aggregate.AbsentDocument(), selection)
