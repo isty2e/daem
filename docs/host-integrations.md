@@ -25,7 +25,7 @@ commands and [Platform Support](platforms.md) owns OS/architecture coverage.
 | Skills and skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Command hooks | `supported` | `supported` | `diagnostic` | `diagnostic` | `unsupported` |
 | MCP config | project/global | project/global | project/global | project/global Native or Adapter | global |
-| Native configuration keys | project/global | `unsupported` | `unsupported` | project/global | `unsupported` |
+| Agent configuration | project/global | project/global | project/global | project/global | global only |
 | Delegated executable execution | `deferred` | project MCP | `deferred` | `deferred` | `deferred` |
 | Carrier declaration, observation and lifecycle | global | project/global | project/global | project/global package | global; observation/removal require selector |
 | Provider contribution diagnostics | cache diagnostics | `deferred` | `deferred` | admitted MCP provider only | `deferred` |
@@ -101,12 +101,19 @@ undeclared scripts, directories, tools, trust approval or bundled hooks.
 
 ### Native Configuration Keys
 
-Codex and Pi support selected-key configuration management through
-[`agent_config`](manifest.md#agent-configuration). It preserves unselected values
-and uses the same journaled document operation for Codex MCP changes in that
-file. The manifest reference owns supported syntax, reserved fields, permissions
-and mixed-plan limits. This is file convergence, not host-schema validation or
-evidence of runtime loading.
+With `ownership = "keys"`, an [`agent_config` declaration](manifest.md#agent-configuration)
+manages only the values selected by its source. When those keys share Codex
+`config.toml` with MCP entries, daem applies and recovers both sets of changes
+together. Daem checks file contents; it does not verify that the host accepts
+or has loaded the settings.
+
+### Dedicated Configuration Files
+
+Use `ownership = "document"` for a dedicated configuration file. Shared host
+files such as Codex `config.toml` and Pi `settings.json` allow only key
+ownership through `agent_config`. See the manifest reference for
+[reserved paths, permissions and limits on combining changes](manifest.md#ownership-and-limits) and the
+[conditions for switching ownership modes](manifest.md#whole-files-and-ownership-changes).
 
 ### MCP Server Config
 

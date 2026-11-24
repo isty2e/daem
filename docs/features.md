@@ -20,14 +20,14 @@ named project/global row.
 | Skill groups | Yes | Yes | Yes | Yes | Yes |
 | Command hooks | Yes | Yes | Report only | Report only | No |
 | MCP configuration | Project + global | Project + global | Project + global | Project + global | Global only |
-| Native configuration keys | Project + global | No | No | Project + global | No |
+| Agent configuration | Project + global | Project + global | Project + global | Project + global | Global only |
 | MCP startup test | No | Project only | Project only | No | No |
 | Run MCP on apply | No | Project only | No | No | No |
 
-[Agent configuration keys](manifest.md#agent-configuration) manage only the
-selected values in a shared TOML/JSON document. Whole-document ownership and
-ownership-mode transitions are not currently executable. The reference lists
-reserved fields, permission rules and unsupported mixed-plan combinations.
+Use [`[[agent_config]]`](manifest.md#agent-configuration) to manage selected
+keys in a shared settings file or a dedicated file in full. The manifest
+reference explains [how to switch between these modes](manifest.md#whole-files-and-ownership-changes).
+To start from settings already on disk, use [`daem import agent-config`](cli.md#import-agent-config).
 
 Skills use the default root or a cataloged `install_to` alternative. Inspect
 locations with `daem list paths`. Same-name skills in other modeled discovery
