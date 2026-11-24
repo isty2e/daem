@@ -39,8 +39,13 @@ func TestNativeCodecRendersAndRestoresActualValuesAcrossGrammars(t *testing.T) {
 			if failure != nil {
 				t.Fatal(failure)
 			}
-			if actual := read(t, codec, rendered.Document(), selection); !actual.Equal(rendered.Expected()) {
+			actual := read(t, codec, rendered.Document(), selection)
+			if !actual.Equal(rendered.Expected()) {
 				t.Fatal("candidate evidence does not describe its actual native bytes")
+			}
+			baseline, err := codec.CanonicalProjection(set)
+			if err != nil || baseline != actual.States()[0].CanonicalProjection() {
+				t.Fatal("key baseline does not match the value read from the rendered document", err)
 			}
 			if !lookup(t, test.syntax, rendered.Document(), key(t, "a")).Equal(fixtureValue(t, test.syntax, `"new"`)) {
 				t.Fatal("desired value was not applied")
