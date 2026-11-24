@@ -1374,6 +1374,13 @@ values you want daem to keep consistent. Other settings, such as
 a model or reasoning-effort choice changed by the host, remain unmanaged unless
 you include them in the source.
 
+To start from settings already on disk, preview [`daem import agent-config`](cli.md#import-agent-config)
+with `--dry-run`. You can select keys from one host file or capture a dedicated
+file in full. Before approving, check the local source path (`source`) and the
+path it resolves to (`referent`). Secrets masked in the preview are written to
+that file in plaintext. Capture leaves the host file, lockfile and ownership
+records unchanged.
+
 ### Manage Selected Settings
 
 For a project-scoped Codex setting, create `codex-preferences.toml` beside your
@@ -1599,12 +1606,19 @@ select both agents to finish the move in one apply. Use a distinct destination;
 another spelling for the same physical file does not transfer ownership.
 
 To retain only selected keys from a managed whole file, keep the declaration's
-`id`, target, scope and path, change `ownership` to `keys`, and revise its source
-to contain the values you want to retain. Then relock, preview and apply. Released
-keys remain in the host file but are no longer managed; an empty selection releases
-the whole file without deleting it. If the host file has changed since its whole-file
-baseline, retained values must already match the source. Changing or adding values
-in that case requires host-to-source capture, which is not yet available.
+`id`, target, scope and path. Set `ownership = "keys"` and keep only the keys
+you want in the source. Released keys stay in the host file; an empty selection
+releases the whole file without deleting it.
+
+If the host file has changed since the last whole-file apply, the retained
+values must match the source before the switch. For a writable local source in `vendor` mode,
+`daem import agent-config <id> --update-source --dry-run --json` previews
+replacing the selected source values with the values now on disk. To approve
+noninteractively, replace `--dry-run` with `--yes --expect-plan <fingerprint>`
+using the `fingerprint` from that preview.
+
+Run `daem lock`, preview with `daem apply --dry-run`, and apply to finish the
+switch. Make any further changes to the desired values after the switch.
 
 Interrupted narrowing follows the existing state-commit boundary. Before commit,
 if the file still equals the recorded post-apply image, rollback restores the exact
@@ -1621,8 +1635,6 @@ This records whole-file ownership and retires the declaration's
 key records without rewriting the file or changing its permissions. A missing file,
 different content, or another declaration's ownership blocks the switch; this is
 not a way to reset a changed host file.
-
-Capturing current host configuration as a source remains unsupported.
 
 ## Lock Behavior
 
