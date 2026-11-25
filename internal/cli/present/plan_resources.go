@@ -69,6 +69,9 @@ func PrintActionPlanWithOptions(output io.Writer, label string, input HumanPlanI
 		}
 
 		printAggregateResourcePlan(output, aggregate, options)
+		if path := input.ClaudeHookSettings.PathFor(aggregate.Contract().CodecContractID()); options.Verbose && path != "" {
+			fmt.Fprintf(output, "    resolved_path=%s\n", Quote(path))
+		}
 		if documentBlocked {
 			printConfigurationBlock(output, block, aggregate.Subject())
 		}

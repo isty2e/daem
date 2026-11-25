@@ -87,6 +87,45 @@ func TestClaudeGlobalHookRecoveryUsesTheOriginalProfile(t *testing.T) {
 	}
 }
 
+func TestFinalClaudeHookRetirementRecoveryUsesTheOriginalProfile(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativefixture.SetRecoveryEnvironment(t, root)
+	workspace := filepath.Join(root, "workspace")
+	manifest := filepath.Join(workspace, "daem.toml")
+	profile := os.Getenv("CLAUDE_CONFIG_DIR")
+	destination := filepath.Join(profile, "settings.json")
+	testkit.WriteFile(t, profile, "settings.json", `{"outside":true}`)
+	writeClaudeHookKeyManifest(t, workspace, "global", "", claudeStopHook{"notify", "echo retiring"})
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	writeClaudeHookKeyManifest(t, workspace, "global", "")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+
+	other := filepath.Join(root, "other-profile")
+	const untouched = `{"outside":"other"}`
+	testkit.WriteFile(t, other, "settings.json", untouched)
+	t.Setenv("CLAUDE_CONFIG_DIR", other)
+	fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: destination}
+	code, out, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, "ordinary-after-state", "apply", "--yes")
+	if code != nativefixture.RecoveryExit {
+		t.Fatalf("retirement did not reach the state boundary: %d %s %s", code, out, stderr)
+	}
+	retired := testkit.ReadFile(t, destination)
+	requireClaudeHookKeyValues(t, retired, "")
+	code, _, stderr = testkit.RunCapturedCLI("recover", "--manifest", manifest, "--yes")
+	if code == 0 || !strings.Contains(stderr, "CLAUDE_CONFIG_DIR") || !strings.Contains(stderr, profile) {
+		t.Fatalf("wrong-profile recovery did not explain how to retry: %d %s", code, stderr)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", profile)
+	nativefixture.RunLifecycleCommand(t, "recover", "--manifest", manifest, "--yes")
+	testkit.AssertFileContent(t, destination, string(retired))
+	testkit.AssertFileContent(t, filepath.Join(other, "settings.json"), untouched)
+	testkit.AssertNoRecoveryArtifacts(t, workspace)
+}
+
 func TestClaudeHookAndKeyRecoverTogether(t *testing.T) {
 	for _, tc := range []struct {
 		name, boundary string

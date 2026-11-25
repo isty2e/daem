@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
@@ -38,6 +39,7 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
+	ClaudeHookSettings      durable.ClaudeHookSettings
 	PermissionProtection    ownershipobserve.ProtectionObservation
 	ManifestPath            string
 	LockfilePath            string
@@ -222,7 +224,8 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	paths.ClaudeHookSettings = settings
+	paths.ClaudeHookSettings = settings.Path()
+	result.ClaudeHookSettings = settings
 	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,

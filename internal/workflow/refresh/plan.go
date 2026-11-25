@@ -417,6 +417,11 @@ func planAtPathsWithBarrier(
 	result.Disclosure = commandResultDisclosure(command, timeout)
 	result.Route.ExecutionSubject = command.disclosure.ExecutionSubject()
 	result.ResultClass = ResultPlanned
+	hooks, err := nativeconfig.InstalledClaudeHookSettings(paths, currentState)
+	if err != nil {
+		return refusedPlan(result, ReasonNativeSettings, err, "check the home directory for the installed Claude hooks")
+	}
+	paths.ClaudeHookSettings = hooks.Path()
 	planned := plan{
 		result:             result,
 		paths:              paths,
@@ -437,6 +442,10 @@ func planAtPathsWithBarrier(
 	}
 	planned.native, err = planNativeRefresh(ctx, paths, environment, locked, currentState, settingsProfile)
 	if err != nil {
+		var mismatch *nativeconfig.ClaudeHookProfileMismatch
+		if errors.As(err, &mismatch) {
+			return refusedPlan(result, ReasonNativeSettings, err, mismatch.Error()+"; "+mismatch.RetryInstruction())
+		}
 		if errors.Is(err, nativeconfig.ErrOpaqueNamespaceOverlap) {
 			return refusedPlan(result, ReasonRefreshUnsupported, err, "inspect resolved configuration-root aliases; this overlap requires an explicit rewrite profile before refresh")
 		}

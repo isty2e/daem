@@ -254,6 +254,10 @@ requires fresh process quiescence before access is restricted. Recovery never
 parses or rewrites protected host content, replays a command, recreates a deleted
 document or finishes an installation.
 
+If a protected Claude Code `settings.json` is in a custom profile, run `recover`
+with the `CLAUDE_CONFIG_DIR` that selects that file. A different profile's
+settings file cannot satisfy the recorded binding.
+
 Dry-run reports actions and blockers without changing permissions. Confirmed
 recovery can restrict independently qualified documents even when another is
 blocked, but succeeds only after every selected protection is confirmed cleared.

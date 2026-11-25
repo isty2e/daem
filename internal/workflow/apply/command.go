@@ -11,6 +11,7 @@ import (
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
@@ -440,6 +441,7 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
+	ClaudeHookSettings      durable.ClaudeHookSettings
 	CarrierHandoffProgress  *CarrierHandoffProgress
 	RecoveryCleanup         []workspacecleanup.Step
 	PermissionProtection    ownershipobserve.ProtectionObservation
@@ -1032,7 +1034,8 @@ func loadCommandInputsAtPaths(
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	paths.ClaudeHookSettings = settings
+	paths.ClaudeHookSettings = settings.Path()
+	result.ClaudeHookSettings = settings
 	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,

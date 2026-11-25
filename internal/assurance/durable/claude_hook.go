@@ -7,7 +7,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/topology"
 )
 
 // ClaudeHookSettings is the installed hook set's lookup location, not write authority.
@@ -22,16 +21,23 @@ func NewClaudeHookSettings(path string) (ClaudeHookSettings, error) {
 
 func (settings ClaudeHookSettings) Path() string { return settings.path }
 
-func claudeGlobalHookMember(rows []ManagedAggregateState) (topology.SubjectID, bool) {
-	for _, row := range rows {
-		if row.contribution.CodecContractID() == aggregate.HookCodecClaudeGlobal {
-			return row.subject, true
-		}
+func (settings ClaudeHookSettings) PathFor(codec aggregate.CodecContractID) string {
+	if codec == aggregate.HookCodecClaudeGlobal {
+		return settings.path
 	}
-	return topology.SubjectID{}, false
+	return ""
 }
 
-func (snapshot Snapshot) ClaudeGlobalHookMember() (topology.SubjectID, bool) {
+func claudeGlobalHookMember(rows []ManagedAggregateState) (ManagedAggregateState, bool) {
+	for _, row := range rows {
+		if row.contribution.CodecContractID() == aggregate.HookCodecClaudeGlobal {
+			return row, true
+		}
+	}
+	return ManagedAggregateState{}, false
+}
+
+func (snapshot Snapshot) ClaudeGlobalHookMember() (ManagedAggregateState, bool) {
 	return claudeGlobalHookMember(snapshot.managedAggregates)
 }
 

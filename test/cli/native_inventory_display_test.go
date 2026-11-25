@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
@@ -35,8 +36,8 @@ func TestNativeOutputInventoryDisplaysDeclarationAndLiteralKey(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.SchemaVersion != 6 {
-		t.Fatalf("output inventory schema_version = %d, want 6", payload.SchemaVersion)
+	if payload.SchemaVersion != contractversion.OutputInventoryJSON {
+		t.Fatalf("output inventory schema_version = %d, want %d", payload.SchemaVersion, contractversion.OutputInventoryJSON)
 	}
 	if len(payload.Managed) != 2 {
 		t.Fatalf("key rows were grouped or dropped in JSON: %s", content)

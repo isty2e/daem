@@ -57,6 +57,7 @@ type Plan struct {
 		Targets          []string `json:"targets"`
 		Scope            string   `json:"scope"`
 		Destination      string   `json:"destination"`
+		ResolvedPath     string   `json:"resolved_path"`
 		ContentPath      string   `json:"content_path"`
 		KeyPath          []string `json:"key_path"`
 		PlacementMode    string   `json:"placement_mode"`

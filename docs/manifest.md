@@ -1162,15 +1162,19 @@ Documented hook host paths:
 
 The first time daem installs global Claude Code hooks for a manifest, it uses
 `CLAUDE_CONFIG_DIR` from daem's environment, or `~/.claude` if unset.
-`daem apply --dry-run` shows the actual settings file. Later edits and additions
-use that file, even from a shell that selects another profile. This also applies
-to hooks installed by older versions in `~/.claude/settings.json`. Removing the
-last managed hook ends that placement; changing the environment does not move it.
+`daem apply --dry-run` shows the actual settings file; after installation,
+`daem list outputs` shows it as `resolved_path`. If the profile directory is a
+symlink, daem records the directory it points to at installation time.
+
+Later edits and additions go to the same file, even from a shell that selects
+another profile. Hooks installed by older versions stay in `~/.claude/settings.json`.
+Removing the last managed hook lets the next installation choose a new profile.
 
 Global `[[agent_config]]` keys and hooks can share `settings.json` only when
 they resolve to the same file. If an existing hook set belongs to a different
-profile, daem refuses the combined change before writing. Run daem with the
-Claude profile that owns the hooks to update them together.
+profile, daem refuses the combined change before writing and names both settings
+files. Set `CLAUDE_CONFIG_DIR` to the hook directory shown in the message and
+rerun the same command to manage the hooks and keys together.
 
 Codex and Claude Code hooks are rendered into the top-level `hooks` aggregate
 in the target host file. Multiple manifest hook entries for the same scope and

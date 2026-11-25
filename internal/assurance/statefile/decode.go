@@ -45,7 +45,7 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec sna
 		}
 		version = snapshotVersion // All other fact families retain their v10 grammar.
 	} else if len(persisted.ClaudeHookSettings) != 0 {
-		return durable.Snapshot{}, fmt.Errorf("statefile v%d cannot select a Claude hook settings file", version)
+		return durable.Snapshot{}, fmt.Errorf("statefile v%d cannot select a Claude hook settings file", persisted.Version)
 	}
 	if persisted.ManagedPaths == nil ||
 		persisted.ManagedAggregateBaselines == nil ||

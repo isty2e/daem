@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	"github.com/isty2e/daem/internal/contractversion"
@@ -16,8 +17,9 @@ import (
 
 // HumanPlanInput carries plan facts without execution or result-history authority.
 type HumanPlanInput struct {
-	Reconciliation reconcile.Result
-	MCPStatuses    []MCPStatus
+	ClaudeHookSettings durable.ClaudeHookSettings
+	Reconciliation     reconcile.Result
+	MCPStatuses        []MCPStatus
 }
 
 func PrintDryRunPlanWithOptions(output io.Writer, input HumanPlanInput, options HumanOptions) {
@@ -29,6 +31,7 @@ func PrintStatusPlanWithOptions(output io.Writer, input HumanPlanInput, options 
 }
 
 type PlanJSONInput struct {
+	ClaudeHookSettings   durable.ClaudeHookSettings
 	PermissionProtection ownershipobserve.ProtectionObservation
 	RecoveryCleanup      []applyworkflow.RecoveryCleanupStep
 	Command              string
@@ -83,6 +86,7 @@ type planJSONAction struct {
 	Targets          []string               `json:"targets,omitempty"`
 	Scope            string                 `json:"scope"`
 	Destination      string                 `json:"destination"`
+	ResolvedPath     string                 `json:"resolved_path,omitempty"`
 	ContentPath      string                 `json:"content_path,omitempty"`
 	KeyPath          []string               `json:"key_path,omitempty"`
 	PlacementMode    string                 `json:"placement_mode"`
@@ -164,7 +168,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	reconciliation := input.Reconciliation
-	actions, err := planJSONActionsForPlan(reconciliation)
+	actions, err := planJSONActionsForPlan(reconciliation, input.ClaudeHookSettings)
 	if err != nil {
 		return err
 	}
@@ -202,7 +206,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 	return encoder.Encode(payload)
 }
 
-func planJSONActionsForPlan(planResult reconcile.Result) ([]planJSONAction, error) {
+func planJSONActionsForPlan(planResult reconcile.Result, settings durable.ClaudeHookSettings) ([]planJSONAction, error) {
 	result := make([]planJSONAction, 0, planResult.ProjectionDecisionCount())
 	for _, decision := range planResult.Decisions() {
 		if managedPath, ok := decision.ManagedPath(); ok {
@@ -214,6 +218,7 @@ func planJSONActionsForPlan(planResult reconcile.Result) ([]planJSONAction, erro
 		if err != nil {
 			return nil, err
 		}
+		action.ResolvedPath = settings.PathFor(aggregate.Contract().CodecContractID())
 		result = append(result, action)
 	}
 	return result, nil

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -156,6 +157,74 @@ func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing
 			})
 		}
 	}
+}
+
+func TestNativeRefreshProtectsInstalledClaudeHooksInTheirProfile(t *testing.T) {
+	f := newNativePiRefreshFixture(t, target.ScopeProject, "")
+	profile := os.Getenv("CLAUDE_CONFIG_DIR")
+	destination := filepath.Join(profile, "settings.json")
+	const manifest = `version = 1
+targets = ["pi", "claude-code"]
+[[extension]]
+id = "tools"
+targets = ["pi"]
+carrier = "pi-package"
+scope = "project"
+source = {host_source = "git:github.com/acme/pi-tools@v1"}
+[[agent_config]]
+id = "preferences"
+targets = ["pi"]
+scope = "project"
+path = "settings.json"
+source = %q
+[[agent_config]]
+id = "claude-model"
+targets = ["claude-code"]
+scope = "global"
+path = "settings.json"
+source = %q
+[[hook]]
+name = "notify"
+targets = ["claude-code"]
+scope = "global"
+event = "Stop"
+command = "echo done"
+`
+	source := filepath.Join(f.Workspace, "claude.json")
+	testkit.WriteFile(t, f.Workspace, "claude.json", `{"model":"example"}`)
+	testkit.WriteFile(t, f.Workspace, "daem.toml", fmt.Sprintf(manifest, filepath.Join(f.Workspace, "preferences.json"), source))
+	f.Require(t, "lock")
+	f.Require(t, "apply", "--target", "claude-code", "--yes")
+	installed := string(testkit.ReadFile(t, destination))
+
+	other := filepath.Join(f.Workspace, "other-profile")
+	t.Setenv("CLAUDE_CONFIG_DIR", other)
+	code, out, stderr := f.Run("refresh", "extension", "tools", "--dry-run", "--verbose")
+	if code == 0 || !strings.Contains(out+stderr, destination) || !strings.Contains(out+stderr, filepath.Join(other, "settings.json")) {
+		t.Fatalf("refresh did not identify the separate Claude profiles: %d %s %s", code, out, stderr)
+	}
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\n")
+	t.Setenv("CLAUDE_CONFIG_DIR", profile)
+	f.Require(t, "refresh", "extension", "tools", "--yes")
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
+	testkit.AssertFileContent(t, destination, installed)
+
+	t.Setenv("DAEM_TEST_REFRESH_FAULT", "terminate")
+	code, out, stderr = nativefixture.InvokeRecoveryCommand(t, nativefixture.RecoveryFixture{Manifest: f.Manifest, Destination: f.Settings}, "native-refresh-command", "refresh", "extension", "tools", "--yes")
+	if code == 0 || code == nativefixture.RecoveryExit {
+		t.Fatalf("did not interrupt the refresh command: %d %s %s", code, out, stderr)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", other)
+	const foreign = `{"private":true}`
+	testkit.WriteFile(t, other, "settings.json", foreign)
+	if code, out, stderr := f.Run("recover", "--yes"); code == 0 {
+		t.Fatalf("recovered a protected Claude document under a different profile: %s %s", out, stderr)
+	}
+	testkit.AssertFileContent(t, filepath.Join(other, "settings.json"), foreign)
+	t.Setenv("CLAUDE_CONFIG_DIR", profile)
+	f.Require(t, "recover", "--yes")
+	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
+	testkit.AssertFileContent(t, destination, installed)
 }
 
 func TestNativePiRefreshDoesNotResolveUnrelatedDeclaredSources(t *testing.T) {
