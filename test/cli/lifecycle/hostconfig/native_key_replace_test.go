@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestNativeKeyReplacementCLI(t *testing.T) {
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
-	workspace := filepath.Join(root, "workspace")
+	workspace := filepath.Join(root, `a\workspace`)
 	manifest := filepath.Join(workspace, "daem.toml")
 	destination := filepath.Join(workspace, ".codex", "config.toml")
 	testkit.WriteFile(t, workspace, "daem.toml", `version = 1
@@ -28,7 +29,8 @@ path = "config.toml"
 source = "./preferences.toml"
 ownership = "keys"
 `)
-	testkit.WriteFile(t, workspace, "preferences.toml", "model = \"declared\"\n[ tui ]\nnotifications = false\n")
+	const desired = `a\model`
+	testkit.WriteFile(t, workspace, "preferences.toml", "model = '"+desired+"'\n[ tui ]\nnotifications = false\n")
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "# keep me\nmodel = \"local\"\nunmanaged = 1\n")
 	if code, stdout, stderr := testkit.RunCapturedCLI("lock", "--manifest", manifest); code != 0 {
 		t.Fatalf("lock failed: %d %s %s", code, stdout, stderr)
@@ -41,19 +43,34 @@ ownership = "keys"
 		}
 		return content
 	}
+	name := "preferences"
 	preview := func() string {
 		t.Helper()
-		code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--dry-run", "--json")
+		code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", name, "--manifest", manifest, "--key", "/model", "--dry-run", "--json")
 		if code != 0 {
 			t.Fatalf("replacement preview failed: %d %s %s", code, stdout, stderr)
 		}
 		var result struct {
+			SchemaVersion int    `json:"schema_version"`
+			Declaration   string `json:"declaration"`
+			Keys          []struct {
+				File, Desired string
+				KeyPath       []string `json:"key_path"`
+			} `json:"keys"`
 			Command     string `json:"command"`
 			Fingerprint string `json:"fingerprint"`
 		}
-		if err := json.Unmarshal([]byte(stdout), &result); err != nil || result.Command != "replace agent-config" || !strings.HasPrefix(result.Fingerprint, "v1:") {
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil || result.SchemaVersion != 2 || result.Command != "replace agent-config" || result.Declaration != name || !strings.HasPrefix(result.Fingerprint, "v1:") {
 			t.Fatalf("invalid replacement preview: %s %v", stdout, err)
 		}
+		if len(result.Keys) != 1 || result.Keys[0].File != destination || !slices.Equal(result.Keys[0].KeyPath, []string{"model"}) {
+			t.Fatalf("wrong selected host key: %s", stdout)
+		}
+		var snippet struct{ Model string }
+		if err := toml.Unmarshal([]byte("model = "+result.Keys[0].Desired), &snippet); err != nil || snippet.Model != desired {
+			t.Fatalf("invalid host value %q: %v", result.Keys[0].Desired, err)
+		}
+		name = result.Declaration
 		return result.Fingerprint
 	}
 	before := string(read())
@@ -69,7 +86,7 @@ ownership = "keys"
 	if fresh := preview(); fresh != fingerprint {
 		t.Fatal("unrelated content changed replacement consent")
 	}
-	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint, "--json"); code != 0 {
+	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", name, "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint, "--json"); code != 0 {
 		t.Fatalf("explicit takeover failed: %d %s %s", code, stdout, stderr)
 	}
 	var values struct {
@@ -77,7 +94,7 @@ ownership = "keys"
 		Unmanaged int
 		TUI       map[string]any `toml:"tui"`
 	}
-	if err := toml.Unmarshal(read(), &values); err != nil || values.Model != "declared" || values.Unmanaged != 2 || len(values.TUI) != 0 || !strings.Contains(string(read()), "# fresh comment") {
+	if err := toml.Unmarshal(read(), &values); err != nil || values.Model != desired || values.Unmanaged != 2 || len(values.TUI) != 0 || !strings.Contains(string(read()), "# fresh comment") {
 		t.Fatalf("replacement exceeded scope or lost fresh unrelated content: %s %v", read(), err)
 	}
 	testkit.WriteFile(t, workspace, ".codex/config.toml", "# fresh comment\nmodel = \"later-local\"\nunmanaged = 2\n")
@@ -93,7 +110,7 @@ ownership = "keys"
 	if code, stdout, stderr := testkit.RunCapturedCLI("replace", "agent-config", "preferences", "--manifest", manifest, "--key", "/model", "--yes", "--expect-plan", fingerprint); code != 0 {
 		t.Fatalf("managed drift replacement failed: %d %s %s", code, stdout, stderr)
 	}
-	if err := toml.Unmarshal(read(), &values); err != nil || values.Model != "declared" {
+	if err := toml.Unmarshal(read(), &values); err != nil || values.Model != desired {
 		t.Fatal("managed replacement did not restore declared value", err)
 	}
 }

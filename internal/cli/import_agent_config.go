@@ -94,20 +94,18 @@ func prepareImportAgentConfigInvocation(args []string, stdout, stderr io.Writer,
 		if !*dryRun {
 			mode = "captured"
 		}
-		disclosure, err := clipresent.AgentConfigCaptureDisclosure(options.context, plan, mode)
+		disclosure, err := clipresent.AgentConfigCaptureDisclosure(options.context, plan)
 		if err != nil {
 			return fail(operationFailure, err)
 		}
-		encoded, err := disclosure.JSON()
-		if err != nil {
-			return fail(operationFailure, err)
-		}
-		if arguments.output != requestedJSON {
-			preview := disclosure
-			preview.Mode = "preview"
-			if err := clipresent.PrintAgentConfigCapture(stdout, preview, *showDiff); err != nil {
+		var encoded []byte
+		if arguments.output == requestedJSON {
+			encoded, err = disclosure.JSON(mode)
+			if err != nil {
 				return fail(operationFailure, err)
 			}
+		} else if err := disclosure.Print(stdout, *showDiff); err != nil {
+			return fail(operationFailure, err)
 		}
 		if !*dryRun {
 			if *yes {

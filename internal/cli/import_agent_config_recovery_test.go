@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
@@ -111,7 +110,7 @@ func TestImportAgentConfigRecoversInitialPublicationWithoutRecapture(t *testing.
 	for _, selected := range []string{"pi", "codex", "claude-code", "opencode", "antigravity-cli"} {
 		for _, finalized := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/finalized=%t", selected, finalized), func(t *testing.T) {
-				_, manifest, _, _ := captureCLIFixture(t, `{}`)
+				manifest, _, _ := captureCLIFixtureAt(t, filepath.Join(t.TempDir(), `capture\workspace`), `{}`)
 				scope := captureHostScopes(selected)[0]
 				host, path := captureHostDocument(t, manifest, selected, scope, "captured.jsonc", "keys")
 				if err := os.WriteFile(host, []byte(`{"chosen":1}`), 0o600); err != nil {
@@ -155,8 +154,20 @@ func TestImportAgentConfigRecoversInitialPublicationWithoutRecapture(t *testing.
 				if err != nil || !bytes.Equal(beforeMarker, unchanged) {
 					t.Fatal("recovery preview mutated evidence", err)
 				}
+				referent, err := filepath.EvalSymlinks(source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				disposition := "rollback"
+				if finalized {
+					disposition = "finalize"
+				}
 				code, stdout, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint, "--json"))
-				if code != 0 || !strings.Contains(stdout, `"recovery"`) || !strings.Contains(stdout, `"recovered"`) {
+				var result struct {
+					SchemaVersion                              int `json:"schema_version"`
+					Mode, Recovery, Manifest, Source, Referent string
+				}
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil || code != 0 || result.SchemaVersion != 2 || result.Mode != "recovered" || result.Recovery != disposition || result.Manifest != manifest || result.Source != source || result.Referent != referent {
 					t.Fatal("recovery attempted fresh host read/capture", code, stdout, stderr)
 				}
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {

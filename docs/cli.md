@@ -352,8 +352,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `2` |
 | `status`, `apply --dry-run` | Reconciliation plan | `20` |
 | confirmed `apply` | Apply result | `26` |
-| `replace agent-config` | Selected-key replacement | `1` |
-| `import agent-config` | Selected physical-value capture or its terminal recovery | `1` |
+| `replace agent-config` | Selected-key replacement | `2` |
+| `import agent-config` | Selected physical-value capture or its terminal recovery | `2` |
 | `recover` | Recovery plan/result | `11` |
 | `migrate state` | State-authority migration | `1` |
 | `migrate metadata` | Management metadata conversion | `1` |
@@ -363,10 +363,11 @@ are unrelated and must not be compared as a product-wide sequence:
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `2` |
 
 Agent configuration key addresses use a `key_path` array of literal names
-in lock comparisons, reconciliation actions/projections/previous state, and
-apply results. For example, `["ext", "a/b"]` selects a property literally named
-`a/b`, and `[""]` selects an empty property name. Legacy aggregate rows retain
-`content_path`; native rows do not encode their names in that field.
+in lock comparisons, reconciliation actions/projections/previous state, apply
+results, output inventory, capture and replacement. For example, `["ext", "a/b"]`
+selects a property literally named `a/b`, and `[""]` selects an empty property
+name. Legacy aggregate rows retain `content_path`; native rows do not encode
+their names in that field.
 
 Default human status, previews and apply results group native keys by declaration,
 target, scope and destination. Each displayed key retains its action or status.
@@ -378,6 +379,16 @@ Quoted dotted-path segments distinguish `ext."a/b"` and `"a.b"` from nested keys
 `list outputs` version `6` adds `resource` and `key_path` to rows for individual
 agent configuration keys. Other rows omit both fields. The machine `subject`,
 optional `resource_id` and row counts are unchanged.
+
+`import agent-config --json` and `replace agent-config --json` return exact
+declaration names, file paths and key segments. If a result requires an
+identifier that is not valid UTF-8 or that the credential policy would mask,
+the command returns `cli_error` naming the field without printing its value.
+This applies to dry-runs and happens before capture, replacement or recovery.
+Use `--dry-run` without `--json` to inspect the human preview. If recovery is
+pending, keep the files at their original paths until recovery finishes.
+Ordinary names such as `credentials.json` and `api_key` are allowed; sensitive
+setting values are still masked.
 
 `doctor` version `3` and common CLI failure version `2` can report
 `permission_protection` when permission recovery is pending or its inventory is
@@ -793,7 +804,9 @@ Only source/declaration artifacts change. Capture does not change host files,
 regenerate the lock, register ownership, or apply settings. After initial capture,
 run `lock`, `apply --manage-existing --dry-run`, then `apply --manage-existing`.
 After an update, run `lock`, `apply --dry-run`, then ordinary `apply`. Inspect the
-printed manifest-scoped commands. Capturing during a whole-to-keys handoff
+printed manifest-scoped commands. If the manifest operand cannot be disclosed,
+the next step asks you to use the same manifest instead of printing the command.
+Capturing during a whole-to-keys handoff
 replaces old desired source values; it does not save those values for automatic
 restoration. Complete narrowing before making a separate desired-value update.
 
@@ -805,6 +818,18 @@ dry-run afterward. A source target that cannot be independently selected from
 the invocation or current declaration, mismatching evidence, or other pending
 work is refused rather than recovered from marker-supplied paths. Capture and
 its recovery return `command = "import agent-config"` in JSON results.
+
+In a capture result, `declaration` is the name accepted by the command.
+`source` names the selected local source, and `referent` names the file it
+resolves to; these differ when the source is a symlink. `known_references[]`
+identifies readers in the selected manifest by `resource` and `path`. Each
+`keys[]` row has a `key_path` array, `before_present` and `after_present`, and
+display values `before` and `after` for the selected setting. Use the presence
+flags to distinguish a missing value from a masked one. Whole-document capture
+returns `keys: []` and omits the file contents. `next_steps` lists the suggested
+commands or instructions. A recovery result reports `manifest`, `source`,
+`referent`, `known_references` and `recovery` (`finalize` or `rollback`)
+instead of selected keys.
 
 When switching sources or retiring a declaration, daem keeps any blank lines
 and standalone comments after the edited block. It can also finish an interrupted
@@ -1446,9 +1471,10 @@ the value is replaced. `list outputs` JSON has separate `managed`, `unmanaged`,
 and `blocked` arrays and counts. Rows retain their canonical `subject` and
 complete `targets` consumer set while reporting the correlated resource identity
 when one exists.
-Newly classified unmanaged and blocked aggregate rows also carry
-`content_path`, which identifies the selected contribution inside the shared
-file, while `hash` remains empty because daem does not own the whole document.
+In all three arrays, an individual agent configuration key has a `key_path`
+array of literal names and no `content_path`. For MCP servers and hooks, only
+unmanaged and blocked rows include `content_path`. Aggregate rows have an
+empty `hash` because daem does not own the whole document.
 Both commands include every selected row.
 
 `list paths` JSON uses a flat `locations` array. Every
@@ -1618,9 +1644,10 @@ and formatting can change: execution rereads and preserves them rather than
 replaying saved file bytes. Replacing a file inode alone does not invalidate
 consent when the selected namespace, values and protection still match.
 
-The JSON envelope is schema version 1 with `command = "replace agent-config"`,
-`mode` (`dry-run` or `executed`), `fingerprint`, `declaration`, `action_count` and
-`keys`. Each key has a literal-name `key_path` array, destination `file`, `action`
+The JSON envelope is schema version 2 with `command = "replace agent-config"`,
+`mode` (`dry-run` or `executed`), `fingerprint`, `declaration` (the literal name
+accepted by the command), `action_count` and `keys`. Each key has a literal-name
+`key_path` array, `file` (the selected host path, which may be a symlink), `action`
 (`create`, `recreate`, `adopt`, `takeover`, `replace`, `record`, or `current`),
 `current_present`, optional `current`, and `desired`. Value strings use host
 syntax; sensitive or oversized display values are masked without weakening the

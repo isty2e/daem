@@ -24,6 +24,12 @@ import (
 func captureCLIFixture(t *testing.T, content string) (root, manifest, host string, args []string) {
 	t.Helper()
 	root = t.TempDir()
+	manifest, host, args = captureCLIFixtureAt(t, root, content)
+	return
+}
+
+func captureCLIFixtureAt(t *testing.T, root, content string) (manifest, host string, args []string) {
+	t.Helper()
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	for _, name := range []string{"XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
 		t.Setenv(name, filepath.Join(root, name))
@@ -366,8 +372,15 @@ func TestImportAgentConfigWholeInitialPreservesBytesAndOmitsRawDisclosure(t *tes
 	if code != 0 || strings.Contains(out+errText, "whole-literal-private") || strings.Contains(out+errText, "private-host-comment") {
 		t.Fatal("whole preview leaked raw contents", code, out, errText)
 	}
-	fingerprint := captureFingerprint(t, args)
-	if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint)); code != 0 {
+	code, out, errText = runCaptureCLI(t, append(append([]string{}, args...), "--dry-run", "--json"))
+	var preview struct {
+		Fingerprint string
+		Keys        []json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(out), &preview); err != nil || code != 0 || preview.Keys == nil || len(preview.Keys) != 0 || strings.Contains(out+errText, "whole-literal-private") {
+		t.Fatalf("expected a whole-document preview with an empty key array: %s %s", out, errText)
+	}
+	if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", preview.Fingerprint)); code != 0 {
 		t.Fatal(code, out, err)
 	}
 	stored, err := os.ReadFile(filepath.Join(root, "daem.d", "agent-config", "whole.jsonc"))
