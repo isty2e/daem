@@ -126,6 +126,31 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	return nil
 }
 
+func validateInPlacePermissionAccess(fd int, _ *unix.Stat_t, needsChmod bool) error {
+	// A regular file can have an access ACL, but not a directory default ACL.
+	for _, name := range []string{"system.posix_acl_access", "security.capability"} {
+		_, err := unix.Fgetxattr(fd, name, nil)
+		switch {
+		case err == nil:
+			return unsupported(fmt.Sprintf("permission bits do not describe %q", name), nil)
+		case errors.Is(err, unix.ENODATA), errors.Is(err, unix.EOPNOTSUPP):
+		default:
+			return unsupported(fmt.Sprintf("permission attribute %q cannot be inspected", name), err)
+		}
+	}
+	if needsChmod {
+		flags, err := linuxFileFlags(fd)
+		if err != nil {
+			return unsupported("file flags cannot be inspected", err)
+		}
+		const blocksChmod = 0x10 | 0x20 // FS_IMMUTABLE_FL | FS_APPEND_FL
+		if flags&blocksChmod != 0 {
+			return unsupported("immutable or append-only file cannot be restricted", nil)
+		}
+	}
+	return nil
+}
+
 func capturePreparedTreePlatformMetadataFacts(fd int, path string, _ *unix.Stat_t) (uint64, error) {
 	flags, err := linuxFileFlags(fd)
 	if err != nil {

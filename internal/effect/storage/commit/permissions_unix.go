@@ -96,42 +96,23 @@ func inspectOrRestrictRootedPermissions(ctx context.Context, request RootedPermi
 	if expected.kind != entryKindRegular {
 		return result, failureBeforeVisibility(phaseValidate, request.path, unsupported("permission target is not a regular file", nil))
 	}
-	fd, err := openExpectedAt(anchor.parentFD(), anchor.base, request.path, expected)
+	fd, err := unix.Openat(anchor.parentFD(), anchor.base, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return result, failureBeforeVisibility(phaseCaptureIdentity, request.path, err)
 	}
 	defer unix.Close(fd)
-	if err := request.capability.ValidateDirectoryHandle(uintptr(fd)); err != nil {
-		return result, failureBeforeVisibility(phaseValidate, request.path, err)
-	}
 	if err := faults.check(ctx, phaseCaptureMetadata); err != nil {
 		return result, failureBeforeVisibility(phaseCaptureMetadata, request.path, err)
 	}
-	var before unix.Stat_t
-	if err := unix.Fstat(fd, &before); err != nil {
-		return result, failureBeforeVisibility(phaseCaptureMetadata, request.path, err)
-	}
-	if err := validatePermissionTargetMetadata(&before); err != nil {
-		return result, failureBeforeVisibility(phaseCaptureMetadata, request.path, err)
-	}
-	metadata, err := capturePreservedMetadata(fd, &before)
-	if err != nil {
-		return result, failureBeforeVisibility(phaseCaptureMetadata, request.path, err)
-	}
-	desired, expanded, err := request.restriction(before.Uid, before.Gid, uint32(before.Mode)&0o777)
+	_, expanded, err := request.inspectOpenedPermissions(anchor, fd, expected)
 	if err != nil {
 		return result, failureBeforeVisibility(phaseCaptureMetadata, request.path, err)
 	}
 	result.expanded = expanded
 	if !mutate {
-		if _, _, err := anchor.requireExpected(anchor.base, request.path, expected); err != nil {
-			return result, failureBeforeVisibility(phaseRevalidateEntry, request.path, err)
-		}
-		if err := anchor.verifyChain(); err != nil {
-			return result, failureBeforeVisibility(phaseRevalidateEntry, request.path, err)
-		}
 		return result, nil
 	}
+
 	attempted := false
 	fail := func(current phase, cause error) (PermissionRestrictionResult, error) {
 		if attempted {
@@ -146,58 +127,85 @@ func inspectOrRestrictRootedPermissions(ctx context.Context, request RootedPermi
 		if err := ctx.Err(); err != nil {
 			return fail(phaseApplyMode, err)
 		}
-		if _, _, err := anchor.requireExpected(anchor.base, request.path, expected); err != nil {
+		desired, stillExpanded, err := request.inspectOpenedPermissions(anchor, fd, expected)
+		if err != nil {
 			return fail(phaseRevalidateEntry, err)
 		}
-		if err := anchor.verifyChain(); err != nil {
-			return fail(phaseRevalidateEntry, err)
-		}
-		attempted = true
-		if err := unix.Fchmod(fd, desired); err != nil {
-			return fail(phaseApplyMode, err)
-		}
-		result.restricted = true
-		if err := faults.effectResult(phaseApplyMode, nil); err != nil {
-			return fail(phaseApplyMode, err)
+		if stillExpanded {
+			attempted = true
+			if err := unix.Fchmod(fd, desired); err != nil {
+				return fail(phaseApplyMode, err)
+			}
+			result.restricted = true
+			if err := faults.effectResult(phaseApplyMode, nil); err != nil {
+				return fail(phaseApplyMode, err)
+			}
 		}
 	}
+
 	if err := faults.run(ctx, phaseSyncPayload, func() error { return syncPayload(fd) }); err != nil {
 		return fail(phaseSyncPayload, err)
 	}
 	if err := faults.check(ctx, phaseVerifyEntry); err != nil {
 		return fail(phaseVerifyEntry, err)
 	}
-	var after unix.Stat_t
-	if err := unix.Fstat(fd, &after); err != nil {
-		return fail(phaseVerifyEntry, err)
-	}
-	if err := validatePermissionTargetMetadata(&after); err != nil {
-		return fail(phaseVerifyEntry, err)
-	}
-	current := identityFromStat(request.path, &after)
-	if !expected.sameObject(current) || uint32(after.Mode)&0o777 != desired {
-		return fail(phaseVerifyEntry, fmt.Errorf("permission restriction did not verify on its opened file"))
-	}
-	_, stillExpanded, err := request.restriction(after.Uid, after.Gid, uint32(after.Mode)&0o777)
+	_, stillExpanded, err := request.inspectOpenedPermissions(anchor, fd, expected)
 	if err != nil {
 		return fail(phaseVerifyEntry, err)
 	}
 	if stillExpanded {
 		return fail(phaseVerifyEntry, fmt.Errorf("permission policy did not settle after restriction"))
 	}
-	if err := verifyPreservedMetadata(fd, metadata); err != nil {
-		return fail(phaseVerifyEntry, err)
+	return result, nil
+}
+
+func (request RootedPermissionRestriction) inspectOpenedPermissions(anchor *anchoredParent, fd int, expected EntryIdentity) (uint32, bool, error) {
+	if err := request.capability.ValidateDirectoryHandle(uintptr(fd)); err != nil {
+		return 0, false, err
 	}
-	if _, _, err := anchor.requireExpected(anchor.base, request.path, current); err != nil {
-		return fail(phaseVerifyEntry, err)
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return 0, false, err
+	}
+	opened := identityFromStat(request.path, &stat)
+	if !expected.sameObject(opened) {
+		return 0, false, fmt.Errorf("permission target changed while opening %q", request.path)
+	}
+	desired, expanded, err := request.restrictionOnFile(fd, &stat)
+	if err != nil {
+		return 0, false, err
 	}
 	if err := anchor.verifyChain(); err != nil {
-		return fail(phaseVerifyEntry, err)
+		return 0, false, err
 	}
-	if err := request.capability.ValidateDirectoryHandle(uintptr(fd)); err != nil {
-		return fail(phaseVerifyEntry, err)
+	named, current, err := anchor.observe(anchor.base, request.path)
+	if err != nil {
+		return 0, false, err
 	}
-	return result, nil
+	if !opened.sameObject(named) {
+		return 0, false, fmt.Errorf("permission target at %q no longer names the opened file", request.path)
+	}
+	if !opened.sameEntry(named) {
+		return request.restrictionOnFile(fd, &current)
+	}
+	return desired, expanded, nil
+}
+
+func (request RootedPermissionRestriction) restrictionOnFile(fd int, stat *unix.Stat_t) (uint32, bool, error) {
+	if err := validateOwnedStat(request.path, stat); err != nil {
+		return 0, false, err
+	}
+	if err := validatePermissionTargetMetadata(stat); err != nil {
+		return 0, false, err
+	}
+	desired, expanded, err := request.restriction(stat.Uid, stat.Gid, uint32(stat.Mode)&0o777)
+	if err != nil {
+		return 0, false, err
+	}
+	if err := validateInPlacePermissionAccess(fd, stat, expanded); err != nil {
+		return 0, false, err
+	}
+	return desired, expanded, nil
 }
 
 func inspectPermissionAbsence(ctx context.Context, request RootedPermissionRestriction, cause error) (PermissionRestrictionResult, error) {

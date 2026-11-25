@@ -99,6 +99,11 @@ unsupported rather than silently discarded. Linux replacement metadata policy is
 unchanged. A failure during final verification can still occur after a replacement
 has become visible. A successful `--dry-run` does not exercise these write paths.
 
+[Permission-only recovery](state-and-recovery.md#permission-only-recovery)
+narrows access on the existing file. A Finder tag or the backup-exclusion flag
+(`UF_NODUMP`) stays in place and does not block `chmod`. An ACL, or a flag that
+prevents the required change, still blocks the restriction.
+
 ## Unsupported Builds
 
 | Command | Behavior on a not-admitted platform |

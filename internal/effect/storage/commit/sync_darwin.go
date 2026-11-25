@@ -49,12 +49,24 @@ func validateDarwinFileMetadata(fd int, stat *unix.Stat_t) error {
 	if stat.Flags != 0 {
 		return unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", stat.Flags), nil)
 	}
+	return requireNoDarwinACL(fd)
+}
+
+func validateInPlacePermissionAccess(fd int, stat *unix.Stat_t, needsChmod bool) error {
+	const blocksChmod = unix.UF_IMMUTABLE | unix.SF_IMMUTABLE | unix.UF_APPEND | unix.SF_APPEND
+	if needsChmod && stat.Flags&blocksChmod != 0 {
+		return unsupported("immutable or append-only file cannot be restricted", nil)
+	}
+	return requireNoDarwinACL(fd)
+}
+
+func requireNoDarwinACL(fd int) error {
 	hasACL, err := hasDarwinACL(fd)
 	if err != nil {
 		return unsupported("ACL and extended security metadata cannot be inspected", err)
 	}
 	if hasACL {
-		return unsupported("ACL or extended security metadata cannot be preserved", nil)
+		return unsupported("ACL or extended security metadata is unsupported", nil)
 	}
 	return nil
 }
