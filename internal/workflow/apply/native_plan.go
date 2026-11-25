@@ -151,7 +151,8 @@ func admitNativeCommandPlan(ctx context.Context, planned *commandPlan) error {
 		return err
 	}
 	stateInput := effectpreparation.NativeApplyStateInput{
-		Before: assessment.CurrentState, ManagedPaths: assessment.Reconciliation.ManagedPaths(),
+		ClaudeHookSettings: planned.context.Paths.ClaudeHookSettings,
+		Before:             assessment.CurrentState, ManagedPaths: assessment.Reconciliation.ManagedPaths(),
 		Aggregates: assessment.Reconciliation.Aggregates(), StateCodec: codec,
 		ConfirmedRelationActions: assessment.Reconciliation.Relations(),
 		Narrowings:               assessment.Reconciliation.NativeNarrowings(),
@@ -299,7 +300,8 @@ func prepareNativeInvocationRemainder(ctx context.Context, planned *commandPlan)
 		return err
 	}
 	prefix, err := effectpreparation.PrepareNativeApplyState(ctx, effectpreparation.NativeApplyStateInput{
-		Before: planned.assessment.CurrentState, Aggregates: positive,
+		ClaudeHookSettings: planned.context.Paths.ClaudeHookSettings,
+		Before:             planned.assessment.CurrentState, Aggregates: positive,
 		Narrowings: planned.nativePlan.state.PositiveNarrowings(), StateCodec: planned.nativePlan.stateCodec,
 	})
 	if err != nil {

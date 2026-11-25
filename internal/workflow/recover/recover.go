@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
@@ -19,8 +20,10 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 
 	daempaths "github.com/isty2e/daem/internal/paths"
 
@@ -110,7 +113,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
-	recoverable, journalErr := loadRecoverySelection(ctx, paths, filesystem, planningBudget)
+	recoverable, journalErr := loadRecoverySelection(ctx, &paths, filesystem, planningBudget)
 	if err := ctx.Err(); err != nil {
 		return recoveryPreparation{}, err
 	}
@@ -194,12 +197,27 @@ func finishRecoveryPreparation(
 	return planned, nil
 }
 
-func loadRecoverySelection(ctx context.Context, paths daempaths.Paths, filesystem mutationfs.Reader, physicalPathBudget rootedpath.PhysicalTraversalBudget) (journal.RecoverablePlan, error) {
-	options, err := recoveryLoadOptions(ctx, paths, filesystem, physicalPathBudget)
+func loadRecoverySelection(ctx context.Context, paths *daempaths.Paths, filesystem mutationfs.Reader, physicalPathBudget rootedpath.PhysicalTraversalBudget) (journal.RecoverablePlan, error) {
+	paths.ClaudeHookSettings = ""
+	options, err := recoveryLoadOptions(ctx, *paths, filesystem, physicalPathBudget)
 	if err != nil {
 		return nil, err
 	}
-	return journal.LoadRecoverablePlanWithOptions(ctx, journalPaths(paths), options)
+	options.ValidateBeforeActiveObservation = func(ctx context.Context, record journalrecord.Loaded) error {
+		file, err := record.ClaudeHookPlacement()
+		if err != nil || file.Path() == "" {
+			return err
+		}
+		if err := nativeconfig.QualifyClaudeHookRecovery(ctx, *paths, file, options.NativeDocuments.StateReader, physicalPathBudget); err != nil {
+			return err
+		}
+		paths.ClaudeHookSettings = file.Path()
+		return nil
+	}
+	options.Resolver = func(destination output.Destination) (string, error) {
+		return destinationResolver(*paths).Resolve(destination, physicalPathBudget)
+	}
+	return journal.LoadRecoverablePlanWithOptions(ctx, journalPaths(*paths), options)
 }
 
 // Execute executes one prepared recovery with explicit effect dependencies.
@@ -512,7 +530,7 @@ func classifyPostExecutionAuthority(
 	}
 	current, classificationErr := loadRecoverySelection(
 		ctx,
-		execution.paths,
+		&execution.paths,
 		filesystem,
 		execution.physicalPathBudget,
 	)

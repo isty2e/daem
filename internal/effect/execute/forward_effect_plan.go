@@ -32,6 +32,10 @@ func deriveApplyStateTransition(input ApplyInput) (applyStateTransition, error) 
 	if err != nil {
 		return applyStateTransition{}, err
 	}
+	nextState, err = nextState.WithClaudeHookPlacement(input.CurrentState, input.Paths.ClaudeHookSettings)
+	if err != nil {
+		return applyStateTransition{}, err
+	}
 	nextState, globalCarrierStateChanged, err := nextState.WithConvergedGlobalCarrierClaims(
 		input.GlobalCarrierClaims,
 	)

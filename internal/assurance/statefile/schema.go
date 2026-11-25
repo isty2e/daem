@@ -10,6 +10,7 @@ const (
 
 type snapshotDocumentDTO[Aggregate aggregateStateRecord] struct {
 	Version                   int                        `json:"version"`
+	ClaudeHookSettings        json.RawMessage            `json:"claude_hook_settings,omitempty"`
 	NativeDocumentCommit      json.RawMessage            `json:"native_document_commit,omitempty"`
 	ManagedPaths              []managedPathDTO           `json:"managed_paths"`
 	ManagedAggregateBaselines []Aggregate                `json:"managed_aggregate_contributions"`

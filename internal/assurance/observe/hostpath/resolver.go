@@ -3,11 +3,15 @@
 package physicalhostpath
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
+	nativehostpath "github.com/isty2e/daem/internal/output/hostpath/native"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -21,6 +25,24 @@ func NewResolver(paths daempaths.Paths) Resolver {
 
 func (resolver Resolver) Resolve(destination output.Destination, budget rootedpath.PhysicalTraversalBudget) (string, error) {
 	return resolver.ForBudget(budget).Resolve(destination)
+}
+
+// ClaudeUserSettings resolves the profile directory before appending the filename.
+func (resolver Resolver) ClaudeUserSettings(budget rootedpath.PhysicalTraversalBudget) (string, error) {
+	home, err := resolver.paths.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	value, present := os.LookupEnv("CLAUDE_CONFIG_DIR")
+	dir, err := nativehostpath.ClaudeConfigurationDirectory(value, present, resolver.paths.ManifestRoot, home)
+	if err != nil {
+		return "", err
+	}
+	dir, err = rootedpath.ResolveFutureReferentPathBounded(dir, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "settings.json"), nil
 }
 
 // ForBudget adapts read-only consumers to the allocation already owned by their

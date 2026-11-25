@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
@@ -64,6 +65,7 @@ func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
 }
 
 type ApplyResultJSONInput struct {
+	ClaudeHookSettings     durable.ClaudeHookSettings
 	CarrierHandoffProgress *applyworkflow.CarrierHandoffProgress
 	RecoveryCleanup        []applyworkflow.RecoveryCleanupStep
 	PermissionProtection   ownershipobserve.ProtectionObservation
@@ -125,7 +127,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	}
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	relations := input.Reconciliation.Relations()
-	actions, err := planJSONActionsForPlan(input.Reconciliation)
+	actions, err := planJSONActionsForPlan(input.Reconciliation, input.ClaudeHookSettings)
 	if err != nil {
 		return err
 	}

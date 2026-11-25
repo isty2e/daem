@@ -62,7 +62,8 @@ func (input NativeAssessmentInput) validatePersistenceEpoch(ctx context.Context,
 	return input.Documents.Evidence().ValidatePlanningContext(ctx, input.Owner, input.Registry, input.Budget)
 }
 
-func nativeAssessmentError(err error) error {
+// NativeAssessmentError reports the reconciliation reason without losing the ownership error.
+func NativeAssessmentError(err error) error {
 	if errors.Is(err, ownership.ErrClaimMissing) {
 		return fmt.Errorf("%s: %w", reconcile.ReasonOwnershipClaimMissing, err)
 	}

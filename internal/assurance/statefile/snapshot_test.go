@@ -1269,9 +1269,14 @@ func stateCarrierIdentity(
 
 func testV9AggregateState(t *testing.T) durable.ManagedAggregateState {
 	t.Helper()
-	placement, ok := aggregate.HookPlacementFor(target.TargetCodex, target.ScopeProject)
+	return testHookAggregateState(t, target.TargetCodex, target.ScopeProject)
+}
+
+func testHookAggregateState(t *testing.T, host target.Target, scope target.Scope) durable.ManagedAggregateState {
+	t.Helper()
+	placement, ok := aggregate.HookPlacementFor(host, scope)
 	if !ok {
-		t.Fatal("Codex project hook placement is missing")
+		t.Fatalf("missing %s %s hook placement", host, scope)
 	}
 	canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
 		Event: "Stop", Type: "command", Command: "echo guard",

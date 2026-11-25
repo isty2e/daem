@@ -32,6 +32,21 @@ import (
 )
 
 func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec snapshotCodec) (durable.Snapshot, error) {
+	var hookSettings durable.ClaudeHookSettings
+	if version == hookPlacementSnapshotVersion {
+		var path string
+		if err := json.Unmarshal(persisted.ClaudeHookSettings, &path); err != nil {
+			return durable.Snapshot{}, fmt.Errorf("claude_hook_settings: %w", err)
+		}
+		var err error
+		hookSettings, err = durable.NewClaudeHookSettings(path)
+		if err != nil {
+			return durable.Snapshot{}, err
+		}
+		version = snapshotVersion // All other fact families retain their v10 grammar.
+	} else if len(persisted.ClaudeHookSettings) != 0 {
+		return durable.Snapshot{}, fmt.Errorf("statefile v%d cannot select a Claude hook settings file", persisted.Version)
+	}
 	if persisted.ManagedPaths == nil ||
 		persisted.ManagedAggregateBaselines == nil ||
 		persisted.PendingCarrierInstalls == nil ||
@@ -48,6 +63,7 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec sna
 		return durable.Snapshot{}, fmt.Errorf("native document commit requires the current state schema")
 	}
 	input := durable.SnapshotInput{
+		ClaudeHookSettings:     hookSettings,
 		ManagedPaths:           make([]durable.ManagedPathState, 0, len(persisted.ManagedPaths)),
 		ManagedAggregates:      make([]durable.ManagedAggregateState, 0, len(persisted.ManagedAggregateBaselines)),
 		PendingCarrierInstalls: make([]durablecarrier.PendingCarrierInstall, 0, len(persisted.PendingCarrierInstalls)),

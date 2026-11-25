@@ -12,6 +12,7 @@ func destinationResolver(paths daempaths.Paths) physicalhostpath.Resolver {
 
 func executePaths(paths daempaths.Paths, statefilePath string) execute.Paths {
 	return execute.Paths{
+		ClaudeHookSettings:    paths.ClaudeHookSettings,
 		RecoveryDir:           paths.RecoveryDir,
 		StateDir:              paths.StateDir,
 		StatefilePath:         statefilePath,

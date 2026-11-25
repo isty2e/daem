@@ -132,7 +132,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 
 	native, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch)
 	if err != nil {
-		return Assessment{}, nativeAssessmentError(err)
+		return Assessment{}, NativeAssessmentError(err)
 	}
 	assessment, err := buildAssessment(
 		ctx,
@@ -157,7 +157,7 @@ func Assess(ctx context.Context, input Input) (Assessment, error) {
 		return Assessment{}, err
 	}
 	if _, err := prepareNativeAssessmentSources(ctx, input, currentState, *sourceEpoch); err != nil {
-		return Assessment{}, nativeAssessmentError(err)
+		return Assessment{}, NativeAssessmentError(err)
 	}
 	return assessment, nil
 }

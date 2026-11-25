@@ -101,7 +101,7 @@ func (codec PhysicalCodec) DecodeState(content []byte) (durable.Snapshot, error)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	if version == locatedSnapshotVersion {
+	if isLocatedSnapshot(version) {
 		facts, err := codec.imageFactsCodec(context.Background())
 		if err != nil {
 			return durable.Snapshot{}, err

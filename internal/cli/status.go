@@ -42,7 +42,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 			TargetValues: targetValues.strings(),
 		})
 		if err != nil {
-			diagnostic := humanFailureDiagnostic(err).WithPermissionProtection(result.PermissionProtection).WithPrefix("status failed: ")
+			diagnostic := assessmentFailureDiagnostic(err).WithPermissionProtection(result.PermissionProtection).WithPrefix("status failed: ")
 			if guidance, present := missingManifestInitGuidance(*manifestPath, err); present {
 				diagnostic = diagnostic.WithGuidance(guidance)
 			}
@@ -66,6 +66,7 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 				mode = "check"
 			}
 			if err := clipresent.PrintPlanJSON(stdout, clipresent.PlanJSONInput{
+				ClaudeHookSettings:   result.ClaudeHookSettings,
 				PermissionProtection: result.PermissionProtection,
 				Command:              "status",
 				Mode:                 mode,
@@ -89,8 +90,9 @@ func prepareStatusInvocation(args []string, stdout io.Writer, stderr io.Writer, 
 		humanOptions := clipresent.HumanOptions{Verbose: *verbose}
 		clipresent.PrintPermissionProtection(stdout, result.PermissionProtection)
 		clipresent.PrintStatusPlanWithOptions(stdout, clipresent.HumanPlanInput{
-			Reconciliation: result.Reconciliation,
-			MCPStatuses:    mcpStatuses,
+			ClaudeHookSettings: result.ClaudeHookSettings,
+			Reconciliation:     result.Reconciliation,
+			MCPStatuses:        mcpStatuses,
 		}, humanOptions)
 		clipresent.PrintStatusLockOnlyResourcesWithOptions(stdout, clipresent.LockOnlyResourcesFrom(result.LockOnly), humanOptions)
 		clipresent.PrintCarrierReconciliationWithOptions(stdout, result.Reconciliation, humanOptions)

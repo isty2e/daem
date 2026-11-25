@@ -11,8 +11,9 @@ func printApplyPreviewPlan(output io.Writer, planning applyworkflow.CommandResul
 	clipresent.PrintRecoveryCleanup(output, planning.RecoveryCleanup)
 	clipresent.PrintPermissionProtection(output, planning.PermissionProtection)
 	clipresent.PrintDryRunPlanWithOptions(output, clipresent.HumanPlanInput{
-		Reconciliation: planning.Reconciliation,
-		MCPStatuses:    mcpStatuses,
+		ClaudeHookSettings: planning.ClaudeHookSettings,
+		Reconciliation:     planning.Reconciliation,
+		MCPStatuses:        mcpStatuses,
 	}, options)
 	clipresent.PrintLockOnlyResourceSummary(output, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
 	clipresent.PrintCarrierReconciliationWithOptions(output, planning.Reconciliation, options)

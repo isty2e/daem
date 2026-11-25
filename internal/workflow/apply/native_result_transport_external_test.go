@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/agentconfig"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
@@ -196,7 +197,11 @@ func TestNativeResultTransportProjectsBoundedMetadata(t *testing.T) {
 		if err := clipresent.PrintApplyResultJSON(&applied, clipresent.ApplyResultJSONInput{Reconciliation: result}); err != nil {
 			t.Fatal(err)
 		}
-		for index, content := range [][]byte{plan.Bytes(), applied.Bytes()} {
+		for _, report := range []struct {
+			content []byte
+			version int
+		}{{plan.Bytes(), contractversion.ReconciliationPlanJSON}, {applied.Bytes(), contractversion.ApplyResultJSON}} {
+			content := report.content
 			var payload struct {
 				SchemaVersion int               `json:"schema_version"`
 				Actions       []json.RawMessage `json:"actions"`
@@ -212,8 +217,11 @@ func TestNativeResultTransportProjectsBoundedMetadata(t *testing.T) {
 			if err := json.Unmarshal(content, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload.SchemaVersion != []int{20, 26}[index] || len(payload.Actions) != 0 || len(payload.Native) != 1 || payload.Native[0].Name != "settings" || payload.Native[0].Target != "pi" || payload.Native[0].Scope != "global" || payload.Native[0].Destination != action.Baseline().Destination().String() || payload.Native[0].KeyCount != len(action.DesiredContributions()) || !payload.Native[0].Omitted {
-				t.Fatal("native output lost transition metadata or used an incompatible envelope")
+			if payload.SchemaVersion != report.version {
+				t.Fatalf("schema_version = %d, want %d", payload.SchemaVersion, report.version)
+			}
+			if len(payload.Actions) != 0 || len(payload.Native) != 1 || payload.Native[0].Name != "settings" || payload.Native[0].Target != "pi" || payload.Native[0].Scope != "global" || payload.Native[0].Destination != action.Baseline().Destination().String() || payload.Native[0].KeyCount != len(action.DesiredContributions()) || !payload.Native[0].Omitted {
+				t.Fatal("native output lost transition metadata")
 			}
 			for _, private := range []string{"private-key-marker", "actual-secret-marker", "changed-secret-marker", "fragment.json"} {
 				if bytes.Contains(content, []byte(private)) {

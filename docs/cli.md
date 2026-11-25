@@ -360,10 +360,10 @@ it to start another write.
 | `add`, `remove`, `import`, `unmanage extension`, `unmanage agent-config` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `6` |
 | `list resources` | Resource inventory | `4` |
-| `list outputs` | Output inventory | `6` |
+| `list outputs` | Output inventory | `7` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `20` |
-| confirmed `apply` | Apply result | `26` |
+| `status`, `apply --dry-run` | Reconciliation plan | `21` |
+| confirmed `apply` | Apply result | `27` |
 | `replace agent-config` | Selected-key replacement | `2` |
 | `import agent-config` | Selected physical-value capture or its terminal recovery | `3` |
 | `recover` | Recovery plan/result | `11` |
@@ -499,6 +499,11 @@ An earlier row can report `retired` even when apply returns an error and
 `action_count` is zero. The action count, error phase and rollback outcome
 describe normal apply work; inspect `recovery_cleanup` separately. `status`
 and ordinary apply omit the array but use the new envelope versions.
+
+For global Claude Code hooks, plan v21 and apply result v27 add `resolved_path`
+to action rows. It names the absolute settings file daem selected. `destination`
+and `projection.config_path` keep the portable spelling `~/.claude/settings.json`.
+Output inventory v7 makes the same distinction between `resolved_path` and `path`.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1488,7 +1493,7 @@ Resource families select their destinations differently:
 | --- | --- |
 | Instructions | The target default, or a supported target-specific `render_to`. |
 | Skills and skill groups | The target default, or a supported target-specific `install_to`; the skill name is appended below that root. |
-| Hooks | The target profile's fixed native config file. |
+| Hooks | The target and scope select a config file. For [global Claude Code hooks](manifest.md#hooks), `apply` keeps the settings file chosen at first installation. |
 | Hook assets | Daem's fixed private same-scope asset store. |
 | MCP servers | The target and scope select one fixed supported config file. |
 | Extensions | The target, scope, and source select delegated host routes rather than a daem write path. |
@@ -1507,7 +1512,9 @@ as unsupported and never becomes path authority.
 
 The inventory comes from daem's validated target catalogs plus manifest
 selection facts. It does not inspect host files, execute host commands, or
-report whether a path exists. Use `--verbose` for realization, catalog source,
+report whether a path exists. To see the actual file for global Claude Code
+hooks, run `daem apply --dry-run`, or `daem list outputs` for installed hooks.
+Use `list paths --verbose` for realization, catalog source,
 selection source, and request details.
 
 For skills, `doctor`, `status`, and `apply` (including dry-run) additionally

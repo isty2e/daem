@@ -11,6 +11,7 @@ import (
 
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
@@ -440,6 +441,7 @@ type CommandInput struct {
 }
 
 type CommandResult struct {
+	ClaudeHookSettings      durable.ClaudeHookSettings
 	CarrierHandoffProgress  *CarrierHandoffProgress
 	RecoveryCleanup         []workspacecleanup.Step
 	PermissionProtection    ownershipobserve.ProtectionObservation
@@ -1028,6 +1030,12 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 	}
 
+	settings, hookLocation, err := nativeconfig.SelectClaudeHookSettings(paths, currentState, environment.Hooks(), selection, physicalBudget)
+	if err != nil {
+		return commandContext{}, result, err
+	}
+	paths.ClaudeHookSettings = settings.Path()
+	result.ClaudeHookSettings = settings
 	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
@@ -1065,6 +1073,7 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, err
 	}
 	result.Diagnostics = diagnose.HookCommandDiagnostics(environment.Hooks(), selection)
+	result.Diagnostics = append(result.Diagnostics, hookLocation...)
 	result.Diagnostics = append(result.Diagnostics, piDiagnostics...)
 	result.Diagnostics = append(result.Diagnostics, skillDiagnostics...)
 	result.LockOnly = readiness.SelectedUnsupportedProjections(runtimeEnvironment, selection)

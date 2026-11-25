@@ -272,6 +272,9 @@ func observeDocumentAddresses(ctx context.Context, paths daempaths.Paths, epoch 
 		Documents: &documents, Registry: registry.actual, Owner: owner, Budget: budget,
 		OwnerReference: stateAuthority.Reference(),
 	}
+	if err := checkInstalledClaudeHookProfile(paths.ClaudeHookSettings, before, addresses, native); err != nil {
+		return nil, readiness.NativeAssessmentError(err)
+	}
 	if operation != nil {
 		operation.native = native
 	}

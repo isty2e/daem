@@ -40,6 +40,7 @@ func TestRunApplyManageExistingRecordsMatchingGlobalHooksWithoutRewritingDocumen
 			home := filepath.Join(root, "home")
 			t.Setenv("HOME", home)
 			t.Setenv("USERPROFILE", home)
+			t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 			manifestPath := filepath.Join(root, "daem.toml")
 			hostPath := filepath.Join(home, filepath.FromSlash(test.relativePath))
 			testkit.WriteFile(t, home, test.relativePath, test.existingContent)

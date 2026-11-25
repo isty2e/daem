@@ -282,7 +282,7 @@ func (compiler *planCompiler) addState(ctx context.Context, path string, referen
 	var snapshot durable.Snapshot
 	if entry.image.Exists() {
 		var recorded pathauthority.Reference
-		snapshot, recorded, err = stateFacts(ctx, entry.content)
+		snapshot, recorded, err = statefile.DecodePersisted(ctx, entry.content)
 		if err != nil {
 			return err
 		}
@@ -320,6 +320,7 @@ func (compiler *planCompiler) addState(ctx context.Context, path string, referen
 		}
 	}
 	for _, paths := range contexts {
+		paths.ClaudeHookSettings = snapshot.ClaudeHookSettings().Path()
 		for _, destination := range destinations {
 			for _, claim := range compiler.claims {
 				if claim.Owner().StatefileAuthority().Equal(reference.Identity()) {

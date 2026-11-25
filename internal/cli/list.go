@@ -125,7 +125,7 @@ func prepareListInvocation(subcommand string, args []string, stdout io.Writer, s
 }
 
 func listFailureDiagnostic(err error, selectedManifestPath, requestedManifestPath string) clipresent.FailureDiagnostic {
-	diagnostic := humanFailureDiagnostic(err).WithPrefix("list failed: ")
+	diagnostic := assessmentFailureDiagnostic(err).WithPrefix("list failed: ")
 	manifestPath := selectedManifestPath
 	if manifestPath == "" {
 		manifestPath = requestedManifestPath

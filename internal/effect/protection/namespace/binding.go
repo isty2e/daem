@@ -15,7 +15,7 @@ import (
 )
 
 // ResolveBindingDestination uses the selected or recorded physical point for
-// Claude's global MCP binding. Other bindings retain their owner's resolver.
+// Claude's global MCP binding. Settings bindings use an independent host lookup.
 // Callers still qualify the resulting namespace and current binding cohort.
 func ResolveBindingDestination(paths daempaths.Paths, destination output.Destination, physicalPoint string, budget rootedpath.PhysicalTraversalBudget) (string, error) {
 	if destination.String() == aggregate.ClaudeGlobalMCPConfigPath {
@@ -24,5 +24,25 @@ func ResolveBindingDestination(paths daempaths.Paths, destination output.Destina
 		}
 		return mutation.CanonicalDirectoryEntryPathBounded(physicalPoint, physicalwork.MaximumPhysicalPathDepth, budget)
 	}
-	return physicalhostpath.NewResolver(paths).Resolve(destination, budget)
+	resolver := physicalhostpath.NewResolver(paths)
+	ordinary, err := resolver.Resolve(destination, budget)
+	if err != nil || destination.String() != aggregate.ClaudeGlobalHookConfigPath || paths.ClaudeHookSettings != "" || ordinary == physicalPoint {
+		return ordinary, err
+	}
+
+	// With no hook plan, try the current profile before the historical home
+	// binding. The recorded point distinguishes independently selected routes;
+	// the caller still has to qualify the selected route against the binding.
+	profile, err := resolver.ClaudeUserSettings(budget)
+	if err != nil || profile == ordinary || profile == physicalPoint {
+		return profile, err
+	}
+	resolved, observed, err := mutation.ObserveFutureReferentAuthorityBounded(profile, physicalwork.MaximumPhysicalPathDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	if exact, ok := observed.Exact(); resolved == physicalPoint || ok && exact.Key() == physicalPoint {
+		return profile, nil
+	}
+	return ordinary, nil
 }

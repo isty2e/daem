@@ -28,8 +28,9 @@ scope and route id; a changed request hash replaces the prior diagnostic.
 Mechanical process reasons and post-attempt working-directory authority are
 separate facts. The v8 reader translates the older combined reason.
 
-Normal commands create Statefiles in v11 and shared output/carrier registries in
-v5/v3.
+Normal commands create statefiles in v11, or v13 when recording the selected
+settings file for a new Claude global hook installation. Shared output and
+carrier registries use v5 and v3, respectively.
 These formats retain filesystem lookup locations separately from comparison
 identities. Older binaries cannot read them. Existing usable legacy files can
 retain their encoding when automatic conversion is deferred; different files
@@ -39,12 +40,18 @@ conversion and interruption recovery.
 
 Statefile v10 introduced aggregate key paths as RFC 6901 `key_path` values. Daem
 reads v8 and v9 without rewriting them; writes that retain the legacy physical
-format use v10. Its optional `native_document_commit` counter
+format use v10, or v12 when they record the Claude hook settings file. The
+optional `native_document_commit` counter
 distinguishes state-neutral native file changes, such as replacing a changed key
 with the same value already recorded in state. It advances only when a real native
 file mutation would otherwise leave state unchanged; already-current operations
 do not advance it. This makes pre-commit rollback distinguishable from committed
 finalization without introducing another recovery-journal format.
+
+If the first Claude global hook installation is interrupted before its settings
+location is saved, run `daem recover` with the original `CLAUDE_CONFIG_DIR`
+(or its original default). Recovery checks the settings location before it
+changes a file; selecting another profile does not redirect the rollback.
 
 The statefile is private authority data. Daem writes and accepts it only as an
 invoking-user-owned regular file with exact mode `0600`; final symlinks,
@@ -246,6 +253,10 @@ bindings, current namespace and supported metadata. A bound invocation also
 requires fresh process quiescence before access is restricted. Recovery never
 parses or rewrites protected host content, replays a command, recreates a deleted
 document or finishes an installation.
+
+If a protected Claude Code `settings.json` is in a custom profile, run `recover`
+with the `CLAUDE_CONFIG_DIR` that selects that file. A different profile's
+settings file cannot satisfy the recorded binding.
 
 Dry-run reports actions and blockers without changing permissions. Confirmed
 recovery can restrict independently qualified documents even when another is

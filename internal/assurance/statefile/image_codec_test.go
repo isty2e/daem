@@ -27,6 +27,17 @@ func TestStateImageWirePreservesFactsAndVersionBarrier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settings, err := durable.NewClaudeHookSettings(filepath.Join(t.TempDir(), "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks, err := durable.NewSnapshot(durable.SnapshotInput{
+		ClaudeHookSettings: settings,
+		ManagedAggregates:  []durable.ManagedAggregateState{testHookAggregateState(t, target.TargetClaudeCode, target.ScopeGlobal)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
 		name     string
 		snapshot durable.Snapshot
@@ -35,6 +46,7 @@ func TestStateImageWirePreservesFactsAndVersionBarrier(t *testing.T) {
 		{name: "empty", snapshot: durable.EmptySnapshot(), identity: pathtest.Exact(filepath.Join(t.TempDir(), "empty.json"))},
 		{name: "native only", snapshot: native, identity: pathtest.Exact(filepath.Join(t.TempDir(), "native.json"))},
 		{name: "native path and aggregate", snapshot: nativeFacts, identity: pathtest.Exact(filepath.Join(t.TempDir(), "native-facts.json"))},
+		{name: "profile-bound Claude hooks", snapshot: hooks, identity: pathtest.Exact(filepath.Join(t.TempDir(), "hooks.json"))},
 		{name: "every fact family", snapshot: complete, identity: complete.PendingCarrierInstalls()[0].Owner().StatefileAuthority()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,6 +69,10 @@ func TestStateImageWirePreservesFactsAndVersionBarrier(t *testing.T) {
 			loaded, err := UnmarshalImage(content)
 			if err != nil || !loaded.Snapshot().Equal(test.snapshot) || !loaded.Reference().Equal(reference) {
 				t.Fatal("state image lost a fact or access spelling", err)
+			}
+			persisted, self, err := DecodePersisted(t.Context(), content)
+			if err != nil || !persisted.Equal(test.snapshot) || !self.Equal(reference) {
+				t.Fatal("persisted facts lost the statefile reference", err)
 			}
 			reencoded, err := MarshalImage(loaded)
 			if err != nil || !bytes.Equal(reencoded, content) {
@@ -113,6 +129,8 @@ func TestStateImageWireRequiresCompleteStrictEvidence(t *testing.T) {
 		{name: "missing fact family", field: "managed_paths"},
 		{name: "unknown field", field: "unowned", value: json.RawMessage("true")},
 		{name: "invalid native counter", field: "native_document_commit", value: json.RawMessage("-1")},
+		{name: "legacy image cannot acquire a hook location", field: "claude_hook_settings", value: json.RawMessage(`"/work/settings.json"`)},
+		{name: "profile-aware image needs a location", field: "version", value: json.RawMessage(`13`)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var fields map[string]json.RawMessage

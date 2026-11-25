@@ -47,6 +47,7 @@ import (
 
 // Paths identifies host mutation and statefile locations used by execution.
 type Paths struct {
+	ClaudeHookSettings    string
 	RecoveryDir           string
 	StateDir              string
 	StatefilePath         string

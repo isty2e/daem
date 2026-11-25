@@ -12,16 +12,22 @@ import (
 )
 
 const (
-	locatedSnapshotVersion      = 11
-	stateImageFactSchemaVersion = snapshotVersion
+	locatedSnapshotVersion       = 11
+	hookPlacementSnapshotVersion = 12
+	locatedHookPlacementVersion  = 13
+	stateImageFactSchemaVersion  = snapshotVersion
 )
+
+func isLocatedSnapshot(version int) bool {
+	return version == locatedSnapshotVersion || version == locatedHookPlacementVersion
+}
 
 type stateImageRecord struct {
 	snapshotDTO
 	StatefileReference pathreferencecodec.Record `json:"statefile_reference"`
 }
 
-// MarshalImage encodes a complete version11 image without publishing it.
+// MarshalImage encodes a complete located statefile without publishing it.
 func MarshalImage(image StateImage) ([]byte, error) {
 	codec, err := currentSnapshotCodec(context.Background())
 	if err != nil {
@@ -41,7 +47,11 @@ func marshalImage(image StateImage, codec snapshotCodec) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	record := stateImageRecord{snapshotDTO: persistedSnapshotAtVersion(image.Snapshot(), locatedSnapshotVersion), StatefileReference: reference}
+	version := locatedSnapshotVersion
+	if image.Snapshot().ClaudeHookSettings().Path() != "" {
+		version = locatedHookPlacementVersion
+	}
+	record := stateImageRecord{snapshotDTO: persistedSnapshotAtVersion(image.Snapshot(), version), StatefileReference: reference}
 	content, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return nil, err
@@ -52,7 +62,7 @@ func marshalImage(image StateImage, codec snapshotCodec) ([]byte, error) {
 	return content, nil
 }
 
-// UnmarshalImage admits version11 only; missing references never become key lookups.
+// UnmarshalImage requires a located image; comparison keys are never locators.
 func UnmarshalImage(content []byte) (StateImage, error) {
 	codec, err := currentSnapshotCodec(context.Background())
 	if err != nil {
@@ -70,8 +80,11 @@ func unmarshalImage(content []byte, codec snapshotCodec) (StateImage, error) {
 	if err != nil {
 		return StateImage{}, fmt.Errorf("statefile reference: %w", err)
 	}
-	// The envelope adds a reference; snapshot facts retain version 10 semantics.
-	snapshot, err := record.snapshotDTO.canonical(stateImageFactSchemaVersion, codec)
+	factsVersion := stateImageFactSchemaVersion
+	if record.Version == locatedHookPlacementVersion {
+		factsVersion = hookPlacementSnapshotVersion
+	}
+	snapshot, err := record.snapshotDTO.canonical(factsVersion, codec)
 	if err != nil {
 		return StateImage{}, err
 	}
@@ -83,8 +96,8 @@ func decodeStateImageRecord(content []byte) (stateImageRecord, error) {
 	if err != nil {
 		return stateImageRecord{}, err
 	}
-	if version != locatedSnapshotVersion {
-		return stateImageRecord{}, fmt.Errorf("statefile image requires version %d, got %d", locatedSnapshotVersion, version)
+	if !isLocatedSnapshot(version) {
+		return stateImageRecord{}, fmt.Errorf("statefile v%d is not a located image", version)
 	}
 	var record stateImageRecord
 	decoder := json.NewDecoder(bytes.NewReader(content))
@@ -106,7 +119,7 @@ func stateImageReference(content []byte) (pathauthority.Reference, error) {
 	if err != nil {
 		return pathauthority.Reference{}, err
 	}
-	if version != locatedSnapshotVersion {
+	if !isLocatedSnapshot(version) {
 		return pathauthority.Reference{}, nil
 	}
 	record, err := decodeStateImageRecord(content)

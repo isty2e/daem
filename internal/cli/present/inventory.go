@@ -12,17 +12,18 @@ import (
 )
 
 type inventoryJSONEntry struct {
-	ResourceID  string            `json:"resource_id,omitempty"`
-	Resource    *planJSONResource `json:"resource,omitempty"`
-	KeyPath     []string          `json:"key_path,omitempty"`
-	Subject     string            `json:"subject,omitempty"`
-	Targets     []string          `json:"targets,omitempty"`
-	Scope       string            `json:"scope"`
-	Path        string            `json:"path"`
-	ContentPath string            `json:"content_path,omitempty"`
-	Hash        string            `json:"hash"`
-	Reason      string            `json:"reason,omitempty"`
-	Detail      string            `json:"detail,omitempty"`
+	ResourceID   string            `json:"resource_id,omitempty"`
+	Resource     *planJSONResource `json:"resource,omitempty"`
+	KeyPath      []string          `json:"key_path,omitempty"`
+	Subject      string            `json:"subject,omitempty"`
+	Targets      []string          `json:"targets,omitempty"`
+	Scope        string            `json:"scope"`
+	Path         string            `json:"path"`
+	ResolvedPath string            `json:"resolved_path,omitempty"`
+	ContentPath  string            `json:"content_path,omitempty"`
+	Hash         string            `json:"hash"`
+	Reason       string            `json:"reason,omitempty"`
+	Detail       string            `json:"detail,omitempty"`
 }
 
 func PrintInventoryReportWithOptions(output io.Writer, inventory listworkflow.OutputInventory, options HumanOptions) {
@@ -62,6 +63,9 @@ func printInventoryEntry(output io.Writer, label string, entry listworkflow.Outp
 		targetKey = "target"
 	}
 	fmt.Fprintf(output, "%s %s=%q %s=%s scope=%s path=%q", label, identityLabel, identity, targetKey, strings.Join(targetValues, ","), entry.Scope(), entry.Path())
+	if path := entry.ResolvedPath(); path != "" {
+		fmt.Fprintf(output, " resolved_path=%q", path)
+	}
 	if entry.ContentPath() != "" {
 		fmt.Fprintf(output, " content_path=%q", entry.ContentPath())
 	}
@@ -114,15 +118,16 @@ func inventoryJSONEntries(entries []listworkflow.OutputInventoryEntry) []invento
 	result := make([]inventoryJSONEntry, 0, len(entries))
 	for _, entry := range entries {
 		row := inventoryJSONEntry{
-			ResourceID:  inventoryResourceID(entry),
-			Subject:     entry.Subject().String(),
-			Targets:     inventoryTargetStrings(entry),
-			Scope:       string(entry.Scope()),
-			Path:        entry.Path(),
-			ContentPath: string(entry.ContentPath()),
-			Hash:        entry.Hash(),
-			Reason:      string(entry.Reason()),
-			Detail:      entry.Detail(),
+			ResourceID:   inventoryResourceID(entry),
+			Subject:      entry.Subject().String(),
+			Targets:      inventoryTargetStrings(entry),
+			Scope:        string(entry.Scope()),
+			Path:         entry.Path(),
+			ResolvedPath: entry.ResolvedPath(),
+			ContentPath:  string(entry.ContentPath()),
+			Hash:         entry.Hash(),
+			Reason:       string(entry.Reason()),
+			Detail:       entry.Detail(),
 		}
 		if declaration, key, native := entry.AgentConfigKey(); native {
 			row.Resource = &planJSONResource{Kind: ResourceKindName(declaration.Kind()), Name: declaration.Name()}

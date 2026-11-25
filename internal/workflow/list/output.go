@@ -72,6 +72,15 @@ func RunOutputs(ctx context.Context, input Input) (result OutputResult, resultEr
 	if err != nil {
 		return result, err
 	}
+	budget, err := epoch.PhysicalBudget()
+	if err != nil {
+		return result, err
+	}
+	settings, _, err := nativeconfig.SelectClaudeHookSettings(paths, before, environment.Hooks(), selection, budget)
+	if err != nil {
+		return result, err
+	}
+	paths.ClaudeHookSettings = settings.Path()
 	documents, err := nativeconfig.ObserveDocuments(ctx, nativeconfig.DocumentObservationInput{
 		Paths: paths, Environment: environment, Lockfile: locked, Selection: selection, PersistenceEpoch: &epoch,
 	})
@@ -82,10 +91,6 @@ func RunOutputs(ctx context.Context, input Input) (result OutputResult, resultEr
 	var native *readiness.NativeAssessmentInput
 	if observed, present := documents.NativeInput(); present {
 		native = &observed
-	}
-	budget, err := epoch.PhysicalBudget()
-	if err != nil {
-		return result, err
 	}
 	resolver := physicalhostpath.NewResolver(paths).ForBudget(budget)
 	codecs, err := nativeconfig.Codecs(ctx)
@@ -112,6 +117,7 @@ func RunOutputs(ctx context.Context, input Input) (result OutputResult, resultEr
 		assessment.ManagedPaths,
 		assessment.Aggregates,
 		assessment.Selection,
+		settings,
 	)
 	if err != nil {
 		return result, fmt.Errorf("build output inventory: %w", err)

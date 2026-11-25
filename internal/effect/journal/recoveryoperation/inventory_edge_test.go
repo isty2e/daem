@@ -390,7 +390,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 				StateReader: func(context.Context) (durable.Snapshot, error) {
 					return inventoryJournalSnapshot(t, "before"), nil
 				},
-				ValidateBeforeActiveObservation: func(context.Context) error {
+				ValidateBeforeActiveObservation: func(context.Context, journalrecord.Loaded) error {
 					validationCalls++
 					return nil
 				},
@@ -437,7 +437,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 				) {
 					return nil, false, errors.New("cleanup selected active capability")
 				},
-				ValidateBeforeActiveObservation: func(context.Context) error {
+				ValidateBeforeActiveObservation: func(context.Context, journalrecord.Loaded) error {
 					validationCalls++
 					return errors.New("cleanup selected active observation")
 				},

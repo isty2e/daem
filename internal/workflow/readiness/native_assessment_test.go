@@ -46,12 +46,12 @@ import (
 
 func TestNativeAssessmentProjectsMissingClaimReasonWithoutLosingItsCause(t *testing.T) {
 	cause := fmt.Errorf("native baseline: %w", ownership.ErrClaimMissing)
-	classified := nativeAssessmentError(cause)
+	classified := NativeAssessmentError(cause)
 	if !errors.Is(classified, ownership.ErrClaimMissing) || !strings.HasPrefix(classified.Error(), string(reconcile.ReasonOwnershipClaimMissing)+":") {
 		t.Fatal("native claim refusal lost its reason or typed cause", classified)
 	}
 	other := errors.New("changed namespace")
-	if nativeAssessmentError(other) != other {
+	if NativeAssessmentError(other) != other {
 		t.Fatal("unrelated observation failure was classified as missing ownership")
 	}
 }

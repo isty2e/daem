@@ -78,6 +78,10 @@ func validateNativeCaptureWork(before, after durable.Snapshot, edits []compose.P
 	if err != nil {
 		return err
 	}
+	projected, err = projected.WithClaudeHookPlacement(before, after.ClaudeHookSettings().Path())
+	if err != nil {
+		return err
+	}
 	projected, _, err = projected.WithPromotedCarrierClaims(completions)
 	if err != nil {
 		return err

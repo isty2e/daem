@@ -29,17 +29,18 @@ type OutputInventory struct {
 // Aggregate entries intentionally carry no whole-document hash because daem
 // owns only their selected contribution.
 type OutputInventoryEntry struct {
-	entityID    entity.ID
-	subject     topology.SubjectID
-	targets     []target.Target
-	scope       target.Scope
-	path        string
-	contentPath output.ContentPath
-	declaration entity.ID
-	key         output.KeyPath
-	hash        string
-	reason      reconcile.ActionReason
-	detail      string
+	entityID     entity.ID
+	subject      topology.SubjectID
+	targets      []target.Target
+	scope        target.Scope
+	path         string
+	resolvedPath string
+	contentPath  output.ContentPath
+	declaration  entity.ID
+	key          output.KeyPath
+	hash         string
+	reason       reconcile.ActionReason
+	detail       string
 }
 
 func (inventory OutputInventory) Managed() []OutputInventoryEntry {
@@ -61,6 +62,7 @@ func (entry OutputInventoryEntry) Targets() []target.Target {
 }
 func (entry OutputInventoryEntry) Scope() target.Scope             { return entry.scope }
 func (entry OutputInventoryEntry) Path() string                    { return entry.path }
+func (entry OutputInventoryEntry) ResolvedPath() string            { return entry.resolvedPath }
 func (entry OutputInventoryEntry) ContentPath() output.ContentPath { return entry.contentPath }
 func (entry OutputInventoryEntry) Hash() string                    { return entry.hash }
 func (entry OutputInventoryEntry) Reason() reconcile.ActionReason  { return entry.reason }
@@ -75,9 +77,10 @@ func buildOutputInventory(
 	managedPaths []reconcile.ManagedPathDecision,
 	aggregates []reconcile.AggregateDecision,
 	selection targetselection.Selection,
+	settings durable.ClaudeHookSettings,
 ) (OutputInventory, error) {
-	managed := managedOutputInventoryEntries(file, selection)
-	unmanagedAggregates, err := aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
+	managed := managedOutputInventoryEntries(file, selection, settings)
+	unmanagedAggregates, err := aggregateInventoryEntries(aggregates, selection, settings, func(decision reconcile.AggregateSubjectDecision) bool {
 		occupancy, observed := decision.ContributionOccupancy()
 		return decision.IsBlocked() && decision.Reason() == reconcile.ReasonUnmanagedOutputExists &&
 			observed && occupancy == aggregate.ContributionPresent
@@ -86,7 +89,7 @@ func buildOutputInventory(
 		return OutputInventory{}, err
 	}
 	unmanaged := append(unmanagedPathInventoryEntries(managedPaths, selection), unmanagedAggregates...)
-	blockedAggregates, err := aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
+	blockedAggregates, err := aggregateInventoryEntries(aggregates, selection, settings, func(decision reconcile.AggregateSubjectDecision) bool {
 		return decision.IsBlocked() && decision.Reason().IsOwnershipBlock()
 	})
 	if err != nil {
@@ -109,6 +112,7 @@ func buildOutputInventory(
 func managedOutputInventoryEntries(
 	file durable.Snapshot,
 	selection targetselection.Selection,
+	settings durable.ClaudeHookSettings,
 ) []OutputInventoryEntry {
 	paths := file.ManagedPaths()
 	aggregates := file.ManagedAggregates()
@@ -132,7 +136,7 @@ func managedOutputInventoryEntries(
 		if !selection.Includes(contribution.Target()) {
 			continue
 		}
-		entries = append(entries, aggregateInventoryEntry(state.Subject(), contribution.Address()))
+		entries = append(entries, aggregateInventoryEntry(state.Subject(), contribution.Contract(), settings))
 	}
 	return entries
 }
@@ -183,6 +187,7 @@ func pathInventoryEntry(decision reconcile.ManagedPathDecision) OutputInventoryE
 func aggregateInventoryEntries(
 	decisions []reconcile.AggregateDecision,
 	selection targetselection.Selection,
+	settings durable.ClaudeHookSettings,
 	include func(reconcile.AggregateSubjectDecision) bool,
 ) ([]OutputInventoryEntry, error) {
 	entries := make([]OutputInventoryEntry, 0)
@@ -192,10 +197,9 @@ func aggregateInventoryEntries(
 				if !selection.Includes(subject.Target()) || !include(subject) {
 					continue
 				}
-				address := subject.Contract().Address()
-				entry := aggregateInventoryEntry(subject.Subject(), address)
+				entry := aggregateInventoryEntry(subject.Subject(), subject.Contract(), settings)
 				if entry.key.IsRoot() {
-					contentPath, err := address.LegacyContentPath()
+					contentPath, err := subject.Contract().Address().LegacyContentPath()
 					if err != nil {
 						return nil, err
 					}
@@ -209,9 +213,9 @@ func aggregateInventoryEntries(
 	return entries, nil
 }
 
-func aggregateInventoryEntry(subject topology.SubjectID, address aggregate.ProjectionAddress) OutputInventoryEntry {
-	document := address.Document()
-	entry := OutputInventoryEntry{subject: subject, targets: []target.Target{document.Target()}, scope: document.Scope(), path: document.AggregateRoot().String()}
+func aggregateInventoryEntry(subject topology.SubjectID, contract aggregate.ProjectionContract, settings durable.ClaudeHookSettings) OutputInventoryEntry {
+	document := contract.Address().Document()
+	entry := OutputInventoryEntry{subject: subject, targets: []target.Target{document.Target()}, scope: document.Scope(), path: document.AggregateRoot().String(), resolvedPath: settings.PathFor(contract.CodecContractID())}
 	if id, key, native := topologyprojection.AgentConfigKeyIdentity(subject); native {
 		entry.declaration, entry.key = id, key
 	} else {
@@ -304,7 +308,7 @@ func outputInventoryEntriesEqual(left OutputInventoryEntry, right OutputInventor
 	return left.entityID == right.entityID && left.subject == right.subject &&
 		slices.Equal(left.targets, right.targets) && left.scope == right.scope &&
 		left.path == right.path && left.contentPath == right.contentPath && left.key == right.key && left.declaration == right.declaration &&
-		left.hash == right.hash && left.reason == right.reason &&
+		left.resolvedPath == right.resolvedPath && left.hash == right.hash && left.reason == right.reason &&
 		left.detail == right.detail
 }
 

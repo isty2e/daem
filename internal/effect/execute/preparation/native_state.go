@@ -17,6 +17,7 @@ import (
 )
 
 type NativeApplyStateInput struct {
+	ClaudeHookSettings       string
 	Before                   durable.Snapshot
 	ManagedPaths             []reconcile.ManagedPathDecision
 	Aggregates               []reconcile.AggregateDecision
@@ -50,6 +51,7 @@ func (adoption NativeWholeAdoption) RetiredKeys() []durable.ManagedAggregateStat
 // NativeApplyStatePreparation keeps derived state and its actual logical effects
 // together. It is not a containing operation seal or permission to publish state.
 type NativeApplyStatePreparation struct {
+	claudeHookSettings string
 	before             durable.Snapshot
 	after              durable.Snapshot
 	managed            []ManagedPathEffect
@@ -218,7 +220,8 @@ func PrepareNativeApplyState(ctx context.Context, input NativeApplyStateInput) (
 	}
 
 	preparation := NativeApplyStatePreparation{
-		before: input.Before, managed: managed, aggregates: aggregates,
+		claudeHookSettings: input.ClaudeHookSettings,
+		before:             input.Before, managed: managed, aggregates: aggregates,
 		nativeOperations: nativeOperations, orders: orders,
 		narrowings: append([]reconcile.NativeNarrowingAction(nil), input.Narrowings...), adoptions: adoptions,
 	}
@@ -295,7 +298,11 @@ func (preparation NativeApplyStatePreparation) managedSuccessor(before durable.S
 		}
 		keys = append(keys, state)
 	}
-	return after.WithManagedAggregates(keys)
+	after, err = after.WithManagedAggregates(keys)
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	return after.WithClaudeHookPlacement(before, preparation.claudeHookSettings)
 }
 
 type nativeWholeStateSource struct {

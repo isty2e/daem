@@ -104,6 +104,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 
 			if arguments.output == requestedJSON {
 				jsonInput := clipresent.PlanJSONInput{
+					ClaudeHookSettings:   planning.ClaudeHookSettings,
 					PermissionProtection: planning.PermissionProtection,
 					RecoveryCleanup:      planning.RecoveryCleanup,
 					Command:              "apply",
@@ -178,6 +179,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				failure := applyworkflow.ClassifyFailure(err, readinessPlanning.CommandResult)
 				jsonInput := clipresent.ApplyResultJSONInput{
 					ActionCount:          0,
+					ClaudeHookSettings:   readinessPlanning.ClaudeHookSettings,
 					PermissionProtection: readinessPlanning.PermissionProtection,
 					StatefilePath:        readinessPlanning.StatefilePath,
 					LockOnly:             clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly),
@@ -202,7 +204,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				clipresent.PrintActionPlanWithOptions(
 					stderr,
 					"apply",
-					clipresent.HumanPlanInput{Reconciliation: readinessPlanning.Reconciliation},
+					clipresent.HumanPlanInput{Reconciliation: readinessPlanning.Reconciliation, ClaudeHookSettings: readinessPlanning.ClaudeHookSettings},
 					clipresent.HumanOptions{Verbose: *verbose},
 				)
 				clipresent.PrintCarrierReconciliationWithOptions(stderr, readinessPlanning.Reconciliation, clipresent.HumanOptions{Verbose: *verbose})
@@ -238,8 +240,9 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			relationOrdersDisclosed = true
 			carrierAbsencesDisclosed = true
 			clipresent.PrintActionPlanWithOptions(stdout, "apply", clipresent.HumanPlanInput{
-				Reconciliation: readinessPlanning.Reconciliation,
-				MCPStatuses:    mcpStatuses,
+				ClaudeHookSettings: readinessPlanning.ClaudeHookSettings,
+				Reconciliation:     readinessPlanning.Reconciliation,
+				MCPStatuses:        mcpStatuses,
 			}, humanOptions)
 			clipresent.PrintDiagnosticsWithOptions(stdout, readinessPlanning.Diagnostics, humanOptions)
 			if applyConfirmationRequired(readinessPlanning.CommandResult) {
@@ -266,6 +269,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 
 		if arguments.output == requestedJSON {
 			if err := clipresent.PrintApplyResultJSON(io.Discard, clipresent.ApplyResultJSONInput{
+				ClaudeHookSettings:   readinessPlanning.ClaudeHookSettings,
 				PermissionProtection: readinessPlanning.PermissionProtection,
 				RecoveryCleanup:      readinessPlanning.RecoveryCleanup,
 				Reconciliation:       readinessPlanning.Reconciliation,
@@ -301,6 +305,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 					StatefilePath:          result.StatefilePath,
 					LockOnly:               clipresent.LockOnlyResourcesFrom(result.LockOnly),
 					Reconciliation:         result.Reconciliation,
+					ClaudeHookSettings:     result.ClaudeHookSettings,
 					ExecutionAttempted:     result.ExecutionAttempted,
 					CarrierAdoptionResults: result.CarrierAdoptionResults,
 					RelationOrderResults:   result.RelationOrderResults,
@@ -354,6 +359,7 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 				StatefilePath:          result.StatefilePath,
 				LockOnly:               clipresent.LockOnlyResourcesFrom(result.LockOnly),
 				Reconciliation:         result.Reconciliation,
+				ClaudeHookSettings:     result.ClaudeHookSettings,
 				ExecutionAttempted:     result.ExecutionAttempted,
 				CarrierAdoptionResults: result.CarrierAdoptionResults,
 				RelationOrderResults:   result.RelationOrderResults,
@@ -505,6 +511,9 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 				return clipresent.FailureDiagnosticFromError(cause), failure.Reason()
 			}
 			if failure.Phase() == applyworkflow.FailurePhasePreflight && failure.Reason() == applyworkflow.FailureReasonApplyRefused {
+				if diagnostic, mismatch := claudeHookProfileDiagnostic(err); mismatch {
+					return diagnostic, failure.Reason()
+				}
 				if diagnostic, native := clipresent.NativePlanningFailureDiagnostic(err); native {
 					return diagnostic, failure.Reason()
 				}

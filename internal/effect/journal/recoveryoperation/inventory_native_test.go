@@ -62,7 +62,7 @@ func TestNativeInventoryRetainsActualRecordAndFeedsDocumentAssessment(t *testing
 	}
 	called := false
 	legacy, err := loadActivePlanFromInventory(t.Context(), journalpublication.Paths{RecoveryDir: root}, nil, nil, PlanLoadOptions{
-		ValidateBeforeActiveObservation: func(context.Context) error { called = true; return nil },
+		ValidateBeforeActiveObservation: func(context.Context, journalrecord.Loaded) error { called = true; return nil },
 	}, inventory)
 	if err == nil || legacy.Classification() != "" || called {
 		t.Fatal("native record reached the legacy plan or its pre-observation callback")

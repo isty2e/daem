@@ -7,6 +7,9 @@ import (
 )
 
 func RequireDocumentCommitWork(before, after durable.Snapshot, documentWork bool) error {
+	if _, err := before.ClaudeHookPlacementForTransition(after); err != nil {
+		return err
+	}
 	if err := before.ValidateNativeDocumentCommitTransition(after); err != nil {
 		return err
 	}
