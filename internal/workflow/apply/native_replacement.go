@@ -39,7 +39,7 @@ type NativeReplacementPlan struct {
 
 type NativeReplacementDisclosure struct {
 	Fingerprint string
-	Declaration string
+	Declaration entity.ID
 	Keys        []NativeReplacementKey
 	Result      CommandResult
 }
@@ -73,7 +73,7 @@ func PlanNativeReplacement(ctx context.Context, input NativeReplacementInput) (*
 	}
 	digest := sha256.Sum256(payload)
 	plan.disclosure = NativeReplacementDisclosure{
-		Fingerprint: "v1:" + hex.EncodeToString(digest[:]), Declaration: selection.Declaration().String(),
+		Fingerprint: "v1:" + hex.EncodeToString(digest[:]), Declaration: selection.Declaration(),
 		Result: cloneCommandResult(prepared.CommandResult),
 	}
 	for _, decision := range planned.assessment.Reconciliation.Aggregates() {

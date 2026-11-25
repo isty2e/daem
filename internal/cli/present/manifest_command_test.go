@@ -130,3 +130,26 @@ func manifestCommandArgv(t *testing.T, command string) []string {
 	}
 	return strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
 }
+
+func TestCaptureStepsPreserveManifestArgvOrWithholdIt(t *testing.T) {
+	const manifest = "/tmp/a\\b/c'd\n/daem.toml"
+	steps, err := captureNextSteps(manifest, true)
+	if err != nil || len(steps) != 3 {
+		t.Fatal(steps, err)
+	}
+	want := [][]string{{"lock", "--manifest", manifest}, {"apply", "--manifest", manifest, "--manage-existing", "--dry-run"}, {"apply", "--manifest", manifest, "--manage-existing"}}
+	for i, step := range steps {
+		if args := manifestCommandArgv(t, step); !slices.Equal(args, want[i]) {
+			t.Fatalf("step %d argv=%q, want %q", i, args, want[i])
+		}
+	}
+	steps, err = captureNextSteps("/tmp/password=synthetic-private-label/daem.toml", false)
+	if err != nil || len(steps) != 3 {
+		t.Fatal(steps, err)
+	}
+	for _, step := range steps {
+		if strings.Contains(step, "synthetic-private-label") || strings.Contains(step, "--manifest") || !strings.Contains(step, "same explicit manifest") {
+			t.Fatalf("expected an instruction without the protected operand: %s", step)
+		}
+	}
+}

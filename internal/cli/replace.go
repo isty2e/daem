@@ -89,9 +89,12 @@ func prepareReplaceAgentConfigInvocation(args []string, stdout, stderr io.Writer
 		if !*dryRun {
 			mode = "executed"
 		}
-		preparedJSON, err := clipresent.NativeReplacementJSON(disclosure, mode, len(disclosure.Result.Reconciliation.MutatingDecisions()))
-		if err != nil {
-			return fail(operationFailure, err)
+		var preparedJSON []byte
+		if arguments.output == requestedJSON {
+			preparedJSON, err = clipresent.NativeReplacementJSON(disclosure, mode, len(disclosure.Result.Reconciliation.MutatingDecisions()))
+			if err != nil {
+				return fail(operationFailure, err)
+			}
 		}
 		var humanResult []byte
 		if !*dryRun && arguments.output != requestedJSON {

@@ -26,7 +26,7 @@ func NativeReplacementResultText(disclosure applyworkflow.NativeReplacementDiscl
 	}
 
 	var result bytes.Buffer
-	fmt.Fprintf(&result, "Host configuration %s\n", humanErrorDetail(disclosure.Declaration))
+	fmt.Fprintf(&result, "Host configuration %s\n", humanErrorDetail(disclosure.Declaration.String()))
 	if len(disclosure.Keys) != 0 {
 		fmt.Fprintf(&result, "  file: %s\n", humanErrorDetail(disclosure.Keys[0].File))
 	}

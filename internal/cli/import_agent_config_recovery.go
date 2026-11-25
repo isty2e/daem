@@ -14,15 +14,15 @@ func executeCaptureRecoveryInvocation(plan *workflowadopt.AgentConfigCaptureReco
 	if dryRun {
 		mode = "dry-run"
 	}
-	disclosure := clipresent.AgentConfigCaptureRecoveryDisclosure(plan, mode)
-	encoded, err := disclosure.JSON()
-	if err != nil {
-		return fail(err)
-	}
-	if output != requestedJSON {
-		if err := clipresent.PrintAgentConfigCaptureRecovery(stdout, disclosure); err != nil {
+	var encoded []byte
+	if output == requestedJSON {
+		var err error
+		encoded, err = clipresent.AgentConfigCaptureRecoveryJSON(plan, mode)
+		if err != nil {
 			return fail(err)
 		}
+	} else if err := clipresent.PrintAgentConfigCaptureRecovery(stdout, plan); err != nil {
+		return fail(err)
 	}
 	if !dryRun {
 		if yes {
