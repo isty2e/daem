@@ -154,20 +154,38 @@ func runCaptureCLI(t *testing.T, args []string) (int, string, string) {
 	return code, stdout.String(), stderr.String()
 }
 
-func captureFingerprint(t *testing.T, args []string) string {
+type importAgentConfigResult struct {
+	SchemaVersion                                   int `json:"schema_version"`
+	Command, Operation, Mode, Fingerprint, Recovery string
+}
+
+func capturePreview(t *testing.T, args []string) importAgentConfigResult {
 	t.Helper()
 	code, stdout, stderr := runCaptureCLI(t, append(append([]string{}, args...), "--dry-run", "--json"))
 	if code != 0 {
 		t.Fatalf("preview: code=%d out=%s err=%s", code, stdout, stderr)
 	}
-	var payload struct {
-		Command     string `json:"command"`
-		Fingerprint string `json:"fingerprint"`
+	var result importAgentConfigResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil || result.Command != "import agent-config" || result.Mode != "dry-run" || len(result.Fingerprint) != 64 {
+		t.Fatal("invalid approval preview", result, err)
 	}
-	if err := json.Unmarshal([]byte(stdout), &payload); err != nil || payload.Command != "import agent-config" || len(payload.Fingerprint) != 64 {
-		t.Fatal("invalid approval preview", stdout, err)
+	return result
+}
+
+func captureFingerprint(t *testing.T, args []string) string {
+	t.Helper()
+	return capturePreview(t, args).Fingerprint
+}
+
+func requireImportRefusal(t *testing.T, args []string) {
+	t.Helper()
+	code, stdout, stderr := runCaptureCLI(t, append(args, "--json"))
+	var refusal struct {
+		ResultType string `json:"result_type"`
 	}
-	return payload.Fingerprint
+	if err := json.Unmarshal([]byte(stdout), &refusal); err != nil || code != 1 || refusal.ResultType != "cli_error" {
+		t.Fatalf("expected import refusal, got exit %d: %s %s", code, stdout, stderr)
+	}
 }
 
 func TestImportAgentConfigLiteralStorageAndMaskedSelectedDisclosure(t *testing.T) {
@@ -201,6 +219,10 @@ func TestImportAgentConfigLiteralStorageAndMaskedSelectedDisclosure(t *testing.T
 	}
 	if strings.Contains(stdout+stderr, "literal-private-value") || strings.Contains(stdout+stderr, "array-private-value") {
 		t.Fatal("write output leaked literals")
+	}
+	var result importAgentConfigResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil || result.SchemaVersion != 3 || result.Operation != "capture" || result.Mode != "captured" || result.Fingerprint != fingerprint {
+		t.Fatal("wrong capture result", result, err)
 	}
 	manifestBytes, err := os.ReadFile(manifest)
 	if err != nil {
@@ -301,6 +323,40 @@ func TestImportAgentConfigRefusesOutputFailureBeforeConfirmationOrWrites(t *test
 	}
 }
 
+func TestImportAgentConfigPreviewAfterLostWriteResult(t *testing.T) {
+	root, manifest, host, initial := captureCLIFixture(t, `{"chosen":1}`)
+	initial = append(initial, "--key", "/chosen")
+	source := filepath.Join(root, "daem.d", "agent-config", "chosen.json")
+	loseResult := func(args []string, want int) {
+		t.Helper()
+		preview := capturePreview(t, args)
+		if preview.Operation != "capture" {
+			t.Fatalf("expected capture before approving, got %q", preview.Operation)
+		}
+		code := RunWithOptions(append(args, "--yes", "--expect-plan", preview.Fingerprint, "--json"), RunOptions{Context: t.Context(), Stdout: captureBrokenOutput{}, Stderr: io.Discard})
+		if code != 1 {
+			t.Fatalf("lost write result: exit %d", code)
+		}
+		var stored struct{ Chosen int }
+		data, err := os.ReadFile(source)
+		if err != nil || json.Unmarshal(data, &stored) != nil || stored.Chosen != want {
+			t.Fatalf("source after lost result = %s, want chosen=%d: %v", data, want, err)
+		}
+	}
+
+	loseResult(initial, 1)
+	requireImportRefusal(t, append(initial, "--dry-run"))
+
+	if err := os.WriteFile(host, []byte(`{"chosen":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	update := []string{"import", "agent-config", "chosen", "--manifest", manifest, "--update-source"}
+	loseResult(update, 2)
+	if preview := capturePreview(t, update); preview.Operation != "capture" {
+		t.Fatal("repeat update preview did not offer a fresh capture", preview)
+	}
+}
+
 func TestImportAgentConfigRejectsMixedRequestGrammarAndUnapprovedWrites(t *testing.T) {
 	_, manifest, _, args := captureCLIFixture(t, `{"chosen":1}`)
 	for _, suffix := range [][]string{{"--key", "/chosen"}, {"--key", "/chosen", "--yes"}, {"--key", "/chosen", "--source", "new.json", "--dry-run"}, {"--update-source", "--dry-run"}, {"--ownership", "document", "--key", "/chosen", "--dry-run"}} {
@@ -374,10 +430,10 @@ func TestImportAgentConfigWholeInitialPreservesBytesAndOmitsRawDisclosure(t *tes
 	}
 	code, out, errText = runCaptureCLI(t, append(append([]string{}, args...), "--dry-run", "--json"))
 	var preview struct {
-		Fingerprint string
-		Keys        []json.RawMessage
+		importAgentConfigResult
+		Keys []json.RawMessage
 	}
-	if err := json.Unmarshal([]byte(out), &preview); err != nil || code != 0 || preview.Keys == nil || len(preview.Keys) != 0 || strings.Contains(out+errText, "whole-literal-private") {
+	if err := json.Unmarshal([]byte(out), &preview); err != nil || code != 0 || preview.Operation != "capture" || preview.Keys == nil || len(preview.Keys) != 0 || strings.Contains(out+errText, "whole-literal-private") {
 		t.Fatalf("expected a whole-document preview with an empty key array: %s %s", out, errText)
 	}
 	if code, out, err := runCaptureCLI(t, append(args, "--yes", "--expect-plan", preview.Fingerprint)); code != 0 {

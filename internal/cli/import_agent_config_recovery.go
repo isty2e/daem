@@ -55,7 +55,7 @@ func executeCaptureRecoveryInvocation(plan *workflowadopt.AgentConfigCaptureReco
 			return 1
 		}
 	} else if !dryRun {
-		if _, err := fmt.Fprintln(stdout, "recovered: capture was not executed; review a separate dry-run"); err != nil {
+		if _, err := fmt.Fprintf(stdout, "Recovery complete (%s). No new host values were captured.\n", plan.Disposition()); err != nil {
 			markOutputFailureReported(stdout)
 			return 1
 		}

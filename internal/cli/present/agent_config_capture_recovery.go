@@ -14,7 +14,12 @@ func captureRecoveryWarnings(plan *workflowadopt.AgentConfigCaptureRecovery) []s
 		"This invocation only recovers the named source/declaration transaction; it does not read new host values or retry capture.",
 		"Approval covers these named files. Other manifests or programs may read them; exclusive source ownership is not established.",
 		"Recovery can restore or finalize literal plaintext data, including credentials. No file contents are printed.",
-		"After recovery, run a separate dry-run to review a new capture.",
+	}
+	switch plan.Disposition() {
+	case "finalize":
+		warnings = append(warnings, "Finalization keeps the recorded changes. Review the usual lock and apply steps if you intend to deploy them.")
+	case "rollback":
+		warnings = append(warnings, "Rollback restores the previous state. Preview a new capture with --dry-run only if you still want one.")
 	}
 	if plan.RetiresDeclaration() {
 		warnings = append(warnings, "Retirement recovery changes only the declaration; the old source remains untouched.")
@@ -36,6 +41,7 @@ func AgentConfigCaptureRecoveryJSON(plan *workflowadopt.AgentConfigCaptureRecove
 	return json.MarshalIndent(struct {
 		SchemaVersion int                    `json:"schema_version"`
 		Command       string                 `json:"command"`
+		Operation     string                 `json:"operation"`
 		Mode          string                 `json:"mode"`
 		Recovery      string                 `json:"recovery"`
 		Fingerprint   string                 `json:"fingerprint"`
@@ -45,7 +51,7 @@ func AgentConfigCaptureRecoveryJSON(plan *workflowadopt.AgentConfigCaptureRecove
 		Warnings      []string               `json:"warnings"`
 		References    []captureReferenceJSON `json:"known_references"`
 	}{
-		SchemaVersion: contractversion.AgentConfigCaptureJSON, Command: "import " + AgentConfigResourceName, Mode: mode,
+		SchemaVersion: contractversion.AgentConfigCaptureJSON, Command: "import " + AgentConfigResourceName, Operation: "recovery", Mode: mode,
 		Recovery: plan.Disposition(), Fingerprint: plan.Fingerprint(), Manifest: plan.ManifestPath(), Source: plan.SourcePath(), Referent: plan.SourceReferent(),
 		Warnings: captureRecoveryWarnings(plan), References: refs,
 	}, "", "  ")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
@@ -149,7 +150,14 @@ func TestImportAgentConfigRecoversInitialPublicationWithoutRecapture(t *testing.
 				if err != nil {
 					t.Fatal(err)
 				}
-				fingerprint = captureFingerprint(t, args)
+				disposition := "rollback"
+				if finalized {
+					disposition = "finalize"
+				}
+				preview := capturePreview(t, args)
+				if preview.SchemaVersion != 3 || preview.Operation != "recovery" || preview.Recovery != disposition {
+					t.Fatal("wrong recovery preview", preview)
+				}
 				unchanged, err := os.ReadFile(marker)
 				if err != nil || !bytes.Equal(beforeMarker, unchanged) {
 					t.Fatal("recovery preview mutated evidence", err)
@@ -158,16 +166,12 @@ func TestImportAgentConfigRecoversInitialPublicationWithoutRecapture(t *testing.
 				if err != nil {
 					t.Fatal(err)
 				}
-				disposition := "rollback"
-				if finalized {
-					disposition = "finalize"
-				}
-				code, stdout, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", fingerprint, "--json"))
+				code, stdout, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", preview.Fingerprint, "--json"))
 				var result struct {
-					SchemaVersion                              int `json:"schema_version"`
-					Mode, Recovery, Manifest, Source, Referent string
+					importAgentConfigResult
+					Manifest, Source, Referent string
 				}
-				if err := json.Unmarshal([]byte(stdout), &result); err != nil || code != 0 || result.SchemaVersion != 2 || result.Mode != "recovered" || result.Recovery != disposition || result.Manifest != manifest || result.Source != source || result.Referent != referent {
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil || code != 0 || result.SchemaVersion != 3 || result.Operation != "recovery" || result.Mode != "recovered" || result.Recovery != disposition || result.Manifest != manifest || result.Source != source || result.Referent != referent {
 					t.Fatal("recovery attempted fresh host read/capture", code, stdout, stderr)
 				}
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {
@@ -207,6 +211,7 @@ func TestImportAgentConfigRecoveryRejectsWrongDeclarationAndChangedApproval(t *t
 		t.Fatal(err)
 	}
 	marker := interruptedCapture(t, manifest, source, nil, after, nil, content, false)
+	requireImportRefusal(t, append(args, "--yes", "--expect-plan", fingerprint))
 	wrong := append([]string{}, args...)
 	wrong[2] = "other"
 	if code, _, _ := runCaptureCLI(t, append(wrong, "--dry-run")); code != 1 {
@@ -225,6 +230,17 @@ func TestImportAgentConfigRecoveryRejectsWrongDeclarationAndChangedApproval(t *t
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatal("refused recovery consumed marker", err)
+	}
+
+	recovery := capturePreview(t, args)
+	if recovery.Operation != "recovery" || recovery.Recovery != "rollback" {
+		t.Fatal("expected a fresh rollback preview", recovery)
+	}
+	if code, out, stderr := runCaptureCLI(t, append(args, "--yes", "--expect-plan", recovery.Fingerprint)); code != 0 {
+		t.Fatal("freshly approved rollback failed", code, out, stderr)
+	}
+	if next := capturePreview(t, args); next.Operation != "capture" {
+		t.Fatal("expected a new capture preview after rollback", next)
 	}
 }
 
@@ -360,8 +376,21 @@ func TestImportAgentConfigRecoversSourceSwitchAndRetirement(t *testing.T) {
 					update = append(update, "--source", export)
 				}
 				fingerprint = captureFingerprint(t, update)
-				if code, out, err := runCaptureCLI(t, append(update, "--yes", "--expect-plan", fingerprint)); code != 0 {
-					t.Fatal("recovery failed", code, out, err)
+				code, out, errOut := runCaptureCLI(t, append(update, "--yes", "--expect-plan", fingerprint))
+				if code != 0 {
+					t.Fatal("recovery failed", code, out, errOut)
+				}
+				lines := strings.Split(strings.TrimSpace(out), "\n")
+				disposition, next := "rollback", "--dry-run"
+				if finalized {
+					disposition, next = "finalize", "lock and apply"
+					guidance := strings.ToLower(out)
+					if strings.Contains(guidance, "preview a new capture") || strings.Contains(guidance, "to review a new capture") {
+						t.Fatalf("finalization recommended repeating capture: %s", out)
+					}
+				}
+				if !strings.Contains(lines[len(lines)-1], disposition) || !strings.Contains(out, next) {
+					t.Fatalf("unexpected %s completion or follow-up: %s", disposition, out)
 				}
 				if _, err := os.Stat(marker); !os.IsNotExist(err) {
 					t.Fatal("recovery did not terminate", err)

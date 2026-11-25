@@ -338,8 +338,20 @@ flags.
 
 ### JSON Schema Contract
 
-`schema_version` belongs to one command envelope. Versions from different rows
-are unrelated and must not be compared as a product-wide sequence:
+Read the exit status and the complete JSON response together. If `result_type`
+is `"cli_error"`, check the [common failure](#common-cli-failures) version.
+Otherwise use the result family for the command and flags you ran, then check
+its `schema_version`. Ordinary results do not all have `result_type` or even
+`command`: `migrate metadata`, for example, reports `mode` and `action`.
+Versions in different rows are independent.
+
+A nonzero exit can carry an ordinary result. For example, a pending change can
+make `status --check --json` exit `1` with `check_clean: false` and
+`has_errors: false`. A blocked `recover --dry-run --json` can return a recovery
+plan with `has_errors: true` and exit `1`. Both `recover` and `migrate metadata`
+can also report write errors in their own result families. If the response is
+incomplete or you do not recognize the family, version or operation, do not use
+it to start another write.
 
 | Command surface | Envelope owner | Current version |
 | --- | --- | ---: |
@@ -353,7 +365,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `status`, `apply --dry-run` | Reconciliation plan | `20` |
 | confirmed `apply` | Apply result | `26` |
 | `replace agent-config` | Selected-key replacement | `2` |
-| `import agent-config` | Selected physical-value capture or its terminal recovery | `2` |
+| `import agent-config` | Selected physical-value capture or its terminal recovery | `3` |
 | `recover` | Recovery plan/result | `11` |
 | `migrate state` | State-authority migration | `1` |
 | `migrate metadata` | Management metadata conversion | `1` |
@@ -361,6 +373,11 @@ are unrelated and must not be compared as a product-wide sequence:
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
 | Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `2` |
+
+When upgrading from v0.7.2, add separate readers for `import agent-config`,
+`replace agent-config` and `migrate metadata`. None of these commands existed in
+that release. In particular, the manifest-authoring `import` result does not
+cover [`import agent-config` or its recovery](#retrying-import-agent-config).
 
 Agent configuration key addresses use a `key_path` array of literal names
 in lock comparisons, reconciliation actions/projections/previous state, apply
@@ -390,10 +407,9 @@ pending, keep the files at their original paths until recovery finishes.
 Ordinary names such as `credentials.json` and `api_key` are allowed; sensitive
 setting values are still masked.
 
-`doctor` version `3` and common CLI failure version `2` can report
-`permission_protection` when permission recovery is pending or its inventory is
-unavailable or unsupported. All three families use their new versions even
-when the optional fields are absent.
+`doctor` version `3` and common CLI failure version `2` can report the same
+[permission protection observation](#reading-permission-protection) as plans and
+apply results. Each family emits its current version even when the field is absent.
 
 The resource-name cutover replaces the v0.5.x envelopes for manifest authoring
 (`6`), resource inventory (`2`), output inventory (`4`), agent location inventory
@@ -408,9 +424,10 @@ including an empty string for unreferenced assets, rather than a target set
 declared on the asset. Every resource inventory emits version `4`, including
 empty results; consumers of version `3` must update before interpreting it.
 
-Recovery version `11` adds the `output_ownership_release` authority and its
-disclosure. Journal and permission recovery keep their result fields and also
-emit version `11`. Scripts that accept only version `10` must update.
+In v0.7.2, `recover` version `10` handled active journals and journal cleanup.
+Compared with that release, [version `11`](#recover) also handles
+`permission_safety` and explicit `output_ownership_release`. A terminal journal
+write could omit `authority_kind` in v0.7.2 and still can in version `11`.
 
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
 optional dimension `detail`, the unsupported Pi backend-transition
@@ -517,11 +534,14 @@ as `instruction/project` or `mcp-server/context7`. The name remains literal,
 including any slash, colon, percent sign or words such as `instructions`.
 For commands that support the resource kind, prefer the separate `resource.kind`
 and `resource.name` fields, or `list resources`' `kind` and `key`, rather than
-splitting a reference. A `hook_asset` kind/key identifies its declaration, not
-an add/remove operand.
+splitting a reference. When a row has only `resource_id`, keep that public
+reference intact. A `hook_asset` kind/key identifies its declaration, not an
+add/remove operand.
 
-Canonical `entity_id` and `subject_id` values, including structured subject
-namespaces and keys, are opaque identities, not command operands. They retain
+Canonical `entity_id`, `subject_id` and output inventory `subject` values are
+opaque identities, not command operands. For an agent configuration key, use
+`key_path`: `["a/b"]` and `["a", "b"]` select different properties. Do not derive a
+missing resource name or key from a subject. The opaque identifiers retain
 their existing grammar and may contain `instructions` or `mcp_server`. Other
 `kind` fields may describe an action, subject role, source or artifact rather
 than a resource. TOML keys, embedded manifest blocks, diagnostic quotations of
@@ -554,10 +574,12 @@ error text. For example, `daem status --unknown --json` returns exit `2` with:
 
 `command` is the complete leaf name in the [flag inventory](#command-flag-inventory),
 without `daem` or resource operands: for example, `add agent-config` or
-`probe mcp-server`. Ordinary result families have their own command identifiers.
+`probe mcp-server`. Ordinary results follow their own command schemas.
 
 `error.kind` is `usage` for CLI usage failures (exit `2`) and `operation` for
-operation failures (exit `1`). Classification belongs
+operation failures (exit `1`). A failure can include a
+[permission protection observation](#reading-permission-protection) if the
+command got far enough to check. Classification belongs
 to the command, not the parsing or workflow stage where an error was found.
 `error.message` is the owning diagnostic's primary cause, not a machine-stable
 reason code.
@@ -810,26 +832,57 @@ Capturing during a whole-to-keys handoff
 replaces old desired source values; it does not save those values for automatic
 restoration. Complete narrowing before making a separate desired-value update.
 
-If publication was interrupted, repeat the same explicit request and dry-run.
-The command previews only the selected source/declaration transaction's recovery.
-After approval it either restores before-images or finalizes completed writes,
-then exits without reading new host values or rerunning capture. Review a new
-dry-run afterward. A source target that cannot be independently selected from
-the invocation or current declaration, mismatching evidence, or other pending
-work is refused rather than recovered from marker-supplied paths. Capture and
-its recovery return `command = "import agent-config"` in JSON results.
+Capture and recovery both return `command: "import agent-config"`. In JSON
+schema 3, `operation` identifies the work; `mode` tells whether it ran:
+
+| `operation` | Preview `mode` | Successful write `mode` | What it does |
+| --- | --- | --- | --- |
+| `capture` | `dry-run` | `captured` | Creates a local source and declaration, updates an existing capture, or retires the declaration. |
+| `recovery` | `dry-run` | `recovered` | Settles the recorded source/declaration transaction and exits without reading new host values. |
 
 In a capture result, `declaration` is the name accepted by the command.
 `source` names the selected local source, and `referent` names the file it
 resolves to; these differ when the source is a symlink. `known_references[]`
-identifies readers in the selected manifest by `resource` and `path`. Each
-`keys[]` row has a `key_path` array, `before_present` and `after_present`, and
+identifies readers in the selected manifest by `resource` and `path`.
+`resource` can be a position such as `skill_group[0]`, not a command operand.
+Each `keys[]` row has a `key_path` array, `before_present` and `after_present`, and
 display values `before` and `after` for the selected setting. Use the presence
-flags to distinguish a missing value from a masked one. Whole-document capture
-returns `keys: []` and omits the file contents. `next_steps` lists the suggested
-commands or instructions. A recovery result reports `manifest`, `source`,
-`referent`, `known_references` and `recovery` (`finalize` or `rollback`)
-instead of selected keys.
+flags to distinguish a missing value from a masked one. Different values can
+have the same masked display; do not use the masking text to compare or approve
+values. Whole-document capture returns `keys: []` and omits the file contents.
+`next_steps` lists suggested commands or instructions. A recovery result reports
+`manifest`, `source`, `referent`, `known_references` and `recovery` instead of
+selected keys.
+
+### Retrying `import agent-config`
+
+If an approved write fails or you lose its response, **do not resend the
+write**. Keep the same working directory, environment, manifest, source and
+selectors. Replace `--yes --expect-plan FINGERPRINT` with `--dry-run --json`.
+Proceed only if that invocation exits `0` with a complete `import agent-config`
+schema 3 result and `mode: "dry-run"`. Then read `operation`:
+
+- **`operation: "recovery"`:** Review the named files and `recovery` direction.
+  `finalize` keeps the completed writes; `rollback` restores the previous state.
+  To approve that recovery, use *its* `fingerprint` with `--yes --expect-plan`.
+  The command rechecks the evidence under lock and runs only the recovery. Stop
+  there. After `finalize`, review the usual lock and apply steps above if you
+  intend to deploy the changes. After `rollback`, preview a new capture only if
+  you still want one.
+- **`operation: "capture"`:** Stop the retry and compare the current manifest
+  and source with the changes you intended. Even an identical fingerprint does
+  not tell you whether the earlier write completed. A new capture needs its own
+  review and approval.
+
+Stop if there is no usable preview, you cannot identify the operation, or a
+recovery does not specify `finalize` or `rollback`. A `cli_error` does not tell
+you whether the earlier write completed. Do not add `--merge` or
+`--update-source` to make the retry succeed.
+
+Recovery refuses unrelated pending work. It requires matching evidence and a
+source that the request or current declaration identifies independently of the
+marker. If only temporary files remain without a valid marker,
+[preserve them for inspection](troubleshooting.md#manifest-metadata-update-was-interrupted).
 
 When switching sources or retiring a declaration, daem keeps any blank lines
 and standalone comments after the edited block. It can also finish an interrupted
@@ -1578,16 +1631,6 @@ Diagnostic grades, including `error`, do not by themselves affect the `--check`
 exit code or `check_clean`. The `diagnostics` array carries the reported grades;
 error-grade diagnostics contribute to `has_errors`.
 
-Owner permission protection is checked independently of `--target`. Apply,
-status and doctor JSON include optional `permission_protection` when pending
-records were observed or inventory is unavailable or unsupported. It records
-the observation state, invocation and phase, and owning logical document
-destinations; it does not certify present settlement. Known-clear inventory
-omits the field. It also survives source and planning failures in the common
-error result. Doctor reports a separate `permission_protection` check. This
-reporting does not turn a pending owner record into an Apply action or block
-unrelated writes. See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery).
-
 Selected missing extension relations and observe-only relation rows do not make
 `--check` fail. A blocked removal of a managed extension relation does fail. A
 normalize, conditional, or blocked extension-order row is also non-clean. JSON
@@ -1608,6 +1651,24 @@ instead of fabricating an assessment. `apply --dry-run` omits this field: its
 planning context, including `--manage-existing`, is not a status observation.
 Both commands emit the current reconciliation-plan version in the
 [version table](#json-schema-contract); other result families are unchanged.
+
+### Reading permission protection
+
+`status`, `apply --dry-run`, confirmed `apply`, `doctor` and common CLI errors
+can report `permission_protection` for the owner of the selected state file,
+independently of `--target`.
+
+| Field or `observation` | How to read it |
+| --- | --- |
+| Field omitted | Either the inventory was checked and clear, or it was never checked. An early argument error or a `doctor` report that could not resolve paths can omit it. |
+| `observed` | Pending records were found. Each `observed_records[]` entry gives the `invocation`, its `phase`, and the logical `documents[].destinations[]`. `next_step` suggests `recover --dry-run` with the same manifest; it does not authorize recovery. |
+| `unavailable` | An attempted check failed. `reason` describes why; the inventory is unknown, not empty. |
+| `unsupported` | The platform does not support this observation. No inventory was established. |
+
+Use `check_clean` in a valid status result to decide whether the configuration
+passes `--check`. A pending protection record makes the check non-clean, but a
+no-op or an apply that affects unrelated files can still succeed. To see what
+can be recovered, use [permission-only recovery](state-and-recovery.md#permission-only-recovery).
 
 ## `replace agent-config`
 
@@ -1649,9 +1710,10 @@ The JSON envelope is schema version 2 with `command = "replace agent-config"`,
 accepted by the command), `action_count` and `keys`. Each key has a literal-name
 `key_path` array, `file` (the selected host path, which may be a symlink), `action`
 (`create`, `recreate`, `adopt`, `takeover`, `replace`, `record`, or `current`),
-`current_present`, optional `current`, and `desired`. Value strings use host
-syntax; sensitive or oversized display values are masked without weakening the
-approval fingerprint. `action_count` counts selected state or host mutations;
+`current_present`, optional `current`, and `desired`. Read `current_present`
+for presence. Value strings use host syntax unless masked for sensitivity or
+size. Matching display strings need not mean matching values; use the preview's
+`fingerprint` for approval. `action_count` counts selected state or host mutations;
 already-current keys do not count. `record` refreshes stale management state when
 the host value already matches the declaration without rewriting that value.
 `--diff` adds a selected-value diff to human
@@ -1673,7 +1735,8 @@ daem apply [--manifest <path>] [--target <target> ...]
 `apply --dry-run` reports every selected mutation, blocker, delegated/host
 route, destructive implication, and uncertain postcondition without performing
 those mutations or routes. Native Pi MCP qualification may run the same
-bounded observation queries described under [status](#status).
+bounded observation queries described under [status](#status). Both the plan
+and the write result can include the owner's [permission protection observation](#reading-permission-protection).
 An unqualified Native binding refuses the whole selected plan before publication;
 apply does not silently skip it and publish the other targets. Select independent
 work explicitly with `--target` instead. This preflight rule does not promise
@@ -1990,9 +2053,16 @@ Active-journal recovery revalidates guarded observations, backup identity,
 candidate fingerprint, and the complete lease set before writing. Cleanup-only
 recovery acquires and revalidates only its recovery root, retirement control,
 residue, and final GC name; it does not inspect or mutate host destinations,
-statefile, ownership registry, manifest, or lockfile. Both forms replan after
-authority; a prior dry-run grants no execution authority. Blocked or stale
-recovery retains evidence and writes nothing.
+statefile, ownership registry, manifest, or lockfile. Both forms recheck the
+plan under their leases. Blocked or stale recovery retains evidence and writes
+nothing.
+
+Unlike `import agent-config`, `recover --yes` has no `--expect-plan`: it selects
+the work again. For example,
+journal cleanup can take precedence over the permission recovery you previewed.
+If you need to approve only that exact plan, `--yes` cannot provide that guarantee.
+After execution, read the actual recovery kind and phase before another write;
+stop if the work differs from what you expected or the result is unclear.
 
 Before an active journal is retired, recovery reconciles every persisted removal
 intent, including entries outside a selected subset. If blocked, it reports the
@@ -2017,8 +2087,11 @@ armed/bound `phase`, `settlement` (`pending`, `cleared` or `unknown`) and per-do
 `targets`. Targets report the logical `destination`, `state`, safe typed `reason`
 when blocked, and `observed_access_expansion` for this recovery only. That flag
 does not describe earlier exposure. Dry-run has `phase = "planned"`; execution
-uses `completed`, `pending` or `unknown`, with `has_errors` independent of those
-authority facts. Partial containment and failed publication return nonzero.
+uses `completed`, `pending` or `unknown`. Even if all records were cleared and
+`phase` is `completed`, a final validation or lease-release error can set
+`has_errors: true`. Check that flag and the exit status for the whole command;
+`protections[].settlement` describes each record. Partial containment and failed
+publication return nonzero.
 See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery)
 for its no-content-repair boundary.
 
@@ -2028,12 +2101,21 @@ Its `output_ownership_release` object reports `claim_count`, `binding_count`,
 manifest when displayable; `withheld_manifest_count` and
 `withheld_location_count` account for references that cannot be shown. The
 counts describe recorded ownership, not files changed. `phase` is `planned`,
-`nothing_to_release`, `released`, `refused`, or `unconfirmed`. A write of
-unconfirmed durability exits unsuccessfully; inspect a new preview before
-trying again. Planning failures before a release is disclosed use `cli_error`.
+`nothing_to_release`, `released`, `refused`, or `unconfirmed`. An `unconfirmed`
+write exits unsuccessfully but may already have changed the ownership registry.
+Preserve the files and records and inspect a new preview before trying again.
+If `phase` is `released` and `has_errors` is true, the release took effect but
+follow-up work failed. Do not replay the release. Planning failures before a
+release is disclosed use `cli_error`.
 
 Both `--dry-run --json` and `--yes --json` use the
-[recovery family](#json-schema-contract). Every result declares one `phase`.
+[recovery family](#json-schema-contract). Read `authority_kind`, `phase` and
+`has_errors` together. `errors[]` is not a common list of reason codes:
+permission recovery can return codes, while ownership release can return a
+message for the operator. Stop on an unknown kind or phase rather than guessing
+whether it is safe to retry. The phases below belong to `recover`, not to
+[`import agent-config`](#retrying-import-agent-config) or [`migrate metadata --recover`](#migrate-metadata).
+
 Journal dry-run results and write attempts rejected before execution use `planned`.
 After execution begins, a
 freshly reclassified active journal uses `active_authority_retained`; a
@@ -2054,9 +2136,10 @@ the result uses `authority_unknown`, exposes no retry plan, and instructs the
 operator to preserve recovery evidence. Terminal and unknown results retain
 only the path-neutral operation id, phase, error status, empty action and
 cleanup-obligation arrays, and a continuing file-set fence when one remains.
-They omit
-`authority_kind`, `operation_dir`, `classification`, and the pre-execution plan
-because those facts no longer describe a retryable authority. Active recovery
+These three journal write phases (`mode: "write"`) are the only v11 results
+that omit `authority_kind`. They also omit `operation_dir`, `classification`
+and the pre-execution plan because none describes work you can retry. If the
+kind is absent in another phase, do not infer a recovery action. Active recovery
 also reports `continuing_file_set_fence` whenever a fresh terminal observation
 is non-clear or cannot be classified. Closed values include published markers,
 markerless residue, census limits, invalid evidence, and access-unprovable
@@ -2254,7 +2337,9 @@ count-only. `--verbose` prints every check and bounded detail. Warnings,
 skipped checks, and unsupported checks do not fail doctor; errors do. Doctor
 JSON schema version is `3` and contains manifest context, selected targets, all
 typed checks with `status`, and `has_errors`. Check `status` is not diagnostic
-`severity`; apply diagnostics keep the three-value `severity` field.
+`severity`; apply diagnostics keep the three-value `severity` field. Doctor also
+reports a `permission_protection` check. For the optional owner inventory, see
+[Reading permission protection](#reading-permission-protection).
 
 ## `probe mcp-server`
 
