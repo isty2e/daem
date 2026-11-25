@@ -1446,9 +1446,10 @@ the value is replaced. `list outputs` JSON has separate `managed`, `unmanaged`,
 and `blocked` arrays and counts. Rows retain their canonical `subject` and
 complete `targets` consumer set while reporting the correlated resource identity
 when one exists.
-Newly classified unmanaged and blocked aggregate rows also carry
-`content_path`, which identifies the selected contribution inside the shared
-file, while `hash` remains empty because daem does not own the whole document.
+In all three arrays, an individual agent configuration key has a `key_path`
+array of literal names and no `content_path`. For MCP servers and hooks, only
+unmanaged and blocked rows include `content_path`. Aggregate rows have an
+empty `hash` because daem does not own the whole document.
 Both commands include every selected row.
 
 `list paths` JSON uses a flat `locations` array. Every

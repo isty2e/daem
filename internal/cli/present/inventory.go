@@ -8,7 +8,6 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
-	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
 )
 
@@ -48,9 +47,9 @@ func PrintInventoryReportWithOptions(output io.Writer, inventory listworkflow.Ou
 func printInventoryEntry(output io.Writer, label string, entry listworkflow.OutputInventoryEntry, options HumanOptions) {
 	resourceID := inventoryResourceID(entry)
 	identityLabel, identity := "resource", resourceID
-	_, key, native := topologyprojection.AgentConfigKeyIdentity(entry.Subject())
+	declaration, key, native := entry.AgentConfigKey()
 	if native {
-		identityLabel, identity = projectionIdentityLabel(entry.Subject())
+		identity = ResourceReference(declaration.Kind(), declaration.Name())
 	}
 	targetValues := inventoryTargetStrings(entry)
 	if !entry.Subject().IsZero() {
@@ -125,8 +124,8 @@ func inventoryJSONEntries(entries []listworkflow.OutputInventoryEntry) []invento
 			Reason:      string(entry.Reason()),
 			Detail:      entry.Detail(),
 		}
-		if _, key, native := topologyprojection.AgentConfigKeyIdentity(entry.Subject()); native {
-			_, row.Resource = planJSONEntityResource(entry.Subject())
+		if declaration, key, native := entry.AgentConfigKey(); native {
+			row.Resource = &planJSONResource{Kind: ResourceKindName(declaration.Kind()), Name: declaration.Name()}
 			row.KeyPath = key.Segments()
 		}
 		result = append(result, row)

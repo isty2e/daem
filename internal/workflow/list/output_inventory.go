@@ -35,6 +35,8 @@ type OutputInventoryEntry struct {
 	scope       target.Scope
 	path        string
 	contentPath output.ContentPath
+	declaration entity.ID
+	key         output.KeyPath
 	hash        string
 	reason      reconcile.ActionReason
 	detail      string
@@ -63,6 +65,10 @@ func (entry OutputInventoryEntry) ContentPath() output.ContentPath { return entr
 func (entry OutputInventoryEntry) Hash() string                    { return entry.hash }
 func (entry OutputInventoryEntry) Reason() reconcile.ActionReason  { return entry.reason }
 func (entry OutputInventoryEntry) Detail() string                  { return entry.detail }
+
+func (entry OutputInventoryEntry) AgentConfigKey() (entity.ID, output.KeyPath, bool) {
+	return entry.declaration, entry.key, !entry.key.IsRoot()
+}
 
 func buildOutputInventory(
 	file durable.Snapshot,
@@ -126,13 +132,7 @@ func managedOutputInventoryEntries(
 		if !selection.Includes(contribution.Target()) {
 			continue
 		}
-		entries = append(entries, OutputInventoryEntry{
-			entityID: outputInventoryEntityForSubject(state.Subject()),
-			subject:  state.Subject(),
-			targets:  []target.Target{contribution.Target()},
-			scope:    contribution.Scope(),
-			path:     contribution.AggregateRoot().String(),
-		})
+		entries = append(entries, aggregateInventoryEntry(state.Subject(), contribution.Address()))
 	}
 	return entries
 }
@@ -192,20 +192,32 @@ func aggregateInventoryEntries(
 				if !selection.Includes(subject.Target()) || !include(subject) {
 					continue
 				}
-				contentPath, err := subject.Contract().Address().LegacyContentPath()
-				if err != nil {
-					return nil, err
+				address := subject.Contract().Address()
+				entry := aggregateInventoryEntry(subject.Subject(), address)
+				if entry.key.IsRoot() {
+					contentPath, err := address.LegacyContentPath()
+					if err != nil {
+						return nil, err
+					}
+					entry.contentPath = output.ContentPath(contentPath)
 				}
-				entries = append(entries, OutputInventoryEntry{
-					entityID: outputInventoryEntityForSubject(subject.Subject()), subject: subject.Subject(),
-					targets: []target.Target{subject.Target()}, scope: subject.Scope(),
-					path: subject.Destination().String(), contentPath: output.ContentPath(contentPath),
-					reason: subject.Reason(), detail: subject.Detail(),
-				})
+				entry.reason, entry.detail = subject.Reason(), subject.Detail()
+				entries = append(entries, entry)
 			}
 		}
 	}
 	return entries, nil
+}
+
+func aggregateInventoryEntry(subject topology.SubjectID, address aggregate.ProjectionAddress) OutputInventoryEntry {
+	document := address.Document()
+	entry := OutputInventoryEntry{subject: subject, targets: []target.Target{document.Target()}, scope: document.Scope(), path: document.AggregateRoot().String()}
+	if id, key, native := topologyprojection.AgentConfigKeyIdentity(subject); native {
+		entry.declaration, entry.key = id, key
+	} else {
+		entry.entityID = outputInventoryEntityForSubject(subject)
+	}
+	return entry
 }
 
 func canonicalOutputInventoryEntries(
@@ -291,7 +303,7 @@ func outputInventoryIdentityKey(entry OutputInventoryEntry) string {
 func outputInventoryEntriesEqual(left OutputInventoryEntry, right OutputInventoryEntry) bool {
 	return left.entityID == right.entityID && left.subject == right.subject &&
 		slices.Equal(left.targets, right.targets) && left.scope == right.scope &&
-		left.path == right.path && left.contentPath == right.contentPath &&
+		left.path == right.path && left.contentPath == right.contentPath && left.key == right.key && left.declaration == right.declaration &&
 		left.hash == right.hash && left.reason == right.reason &&
 		left.detail == right.detail
 }
