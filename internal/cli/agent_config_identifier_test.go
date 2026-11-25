@@ -44,6 +44,7 @@ func TestCaptureMachineIdentifiersRoundTrip(t *testing.T) {
 	}
 	var result struct {
 		SchemaVersion                 int `json:"schema_version"`
+		Operation, Mode               string
 		Declaration, Source, Referent string
 		Keys                          []struct {
 			KeyPath []string `json:"key_path"`
@@ -56,7 +57,10 @@ func TestCaptureMachineIdentifiersRoundTrip(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.SchemaVersion != 2 || result.Declaration != name || result.Source != source || result.Referent != referent || len(result.References) != 1 || result.References[0].Path != source || result.References[0].Resource != `agent_config:config%5Cprefs` {
+	if result.SchemaVersion != 3 || result.Operation != "capture" || result.Mode != "dry-run" {
+		t.Fatalf("unexpected capture preview: version %d, %q/%q", result.SchemaVersion, result.Operation, result.Mode)
+	}
+	if result.Declaration != name || result.Source != source || result.Referent != referent || len(result.References) != 1 || result.References[0].Path != source || result.References[0].Resource != `agent_config:config%5Cprefs` {
 		t.Fatalf("wrong named file, referent, or reader: %s", text)
 	}
 	want := map[string]bool{"/ext/a~1b": true, "/": true, "/" + long: true, "/api_key": true}

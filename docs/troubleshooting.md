@@ -532,7 +532,7 @@ is unchanged.
 
 ## Manifest Metadata Update Was Interrupted
 
-An interrupted `add`, `remove` or `unmanage` can leave a published metadata
+An interrupted `add`, `remove`, `unmanage` or `import agent-config` can leave a published metadata
 marker. Manifest/lock/state/shared-carrier consumers then fail with `interrupted
 file-set transaction`. Choose the action by the evidence:
 
@@ -540,6 +540,7 @@ file-set transaction`. Choose the action by the evidence:
 | --- | --- |
 | Active journal (`interrupted_apply`) | Start with `daem recover --dry-run`. Finish journal recovery before retrying a write; `recover` leaves declaration records untouched. |
 | Already-retired journal with cleanup left (`journal_cleanup_incomplete`) | If you intend to apply, start with `daem apply --dry-run`. It shows cleanup if the records qualify. To clear only the journal, start with `daem recover --dry-run`. |
+| Interrupted `import agent-config` | Do not resend the approved write. Preview the same request with `--dry-run --json`. If it offers `operation: "recovery"`, review the files and direction before approving its fingerprint. See [Retrying `import agent-config`](cli.md#retrying-import-agent-config). |
 | The selected manifest and default lockfile already match the completed update | Preview `daem apply` if you intend to apply, or run `daem lock` with the same manifest selection if you intend to refresh the lockfile. The write clears only a verified record for those two files. If an already-retired journal also blocks the write, both records must qualify and journal cleanup runs first. Lock then resolves sources normally, so floating inputs can advance. |
 | Other valid published `metadata-transaction` marker | Retry the exact interrupted authoring or `unmanage` write with the same manifest and selectors. It can restore or finalize the recorded files under its original authority. For an interrupted state migration, use `daem migrate state --recover --dry-run` to inspect recovery. Neither preview nor `daem recover` removes a published file-set record. |
 | Marker version 1 or 2 | Current code preserves it; retry with its writer before upgrading. Current marker version 3 enforces bounded recovery. |
@@ -565,9 +566,8 @@ ordinary work. There is no supported automatic cleanup for markerless residue.
 Preserve the residue, selected manifest/lock, state/registry records, and error
 output for manual analysis of its origin and any retained backup data; the name
 alone cannot establish safe disposal. If a recoverable journal exists, resolve
-it first; if a valid marker also exists, then retry that write. Leftover siblings
-still block until
-independently resolved. `unmanage` does not inspect/repair metadata transactions
+it first, then follow the table for any remaining marker. Leftover siblings
+still block until independently resolved. `unmanage` does not inspect/repair metadata transactions
 while journal authority remains.
 
 ## Lockfile Is Missing Or Stale

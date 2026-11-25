@@ -29,7 +29,7 @@ const (
 	VersionJSON                = 1
 	InitJSON                   = 1
 	ManifestAuthoringJSON      = 7
-	AgentConfigCaptureJSON     = 2
+	AgentConfigCaptureJSON     = 3
 	AgentConfigReplacementJSON = 2
 	LockComparisonJSON         = 6
 	ResourceInventoryJSON      = 4

@@ -353,7 +353,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `status`, `apply --dry-run` | Reconciliation plan | `20` |
 | confirmed `apply` | Apply result | `26` |
 | `replace agent-config` | Selected-key replacement | `2` |
-| `import agent-config` | Selected physical-value capture or its terminal recovery | `2` |
+| `import agent-config` | Selected physical-value capture or its terminal recovery | `3` |
 | `recover` | Recovery plan/result | `11` |
 | `migrate state` | State-authority migration | `1` |
 | `migrate metadata` | Management metadata conversion | `1` |
@@ -810,14 +810,13 @@ Capturing during a whole-to-keys handoff
 replaces old desired source values; it does not save those values for automatic
 restoration. Complete narrowing before making a separate desired-value update.
 
-If publication was interrupted, repeat the same explicit request and dry-run.
-The command previews only the selected source/declaration transaction's recovery.
-After approval it either restores before-images or finalizes completed writes,
-then exits without reading new host values or rerunning capture. Review a new
-dry-run afterward. A source target that cannot be independently selected from
-the invocation or current declaration, mismatching evidence, or other pending
-work is refused rather than recovered from marker-supplied paths. Capture and
-its recovery return `command = "import agent-config"` in JSON results.
+Capture and recovery both return `command: "import agent-config"`. In JSON
+schema 3, `operation` identifies the work; `mode` tells whether it ran:
+
+| `operation` | Preview `mode` | Successful write `mode` | What it does |
+| --- | --- | --- | --- |
+| `capture` | `dry-run` | `captured` | Creates a local source and declaration, updates an existing capture, or retires the declaration. |
+| `recovery` | `dry-run` | `recovered` | Settles the recorded source/declaration transaction and exits without reading new host values. |
 
 In a capture result, `declaration` is the name accepted by the command.
 `source` names the selected local source, and `referent` names the file it
@@ -828,8 +827,34 @@ display values `before` and `after` for the selected setting. Use the presence
 flags to distinguish a missing value from a masked one. Whole-document capture
 returns `keys: []` and omits the file contents. `next_steps` lists the suggested
 commands or instructions. A recovery result reports `manifest`, `source`,
-`referent`, `known_references` and `recovery` (`finalize` or `rollback`)
-instead of selected keys.
+`referent`, `known_references` and `recovery` instead of selected keys.
+
+### Retrying `import agent-config`
+
+If an approved write fails or you lose its response, **do not resend the
+write**. Keep the same working directory, environment, manifest, source and
+selectors. Replace `--yes --expect-plan FINGERPRINT` with `--dry-run --json`.
+Read the new preview before deciding whether to write:
+
+- **`operation: "recovery"`:** Review the named files and `recovery` direction.
+  `finalize` keeps the completed writes; `rollback` restores the previous state.
+  To approve that recovery, use *its* `fingerprint` with `--yes --expect-plan`.
+  The command rechecks the evidence under lock and runs only the recovery. Stop
+  there. After `finalize`, review the usual lock and apply steps above if you
+  intend to deploy the changes. After `rollback`, preview a new capture only if
+  you still want one.
+- **`operation: "capture"`:** Stop the retry and compare the current manifest
+  and source with the changes you intended. Even an identical fingerprint does
+  not tell you whether the earlier write completed. A new capture needs its own
+  review and approval.
+- **No usable preview:** Stop on a nonzero exit, `cli_error`, incomplete output,
+  or an unrecognized version, operation, mode or recovery direction. Do not
+  infer the state from an error message or add `--merge` or `--update-source`
+  to make the request succeed.
+
+Recovery requires matching evidence and a source that the request or current
+declaration identifies independently of the marker. If only temporary files
+remain without a valid marker, [preserve them for inspection](troubleshooting.md#manifest-metadata-update-was-interrupted).
 
 When switching sources or retiring a declaration, daem keeps any blank lines
 and standalone comments after the edited block. It can also finish an interrupted

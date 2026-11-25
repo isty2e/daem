@@ -120,6 +120,7 @@ func (disclosure captureDisclosure) JSON(mode string) ([]byte, error) {
 	return json.MarshalIndent(struct {
 		SchemaVersion int                    `json:"schema_version"`
 		Command       string                 `json:"command"`
+		Operation     string                 `json:"operation"`
 		Mode          string                 `json:"mode"`
 		Declaration   string                 `json:"declaration"`
 		Fingerprint   string                 `json:"fingerprint"`
@@ -134,7 +135,7 @@ func (disclosure captureDisclosure) JSON(mode string) ([]byte, error) {
 		Warnings      []string               `json:"warnings"`
 		NextSteps     []string               `json:"next_steps"`
 	}{
-		SchemaVersion: contractversion.AgentConfigCaptureJSON, Command: "import " + AgentConfigResourceName, Mode: mode,
+		SchemaVersion: contractversion.AgentConfigCaptureJSON, Command: "import " + AgentConfigResourceName, Operation: "capture", Mode: mode,
 		Declaration: name, Fingerprint: plan.Fingerprint(), Source: plan.SourcePath(), Referent: plan.SourceReferent(),
 		Initial: plan.Initial(), Ownership: string(plan.Config().Ownership()), Retire: plan.RetiresDeclaration(), SourceBytes: len(plan.SourceAfter()),
 		Keys: keys, References: refs, Warnings: disclosure.warnings, NextSteps: disclosure.nextSteps,
