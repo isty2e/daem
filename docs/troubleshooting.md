@@ -532,9 +532,9 @@ is unchanged.
 
 ## Manifest Metadata Update Was Interrupted
 
-An interrupted `add`, `remove`, `unmanage` or `import agent-config` can leave a published metadata
-marker. Manifest/lock/state/shared-carrier consumers then fail with `interrupted
-file-set transaction`. Choose the action by the evidence:
+An interrupted `add`, `remove`, `unmanage` or `import agent-config` can leave a
+published metadata marker. Manifest/lock/state/shared-carrier consumers then
+fail with `interrupted file-set transaction`. Choose the action by the evidence:
 
 | Evidence | Action |
 | --- | --- |
@@ -543,7 +543,7 @@ file-set transaction`. Choose the action by the evidence:
 | Interrupted `import agent-config` | Do not resend the approved write. Preview the same request with `--dry-run --json`. If it offers `operation: "recovery"`, review the files and direction before approving its fingerprint. See [Retrying `import agent-config`](cli.md#retrying-import-agent-config). |
 | The selected manifest and default lockfile already match the completed update | Preview `daem apply` if you intend to apply, or run `daem lock` with the same manifest selection if you intend to refresh the lockfile. The write clears only a verified record for those two files. If an already-retired journal also blocks the write, both records must qualify and journal cleanup runs first. Lock then resolves sources normally, so floating inputs can advance. |
 | Other valid published `metadata-transaction` marker | Retry the exact interrupted authoring or `unmanage` write with the same manifest and selectors. It can restore or finalize the recorded files under its original authority. For an interrupted state migration, use `daem migrate state --recover --dry-run` to inspect recovery. Neither preview nor `daem recover` removes a published file-set record. |
-| Marker version 1 or 2 | Current code preserves it; retry with its writer before upgrading. Current marker version 3 enforces bounded recovery. |
+| Marker version 1 or 2 | Current daem preserves it. Finish recovery with the version that wrote it before upgrading. |
 | Invalid/incomplete evidence, out-of-authority target or unclassifiable before/after image | Preserve diagnostics/state for manual inspection; repair before journal recovery. Never edit recorded files independently or delete the marker. |
 | StateDir access/identity cannot be established | Restore it before recovery, even if a journal was observed. An accessible RecoveryDir child is insufficient. Do not retry a write as if a marker existed. |
 | Bounded census overflow with accessible StateDir | Journal recovery may proceed if RecoveryDir is readable, but the census fence remains. This is neither a marker nor named residue; do not infer a retry or prefix-deletion remedy. |
@@ -553,9 +553,9 @@ not restore it. Read the remaining error or run a fresh preview to identify
 what still needs attention.
 
 If a manifest or lockfile link changed after the interrupted write, restore its
-original target mapping before retrying that exact write. The recorded-target
-diagnostic helps identify the mismatch; do not delete the marker or treat its
-paths alone as permission to modify another file.
+original target mapping, then follow the row for that command. The
+recorded-target diagnostic helps identify the mismatch; do not delete the
+marker or treat its paths alone as permission to modify another file.
 
 Markerless `.daem-tmp-*`, legacy `.metadata-stage-*`, `.daem-tombstone-*` or
 `.daem-cleanup-*` residue is a separate fence. Authoring/unmanage retry, refresh
@@ -567,8 +567,8 @@ Preserve the residue, selected manifest/lock, state/registry records, and error
 output for manual analysis of its origin and any retained backup data; the name
 alone cannot establish safe disposal. If a recoverable journal exists, resolve
 it first, then follow the table for any remaining marker. Leftover siblings
-still block until independently resolved. `unmanage` does not inspect/repair metadata transactions
-while journal authority remains.
+still block until independently resolved. `unmanage` does not inspect or repair
+metadata transactions while journal authority remains.
 
 ## Lockfile Is Missing Or Stale
 
