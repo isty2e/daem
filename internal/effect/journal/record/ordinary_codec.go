@@ -310,6 +310,9 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 }
 
 func validateRecoveryJournalRelationships(journal recoveryJournal) error {
+	if _, err := journal.StatefileBefore.ClaudeHookPlacementForTransition(journal.StatefileAfter); err != nil {
+		return err
+	}
 	if err := validateRecoveryOwnershipWorkBudget(
 		len(journal.Entries),
 		len(journal.ClaimTransitions),

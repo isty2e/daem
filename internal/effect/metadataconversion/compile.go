@@ -24,7 +24,7 @@ func compileState(ctx context.Context, path string, entry sourceEntry, reference
 		return compiledTarget{target: target}, err
 	}
 	materialize := func(ctx context.Context, before []byte) ([]byte, error) {
-		snapshot, recorded, err := stateFacts(ctx, before)
+		snapshot, recorded, err := statefile.DecodePersisted(ctx, before)
 		if err != nil {
 			return nil, err
 		}

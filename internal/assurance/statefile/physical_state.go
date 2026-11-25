@@ -124,7 +124,7 @@ func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget 
 	}
 	var snapshot durable.Snapshot
 	var recorded pathauthority.Reference
-	if version == locatedSnapshotVersion {
+	if isLocatedSnapshot(version) {
 		if _, owned := codec.codec.(imageFactCodec); owned {
 			facts, err := codec.imageFactsCodec(ctx)
 			if err != nil {

@@ -13,6 +13,7 @@ import (
 
 // SnapshotInput is the complete set of durable assurance fact families.
 type SnapshotInput struct {
+	ClaudeHookSettings     ClaudeHookSettings
 	NativeDocumentCommit   uint64
 	ManagedPaths           []ManagedPathState
 	ManagedAggregates      []ManagedAggregateState
@@ -25,6 +26,7 @@ type SnapshotInput struct {
 
 // Snapshot is canonical non-current state used for correlation and history.
 type Snapshot struct {
+	claudeHookSettings     ClaudeHookSettings
 	nativeDocumentCommit   uint64
 	managedPaths           []ManagedPathState
 	managedAggregates      []ManagedAggregateState
@@ -41,6 +43,7 @@ func EmptySnapshot() Snapshot { return Snapshot{} }
 // NewSnapshot validates, orders, and defensively copies every fact family.
 func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 	snapshot := Snapshot{
+		claudeHookSettings:     input.ClaudeHookSettings,
 		nativeDocumentCommit:   input.NativeDocumentCommit,
 		managedPaths:           append([]ManagedPathState(nil), input.ManagedPaths...),
 		managedAggregates:      append([]ManagedAggregateState(nil), input.ManagedAggregates...),
@@ -58,6 +61,11 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 }
 
 func (snapshot Snapshot) validate() error {
+	if snapshot.claudeHookSettings.Path() != "" {
+		if _, present := snapshot.ClaudeGlobalHookMember(); !present {
+			return fmt.Errorf("Claude hook settings location requires a managed global hook")
+		}
+	}
 	projectionSubjects := make(map[topology.SubjectID]string)
 	pathAddresses := make(map[output.Destination]topology.SubjectID)
 	aggregateContracts := make(map[string]aggregate.ProjectionContract)
@@ -215,6 +223,11 @@ func (snapshot Snapshot) HostRouteAttempts() []durableattempt.HostRouteAttempt {
 func (snapshot Snapshot) WithManagedProjections(paths []ManagedPathState, aggregates []ManagedAggregateState) (Snapshot, error) {
 	input := snapshot.input()
 	input.ManagedPaths, input.ManagedAggregates = paths, aggregates
+	if input.ClaudeHookSettings.Path() != "" {
+		if _, retained := claudeGlobalHookMember(aggregates); !retained {
+			input.ClaudeHookSettings = ClaudeHookSettings{}
+		}
+	}
 	return NewSnapshot(input)
 }
 
@@ -227,9 +240,7 @@ func (snapshot Snapshot) WithManagedPaths(values []ManagedPathState) (Snapshot, 
 
 // WithManagedAggregates replaces the complete aggregate baseline family.
 func (snapshot Snapshot) WithManagedAggregates(values []ManagedAggregateState) (Snapshot, error) {
-	input := snapshot.input()
-	input.ManagedAggregates = values
-	return NewSnapshot(input)
+	return snapshot.WithManagedProjections(snapshot.managedPaths, values)
 }
 
 // WithPendingCarrierInstalls replaces the complete write-ahead carrier family.
@@ -269,7 +280,7 @@ func (snapshot Snapshot) WithHostRouteAttempts(values []durableattempt.HostRoute
 
 // Equal reports semantic equality across every ordered fact family.
 func (snapshot Snapshot) Equal(other Snapshot) bool {
-	if snapshot.nativeDocumentCommit != other.nativeDocumentCommit {
+	if snapshot.nativeDocumentCommit != other.nativeDocumentCommit || snapshot.claudeHookSettings != other.claudeHookSettings {
 		return false
 	}
 	if len(snapshot.managedPaths) != len(other.managedPaths) ||
@@ -321,6 +332,7 @@ func (snapshot Snapshot) Equal(other Snapshot) bool {
 
 func (snapshot Snapshot) input() SnapshotInput {
 	return SnapshotInput{
+		ClaudeHookSettings:     snapshot.claudeHookSettings,
 		NativeDocumentCommit:   snapshot.nativeDocumentCommit,
 		ManagedPaths:           snapshot.ManagedPaths(),
 		ManagedAggregates:      snapshot.ManagedAggregates(),

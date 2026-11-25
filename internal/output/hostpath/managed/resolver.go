@@ -8,6 +8,7 @@ import (
 	codexhostpath "github.com/isty2e/daem/internal/output/hostpath/codex"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
 // Resolver returns the operation's managed-output destination resolver.
@@ -18,6 +19,9 @@ func Resolver(paths daempaths.Paths, resolveRoot func(string) (string, error)) h
 		paths.ManifestRoot,
 		paths.DataDir,
 	).WithDestinationOverride(func(destination output.Destination) (string, bool, error) {
+		if settings := paths.ClaudeHookSettings; settings != "" && destination.String() == aggregate.ClaudeGlobalHookConfigPath {
+			return settings, true, nil
+		}
 		path, matched, err := piOverride(destination)
 		if err != nil || matched {
 			return path, matched, err

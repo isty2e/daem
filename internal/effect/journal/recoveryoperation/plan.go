@@ -50,7 +50,7 @@ type PlanLoadOptions struct {
 	// ValidateBeforeActiveObservation runs after one recovery-root inventory
 	// selects active-journal recovery and before host, state, or ownership
 	// observation. Cleanup-only selection never invokes it.
-	ValidateBeforeActiveObservation func(context.Context) error
+	ValidateBeforeActiveObservation func(context.Context, journalrecord.Loaded) error
 }
 
 // RecoveryAuthorityKind identifies the exact journal authority selected for
@@ -254,7 +254,7 @@ func LoadRecoverablePlanWithOptions(
 		if inventory.Active() != nil {
 			if _, release := inventory.Active().Record().NativeRelease(); release {
 				if options.ValidateBeforeActiveObservation != nil {
-					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+					if err := options.ValidateBeforeActiveObservation(ctx, inventory.Active().Record()); err != nil {
 						return nil, err
 					}
 				}
@@ -266,7 +266,7 @@ func LoadRecoverablePlanWithOptions(
 			}
 			if _, native := inventory.Active().Record().Native(); native {
 				if options.ValidateBeforeActiveObservation != nil {
-					if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+					if err := options.ValidateBeforeActiveObservation(ctx, inventory.Active().Record()); err != nil {
 						return nil, err
 					}
 				}
@@ -436,7 +436,7 @@ func loadActivePlanFromInventory(
 		return recovery.Plan{}, fmt.Errorf("legacy recovery planning requires a journal15 inventory record")
 	}
 	if options.ValidateBeforeActiveObservation != nil {
-		if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+		if err := options.ValidateBeforeActiveObservation(ctx, inventory.Active().Record()); err != nil {
 			return recovery.Plan{}, err
 		}
 	}

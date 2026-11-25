@@ -70,6 +70,10 @@ func TestRunApplyYesCreatesClaudeCodeGlobalHookSettingsUnderHome(t *testing.T) {
 	homeDir := filepath.Join(tempDir, "home")
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	if err := os.Unsetenv("CLAUDE_CONFIG_DIR"); err != nil {
+		t.Fatal(err)
+	}
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	statefilePath := filepath.Join(tempDir, ".daem", "state.json")
 	expectedSettings := "{\n  \"hooks\": {\n    \"Stop\": [\n      {\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"make test\"\n          }\n        ]\n      }\n    ]\n  }\n}\n"

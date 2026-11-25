@@ -1,6 +1,7 @@
 package statefile
 
 import (
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 )
 
 func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
+	if snapshot.ClaudeHookSettings().Path() != "" {
+		return persistedSnapshotAtVersion(snapshot, hookPlacementSnapshotVersion)
+	}
 	return persistedSnapshotAtVersion(snapshot, snapshotVersion)
 }
 
@@ -28,6 +32,9 @@ func persistedSnapshotAtVersion(snapshot durable.Snapshot, version int) snapshot
 		ManagedCarrierClaims:      make([]managedCarrierClaimDTO, 0, len(snapshot.ManagedCarrierClaims())),
 		DelegateAttempts:          make([]delegateAttemptDTO, 0, len(snapshot.DelegateAttempts())),
 		HostRouteAttempts:         make([]hostRouteAttemptDTO, 0, len(snapshot.HostRouteAttempts())),
+	}
+	if path := snapshot.ClaudeHookSettings().Path(); path != "" {
+		persisted.ClaudeHookSettings, _ = json.Marshal(path)
 	}
 	if snapshot.NativeDocumentCommit() != 0 {
 		persisted.NativeDocumentCommit = []byte(strconv.FormatUint(snapshot.NativeDocumentCommit(), 10))

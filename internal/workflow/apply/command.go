@@ -1028,6 +1028,11 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 	}
 
+	settings, hookLocation, err := nativeconfig.SelectClaudeHookSettings(paths, currentState, environment.Hooks(), selection, physicalBudget)
+	if err != nil {
+		return commandContext{}, result, err
+	}
+	paths.ClaudeHookSettings = settings
 	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
@@ -1065,6 +1070,7 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, err
 	}
 	result.Diagnostics = diagnose.HookCommandDiagnostics(environment.Hooks(), selection)
+	result.Diagnostics = append(result.Diagnostics, hookLocation...)
 	result.Diagnostics = append(result.Diagnostics, piDiagnostics...)
 	result.Diagnostics = append(result.Diagnostics, skillDiagnostics...)
 	result.LockOnly = readiness.SelectedUnsupportedProjections(runtimeEnvironment, selection)

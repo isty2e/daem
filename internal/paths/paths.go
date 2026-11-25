@@ -48,6 +48,7 @@ type Paths struct {
 	SourceCacheDir           string
 	RecoveryDir              string
 	LegacyUserStateDir       string
+	ClaudeHookSettings       string
 	home                     homeSelection
 }
 

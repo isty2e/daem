@@ -218,6 +218,11 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 			return commandInputs{}, result, fmt.Errorf("build runtime desired environment: %w", err)
 		}
 	}
+	settings, hookLocation, err := nativeconfig.SelectClaudeHookSettings(paths, currentState, environment.Hooks(), selection, budget)
+	if err != nil {
+		return commandInputs{}, result, err
+	}
+	paths.ClaudeHookSettings = settings
 	sourceEpoch, err := nativeconfig.ResolveSourceEpoch(
 		ctx,
 		paths,
@@ -243,6 +248,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, result, err
 	}
 	diagnostics := diagnose.HookCommandDiagnostics(environment.Hooks(), selection)
+	diagnostics = append(diagnostics, hookLocation...)
 	diagnostics = append(diagnostics, piDiagnostics...)
 	diagnostics = append(diagnostics, skillDiagnostics...)
 

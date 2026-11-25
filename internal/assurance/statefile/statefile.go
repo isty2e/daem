@@ -59,26 +59,28 @@ func decodeSnapshot(content []byte, codec snapshotCodec) (durable.Snapshot, erro
 	return decodeSupported(content, version, codec)
 }
 
-func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, error) {
+func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, pathauthority.Reference, error) {
 	version, err := statefileDocumentVersion(content)
 	if err != nil {
-		return durable.Snapshot{}, err
+		return durable.Snapshot{}, pathauthority.Reference{}, err
 	}
 	switch version {
-	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion:
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion, hookPlacementSnapshotVersion, locatedHookPlacementVersion:
 		codec, err := currentSnapshotCodec(ctx)
 		if err != nil {
-			return durable.Snapshot{}, err
+			return durable.Snapshot{}, pathauthority.Reference{}, err
 		}
-		if version == locatedSnapshotVersion {
+		if isLocatedSnapshot(version) {
 			image, err := unmarshalImage(content, codec)
-			return image.Snapshot(), err
+			return image.Snapshot(), image.Reference(), err
 		}
-		return decodeSupported(content, version, codec)
+		snapshot, err := decodeSupported(content, version, codec)
+		return snapshot, pathauthority.Reference{}, err
 	case retiredStatefileVersion:
-		return decodeRetiredStatefile(content)
+		snapshot, err := decodeRetiredStatefile(content)
+		return snapshot, pathauthority.Reference{}, err
 	default:
-		return durable.Snapshot{}, unsupportedStatefileVersion(version)
+		return durable.Snapshot{}, pathauthority.Reference{}, unsupportedStatefileVersion(version)
 	}
 }
 
@@ -91,7 +93,7 @@ func statefileDocumentVersion(content []byte) (int, error) {
 
 func decodeSupported(content []byte, version int, codec snapshotCodec) (durable.Snapshot, error) {
 	switch version {
-	case snapshotVersion:
+	case snapshotVersion, hookPlacementSnapshotVersion:
 		return decodeSnapshotDocument[managedAggregateV10DTO](content, version, codec)
 	case previousSnapshotVersion, legacySnapshotVersion:
 		codec.nativeDocuments = false

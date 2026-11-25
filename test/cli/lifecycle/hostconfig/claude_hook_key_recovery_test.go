@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"maps"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,78 @@ import (
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
+
+func TestClaudeGlobalHookRecoveryUsesTheOriginalProfile(t *testing.T) {
+	for _, tc := range []struct {
+		boundary string
+		existing bool
+	}{
+		{"ordinary-before-state", false},
+		{"ordinary-after-state", false},
+		{"ordinary-before-state", true},
+		{"host", false}, // Native keys and hooks in one settings.json.
+	} {
+		name := tc.boundary
+		if tc.existing {
+			name += "-update"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			nativefixture.SetRecoveryEnvironment(t, root)
+			workspace := filepath.Join(root, "workspace")
+			profile := os.Getenv("CLAUDE_CONFIG_DIR")
+			destination := filepath.Join(profile, "settings.json")
+			manifest := filepath.Join(workspace, "daem.toml")
+			fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: destination}
+			testkit.WriteFile(t, profile, "settings.json", `{"outside":true}`)
+			hook := claudeStopHook{"notify", "echo original"}
+			var beforeHooks []claudeStopHook
+			if tc.existing {
+				writeClaudeHookKeyManifest(t, workspace, "global", "", hook)
+				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+				beforeHooks = []claudeStopHook{hook}
+			}
+			model := ""
+			if tc.boundary == "host" {
+				model = "example"
+			}
+			hook.command = "echo changed"
+			writeClaudeHookKeyManifest(t, workspace, "global", model, hook)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			code, out, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, tc.boundary, "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
+				t.Fatalf("did not interrupt the apply at %s: %d %s %s", tc.boundary, code, out, stderr)
+			}
+			partial := testkit.ReadFile(t, destination)
+			requireClaudeHookKeyValues(t, partial, model, hook)
+
+			other := filepath.Join(root, "other-profile")
+			t.Setenv("CLAUDE_CONFIG_DIR", other)
+			const untouched = `{"outside":"other"}`
+			testkit.WriteFile(t, other, "settings.json", untouched)
+			if !tc.existing && tc.boundary != "ordinary-after-state" {
+				code, out, stderr := testkit.RunCapturedCLI("recover", "--manifest", manifest, "--yes")
+				if code == 0 {
+					t.Fatalf("an unbound first write recovered under a different profile: %s %s", out, stderr)
+				}
+				testkit.AssertFileContent(t, destination, string(partial))
+				t.Setenv("CLAUDE_CONFIG_DIR", profile)
+			}
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", manifest, "--yes")
+			if tc.boundary == "ordinary-after-state" {
+				testkit.AssertFileContent(t, destination, string(partial))
+			} else {
+				requireClaudeHookKeyValues(t, testkit.ReadFile(t, destination), "", beforeHooks...)
+			}
+			testkit.AssertFileContent(t, filepath.Join(other, "settings.json"), untouched)
+			testkit.AssertNoRecoveryArtifacts(t, workspace)
+		})
+	}
+}
 
 func TestClaudeHookAndKeyRecoverTogether(t *testing.T) {
 	for _, tc := range []struct {

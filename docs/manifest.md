@@ -1157,8 +1157,20 @@ Documented hook host paths:
 
 | Target | Project scope | Global scope | Adapter status |
 | --- | --- | --- | --- |
-| `claude-code` | `.claude/settings.json` | `~/.claude/settings.json` | implemented |
+| `claude-code` | `.claude/settings.json` | `settings.json` in the selected Claude profile (see below) | implemented |
 | `codex` | `.codex/hooks.json` | `~/.codex/hooks.json` | implemented |
+
+The first time daem installs global Claude Code hooks for a manifest, it uses
+`CLAUDE_CONFIG_DIR` from daem's environment, or `~/.claude` if unset.
+`daem apply --dry-run` shows the actual settings file. Later edits and additions
+use that file, even from a shell that selects another profile. This also applies
+to hooks installed by older versions in `~/.claude/settings.json`. Removing the
+last managed hook ends that placement; changing the environment does not move it.
+
+Global `[[agent_config]]` keys and hooks can share `settings.json` only when
+they resolve to the same file. If an existing hook set belongs to a different
+profile, daem refuses the combined change before writing. Run daem with the
+Claude profile that owns the hooks to update them together.
 
 Codex and Claude Code hooks are rendered into the top-level `hooks` aggregate
 in the target host file. Multiple manifest hook entries for the same scope and
@@ -1477,7 +1489,7 @@ only with nonoverlapping ownership. Whole-file ownership cannot overlap key
 ownership of the same physical file, including aliases.
 
 Use dedicated resources for reserved configuration: Codex `mcp_servers`, `hooks`,
-`plugins` and `marketplaces`, Claude Code `enabledPlugins`, OpenCode `plugin`,
+`plugins` and `marketplaces`, Claude Code `hooks` and `enabledPlugins`, OpenCode `plugin`,
 and Pi `packages`, `extensions` and `skills` cannot be authored through
 `agent_config`. Host-owned authentication, runtime/cache,
 package code and loader-control paths are also reserved. These exclusions do not

@@ -21,8 +21,9 @@ const (
 	HookCodecClaudeProject CodecContractID = "claude-project-hook-json-v1"
 	HookCodecClaudeGlobal  CodecContractID = "claude-global-hook-json-v1"
 
-	HookMergeUnit    MergeUnit = "hook-set"
-	HooksContentPath           = "/hooks"
+	HookMergeUnit              MergeUnit = "hook-set"
+	HooksContentPath                     = "/hooks"
+	ClaudeGlobalHookConfigPath           = "~/.claude/settings.json"
 )
 
 var hookComparedFields = []string{"event", "handler", "matcher"}
@@ -40,7 +41,7 @@ var implementedHookPlacements = []HookPlacement{
 	mustHookPlacement(HookPlacementCodexProject, target.TargetCodex, target.ScopeProject, ".codex/hooks.json", HookCodecCodexProject),
 	mustHookPlacement(HookPlacementCodexGlobal, target.TargetCodex, target.ScopeGlobal, "~/.codex/hooks.json", HookCodecCodexGlobal),
 	mustHookPlacement(HookPlacementClaudeProject, target.TargetClaudeCode, target.ScopeProject, ".claude/settings.json", HookCodecClaudeProject),
-	mustHookPlacement(HookPlacementClaudeGlobal, target.TargetClaudeCode, target.ScopeGlobal, "~/.claude/settings.json", HookCodecClaudeGlobal),
+	mustHookPlacement(HookPlacementClaudeGlobal, target.TargetClaudeCode, target.ScopeGlobal, ClaudeGlobalHookConfigPath, HookCodecClaudeGlobal),
 }
 
 func mustHookPlacement(

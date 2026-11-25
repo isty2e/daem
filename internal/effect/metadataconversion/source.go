@@ -11,10 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
-	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -134,19 +132,6 @@ func metadataPathDepth(path string) (int, error) {
 
 func metadataVersion(content []byte) (int, error) {
 	return jsonstrict.ValidateVersionedObject(content, "metadata conversion source", 64)
-}
-
-func stateFacts(ctx context.Context, content []byte) (durable.Snapshot, pathauthority.Reference, error) {
-	version, err := metadataVersion(content)
-	if err != nil {
-		return durable.Snapshot{}, pathauthority.Reference{}, err
-	}
-	if version == 11 {
-		image, err := statefile.UnmarshalImage(content)
-		return image.Snapshot(), image.Reference(), err
-	}
-	snapshot, err := statefile.DecodePersistedFacts(ctx, content)
-	return snapshot, pathauthority.Reference{}, err
 }
 
 func ownershipFacts(entry sourceEntry) (ownership.Registry, []pathauthority.Reference, error) {

@@ -91,6 +91,7 @@ func applyEffectInput(
 		return execute.ApplyInput{}, err
 	}
 	return execute.ApplyInput{
+		Paths:                       executePaths(current.context.Paths, current.assessment.StatePath),
 		ManagedPathEffects:          managedEffects,
 		AggregateEffects:            aggregateEffects,
 		NativeNarrowings:            current.assessment.Reconciliation.NativeNarrowings(),

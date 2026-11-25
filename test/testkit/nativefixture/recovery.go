@@ -18,6 +18,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	clipkg "github.com/isty2e/daem/internal/cli"
+	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -407,6 +408,20 @@ func RecoveryCLIHelperProcess(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if boundary == "ordinary-before-state" || boundary == "ordinary-after-state" {
+		prepared, err := applyworkflow.PlanWrite(ctx, applyworkflow.CommandInput{ManifestPath: manifest})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer prepared.Close()
+		_, err = applyworkflow.ExecuteWithOptions(ctx, prepared, applyworkflow.ExecuteOptions{ExecuteEvents: func(event executionevent.Event) {
+			if (boundary == "ordinary-before-state" && event.Kind == executionevent.StatefileWriteStarted) ||
+				(boundary == "ordinary-after-state" && event.Kind == executionevent.StatefileWritten) {
+				os.Exit(RecoveryExit)
+			}
+		}})
+		t.Fatalf("apply did not reach %s: %v", boundary, err)
+	}
 	host := os.Getenv(RecoveryHostEnv)
 	if host == "" {
 		host = filepath.Join(filepath.Dir(manifest), ".codex", "config.toml")

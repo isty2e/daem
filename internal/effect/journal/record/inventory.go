@@ -30,6 +30,18 @@ func (record Loaded) Initialized() bool {
 	return record.release != nil && record.nativeCodec != nil && record.release.Validate() == nil
 }
 
+// ClaudeHookPlacement reports the recorded lookup for a managed hook, never
+// permission to use a path supplied by the journal.
+func (record Loaded) ClaudeHookPlacement() (durable.ClaudeHookSettings, error) {
+	if ordinary, ok := record.Ordinary(); ok {
+		return ordinary.record.StatefileBefore.ClaudeHookPlacementForTransition(ordinary.record.StatefileAfter)
+	}
+	if native, ok := record.Native(); ok {
+		return native.Before().ClaudeHookPlacementForTransition(native.After())
+	}
+	return durable.ClaudeHookSettings{}, nil
+}
+
 func (record Loaded) Ordinary() (Ordinary, bool) {
 	if !record.Initialized() || record.ordinary == nil {
 		return Ordinary{}, false

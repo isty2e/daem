@@ -1488,7 +1488,7 @@ Resource families select their destinations differently:
 | --- | --- |
 | Instructions | The target default, or a supported target-specific `render_to`. |
 | Skills and skill groups | The target default, or a supported target-specific `install_to`; the skill name is appended below that root. |
-| Hooks | The target profile's fixed native config file. |
+| Hooks | The target and scope select a config file. For [global Claude Code hooks](manifest.md#hooks), `apply` keeps the settings file chosen at first installation. |
 | Hook assets | Daem's fixed private same-scope asset store. |
 | MCP servers | The target and scope select one fixed supported config file. |
 | Extensions | The target, scope, and source select delegated host routes rather than a daem write path. |
@@ -1507,7 +1507,8 @@ as unsupported and never becomes path authority.
 
 The inventory comes from daem's validated target catalogs plus manifest
 selection facts. It does not inspect host files, execute host commands, or
-report whether a path exists. Use `--verbose` for realization, catalog source,
+report whether a path exists. To see the actual file for global Claude Code
+hooks, run `daem apply --dry-run`. Use `--verbose` for realization, catalog source,
 selection source, and request details.
 
 For skills, `doctor`, `status`, and `apply` (including dry-run) additionally

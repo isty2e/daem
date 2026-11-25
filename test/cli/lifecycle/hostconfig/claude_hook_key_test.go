@@ -15,6 +15,110 @@ import (
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
+func TestFreshClaudeGlobalHooksUseSelectedProfile(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativefixture.SetRecoveryEnvironment(t, root)
+	workspace := filepath.Join(root, "workspace")
+	manifest := filepath.Join(workspace, "daem.toml")
+	hook := claudeStopHook{"notify", "echo done"}
+	writeClaudeHookKeyManifest(t, workspace, "global", "", hook)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const personalSettings = `{"model":"personal"}`
+	testkit.WriteFile(t, home, ".claude/settings.json", personalSettings)
+	profile := os.Getenv("CLAUDE_CONFIG_DIR")
+	selected := filepath.Join(profile, "settings.json")
+	testkit.WriteFile(t, profile, "settings.json", `{"unmanaged":true}`)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	preview := nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run")
+	if !strings.Contains(preview, selected) {
+		t.Fatal("preview omitted the selected settings file:", preview)
+	}
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	requireClaudeHookKeyValues(t, testkit.ReadFile(t, selected), "", hook)
+
+	otherProfile := filepath.Join(root, "other")
+	t.Setenv("CLAUDE_CONFIG_DIR", otherProfile)
+	const otherSettings = `{"unmanaged":"other"}`
+	other := filepath.Join(otherProfile, "settings.json")
+	testkit.WriteFile(t, otherProfile, "settings.json", otherSettings)
+	hook.command = "echo updated"
+	second := claudeStopHook{"other", "echo second"}
+	writeClaudeHookKeyManifest(t, workspace, "global", "", hook, second)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	plan := clijson.DecodePlan(t, []byte(nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--dry-run", "--json")))
+	diagnostic := clijson.FindPlanDiagnostic(t, plan, "claude_global_hook_settings", "ok", "hook/notify", "claude-code")
+	if !strings.Contains(diagnostic.Detail, selected) {
+		t.Fatalf("plan selected the wrong settings file: %s", diagnostic.Detail)
+	}
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	requireClaudeHookKeyValues(t, testkit.ReadFile(t, selected), "", hook, second)
+	testkit.AssertFileContent(t, other, otherSettings)
+	nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))
+
+	// Retiring the last hook frees the next installation to choose its own profile.
+	writeClaudeHookKeyManifest(t, workspace, "global", "")
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	retired := testkit.ReadFile(t, selected)
+	requireClaudeHookKeyValues(t, retired, "")
+	nativefixture.RequireSharedValues(t, configdocument.JSON, retired, `{"unmanaged":true}`, true)
+	writeClaudeHookKeyManifest(t, workspace, "global", "", second)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	requireClaudeHookKeyValues(t, testkit.ReadFile(t, other), "", second)
+	testkit.AssertFileContent(t, selected, string(retired))
+	testkit.AssertFileContent(t, filepath.Join(home, ".claude", "settings.json"), personalSettings)
+}
+
+func TestHistoricalClaudeGlobalHooksKeepTheirLiteralHome(t *testing.T) {
+	root := t.TempDir()
+	nativefixture.SetRecoveryEnvironment(t, root)
+	workspace := filepath.Join(root, "workspace")
+	manifest := filepath.Join(workspace, "daem.toml")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	personal := filepath.Join(homeDir, ".claude", "settings.json")
+	workDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	work := filepath.Join(workDir, "settings.json")
+	const other = `{"unmanaged":"work"}`
+	testkit.WriteFile(t, workDir, "settings.json", other)
+	hook := claudeStopHook{"notify", "echo original"}
+	writeClaudeHookKeyManifest(t, workspace, "global", "", hook)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	testkit.WriteFile(t, filepath.Dir(personal), "settings.json", `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo original"}]}]}}`)
+	testkit.WriteHookAggregateStateFromLock(t, workspace) // Pre-profile baseline with no saved settings location.
+	testkit.WriteActiveOwnershipClaim(t, manifest, "~/.claude/settings.json", "/hooks")
+
+	hook.command = "echo updated"
+	second := claudeStopHook{"second", "echo second"}
+	writeClaudeHookKeyManifest(t, workspace, "global", "", hook, second)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	installed := testkit.ReadFile(t, personal)
+	requireClaudeHookKeyValues(t, installed, "", hook, second)
+	testkit.AssertFileContent(t, work, other)
+
+	writeClaudeHookKeyManifest(t, workspace, "global", "example", hook, second)
+	nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+	if code, stdout, stderr := testkit.RunCapturedCLI("apply", "--manifest", manifest, "--yes"); code != 1 {
+		t.Fatalf("mixed changes to two settings files were not refused: %d %s %s", code, stdout, stderr)
+	}
+	testkit.AssertFileContent(t, personal, string(installed))
+	testkit.AssertFileContent(t, work, other)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Dir(personal))
+	nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+	requireClaudeHookKeyValues(t, testkit.ReadFile(t, personal), "example", hook, second)
+}
+
 func TestClaudeHookAndKeyShareSettings(t *testing.T) {
 	first := claudeStopHook{"first", "echo first"}
 	second := claudeStopHook{"second", "echo second"}
@@ -26,17 +130,18 @@ func TestClaudeHookAndKeyShareSettings(t *testing.T) {
 	installBoth := step{"example", []claudeStopHook{first, second}}
 	onlySecond := []claudeStopHook{second}
 	for _, tc := range []struct {
-		name     string
-		existing bool
-		steps    []step
+		name            string
+		existing        bool
+		profileOverride bool
+		steps           []step
 	}{
-		{"absent", false, []step{installBoth}},
-		{"existing", true, []step{
+		{"absent", false, true, []step{installBoth}},
+		{"existing", true, false, []step{
 			installBoth,
 			{"example", []claudeStopHook{updated, second}},
 			{"example", onlySecond},
 		}},
-		{"key first", true, []step{
+		{"key first", true, true, []step{
 			{"example", nil},
 			{"example", onlySecond},
 			{"changed", onlySecond},
@@ -51,14 +156,13 @@ func TestClaudeHookAndKeyShareSettings(t *testing.T) {
 				t.Fatal(err)
 			}
 			nativefixture.SetRecoveryEnvironment(t, root)
-			if err := os.Unsetenv("CLAUDE_CONFIG_DIR"); err != nil {
-				t.Fatal(err)
+			claudeHome := os.Getenv("CLAUDE_CONFIG_DIR")
+			if !tc.profileOverride {
+				if err := os.Unsetenv("CLAUDE_CONFIG_DIR"); err != nil {
+					t.Fatal(err)
+				}
+				claudeHome = filepath.Join(os.Getenv("HOME"), ".claude")
 			}
-			home, err := os.UserHomeDir()
-			if err != nil {
-				t.Fatal(err)
-			}
-			claudeHome := filepath.Join(home, ".claude")
 			workspace := filepath.Join(root, "workspace")
 			manifest := filepath.Join(workspace, "daem.toml")
 			destination := filepath.Join(claudeHome, "settings.json")
