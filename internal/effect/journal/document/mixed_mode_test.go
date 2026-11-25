@@ -32,7 +32,7 @@ func mixedModeParticipants(t *testing.T) []compose.Participant {
 	return participants
 }
 
-func TestSelectedMCPModeTransitionRequiresCompletePhaseAndRestoresBefore(t *testing.T) {
+func TestLegacyMCPModeTransitionRestoresValuesKeepingCurrentPermissions(t *testing.T) {
 	BeforeMode, expectedMode := recovery.PermissionMode(0o644), recovery.PermissionMode(0o600)
 	before := "model='balanced'\n"
 	expected := "model='fast'\n[mcp_servers.search]\ncommand='node'\n"
@@ -48,8 +48,9 @@ func TestSelectedMCPModeTransitionRequiresCompletePhaseAndRestoresBefore(t *test
 	}{
 		{name: "before", content: before, mode: BeforeMode, before: true},
 		{name: "expected", content: expected, mode: expectedMode, expected: true},
-		{name: "before values expected mode", content: before, mode: expectedMode},
-		{name: "expected values before mode", content: expected, mode: BeforeMode},
+		{name: "before values expected mode", content: before, mode: expectedMode, before: true},
+		{name: "expected values before mode", content: expected, mode: BeforeMode, expected: true},
+		{name: "chmod since interruption", content: expected, mode: 0o640, expected: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			current := aggregate.ExistingDocument([]byte("# fresh user data\nforeign=true\n" + test.content))
@@ -61,22 +62,18 @@ func TestSelectedMCPModeTransitionRequiresCompletePhaseAndRestoresBefore(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode, present := restored.RegularFileMode(); !present || mode != BeforeMode {
-				t.Fatal("selected rollback did not restore the original file mode")
+			if mode, present := restored.RegularFileMode(); !present || mode != test.mode || restored.ChangesMode() {
+				t.Fatal("selected rollback changed the current file mode")
 			}
-			clean, err := comparison.Match(t.Context(), restored.Document(), &BeforeMode)
+			clean, err := comparison.Match(t.Context(), restored.Document(), &test.mode)
 			if err != nil || !clean.MatchesBefore() {
 				t.Fatal("selected rollback did not settle Before", err)
 			}
-			again, err := comparison.RestoreBefore(t.Context(), restored.Document(), &BeforeMode)
+			again, err := comparison.RestoreBefore(t.Context(), restored.Document(), &test.mode)
 			if err != nil || again.Changed() {
 				t.Fatal("mode rollback was not idempotent", err)
 			}
 		})
-	}
-	thirdMode := recovery.PermissionMode(0o640)
-	if restored, err := comparison.RestoreBefore(t.Context(), aggregate.ExistingDocument([]byte(expected)), &thirdMode); err == nil || restored.Validate() == nil {
-		t.Fatal("third file mode returned a usable restoration")
 	}
 }
 

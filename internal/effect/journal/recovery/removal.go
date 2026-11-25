@@ -409,12 +409,31 @@ const (
 // RemovalResidueEntryObservation is a bounded, no-follow semantic projection of
 // one exact residue entry. It carries no filesystem capability.
 type RemovalResidueEntryObservation struct {
-	status      RemovalResidueEntryStatus
-	kind        string
-	contentHash string
-	pathMode    *PermissionMode
-	linkTarget  string
-	detail      string
+	status            RemovalResidueEntryStatus
+	kind              string
+	contentHash       string
+	alternateFileHash string
+	pathMode          *PermissionMode
+	linkTarget        string
+	detail            string
+}
+
+// NewRemovalFileObservation accepts digests of the same bytes under both
+// legacy executable classes. A document journal can name either class.
+func NewRemovalFileObservation(mode PermissionMode, nonExecutableHash, executableHash string) (RemovalResidueEntryObservation, error) {
+	observed, alternate := nonExecutableHash, executableHash
+	if mode&0o111 != 0 {
+		observed, alternate = executableHash, nonExecutableHash
+	}
+	if strings.TrimSpace(alternate) == "" {
+		return RemovalResidueEntryObservation{}, fmt.Errorf("alternate removal file digest is required")
+	}
+	entry, err := NewRemovalResidueEntryObservation(RemovalResidueEntryPresent, PathKindFile, observed, &mode, "", "")
+	if err != nil {
+		return RemovalResidueEntryObservation{}, err
+	}
+	entry.alternateFileHash = alternate
+	return entry, nil
 }
 
 // RemovalNamespaceObservationStatus classifies the retained namespace
@@ -746,14 +765,24 @@ func (intent RemovalIntent) AdmitsCleanupProgress(observation RemovalResidueEntr
 }
 
 func removalStateAdmitsEntry(state RemovalState, observation RemovalResidueEntryObservation) bool {
-	kind, hash, mode, linkTarget := observation.kind, observation.contentHash, observation.pathMode, observation.linkTarget
 	if before, present := state.Before(); present {
-		return before.Existed && before.Kind == kind && before.ContentHash == hash &&
-			permissionModesEqual(before.PathMode, mode) && before.LinkTarget == linkTarget
+		return before.Existed && observation.matchesEntry(before.Kind, before.ContentHash, before.PathMode, before.LinkTarget, before.PathExisted)
 	}
 	expected, present := state.Expected()
-	return present && expected.Existed && expected.Kind == kind && expected.ContentHash == hash &&
-		permissionModesEqual(expected.PathMode, mode) && expected.LinkTarget == linkTarget
+	return present && expected.Existed && observation.matchesEntry(expected.Kind, expected.ContentHash, expected.PathMode, expected.LinkTarget, expected.PathExisted)
+}
+
+func (observation RemovalResidueEntryObservation) matchesEntry(kind, hash string, mode *PermissionMode, linkTarget string, documentRoot bool) bool {
+	if observation.kind != kind || observation.linkTarget != linkTarget {
+		return false
+	}
+	if documentRoot && kind == PathKindFile && mode != nil && observation.pathMode != nil {
+		if (*mode&0o111 != 0) != (*observation.pathMode&0o111 != 0) {
+			return hash == observation.alternateFileHash
+		}
+		return hash == observation.contentHash
+	}
+	return hash == observation.contentHash && permissionModesEqual(mode, observation.pathMode)
 }
 
 // RemovalIntent is immutable durable authority for one operation-scoped rooted

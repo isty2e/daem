@@ -229,7 +229,7 @@ func (session *LoadedReconstruction) completeImages(ctx context.Context, demand 
 	}
 
 	input := journaldocument.NewStateGroupInput(group.aliases, group.subjects, completion, session.bindings[session.cursor])
-	if session.journal.record.Version == native17Version {
+	if session.journal.current != nil {
 		routes, err := group.record.namespace.boundRoutes(ctx)
 		if err != nil {
 			return session.reject(err)

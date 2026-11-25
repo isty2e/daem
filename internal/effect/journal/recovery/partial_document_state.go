@@ -67,8 +67,8 @@ func (match PartialDocumentMatch) MatchesBefore() bool   { return match.before }
 func (match PartialDocumentMatch) MatchesExpected() bool { return match.expected }
 func (match PartialDocumentMatch) Recoverable() bool     { return match.recoverable }
 
-// MatchPartialDocumentStates does not pair selected phase with historical root
-// presence. Third metadata or any third selected value blocks the whole match.
+// MatchPartialDocumentStates classifies selected values within the recorded root
+// presence envelope. Permissions on a surviving document belong to its user.
 func MatchPartialDocumentStates(before, expected, current PartialDocumentState) (PartialDocumentMatch, error) {
 	if !before.initialized || !expected.initialized || !current.initialized {
 		return PartialDocumentMatch{}, fmt.Errorf("partial document states must be initialized")
@@ -83,15 +83,11 @@ func MatchPartialDocumentStates(before, expected, current PartialDocumentState) 
 	if modeChanged && !expected.hasMCPDocumentMode() {
 		return PartialDocumentMatch{}, fmt.Errorf("partial document mode transition requires a selected fixed MCP policy")
 	}
-	if !current.SameRootMetadata(before) && !current.SameRootMetadata(expected) {
+	if current.exists != before.exists && current.exists != expected.exists {
 		return PartialDocumentMatch{}, nil
 	}
 
 	match := PartialDocumentMatch{before: true, expected: true, recoverable: true}
-	if modeChanged {
-		match.before = current.SameRootMetadata(before)
-		match.expected = current.SameRootMetadata(expected)
-	}
 	for address, projection := range current.projections {
 		original, candidate := before.projections[address], expected.projections[address]
 		isBefore, isExpected := projection.SameManagedProjection(original), projection.SameManagedProjection(candidate)

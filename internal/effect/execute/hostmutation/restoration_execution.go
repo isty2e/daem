@@ -507,6 +507,9 @@ func executeRecoveryAggregateActionGroup(
 			err,
 		)
 	}
+	if baselineWholeState.existed {
+		fileMode = baselineWholeState.fileMode
+	}
 	var expected aggregate.RenderedDocument
 	expectedKnown := false
 	mutationErr := authority.operation.MutateFile(
@@ -526,7 +529,7 @@ func executeRecoveryAggregateActionGroup(
 				return nil, true, err
 			}
 			for _, index := range group.indexes {
-				if err := validateRecoveryExpectedContentPath(actions[index], existing, mode, exists, codecs); err != nil {
+				if err := validateRecoveryExpectedContentPath(actions[index], existing, exists, codecs); err != nil {
 					return nil, true, err
 				}
 			}

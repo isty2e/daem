@@ -111,9 +111,8 @@ func (anchor *anchoredParent) openExpected(
 func identityFromStat(path string, stat *unix.Stat_t) EntryIdentity {
 	changeTimeSecond, changeTimeNano := statChangeTime(stat)
 	return EntryIdentity{
-		path:       path,
-		kind:       kindFromStat(stat),
-		protection: fmt.Sprintf("posix:%d:%d:%o", stat.Uid, stat.Gid, stat.Mode),
+		path: path, kind: kindFromStat(stat),
+		uid: stat.Uid, gid: stat.Gid, mode: uint32(stat.Mode),
 		platform: platformIdentity{
 			device:           uint64(stat.Dev),
 			inode:            uint64(stat.Ino),

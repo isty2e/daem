@@ -84,13 +84,8 @@ func backupMismatch(before BeforePathState, backups map[string]BackupEvidence) s
 }
 
 func pathMatchesBefore(before BeforePathState, observation PathEvidence) bool {
-	if observation.ContentPath != "" {
-		if observation.PathExisted != before.PathExisted {
-			return false
-		}
-		if before.PathExisted && !permissionModesEqual(before.PathMode, observation.PathMode) {
-			return false
-		}
+	if observation.ContentPath != "" && (observation.PathExisted != before.PathExisted || observation.PathExisted != (observation.PathMode != nil)) {
+		return false
 	}
 	if !before.Existed {
 		return !observation.Exists
@@ -100,7 +95,7 @@ func pathMatchesBefore(before BeforePathState, observation PathEvidence) bool {
 	}
 	switch before.Kind {
 	case PathKindFile:
-		return observation.ContentHash == before.ContentHash && permissionModesEqual(before.PathMode, observation.PathMode)
+		return observation.ContentHash == before.ContentHash && (observation.ContentPath != "" || permissionModesEqual(before.PathMode, observation.PathMode))
 	case PathKindDirectory:
 		return observation.ContentHash == before.ContentHash
 	case PathKindSymlink:
@@ -111,13 +106,8 @@ func pathMatchesBefore(before BeforePathState, observation PathEvidence) bool {
 }
 
 func pathMatchesExpected(expected ExpectedPathState, observation PathEvidence) bool {
-	if observation.ContentPath != "" {
-		if observation.PathExisted != expected.PathExisted {
-			return false
-		}
-		if expected.PathExisted && !permissionModesEqual(expected.PathMode, observation.PathMode) {
-			return false
-		}
+	if observation.ContentPath != "" && (observation.PathExisted != expected.PathExisted || observation.PathExisted != (observation.PathMode != nil)) {
+		return false
 	}
 	if !expected.Existed {
 		return !observation.Exists
@@ -127,7 +117,7 @@ func pathMatchesExpected(expected ExpectedPathState, observation PathEvidence) b
 	}
 	switch expected.Kind {
 	case PathKindFile:
-		return observation.ContentHash == expected.ContentHash && permissionModesEqual(expected.PathMode, observation.PathMode)
+		return observation.ContentHash == expected.ContentHash && (observation.ContentPath != "" || permissionModesEqual(expected.PathMode, observation.PathMode))
 	case PathKindDirectory:
 		return observation.ContentHash == expected.ContentHash
 	case PathKindSymlink:

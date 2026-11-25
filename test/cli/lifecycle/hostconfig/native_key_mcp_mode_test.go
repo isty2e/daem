@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/test/testkit/nativefixture"
 )
 
-func TestNativeKeyPreviewDoesNotDisableMCPModePolicy(t *testing.T) {
+func TestMCPAdoptionPreservesSharedDocumentPermissions(t *testing.T) {
 	for _, native := range []bool{false, true} {
 		name := "MCP only"
 		if native {
@@ -56,8 +56,8 @@ ownership = "keys"
 					continue
 				}
 				found = true
-				if action.Kind != "update" || action.Reason != "file_mode_changed" {
-					t.Fatalf("MCP permission policy changed with native declaration: kind=%s reason=%s", action.Kind, action.Reason)
+				if action.Reason != "managed_existing" {
+					t.Fatalf("expected adoption of the matching server, got kind=%s reason=%s", action.Kind, action.Reason)
 				}
 			}
 			if !found || plan.HasErrors {
@@ -67,6 +67,8 @@ ownership = "keys"
 			if err != nil || !bytes.Equal(after, []byte(original)) {
 				t.Fatal("mixed preview changed the shared configuration", err)
 			}
+			nativefixture.RequireSharedMode(t, destination, 0o644)
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes", "--manage-existing")
 			nativefixture.RequireSharedMode(t, destination, 0o644)
 		})
 	}

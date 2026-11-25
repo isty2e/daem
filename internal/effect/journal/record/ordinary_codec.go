@@ -199,7 +199,7 @@ func decodeRecoveryJournalSnapshot(
 	if err != nil {
 		return recoveryJournal{}, err
 	}
-	if version != OrdinaryVersion {
+	if !SupportsOrdinaryVersion(version) {
 		return recoveryJournal{}, UnsupportedVersion(version)
 	}
 
@@ -276,7 +276,7 @@ func validateRecoveryJournal(journal recoveryJournal, stateEncoder durable.Snaps
 }
 
 func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
-	if journal.Version != OrdinaryVersion {
+	if !SupportsOrdinaryVersion(journal.Version) {
 		return fmt.Errorf("unsupported recovery journal version %d", journal.Version)
 	}
 	if !IsSafeOperationID(journal.OperationID) {

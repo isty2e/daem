@@ -1705,12 +1705,12 @@ and overlapping management, just as `apply` does.
 For noninteractive execution, first inspect `--dry-run --json`. Copy its opaque
 `fingerprint` into `--expect-plan` and execute with both `--yes` and
 `--expect-plan`. Bare `--yes` is refused. The declaration, source, selected values,
-ownership and file protection for the selected document must still match the
-approved plan. A mismatch requires a fresh preview; `--yes` does not override it.
-Unselected values, comments
-and formatting can change: execution rereads and preserves them rather than
-replaying saved file bytes. Replacing a file inode alone does not invalidate
-consent when the selected namespace, values and protection still match.
+management claims, and the file's owner, group, kind and special mode bits must
+still match the approved plan. Changing ordinary read, write or execute permissions
+does not require a fresh preview; the replacement keeps the current permissions.
+Execution rereads unselected values, comments and formatting so it can preserve
+edits made since the preview. Replacing the inode alone does not invalidate
+consent when the path and the approved facts still match.
 
 The JSON envelope is schema version 2 with `command = "replace agent-config"`,
 `mode` (`dry-run` or `executed`), `fingerprint`, `declaration` (the literal name
@@ -2457,9 +2457,11 @@ changed settings sources. They check selected values in each managed settings
 layer and preserve other captured content outside the refreshed package's rows
 (Pi) or marketplace entry (Codex). Codex refresh does not
 admit plugin-entry changes. Unexpected key/content changes or broadened file access
-make refresh fail without automatic content repair. Broadened access is restricted
-even when the host command fails; interruption may require `daem recover` before
-another refresh. Claude Code, OpenCode and Antigravity CLI require physical
+make refresh fail without automatic content repair. Daem takes the file's
+permissions just before launching the host as its limit. A `chmod` after the
+preview therefore stands; if the host grants more access, daem removes that
+extra access even when the command fails. Interruption may require `daem recover`
+before another refresh. Claude Code, OpenCode and Antigravity CLI require physical
 separation between their private plugin namespaces and the managed settings;
 aliases or nested overlaps without an admitted rewrite profile refuse before execution.
 Their commands do not receive permission to change captured native settings.

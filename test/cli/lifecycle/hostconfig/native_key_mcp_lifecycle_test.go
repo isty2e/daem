@@ -72,7 +72,7 @@ ownership = "keys"
 				}
 				nativefixture.RequireSharedValues(t, configdocument.TOML, content, outside, true)
 				nativefixture.RequireMCPUserComments(t, content)
-				nativefixture.RequireSharedMode(t, destination, 0o600)
+				nativefixture.RequireSharedMode(t, destination, mode)
 				nativefixture.RequireLifecycleMetadata(t, manifest, true)
 				status := nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json")
 				nativefixture.RequireLifecycleClean(t, status)
@@ -155,9 +155,11 @@ func TestNativeKeyAndMCPShareAliasedDocument(t *testing.T) {
 			}
 
 			const outside = "# Kept by the user\nmanual = true\n"
+			mode := os.FileMode(0o600)
 			if name == "existing" {
 				testkit.WriteFile(t, workspace, ".codex/config.toml", outside)
-				if err := os.Chmod(destination, 0o644); err != nil {
+				mode = 0o644
+				if err := os.Chmod(destination, mode); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -187,7 +189,7 @@ command='echo'
 			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
 			actual := testkit.ReadFile(t, destination)
 			nativefixture.RequireSharedValues(t, configdocument.TOML, actual, keyValue+mcpValue, true)
-			nativefixture.RequireSharedMode(t, destination, 0o600)
+			nativefixture.RequireSharedMode(t, destination, mode)
 
 			testkit.WriteFile(t, workspace, "daem.toml", nativeOnly)
 			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)

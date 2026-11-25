@@ -2,7 +2,6 @@ package aggregate
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"slices"
 	"strings"
@@ -12,10 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
-
-// DocumentFileMode is the closed permission contract for directly managed
-// aggregate documents.
-const DocumentFileMode os.FileMode = 0o600
 
 // MergeUnit identifies the smallest projection subtree rendered as one unit.
 type MergeUnit string

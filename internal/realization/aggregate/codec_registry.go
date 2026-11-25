@@ -3,6 +3,7 @@ package aggregate
 import (
 	"bytes"
 	"fmt"
+	"os"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
@@ -28,6 +29,17 @@ func ExistingDocument(content []byte) Document {
 
 func (document Document) Exists() bool    { return document.exists }
 func (document Document) Content() []byte { return bytes.Clone(document.content) }
+
+// DocumentFileMode is the creation mode for a missing shared document.
+const DocumentFileMode os.FileMode = 0o600
+
+// ModeForWrite preserves the permissions of an existing shared document, including 0000.
+func (document Document) ModeForWrite(observed os.FileMode) os.FileMode {
+	if document.Exists() {
+		return observed.Perm()
+	}
+	return DocumentFileMode
+}
 
 // ContentSize reports payload bytes without copying the document.
 func (document Document) ContentSize() int64 { return int64(len(document.content)) }

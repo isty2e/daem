@@ -110,6 +110,11 @@ func reserveRecoveryHostExecution(
 				return err
 			}
 		}
+	} else if len(actions) > 0 && actions[0].action.ContentPath != "" {
+		// Restoring selected values probes the root even when staging found no file.
+		if err := reserveRecoveryObservation(authority.original, recovery.PathKindFile, workmeasure.ArtifactWork{}); err != nil {
+			return err
+		}
 	}
 
 	effectKinds := make(map[string]workmeasure.ArtifactWork)

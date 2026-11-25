@@ -41,6 +41,9 @@ func TestClaudeGlobalHookRecoveryUsesTheOriginalProfile(t *testing.T) {
 			manifest := filepath.Join(workspace, "daem.toml")
 			fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: destination}
 			testkit.WriteFile(t, profile, "settings.json", `{"outside":true}`)
+			if err := os.Chmod(destination, 0o644); err != nil {
+				t.Fatal(err)
+			}
 			hook := claudeStopHook{"notify", "echo original"}
 			var beforeHooks []claudeStopHook
 			if tc.existing {
@@ -62,6 +65,10 @@ func TestClaudeGlobalHookRecoveryUsesTheOriginalProfile(t *testing.T) {
 			}
 			partial := testkit.ReadFile(t, destination)
 			requireClaudeHookKeyValues(t, partial, model, hook)
+			nativefixture.RequireSharedMode(t, destination, 0o644)
+			if err := os.Chmod(destination, 0o740); err != nil {
+				t.Fatal(err)
+			}
 
 			other := filepath.Join(root, "other-profile")
 			t.Setenv("CLAUDE_CONFIG_DIR", other)
@@ -76,6 +83,7 @@ func TestClaudeGlobalHookRecoveryUsesTheOriginalProfile(t *testing.T) {
 				t.Setenv("CLAUDE_CONFIG_DIR", profile)
 			}
 			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", manifest, "--yes")
+			nativefixture.RequireSharedMode(t, destination, 0o740)
 			if tc.boundary == "ordinary-after-state" {
 				testkit.AssertFileContent(t, destination, string(partial))
 			} else {
@@ -124,6 +132,72 @@ func TestFinalClaudeHookRetirementRecoveryUsesTheOriginalProfile(t *testing.T) {
 	testkit.AssertFileContent(t, destination, string(retired))
 	testkit.AssertFileContent(t, filepath.Join(other, "settings.json"), untouched)
 	testkit.AssertNoRecoveryArtifacts(t, workspace)
+}
+
+func TestClaudeHookRecoveryAcrossDocumentCreationAndDeletion(t *testing.T) {
+	for _, tc := range []struct {
+		name, boundary string
+		retire, addKey bool
+	}{
+		{"undo creation after chmod", "ordinary-before-state", false, false},
+		{"undo final removal", "ordinary-before-state", true, false},
+		{"undo final removal and separate key installation", "before-state", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			nativefixture.SetRecoveryEnvironment(t, root)
+			workspace := filepath.Join(root, "workspace")
+			manifest := filepath.Join(workspace, "daem.toml")
+			destination := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
+			hook := claudeStopHook{"notify", "echo notify"}
+			writeClaudeHookKeyManifest(t, workspace, "global", "", hook)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			if tc.retire {
+				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes")
+				if err := os.Chmod(destination, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if tc.addKey {
+					writeClaudeHookKeyManifest(t, workspace, "project", "example")
+				} else {
+					writeClaudeHookKeyManifest(t, workspace, "global", "")
+				}
+				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
+			}
+			fixture := nativefixture.RecoveryFixture{Manifest: manifest, Destination: destination}
+			code, out, stderr := nativefixture.InvokeRecoveryCommand(t, fixture, tc.boundary, "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
+				t.Fatalf("apply did not reach state boundary: %d %s %s", code, out, stderr)
+			}
+			if tc.retire {
+				if _, err := os.Lstat(destination); !os.IsNotExist(err) {
+					t.Fatalf("last hook did not remove the empty settings file: %v", err)
+				}
+			} else if err := os.Chmod(destination, 0o744); err != nil {
+				t.Fatal(err)
+			}
+			keyDocument := filepath.Join(workspace, ".claude", "settings.json")
+			if tc.addKey {
+				requireClaudeHookKeyValues(t, testkit.ReadFile(t, keyDocument), "example")
+			}
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", manifest, "--yes")
+			if tc.retire {
+				requireClaudeHookKeyValues(t, testkit.ReadFile(t, destination), "", hook)
+				nativefixture.RequireSharedMode(t, destination, 0o644)
+			} else if _, err := os.Lstat(destination); !os.IsNotExist(err) {
+				t.Fatalf("rollback did not undo document creation: %v", err)
+			}
+			if tc.addKey {
+				if _, err := os.Lstat(keyDocument); !os.IsNotExist(err) {
+					t.Fatalf("rollback did not remove the new key document: %v", err)
+				}
+			}
+			testkit.AssertNoRecoveryArtifacts(t, workspace)
+		})
+	}
 }
 
 func TestClaudeHookAndKeyRecoverTogether(t *testing.T) {

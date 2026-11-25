@@ -1500,11 +1500,11 @@ package code and loader-control paths are also reserved. These exclusions do not
 certify other keys as safe for credentials; do not put secrets in source files or
 locks.
 
-Existing key-only documents keep their permission bits; newly created documents
-use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
-document policy requires `0600`, and the preview includes that permission change.
-Both sets of changes are applied and recovered together, including when a path
-alias resolves to the same `config.toml`.
+Daem creates shared settings files with `0600`. If the file already exists,
+editing or removing a managed hook, MCP server, or configuration key preserves
+its current permissions. When Codex MCP and key declarations share `config.toml`,
+daem applies and recovers both sets of changes together, including when the
+declarations reach the file through different paths.
 
 Daem refuses an edit that would overwrite or remove another managed output,
 even when that output uses a different path to the same file or belongs to a

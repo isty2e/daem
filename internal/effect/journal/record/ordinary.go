@@ -25,7 +25,7 @@ func decodeOrdinarySnapshot(snapshot mutationfs.RegularFileSnapshot, path string
 }
 
 func (record Ordinary) Validate() error {
-	if record.record.Version != OrdinaryVersion {
+	if !SupportsOrdinaryVersion(record.record.Version) {
 		return fmt.Errorf("ordinary journal record is required")
 	}
 	return nil

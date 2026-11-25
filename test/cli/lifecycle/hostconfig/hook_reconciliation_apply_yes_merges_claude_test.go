@@ -48,7 +48,7 @@ targets = ["claude-code"]
 	testkit.AssertHookAggregateState(t, state, "test", "claude-code", "project", ".claude/settings.json")
 }
 
-func TestRunApplyYesRepairsExecutableClaudeCodeHookSettingsMode(t *testing.T) {
+func TestRunApplyYesPreservesExecutableClaudeCodeHookSettingsMode(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	settingsPath := filepath.Join(tempDir, ".claude/settings.json")
@@ -74,7 +74,7 @@ targets = ["claude-code"]
 
 	runHookApplyYes(t, manifestPath)
 	testkit.AssertFileContent(t, settingsPath, string(before))
-	assertFileMode(t, settingsPath, 0o600)
+	assertFileMode(t, settingsPath, 0o700)
 }
 
 func TestRunStatusIgnoresUnrelatedClaudeCodeSettingsDrift(t *testing.T) {

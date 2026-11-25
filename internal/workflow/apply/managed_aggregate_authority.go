@@ -16,7 +16,6 @@ type aggregateFingerprintFacts struct {
 	Subjects      []topology.SubjectID
 	Projections   []aggregateProjectionFingerprintFacts
 	BeforeExists  bool
-	BeforeMode    uint32
 	AfterExists   bool
 	Preconditions []aggregatePreconditionFingerprintFacts
 }
@@ -82,8 +81,8 @@ func aggregateFingerprintRows(decisions []reconcile.AggregateDecision) []aggrega
 		after := decision.Rendered().Document()
 		row := aggregateFingerprintFacts{
 			Kind: decision.Kind(), Reason: decision.Reason(), Detail: decision.Detail(), Subjects: decision.Subjects(),
-			BeforeExists: before.Exists(), BeforeMode: uint32(decision.Evidence().FileMode().Perm()),
-			AfterExists: after.Exists(),
+			BeforeExists: before.Exists(),
+			AfterExists:  after.Exists(),
 		}
 		for _, projection := range decision.Projections() {
 			projectionRow := aggregateProjectionFingerprintFacts{

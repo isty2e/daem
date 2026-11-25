@@ -60,7 +60,7 @@ func (journal Native) documentBindings(ctx context.Context) ([][]ownership.Docum
 	}
 	for index, group := range journal.record.DocumentGroups {
 		sources := make(map[output.Destination]recoveryDocumentObservation)
-		if journal.record.Version == native17Version {
+		if journal.current != nil {
 			for _, alias := range group.namespace.aliases {
 				before, present := placement.BeforeGroup(alias.address)
 				if present && before != index {

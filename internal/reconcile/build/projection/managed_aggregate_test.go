@@ -306,7 +306,7 @@ func TestAggregatePlannerClassifiesFailedUnmanagedObservationByAdoptionPolicy(t 
 	}
 }
 
-func TestAggregatePlannerReplacesAdoptedHookProjectionWithWrongMode(t *testing.T) {
+func TestAggregatePlannerRecordsAdoptedHookWithoutRewritingSharedFile(t *testing.T) {
 	guard := aggregateHookContract(t, "guard", "echo guard")
 	desired := aggregateItems(t, guard)
 	contract := desired[0].Contribution().Contract()
@@ -323,8 +323,8 @@ func TestAggregatePlannerReplacesAdoptedHookProjectionWithWrongMode(t *testing.T
 		t.Fatal(err)
 	}
 	decision := onlyAggregateDecision(t, decisions)
-	if decision.Kind() != reconcile.AggregateReplace || decision.Reason() != reconcile.ReasonFileModeChanged {
-		t.Fatalf("wrong-mode adoption = kind %q reason %q, want replace/%q", decision.Kind(), decision.Reason(), reconcile.ReasonFileModeChanged)
+	if decision.Kind() != reconcile.AggregateRecord || decision.Reason() != reconcile.ReasonManagedExisting {
+		t.Fatalf("expected a state-only adoption, got %q/%q", decision.Kind(), decision.Reason())
 	}
 }
 

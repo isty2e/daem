@@ -63,6 +63,11 @@ files retain executable class through content identity, not a read/write-bit
 baseline. Neither is a current-mode observation: interrupted-operation recovery
 separately captures the physical mode it must guard and restore.
 
+For shared settings, recovery identifies managed hooks, MCP servers, and keys
+by their values. If the file still exists, rolling those values back leaves
+its current permissions intact. If daem deleted the file, undoing that deletion
+recreates it with the permissions it had before removal.
+
 Externally changed managed outputs report drift rather than being overwritten.
 Unowned existing outputs report `unmanaged_output_exists`; exact adoption must
 also match required file metadata for mode-sensitive outputs.
@@ -275,12 +280,13 @@ failures, `recover` can clean up, roll back guarded changes, or finish claim
 finalization after host and state commit. Recovery handles one interrupted
 operation or its retained cleanup, not historical snapshots.
 
-Current ordinary journals use format 15, coupled to canonical Snapshot v10
-encoding for recovery fingerprints, not the physical Statefile version. Recover
-an older active journal with
-the daem version that wrote it before upgrading; current recovery does not
-migrate it. Preserve the journal and backups when a version mismatch blocks
-recovery.
+Ordinary journals use format 15 and canonical Snapshot v10 for recovery
+fingerprints, independently of the physical statefile version. If removing
+the last ordinary projection deletes its settings file, daem writes format 18
+(19 for a transaction that also edits native documents). Older readers could
+plan this rollback but fail before recreating the file. They reject the new
+formats instead. Use the writing version or a newer compatible version to
+recover, and keep the journal and backups if a version mismatch blocks recovery.
 
 An active Linux journal from a previous boot is refused before recovery effects.
 A clean reboot does not invalidate manifests, lockfiles or a newly planned

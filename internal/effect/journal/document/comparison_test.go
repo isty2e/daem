@@ -224,8 +224,8 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	}
 	thirdMode := recovery.PermissionMode(0o640)
 	match, err := comparison.Match(t.Context(), input.Expected, &thirdMode)
-	if err != nil || match.Recoverable() {
-		t.Fatalf("third mode was admitted: %+v, %v", match, err)
+	if err != nil || !match.MatchesExpected() {
+		t.Fatalf("chmod changed the selected recovery phase: %+v, %v", match, err)
 	}
 	invalid = input
 	invalid.ExpectedMode = &thirdMode

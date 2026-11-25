@@ -119,7 +119,6 @@ func firstAggregateProjectionLockFailure(
 
 func classifyAggregateDocument(
 	before aggregate.Document,
-	modeCurrent bool,
 	after aggregate.Document,
 	projections []aggregateProjectionDecision,
 ) (reconcile.AggregateDecisionKind, reconcile.ActionReason) {
@@ -145,10 +144,6 @@ func classifyAggregateDocument(
 		return reconcile.AggregateCreate, reconcile.ReasonMissingOutput
 	case before.Exists() && !after.Exists():
 		return reconcile.AggregateRemove, reconcile.ReasonRemovedFromManifest
-	case !before.Equal(after):
-		return reconcile.AggregateReplace, reconcile.ReasonContentChanged
-	case after.Exists() && !modeCurrent:
-		return reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
 	}
 	return reconcile.AggregateReplace, reconcile.ReasonContentChanged
 }

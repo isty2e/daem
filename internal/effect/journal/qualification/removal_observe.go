@@ -96,14 +96,9 @@ func ObserveRootedRemovalEntry(
 			)
 			return observation, observed, work, observationErr
 		}
-		observation, observationErr := recovery.NewRemovalResidueEntryObservation(
-			recovery.RemovalResidueEntryPresent,
-			recovery.PathKindFile,
-			string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
-			recovery.NewPermissionMode(mode),
-			"", "",
-		)
-		return observation, observed, work, observationErr
+		entry, err := recovery.NewRemovalFileObservation(recovery.PermissionMode(mode.Perm()),
+			string(artifact.HashFileContent(content)), string(artifact.HashFileContentWithExecutable(content, true)))
+		return entry, observed, work, err
 	case mutationfs.EntryKindDirectory:
 		sink := newRootedTreeHashSink(ctx)
 		limits, admittedWork, readerCapacity, limitErr := recoveryTreeTraversalLimitsForBudget(

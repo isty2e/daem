@@ -52,6 +52,15 @@ func (basis OrdinaryCaptureBasis) Validate() error {
 	return nil
 }
 
+func restoresRemovedProjectionRoot(entries []recoveryEntry) bool {
+	for _, entry := range entries {
+		if entry.ContentPath != "" && entry.Before.PathExisted && !entry.ExpectedAfter.PathExisted {
+			return true
+		}
+	}
+	return false
+}
+
 func (material OrdinaryEvidence) EncodeOrdinary(statefileBefore, statefileAfter []byte) ([]byte, error) {
 	if !material.initialized {
 		return nil, fmt.Errorf("completed ordinary capture evidence is required")
@@ -62,6 +71,9 @@ func (material OrdinaryEvidence) EncodeOrdinary(statefileBefore, statefileAfter 
 		Entries: material.entries, StatefileBefore: material.before, StatefileAfter: material.after,
 		ClaimTransitions: material.claims, ProvisionalAcquires: material.provisional, RemovalIntents: material.removals,
 	}
+	if restoresRemovedProjectionRoot(journal.Entries) {
+		journal.Version = ordinaryRootRestoreVersion
+	}
 	return marshalRecoveryJournalWithStateContent(journal, statefileBefore, statefileAfter)
 }
 
@@ -70,6 +82,12 @@ func (journal Native) WithOrdinaryEvidence(material OrdinaryEvidence) (Native, e
 		return Native{}, fmt.Errorf("ordinary backup source does not match the native operation and complete Snapshots")
 	}
 	record := journal.record
+	if restoresRemovedProjectionRoot(material.entries) {
+		if journal.current == nil {
+			return Native{}, fmt.Errorf("publishing a removed projection root requires a bound native journal")
+		}
+		record.Version = nativeRootRestoreVersion
+	}
 	record.Entries = append([]recoveryEntry{}, material.entries...)
 	record.ClaimTransitions = append([]recoveryClaimTransition{}, material.claims...)
 	record.ProvisionalAcquires = append([]recoveryProvisionalAcquireIntent{}, material.provisional...)

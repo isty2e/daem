@@ -271,6 +271,29 @@ func TestRemovalIntentTreatsCleanupStageAsDurableProgress(t *testing.T) {
 	}
 }
 
+func TestRemovalMatchesDocumentBytesInRecordedExecutableClass(t *testing.T) {
+	entry, err := NewRemovalFileObservation(0o744, "original-bytes/nonexec", "original-bytes/exec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		hash               string
+		document, admitted bool
+	}{
+		{"original-bytes/nonexec", true, true},
+		{"other-bytes/nonexec", true, false},
+		{"original-bytes/exec", true, false},
+		{"original-bytes/nonexec", false, false},
+	} {
+		state, err := NewExpectedRemovalState(ExpectedPathState{
+			Existed: true, PathExisted: tc.document, Kind: PathKindFile, ContentHash: tc.hash, PathMode: NewPermissionMode(0o644),
+		})
+		if err != nil || state.AdmitsEntry(entry) != tc.admitted {
+			t.Fatalf("removal %v: admitted=%t, err=%v", tc, state.AdmitsEntry(entry), err)
+		}
+	}
+}
+
 func TestRemovalIntentRequiresExactFileStateDuringCleanup(t *testing.T) {
 	intent := testRemovalIntent(t)
 	matched, err := NewRemovalNamespaceObservation(RemovalNamespaceMatched, "")

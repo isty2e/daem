@@ -251,11 +251,11 @@ func addAggregateRemovalDemands(
 }
 
 func aggregateDocumentBeforeRemovalState(effect effectpreparation.AggregateEffect) (recovery.RemovalState, error) {
-	return aggregateDocumentRemovalState(effect.BeforeDocument(), aggregate.DocumentFileMode, false)
+	return aggregateDocumentRemovalState(effect.BeforeDocument(), effect.Evidence().FileMode(), false)
 }
 
 func ExpectedAggregateDocumentState(effect effectpreparation.AggregateEffect) (recovery.RemovalState, error) {
-	return aggregateDocumentRemovalState(effect.Rendered().Document(), aggregate.DocumentFileMode, true)
+	return aggregateDocumentRemovalState(effect.Rendered().Document(), effect.BeforeDocument().ModeForWrite(effect.Evidence().FileMode()), true)
 }
 
 func aggregateDocumentRemovalState(

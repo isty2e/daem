@@ -65,7 +65,7 @@ func NewRecoveryFixture(t *testing.T, kind string) RecoveryFixture {
 		WriteRecoveryDesired(t, fixture, "before-model", "old.js")
 		RunRecoveryCommand(t, fixture, "none", "lock")
 		RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
-		RequireSharedMode(t, fixture.Destination, RecoveryBeforeMode(kind))
+		RequireSharedMode(t, fixture.Destination, RecoveryMode(kind))
 		RequireLifecycleMetadata(t, fixture.Manifest, true)
 	}
 	WriteRecoveryDesired(t, fixture, "after-model", "new.js")
@@ -122,17 +122,10 @@ ownership = "keys"
 }
 
 func RecoveryMode(kind string) os.FileMode {
-	if kind == "mixed" || kind == "mixed-new" || kind == "absent" {
+	if kind == "absent" {
 		return 0o600
 	}
 	return 0o644
-}
-
-func RecoveryBeforeMode(kind string) os.FileMode {
-	if kind == "mixed-new" {
-		return 0o644
-	}
-	return RecoveryMode(kind)
 }
 
 func InterruptRecoveryApply(t *testing.T, fixture RecoveryFixture, boundary string) {
@@ -252,7 +245,7 @@ func RequireRecoveryBeforeHost(t *testing.T, fixture RecoveryFixture, later bool
 	if fixture.Kind == "mixed-new" {
 		RequireSharedValues(t, configdocument.TOML, content, "[mcp_servers.search]\ncommand='node'\nargs=['new.js']\n", false)
 	}
-	RequireSharedMode(t, fixture.Destination, RecoveryBeforeMode(fixture.Kind))
+	RequireSharedMode(t, fixture.Destination, RecoveryMode(fixture.Kind))
 	if later {
 		RequireRecoveryLaterEdit(t, fixture)
 	}

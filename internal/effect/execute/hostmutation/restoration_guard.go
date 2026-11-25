@@ -63,7 +63,7 @@ func validateRecoveryWholeFileInput(
 
 func validateRecoveryExpectedAbsent(action RestorationAction, codecs aggregate.CodecCatalog) error {
 	if action.ContentPath != "" {
-		return validateRecoveryExpectedContentPath(action, nil, 0, false, codecs)
+		return validateRecoveryExpectedContentPath(action, nil, false, codecs)
 	}
 	if !action.ExpectedAfter.Equal(recovery.ExpectedPathState{}) {
 		return fmt.Errorf("recovery destination %q differs from expected absent state", action.Destination)
@@ -78,7 +78,7 @@ func validateRecoveryExpectedFile(
 	codecs aggregate.CodecCatalog,
 ) error {
 	if action.ContentPath != "" {
-		return validateRecoveryExpectedContentPath(action, content, mode, true, codecs)
+		return validateRecoveryExpectedContentPath(action, content, true, codecs)
 	}
 	expected := action.ExpectedAfter
 	if !expected.Existed ||
@@ -126,7 +126,6 @@ func validateRecoveryExpectedDirectory(
 func validateRecoveryExpectedContentPath(
 	action RestorationAction,
 	content []byte,
-	mode os.FileMode,
 	pathExists bool,
 	codecs aggregate.CodecCatalog,
 ) error {
@@ -134,12 +133,8 @@ func validateRecoveryExpectedContentPath(
 	if pathExists != expected.PathExisted {
 		return fmt.Errorf("recovery document presence changed after final planning for %q", action.Destination)
 	}
-	if pathExists {
-		if expected.PathMode == nil || expected.PathMode.FileMode().Perm() != mode.Perm() {
-			return fmt.Errorf("recovery document %q mode changed after final planning", action.Destination)
-		}
-	} else if expected.PathMode != nil {
-		return fmt.Errorf("absent recovery document %q carries an expected mode", action.Destination)
+	if pathExists != (expected.PathMode != nil) {
+		return fmt.Errorf("recovery document %q has inconsistent recorded presence and mode", action.Destination)
 	}
 
 	projection, present, err := recoveryContentPathProjection(action, content, pathExists, codecs)

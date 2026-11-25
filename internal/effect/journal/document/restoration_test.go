@@ -266,10 +266,6 @@ func TestDocumentRestorationRefusesThirdStateWithoutUsableCandidate(t *testing.T
 			t.Fatal("third/later-invalid state returned a usable restoration")
 		}
 	}
-	thirdMode := recovery.PermissionMode(0o640)
-	if candidate, err := comparison.RestoreBefore(t.Context(), aggregate.ExistingDocument([]byte(expected)), &thirdMode); err == nil || candidate.Validate() == nil {
-		t.Fatal("third mode returned a usable restoration")
-	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 	for _, ctx := range []context.Context{nil, canceled} {

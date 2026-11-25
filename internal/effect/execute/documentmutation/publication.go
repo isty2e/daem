@@ -52,7 +52,7 @@ func (operation *Operation) PublishCaptured(ctx context.Context, document journa
 		return readErr
 	}
 	original, originalMode := document.Original()
-	if !original.Equal(actual) || actual.Exists() && (originalMode == nil || originalMode.FileMode() != mode.Perm()) {
+	if !original.Equal(actual) || document.Comparison().WholeDocument() && actual.Exists() && (originalMode == nil || originalMode.FileMode() != mode.Perm()) {
 		return fmt.Errorf("native document changed after its journal image was captured")
 	}
 	if err := ctx.Err(); err != nil {
@@ -80,7 +80,11 @@ func (operation *Operation) PublishCaptured(ctx context.Context, document journa
 	}
 	open = false
 	if actual.Exists() {
-		return operation.filesystem.ReplaceRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode(), identity)
+		writeMode := mode.Perm()
+		if document.Comparison().WholeDocument() {
+			writeMode = expectedMode.FileMode()
+		}
+		return operation.filesystem.ReplaceRootedFile(ctx, capability, expected.Content(), writeMode, identity)
 	}
 	return operation.filesystem.CreateRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode())
 }
