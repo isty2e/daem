@@ -95,7 +95,7 @@ func hookAssetLockObservations(
 		if err != nil {
 			return nil, err
 		}
-		observations = append(observations, observation)
+		observations = append(observations, observation.WithInstalledHash(artifact.InstalledFileHash(content.Bytes())))
 	}
 
 	return observations, nil

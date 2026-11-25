@@ -21,7 +21,7 @@ import (
 	"github.com/isty2e/daem/test/outputtest"
 )
 
-func TestBuildManagedPathDecisionsEnforcesExactPermissionPolicy(t *testing.T) {
+func TestBuildManagedPathDecisionsTreatsHookModeAsCreationOnly(t *testing.T) {
 	locked, supply, projection, destination, contentHash := managedHookAssetPathLock(t)
 	state := managedFileState(
 		t,
@@ -39,20 +39,18 @@ func TestBuildManagedPathDecisionsEnforcesExactPermissionPolicy(t *testing.T) {
 		manageExisting bool
 		wantKind       reconcile.ManagedPathDecisionKind
 		wantReason     reconcile.ActionReason
-		wantDetail     string
 	}{
 		{
-			name: "managed exact mode drift is repaired", states: []durable.ManagedPathState{state}, liveMode: 0o755,
-			wantKind: reconcile.ManagedPathReplace, wantReason: reconcile.ReasonFileModeChanged,
+			name: "managed asset keeps user mode", states: []durable.ManagedPathState{state}, liveMode: 0o755,
+			wantKind: reconcile.ManagedPathNoOp, wantReason: reconcile.ReasonAlreadyCurrent,
 		},
 		{
 			name: "exact current mode is a no-op", states: []durable.ManagedPathState{state}, liveMode: 0o700,
 			wantKind: reconcile.ManagedPathNoOp, wantReason: reconcile.ReasonAlreadyCurrent,
 		},
 		{
-			name: "manage-existing refuses same executable class with wrong exact mode", liveMode: 0o755,
-			manageExisting: true, wantKind: reconcile.ManagedPathBlocked, wantReason: reconcile.ReasonUnmanagedOutputExists,
-			wantDetail: "different file mode",
+			name: "manage-existing accepts matching bytes", liveMode: 0o755,
+			manageExisting: true, wantKind: reconcile.ManagedPathRecord, wantReason: reconcile.ReasonManagedExisting,
 		},
 	}
 	for _, test := range tests {
@@ -77,9 +75,6 @@ func TestBuildManagedPathDecisionsEnforcesExactPermissionPolicy(t *testing.T) {
 			}
 			if len(decisions) != 1 || decisions[0].Kind() != test.wantKind || decisions[0].Reason() != test.wantReason {
 				t.Fatalf("decision = %#v, want %s/%s", decisions, test.wantKind, test.wantReason)
-			}
-			if test.wantDetail != "" && !strings.Contains(decisions[0].Detail(), test.wantDetail) {
-				t.Fatalf("detail = %q, want fragment %q", decisions[0].Detail(), test.wantDetail)
 			}
 		})
 	}
@@ -185,7 +180,7 @@ func TestReconcileManagedPathDesiredRepairsArbitraryExactModeDrift(t *testing.T)
 	}
 }
 
-func TestBuildManagedPathDecisionsBlocksStateOnlyExactModeDrift(t *testing.T) {
+func TestBuildManagedPathDecisionsCanRetireHookAssetAfterChmod(t *testing.T) {
 	_, _, projection, destination, contentHash := managedHookAssetPathLock(t)
 	state := managedFileState(
 		t,
@@ -211,8 +206,8 @@ func TestBuildManagedPathDecisionsBlocksStateOnlyExactModeDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(decisions) != 1 || decisions[0].Kind() != reconcile.ManagedPathBlocked || decisions[0].Reason() != reconcile.ReasonDriftedOutput {
-		t.Fatalf("decisions = %#v, want state-only mode-drift block", decisions)
+	if len(decisions) != 1 || decisions[0].Kind() != reconcile.ManagedPathRemove || decisions[0].Reason() != reconcile.ReasonRemovedFromManifest {
+		t.Fatalf("decisions = %#v, want retirement of the matching asset", decisions)
 	}
 }
 

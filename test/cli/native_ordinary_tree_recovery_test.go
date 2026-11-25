@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -19,7 +20,7 @@ func nativeOrdinaryTreeRecoveryFixture(t *testing.T) (nativefixture.RecoveryFixt
 	testkit.WriteFile(t, workspace, "skills/sample/SKILL.md", "---\nname: sample\ndescription: before\n---\n")
 	testkit.WriteFile(t, workspace, "skills/sample/references/detail.txt", "before\n")
 	nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
-	nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes")
+	nativefixture.RunRecoveryCommand(t, fixture, "none", "apply", "--yes", "--verbose")
 	testkit.WriteFile(t, workspace, "skills/sample/SKILL.md", "---\nname: sample\ndescription: after\n---\n")
 	testkit.WriteFile(t, workspace, "skills/sample/references/detail.txt", "after\n")
 	testkit.WriteFile(t, workspace, "preferences.toml", "model='skill-after'\n")
@@ -64,4 +65,54 @@ func TestNativeOrdinaryTreeRecovery(t *testing.T) {
 			nativefixture.RunRecoveryCommand(t, fixture, "none", "status", "--check", "--json")
 		})
 	}
+}
+
+func TestSkillRecoveryPreservesSurvivingModesAndRestoresRemovedEntryMode(t *testing.T) {
+	fixture, skill := nativeOrdinaryTreeRecoveryFixture(t)
+	workspace := filepath.Dir(fixture.Manifest)
+	detail := filepath.Join(skill, "references", "detail.txt")
+	source := filepath.Join(workspace, "skills", "sample")
+	if err := os.Chmod(detail, 0o745); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(source, "references", "detail.txt")); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, source, "references/tool", "new executable\n")
+	if err := os.Chmod(filepath.Join(source, "references", "tool"), 0o775); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, source, "references/readme", "new text\n")
+	if err := os.Chmod(filepath.Join(source, "references", "readme"), 0o664); err != nil {
+		t.Fatal(err)
+	}
+	nativefixture.RunRecoveryCommand(t, fixture, "none", "lock")
+	watched := fixture
+	watched.Destination = skill
+	if code, _, stderr := nativefixture.InvokeRecoveryCommand(t, watched, "host", "apply", "--yes", "--verbose"); code != nativefixture.RecoveryExit {
+		t.Fatalf("did not reach published tree: %d %s", code, stderr)
+	}
+	checkMode := func(path string, mode os.FileMode) {
+		t.Helper()
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != mode {
+			t.Fatalf("%s: %v, %v; want %#o", path, info, err, mode)
+		}
+	}
+	checkMode(filepath.Join(skill, "references", "tool"), 0o700)
+	checkMode(filepath.Join(skill, "references", "readme"), 0o600)
+	file := filepath.Join(skill, "SKILL.md")
+	if err := os.Chmod(file, 0o744); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(skill, "references"), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(skill, "references"), 0o700) })
+	nativefixture.RunRecoveryCommand(t, fixture, "none", "recover", "--yes", "--verbose")
+	checkMode(file, 0o744)
+	checkMode(filepath.Join(skill, "references"), 0o500)
+	checkMode(detail, 0o745)
+	testkit.AssertFileContent(t, detail, "before\n")
+	testkit.AssertFileContent(t, file, "---\nname: sample\ndescription: before\n---\n")
+	testkit.AssertNoRecoveryArtifacts(t, workspace)
 }

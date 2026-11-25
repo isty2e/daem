@@ -116,7 +116,7 @@ func (release NativeRelease) encode(ctx context.Context, codec durable.SnapshotC
 	}
 	management := release.management
 	record := nativeReleaseJournalRecord{
-		Version: native17Version, Purpose: "release-only", Operation: "unmanage",
+		Version: nativeCaptureVersion(release.before, release.after), Purpose: "release-only", Operation: "unmanage",
 		OperationID: release.operationID, CreatedAt: release.createdAt.Format(time.RFC3339),
 		StateAuthority: persistedReleaseOwner(release.owner), StatefileBefore: before, StatefileAfter: after,
 		Selection: nativeReleaseIdentity{
@@ -165,7 +165,7 @@ func decodeNativeRelease(ctx context.Context, content []byte, codec durable.Snap
 	if err != nil {
 		return NativeRelease{}, err
 	}
-	if version != native17Version {
+	if version != native17Version && version != nativeInstalledVersion {
 		return NativeRelease{}, UnsupportedVersion(version)
 	}
 	if err := requireRecoveryJSONFields(content, "native17 release", "version", "purpose", "operation_id", "operation", "created_at", "state_authority", "statefile_before", "statefile_after", "selection", "namespace", "local_files", "own_claims_before", "own_claims_removed", "binding"); err != nil {
@@ -175,7 +175,7 @@ func decodeNativeRelease(ctx context.Context, content []byte, codec durable.Snap
 	if err := decodeRecoveryJSONStrict(content, &record); err != nil {
 		return NativeRelease{}, err
 	}
-	if record.Version != native17Version || record.Purpose != "release-only" || record.Operation != "unmanage" || !IsSafeOperationID(record.OperationID) {
+	if record.Version != version || record.Purpose != "release-only" || record.Operation != "unmanage" || !IsSafeOperationID(record.OperationID) {
 		return NativeRelease{}, fmt.Errorf("native release requires its closed purpose and operation identity")
 	}
 	createdAt, err := time.Parse(time.RFC3339, record.CreatedAt)
@@ -195,6 +195,9 @@ func decodeNativeRelease(ctx context.Context, content []byte, codec durable.Snap
 		return NativeRelease{}, err
 	}
 	id, err := entity.New(entity.KindAgentConfig, record.Selection.Name)
+	if versionErr := validateInstalledEvidenceVersion(version, before, after, nil); versionErr != nil {
+		return NativeRelease{}, versionErr
+	}
 	if err != nil {
 		return NativeRelease{}, err
 	}

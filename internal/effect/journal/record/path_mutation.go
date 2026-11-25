@@ -329,7 +329,7 @@ func (mutation ManagedPathMutation) validate() error {
 	if err := facts.destination.ValidateScope(facts.scope); err != nil {
 		return fmt.Errorf("managed path journal mutation destination: %w", err)
 	}
-	if err := facts.desiredHash.Validate(); err != nil {
+	if err := facts.desiredHash.ValidateManaged(); err != nil {
 		return fmt.Errorf("managed path journal mutation desired hash: %w", err)
 	}
 	if facts.contentKind != realization.PathProjectionFile && facts.contentKind != realization.PathProjectionDirectory {
@@ -342,7 +342,7 @@ func (mutation ManagedPathMutation) validate() error {
 		if mutation.kind() == CaptureRemove && facts.expectedMode != 0 {
 			return fmt.Errorf("managed file removal must not carry expected file mode")
 		}
-		if (mutation.kind() == CaptureCreate || mutation.kind() == CaptureReplace) && facts.expectedMode == 0 {
+		if (mutation.kind() == CaptureCreate || mutation.kind() == CaptureReplace && !facts.desiredHash.IsInstalled()) && facts.expectedMode == 0 {
 			return fmt.Errorf("managed file journal mutation requires expected file mode")
 		}
 	}
@@ -369,7 +369,7 @@ func (mutation ManagedPathMutation) validate() error {
 		if facts.liveHash == "" {
 			return fmt.Errorf("managed path replace journal mutation requires previous state and live hash")
 		}
-		if err := facts.liveHash.Validate(); err != nil {
+		if err := facts.liveHash.ValidateManaged(); err != nil {
 			return fmt.Errorf("managed path replace journal mutation live hash: %w", err)
 		}
 	case CaptureRemove:
@@ -379,14 +379,14 @@ func (mutation ManagedPathMutation) validate() error {
 		if facts.liveHash == "" {
 			return fmt.Errorf("managed path remove journal mutation requires previous state and live hash")
 		}
-		if err := facts.liveHash.Validate(); err != nil {
+		if err := facts.liveHash.ValidateManaged(); err != nil {
 			return fmt.Errorf("managed path remove journal mutation live hash: %w", err)
 		}
 	case CaptureRecord:
 		if facts.liveHash == "" {
 			return fmt.Errorf("managed path record journal mutation requires live hash")
 		}
-		if err := facts.liveHash.Validate(); err != nil {
+		if err := facts.liveHash.ValidateManaged(); err != nil {
 			return fmt.Errorf("managed path record journal mutation live hash: %w", err)
 		}
 	default:
@@ -404,8 +404,8 @@ func pathMutationFromManaged(
 		Kind: mutation.kind(), Subject: facts.subject, ConsumerTargets: append([]target.Target(nil), facts.consumerTargets...),
 		Scope: facts.scope, Destination: facts.destination, DesiredHash: facts.desiredHash,
 		ExpectedExists: mutation.kind() != CaptureRemove, ExpectedPathMode: facts.expectedMode,
-		LiveExists: evidence.Exists(), LiveHash: evidence.ContentHash(),
-		LivePathExists: evidence.Exists(), LivePathHash: evidence.ContentHash(),
+		LiveExists: evidence.Exists(), LiveHash: facts.liveHash,
+		LivePathExists: evidence.Exists(), LivePathHash: facts.liveHash,
 		LivePathMode: evidence.FileMode(),
 		ContentKind:  facts.contentKind,
 	}
@@ -484,7 +484,7 @@ func managedPathEvidenceByKey(
 				return nil, fmt.Errorf("managed path create mutation[%d] expected absent evidence for %q", index, facts.destination)
 			}
 		case CaptureReplace, CaptureRemove, CaptureRecord:
-			if !item.Exists() || item.ContentHash() != facts.liveHash {
+			if !item.Matches(facts.liveHash) {
 				return nil, fmt.Errorf(
 					"managed path mutation[%d] evidence for %q does not match live hash %q",
 					index,

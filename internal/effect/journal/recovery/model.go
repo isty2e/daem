@@ -64,6 +64,7 @@ func (provenance RootProvenance) MountFingerprint() string {
 // Authority is the complete canonical durable journal authority. Selection
 // may narrow observations and actions but never this value.
 type Authority struct {
+	treeBaseline       TreeBaseline
 	operationID        string
 	operationDir       string
 	entries            []Entry
@@ -225,9 +226,18 @@ func (selection Selection) validate(authority Authority) error {
 	return nil
 }
 
+// ContentEvidence describes the installed digest and any previous-format file
+// digest independently proven for the same bytes by the filesystem reader.
+type ContentEvidence struct{ Installed, Source, Alternate string }
+
+func (hashes ContentEvidence) Matches(want string) bool {
+	return want != "" && (want == hashes.Installed || want == hashes.Source || want == hashes.Alternate)
+}
+
 // PathEvidence is one fresh path observation normalized by the journal
 // boundary. Errors are facts for classification, not boundary decisions.
 type PathEvidence struct {
+	Hashes        ContentEvidence
 	Path          string
 	ContentPath   string
 	Exists        bool
@@ -244,6 +254,7 @@ type PathEvidence struct {
 
 // BackupEvidence is one fresh backup observation.
 type BackupEvidence struct {
+	Hashes      ContentEvidence
 	BackupPath  string
 	Exists      bool
 	Kind        string
@@ -279,6 +290,7 @@ const (
 // Action is an effect-ready recovery fact derived from complete authority and
 // fresh evidence.
 type Action struct {
+	TreeModes           TreeModes
 	Kind                ActionKind
 	Reason              string
 	subject             topology.SubjectID
@@ -576,7 +588,7 @@ func (action Action) sameExecutionAuthority(other Action) bool {
 		slices.Equal(action.ConsumerTargets, other.ConsumerTargets) &&
 		action.Scope == other.Scope && action.Destination == other.Destination &&
 		action.ContentPath == other.ContentPath && action.ContentKind == other.ContentKind &&
-		action.BackupPath == other.BackupPath && action.BackupHash == other.BackupHash &&
+		action.BackupPath == other.BackupPath && action.BackupHash == other.BackupHash && action.TreeModes == other.TreeModes &&
 		action.BackupKind == other.BackupKind && action.ExpectedAfter.Equal(other.ExpectedAfter) &&
 		action.retirementVacancy == other.retirementVacancy &&
 		action.BackupWork.Equal(other.BackupWork) &&

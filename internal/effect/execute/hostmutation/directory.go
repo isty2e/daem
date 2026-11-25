@@ -31,7 +31,7 @@ func (path PreparedPath) WriteDirectory(
 		if err != nil {
 			return err
 		}
-		return view.CopyVerified(ctx, identity, sink)
+		return view.CopyVerified(ctx, identity, sink.ForInstallation(precondition.treeModes))
 	}, precondition)
 }
 
@@ -44,13 +44,29 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		return fmt.Errorf("managed path rooted precondition is unavailable or consumed")
 	}
 	destination := precondition.destination
-	publicationCapability, err := operation.destinations.Acquire(destination)
-	if err != nil {
-		return err
-	}
-	prepared, err := operation.filesystem.PrepareRootedTree(ctx, publicationCapability, populate)
-	if err != nil {
-		return err
+	var prepared mutationfs.PreparedRootedTree
+	for attempt := 0; ; attempt++ {
+		capability, err := operation.destinations.Acquire(destination)
+		if err != nil {
+			return err
+		}
+		prepared, err = operation.filesystem.PrepareRootedTree(ctx, capability, populate)
+		if err != nil {
+			return err
+		}
+		changed, err := precondition.refreshTree(ctx)
+		if err == nil && !changed {
+			break
+		}
+		if abortErr := prepared.Abort(context.Background()); abortErr != nil {
+			return mutationfs.MarkEffectIndeterminate(errors.Join(err, abortErr))
+		}
+		if err != nil {
+			return err
+		}
+		if attempt != 0 {
+			return fmt.Errorf("managed tree %q is changing during publication", destination.Logical())
+		}
 	}
 	defer func() {
 		if abortErr := prepared.Abort(context.Background()); abortErr != nil {

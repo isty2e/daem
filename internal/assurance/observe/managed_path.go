@@ -12,11 +12,13 @@ import (
 // ManagedPathEvidence is one fresh observation of a locked physical path. It
 // contains no desired policy, managed authority, or previous-attempt fact.
 type ManagedPathEvidence struct {
-	subject     topology.SubjectID
-	destination output.Destination
-	exists      bool
-	contentHash artifact.ContentHash
-	fileMode    os.FileMode
+	subject        topology.SubjectID
+	destination    output.Destination
+	exists         bool
+	contentHash    artifact.ContentHash
+	hashes         artifact.PathHashes
+	verifiedSource artifact.ContentHash
+	fileMode       os.FileMode
 }
 
 // NewManagedPathEvidence constructs current path evidence already observed by
@@ -70,3 +72,32 @@ func (evidence ManagedPathEvidence) Destination() output.Destination   { return 
 func (evidence ManagedPathEvidence) Exists() bool                      { return evidence.exists }
 func (evidence ManagedPathEvidence) ContentHash() artifact.ContentHash { return evidence.contentHash }
 func (evidence ManagedPathEvidence) FileMode() os.FileMode             { return evidence.fileMode }
+
+func NewObservedPath(subject topology.SubjectID, destination output.Destination, hashes artifact.PathHashes, mode os.FileMode) (ManagedPathEvidence, error) {
+	evidence, err := NewManagedPathEvidence(subject, destination, true, hashes.Source, mode)
+	if err != nil {
+		return ManagedPathEvidence{}, err
+	}
+	if !hashes.Installed.IsInstalled() || hashes.Installed.ValidateManaged() != nil {
+		return ManagedPathEvidence{}, fmt.Errorf("observed path requires an installed content hash")
+	}
+	evidence.hashes = hashes
+	return evidence, nil
+}
+
+func (evidence ManagedPathEvidence) Matches(hash artifact.ContentHash) bool {
+	return evidence.exists && hash != "" && (hash == evidence.contentHash || hash == evidence.verifiedSource || evidence.hashes.Matches(hash))
+}
+
+// WithVerifiedSource admits an old source baseline only when its verified
+// installed bytes and tree structure match this physical observation.
+func (evidence ManagedPathEvidence) WithVerifiedSource(source, installed artifact.ContentHash) ManagedPathEvidence {
+	if installed.IsInstalled() && evidence.InstalledHash() == installed {
+		evidence.verifiedSource = source
+	}
+	return evidence
+}
+
+func (evidence ManagedPathEvidence) InstalledHash() artifact.ContentHash {
+	return evidence.hashes.Installed
+}

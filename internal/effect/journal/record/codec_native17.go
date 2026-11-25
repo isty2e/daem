@@ -133,7 +133,7 @@ func (record native17JournalRecord) reconstruct(ctx context.Context, codec durab
 	if err := ctx.Err(); err != nil {
 		return Native{}, err
 	}
-	if (record.Version != native17Version && record.Version != nativeRootRestoreVersion) || record.Purpose != "host-mutation" || record.Operation != OperationApply || !IsSafeOperationID(record.OperationID) {
+	if (record.Version != native17Version && record.Version != nativeRootRestoreVersion && record.Version != nativeInstalledVersion) || record.Purpose != "host-mutation" || record.Operation != OperationApply || !IsSafeOperationID(record.OperationID) {
 		return Native{}, fmt.Errorf("native17 requires its closed host-mutation purpose and operation identity")
 	}
 	if record.Roots == nil || record.DocumentGroups == nil || record.Entries == nil || record.ClaimTransitions == nil || record.ProvisionalAcquires == nil || record.RemovalIntents == nil {
@@ -155,6 +155,9 @@ func (record native17JournalRecord) reconstruct(ctx context.Context, codec durab
 	}
 	after, err := codec.Decode(record.StatefileAfter)
 	if err != nil {
+		return Native{}, err
+	}
+	if err := validateInstalledEvidenceVersion(record.Version, before, after, record.Entries); err != nil {
 		return Native{}, err
 	}
 	if _, _, err := EncodeSnapshots(before, after, codec); err != nil {

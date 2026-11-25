@@ -28,9 +28,11 @@ scope and route id; a changed request hash replaces the prior diagnostic.
 Mechanical process reasons and post-attempt working-directory authority are
 separate facts. The v8 reader translates the older combined reason.
 
-Normal commands create statefiles in v11, or v13 when recording the selected
-settings file for a new Claude global hook installation. Shared output and
-carrier registries use v5 and v3, respectively.
+When the statefile records an installed-content digest, daem writes v15 with
+the statefile location, or v14 if retaining the unlocated encoding. A single
+file can contain both new digests and older baselines. Without a new digest,
+located files use v11, or v13 when recording the selected Claude global hook
+settings file. Shared output and carrier registries use v5 and v3, respectively.
 These formats retain filesystem lookup locations separately from comparison
 identities. Older binaries cannot read them. Existing usable legacy files can
 retain their encoding when automatic conversion is deferred; different files
@@ -58,10 +60,21 @@ invoking-user-owned regular file with exact mode `0600`; final symlinks,
 special files, replacement during a read, oversized content, and other
 permission modes are rejected.
 
-Exact-mode projections retain last-verified permission bits. Executable-class
-files retain executable class through content identity, not a read/write-bit
-baseline. Neither is a current-mode observation: interrupted-operation recovery
-separately captures the physical mode it must guard and restore.
+For installed instructions, hook assets and copied skills, daem compares
+content, not permission bits. Updating a file preserves its current mode,
+even when it is `0444` and the operating system allows replacement through
+the parent directory. Rolling back a tree preserves the current permissions
+of surviving entries and restores the saved modes of entries daem removed.
+Read, traversal and replacement errors from the operating system still apply.
+
+Older baselines include the executable bit. For a file, daem checks the same
+bytes against both possible executable classes. For a skill, daem checks the
+installed tree using its current executable bits. It can also try the bits
+from the verified source, or from the journal backup during recovery. If none
+reproduce the recorded hash, daem leaves the tree in place. With a copy of the
+original tree, use `daem migrate metadata --baseline-tree <dir> --dry-run` to
+preview conversion of the matching state records. For an interrupted apply,
+use `daem recover --baseline-tree <dir> --dry-run` instead.
 
 For shared settings, recovery identifies managed hooks, MCP servers, and keys
 by their values. If the file still exists, rolling those values back leaves
@@ -287,7 +300,10 @@ fingerprints, independently of the physical statefile version. If removing
 the last ordinary projection deletes its settings file, daem writes format 18
 (19 for a transaction that also edits native documents). Older readers could
 plan this rollback but fail before recreating the file. They reject the new
-formats instead. Use the writing version or a newer compatible version to
+formats instead. Journals that need installed-content evidence use format 20
+(21 when combined with native changes). These journals can keep tree backups
+private and record restoration modes separately from the backup files.
+Use the writing version or a newer compatible version to
 recover, and keep the journal and backups if a version mismatch blocks recovery.
 
 An active Linux journal from a previous boot is refused before recovery effects.

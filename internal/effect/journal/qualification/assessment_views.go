@@ -87,12 +87,16 @@ func (facts AssessmentFacts) OrdinaryActions() []recovery.Action {
 	return facts.ordinary.entries.Actions()
 }
 
+func (facts AssessmentFacts) OrdinaryTreeBaseline() recovery.TreeBaseline {
+	return facts.ordinary.trees
+}
+
 func (facts AssessmentFacts) OrdinaryCheckpoints() []recovery.RemovalCleanupObligation {
 	return slices.Clone(facts.ordinary.checkpoints)
 }
 
 func (facts AssessmentFacts) OrdinaryMatchesExpected(entry recovery.Entry) (bool, error) {
-	matched, err := recovery.AssessEntries([]recovery.Entry{entry}, recovery.ClonePathEvidence(facts.ordinary.paths), recovery.CloneBackupEvidence(facts.ordinary.backups))
+	matched, err := recovery.AssessEntries([]recovery.Entry{facts.ordinary.trees.LiveEntry(entry)}, recovery.ClonePathEvidence(facts.ordinary.paths), recovery.CloneBackupEvidence(facts.ordinary.backups))
 	return matched.MatchesExpected(), err
 }
 
@@ -191,6 +195,11 @@ func (ordinary nativeOrdinaryAssessment) observationFingerprint() string {
 	hash := sha256.New()
 	fmt.Fprintf(hash, "%t\x00%t\x00%t\x00", ordinary.entries.MatchesBefore(), ordinary.entries.MatchesExpected(), ordinary.entries.Recoverable())
 	for _, path := range ordinary.paths {
+		if path.ContentPath == "" && path.Hashes.Installed != "" {
+			path.ContentHash = path.Hashes.Installed
+			path.Hashes = recovery.ContentEvidence{Installed: path.ContentHash}
+			path.PathMode = nil
+		}
 		mode := "absent"
 		if path.PathMode != nil {
 			mode = fmt.Sprintf("%04o", *path.PathMode)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -13,7 +14,8 @@ import (
 
 // Ordinary records come from family admission, never capture completion.
 type Ordinary struct {
-	record recoveryJournal
+	record       recoveryJournal
+	treeBaseline recovery.TreeBaseline
 }
 
 func decodeOrdinarySnapshot(snapshot mutationfs.RegularFileSnapshot, path string, codec durable.SnapshotCodec) (Ordinary, error) {
@@ -72,5 +74,9 @@ func (record Ordinary) RecoveryPlanningBasis(directory, fingerprint string, sele
 	if err := record.Validate(); err != nil {
 		return PlanningBasis{}, err
 	}
-	return record.record.PlanningBasis(directory, fingerprint, selected)
+	basis, err := record.record.PlanningBasis(directory, fingerprint, selected)
+	if err == nil {
+		basis.authority = basis.authority.WithTreeBaseline(record.treeBaseline)
+	}
+	return basis, err
 }

@@ -1418,8 +1418,9 @@ carrier grammar proves them public. Otherwise they use deterministic
 `redacted:sha256:...` values and their adjacent `*_redacted` marker is true.
 Managed-path realizations include `exact_permission_mode` when and only when
 their permission policy is `exact`; the optional field representation preserves
-an explicit mode `0`. Full safe source ids and hashes are automation evidence
-and remain in JSON.
+an explicit mode `0`. For hook assets that field describes how a new file is
+created. It does not require an installed asset to keep that mode. Full safe
+source ids and hashes are automation evidence and remain in JSON.
 
 ## `list`
 
@@ -2015,7 +2016,7 @@ cancellation, signal or exit facts.
 ## `recover`
 
 ```bash
-daem recover [--manifest <path>] [--legacy-user-state|--release-output-ownership] [--dry-run|--yes] [--json|--verbose]
+daem recover [--manifest <path>] [--legacy-user-state|--release-output-ownership] [--baseline-tree <dir>] [--dry-run|--yes] [--json|--verbose]
 ```
 
 Recovery classifies an interrupted apply, finishes retained journal cleanup,
@@ -2029,6 +2030,12 @@ marker remains separate from journal recovery. See
 to choose the matching write or state recovery command. Markerless private
 residue under the state directory is not recoverable by retry; preserve it for
 analysis.
+
+If recovery cannot verify a skill against an older journal after its executable
+bits changed, run `daem recover --baseline-tree <dir> --dry-run` with a copy
+of the original tree. Daem checks its digest against the journal and reads the
+files to restore from the journal's backups. Use the same option with `--yes`
+to proceed.
 
 `--legacy-user-state` selects only the default user manifest's former local
 apply-journal root, before state migration. It is not an arbitrary state-path
@@ -2231,8 +2238,8 @@ management to transfer is a refusal, not a new empty state.
 ## `migrate metadata`
 
 ```bash
-daem migrate metadata [--manifest <path>] [--reference <path> ...]
-  [--recover] [--dry-run|--yes] [--json]
+daem migrate metadata [--manifest <path>] [--reference <path> ...|--recover|--baseline-tree <dir>]
+  [--dry-run|--yes] [--json]
 ```
 
 Preview or convert the selected State and the shared registries' reachable
@@ -2250,6 +2257,13 @@ Preview is read-only. Execution uses terminal confirmation or `--yes` and checks
 the plan again before publication. The disclosed State and target lists describe
 the whole checked transaction scope, not just files to rewrite. Already-converted
 files can be unchanged, and absent files remain absent.
+
+Use `--baseline-tree <dir>` instead if a previous installation recorded a skill
+digest that included executable bits. Daem reads the supplied directory and
+converts only matching skill records in the selected statefile. This also works
+after removing the skill declaration. An unrelated directory is refused;
+neither the supplied copy nor the installed files are changed. For an interrupted
+apply, supply the directory to `recover` instead.
 
 Some legacy identities lack a provable access location. `--reference` supplies a
 lookup path that you assert belonged to a recorded identity; repeat the option

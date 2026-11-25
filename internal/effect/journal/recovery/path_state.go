@@ -33,6 +33,7 @@ func (mode PermissionMode) FileMode() fs.FileMode {
 // containing regular file for content-path projections; whole-path state
 // derives physical existence from Existed.
 type BeforePathState struct {
+	TreeModes     TreeModes
 	Existed       bool
 	PathExisted   bool
 	ParentExisted bool

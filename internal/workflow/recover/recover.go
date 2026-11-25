@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 
@@ -34,6 +35,8 @@ import (
 
 type PlanInput struct {
 	ManifestPath           string
+	BaselineTree           string
+	treeProof              recovery.TreeBaseline
 	LegacyUserState        bool
 	ReleaseOutputOwnership bool
 }
@@ -51,6 +54,9 @@ func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 		return nil, fmt.Errorf("recovery context is required")
 	}
 	if input.ReleaseOutputOwnership {
+		if input.BaselineTree != "" {
+			return nil, fmt.Errorf("--baseline-tree cannot be combined with --release-output-ownership")
+		}
 		if input.LegacyUserState {
 			return nil, fmt.Errorf("output ownership release cannot recover legacy user state")
 		}
@@ -113,7 +119,7 @@ func planRecoveryWithFilesystemFenceAndBudget(
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
-	recoverable, journalErr := loadRecoverySelection(ctx, &paths, filesystem, planningBudget)
+	recoverable, journalErr := loadRecoverySelection(ctx, &paths, filesystem, planningBudget, input.treeProof)
 	if err := ctx.Err(); err != nil {
 		return recoveryPreparation{}, err
 	}
@@ -177,6 +183,7 @@ func finishRecoveryPreparation(
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
+	input.treeProof = input.treeProof.With(journal.ObservedTreeBaseline(plan))
 	planned := recoveryPreparation{
 		plan:               plan,
 		paths:              paths,
@@ -197,12 +204,13 @@ func finishRecoveryPreparation(
 	return planned, nil
 }
 
-func loadRecoverySelection(ctx context.Context, paths *daempaths.Paths, filesystem mutationfs.Reader, physicalPathBudget rootedpath.PhysicalTraversalBudget) (journal.RecoverablePlan, error) {
+func loadRecoverySelection(ctx context.Context, paths *daempaths.Paths, filesystem mutationfs.Reader, physicalPathBudget rootedpath.PhysicalTraversalBudget, proof recovery.TreeBaseline) (journal.RecoverablePlan, error) {
 	paths.ClaudeHookSettings = ""
 	options, err := recoveryLoadOptions(ctx, *paths, filesystem, physicalPathBudget)
 	if err != nil {
 		return nil, err
 	}
+	options.TreeBaseline = proof
 	options.ValidateBeforeActiveObservation = func(ctx context.Context, record journalrecord.Loaded) error {
 		file, err := record.ClaudeHookPlacement()
 		if err != nil || file.Path() == "" {
@@ -450,7 +458,9 @@ func Execute(
 			if err != nil {
 				return result, err
 			}
+			loadOptions.TreeBaseline = execution.input.treeProof
 			err = nativeoperation.ExecuteNativeRecovery(ctx, native, executePaths(effectPaths), loadOptions, execute.RecoveryOptions{
+				TreeBaseline:          execution.input.treeProof,
 				ValidateBeforeEffects: validateBeforeActiveEffects, ValidateVisibilityAuthority: validateVisibilityAuthority, AcceptVisibilityChanges: acceptVisibilityChanges,
 				Resolver: destinationResolver(effectPaths).Resolve, OwnershipRegistryBinder: ownershipstore.BindRooted, Filesystem: filesystem,
 				Codecs: loadOptions.NativeDocuments.Codecs, StateCodec: loadOptions.NativeDocuments.StateCodec, StateReader: loadOptions.NativeDocuments.StateReader,
@@ -470,6 +480,7 @@ func Execute(
 			active,
 			executePaths(effectPaths),
 			execute.RecoveryOptions{
+				TreeBaseline:                execution.input.treeProof,
 				ValidateBeforeEffects:       validateBeforeActiveEffects,
 				ValidateVisibilityAuthority: validateVisibilityAuthority,
 				AcceptVisibilityChanges:     acceptVisibilityChanges,
@@ -533,6 +544,7 @@ func classifyPostExecutionAuthority(
 		&execution.paths,
 		filesystem,
 		execution.physicalPathBudget,
+		execution.input.treeProof,
 	)
 	if classificationErr == nil {
 		result, err := retainedExecutionResult(current)

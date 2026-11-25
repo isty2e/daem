@@ -154,7 +154,7 @@ func (journal Native) OrdinaryEntries(ctx context.Context) ([]recovery.Entry, er
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, entry)
+		entries = append(entries, journal.treeBaseline.LiveEntry(entry))
 	}
 	return entries, nil
 }
@@ -235,6 +235,12 @@ func (backup BackupReference) Path() string { return backup.path }
 
 func (backup BackupReference) Kind() string { return backup.kind }
 
+func (backup BackupReference) ContentHash() string { return backup.digest }
+
 func (backup BackupReference) Matches(kind, digest string) bool {
 	return backup.initialized && backup.kind == kind && backup.digest == digest
+}
+
+func (backup BackupReference) MatchesObservation(observed recovery.BackupEvidence) bool {
+	return backup.Matches(observed.Kind, observed.ContentHash) || backup.initialized && backup.kind == observed.Kind && observed.Hashes.Matches(backup.digest)
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -154,6 +155,57 @@ func TestRunRecoverRollsBackInterruptedSkillDirectoryUpdate(t *testing.T) {
 	testkit.AssertNoRecoveryArtifacts(t, tempDir)
 	if oldHash == newHash {
 		t.Fatalf("recovery test used identical old and new skill hashes")
+	}
+}
+
+func TestLegacySkillRecoveryRechecksContentAfterConfirmation(t *testing.T) {
+	for _, edit := range []string{"permissions only", "permissions and content"} {
+		t.Run(edit, func(t *testing.T) {
+			root := t.TempDir()
+			manifest := filepath.Join(root, "daem.toml")
+			desired := filepath.Join(root, "desired/oracle")
+			live := filepath.Join(root, ".agents/skills/oracle")
+			testkit.WriteFile(t, live, "tool", "before\n")
+			testkit.WriteFile(t, desired, "tool", "after\n")
+			if err := os.Chmod(filepath.Join(desired, "tool"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			paths, before, _, _, _ := captureCLIRecoverySkillUpdateJournal(t, manifest)
+			testkit.WriteStatefile(t, paths.StatefilePath, before)
+			if err := testkit.ReplaceDirectoryAtomic(desired, live); err != nil {
+				t.Fatal(err)
+			}
+
+			plan, err := recoverworkflow.Plan(t.Context(), recoverworkflow.PlanInput{ManifestPath: manifest})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer plan.Close()
+			tool := filepath.Join(live, "tool")
+			if err := os.Chmod(tool, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			if edit == "permissions and content" {
+				testkit.WriteFile(t, live, "tool", "user edit\n")
+			}
+
+			_, err = recoverworkflow.Execute(t.Context(), plan, recoverworkflow.ExecuteOptions{})
+			if edit == "permissions and content" {
+				if err == nil {
+					t.Fatal("recovery accepted a content edit after confirmation")
+				}
+				testkit.AssertFileContent(t, tool, "user edit\n")
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			testkit.AssertFileContent(t, tool, "before\n")
+			if info, err := os.Stat(tool); err != nil || info.Mode().Perm() != 0o640 {
+				t.Fatalf("restored file: %v, %v; want user mode 0640", info, err)
+			}
+			testkit.AssertNoRecoveryArtifacts(t, root)
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -85,6 +86,7 @@ type managedPathDecisionFacts struct {
 	destination      output.Destination
 	desiredHash      artifact.ContentHash
 	liveHash         artifact.ContentHash
+	previousLiveHash artifact.ContentHash
 	contentKind      realization.PathProjectionContentKind
 	placementMode    realization.PathProjectionMode
 	permissionPolicy realization.PathPermissionPolicy
@@ -112,6 +114,7 @@ type ManagedPathDecisionInput struct {
 	DesiredFileMode       os.FileMode
 	LiveFileMode          os.FileMode
 	Previous              *durable.ManagedPathState
+	PreviousObservation   observe.ManagedPathEvidence
 	RetiresAbsentPrevious bool
 	Reason                ActionReason
 	Detail                string
@@ -144,9 +147,19 @@ type ManagedPathDecision struct {
 // NewManagedPathDecision constructs one validated closed managed-path variant.
 func NewManagedPathDecision(input ManagedPathDecisionInput) (ManagedPathDecision, error) {
 	previous := input.Previous
+	var previousLiveHash artifact.ContentHash
 	if previous != nil {
 		copy := *previous
 		previous = &copy
+		previousLiveHash = previous.ContentHash()
+	}
+	if observed := input.PreviousObservation; observed.Exists() {
+		if previous == nil || observed.Subject() != previous.Subject() || observed.Destination() != previous.Destination() || !observed.Matches(previous.ContentHash()) {
+			return ManagedPathDecision{}, fmt.Errorf("previous path observation does not prove the recorded destination and content")
+		}
+		if realization.IsInstalledContentSubject(previous.Subject()) && observed.InstalledHash() != "" {
+			previousLiveHash = observed.InstalledHash()
+		}
 	}
 	facts := managedPathDecisionFacts{
 		subject:          input.Subject,
@@ -155,6 +168,7 @@ func NewManagedPathDecision(input ManagedPathDecisionInput) (ManagedPathDecision
 		destination:      input.Destination,
 		desiredHash:      input.DesiredHash,
 		liveHash:         input.LiveHash,
+		previousLiveHash: previousLiveHash,
 		contentKind:      input.ContentKind,
 		placementMode:    input.PlacementMode,
 		permissionPolicy: input.PermissionPolicy,
@@ -278,6 +292,10 @@ func (decision ManagedPathDecision) DesiredHash() artifact.ContentHash {
 }
 
 func (decision ManagedPathDecision) LiveHash() artifact.ContentHash { return decision.facts().liveHash }
+
+func (decision ManagedPathDecision) PreviousLiveHash() artifact.ContentHash {
+	return decision.facts().previousLiveHash
+}
 
 func (decision ManagedPathDecision) ContentKind() realization.PathProjectionContentKind {
 	return decision.facts().contentKind

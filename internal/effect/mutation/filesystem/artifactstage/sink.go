@@ -24,11 +24,33 @@ func New(writer mutationfs.RootedTreeWriter) (Sink, error) {
 // Interface ownership remains with the caller; this package imports no Supply
 // protocol.
 type Sink struct {
-	writer mutationfs.RootedTreeWriter
+	writer  mutationfs.RootedTreeWriter
+	modeFor func(string, fs.FileMode) fs.FileMode
+}
+
+// ForInstallation keeps the modes of existing entries of the same kind. A
+// newly installed regular file inherits only its source execution class.
+func (stage Sink) ForInstallation(previous map[string]fs.FileMode) Sink {
+	stage.modeFor = func(path string, source fs.FileMode) fs.FileMode {
+		if mode, ok := previous[path]; ok && mode.IsDir() == source.IsDir() {
+			return mode.Perm()
+		}
+		if source.IsDir() {
+			return source.Perm()
+		}
+		if source.Perm()&0o111 != 0 {
+			return 0o700
+		}
+		return 0o600
+	}
+	return stage
 }
 
 // BeginDirectory creates one relative directory or sets the stage root mode.
 func (stage Sink) BeginDirectory(relativePath string, mode fs.FileMode) error {
+	if stage.modeFor != nil {
+		mode = stage.modeFor(relativePath, mode.Perm()|fs.ModeDir)
+	}
 	if relativePath == "." {
 		return stage.writer.SetRootMode(mode.Perm())
 	}
@@ -50,6 +72,9 @@ func (stage Sink) OpenFile(
 	mode fs.FileMode,
 	size int64,
 ) (io.WriteCloser, error) {
+	if stage.modeFor != nil {
+		mode = stage.modeFor(relativePath, mode.Perm())
+	}
 	if size < 0 {
 		return nil, fmt.Errorf("rooted artifact stage file size must be non-negative")
 	}

@@ -157,7 +157,11 @@ func (options OrdinaryRestorationReadOptions) effects(ctx context.Context, actio
 		if err != nil {
 			return recovery.RestorationEffects{}, err
 		}
-		return recovery.NewFileRestorationEffects(current, mode, aggregate.ExistingDocument(content), first.BeforePathMode)
+		restoreMode := first.BeforePathMode
+		if current.Exists() {
+			restoreMode = mode
+		}
+		return recovery.NewFileRestorationEffects(current, mode, aggregate.ExistingDocument(content), restoreMode)
 	}
 
 	var contracts []aggregate.ProjectionContract
@@ -238,7 +242,7 @@ func (options OrdinaryRestorationReadOptions) backup(ctx context.Context, action
 	if err != nil {
 		return nil, err
 	}
-	if !document.Exists() || mode == nil || document.ContentSize() != action.BackupWork.Bytes() || string(artifact.HashFileContentWithExecutable(document.Content(), mode.FileMode()&0o111 != 0)) != action.BackupHash {
+	if !document.Exists() || mode == nil || document.ContentSize() != action.BackupWork.Bytes() || !artifact.ContentHash(action.BackupHash).MatchesFile(document.Content()) {
 		return nil, fmt.Errorf("ordinary restoration backup changed")
 	}
 	return document.Content(), nil

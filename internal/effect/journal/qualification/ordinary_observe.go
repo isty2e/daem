@@ -21,6 +21,7 @@ import (
 
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -106,7 +107,11 @@ func ApplyIntentOwnershipEvidence(
 	return observations, nil
 }
 
-func ObservePaths(
+// LegacyTreeLabels shares only executable labels between the backup and live
+// passes. The full digest of the live bytes must still match the journal.
+type LegacyTreeLabels map[string]artifact.ExecutablePaths
+
+func (labels LegacyTreeLabels) ObservePaths(
 	ctx context.Context,
 	entries []journalrecord.PathEntry,
 	filesystem mutationfs.Reader,
@@ -138,8 +143,9 @@ func ObservePaths(
 			continue
 		}
 
+		read := treeHashLabels{candidate: labels[entry.Backup().Path()]}
 		if entry.Scope() == target.ScopeProject {
-			observation, observeErr := ObserveProjectPath(
+			observation, observeErr := read.observeProject(
 				ctx,
 				entry.Path(),
 				entry.ContentPath(),
@@ -171,7 +177,7 @@ func ObservePaths(
 			})
 			continue
 		}
-		observation, observeErr := ObserveGlobalPath(
+		observation, observeErr := read.observeGlobal(
 			ctx,
 			entry.Path(),
 			entry.ContentPath(),
@@ -196,7 +202,7 @@ type recoveryPathObservationKey struct {
 	contentPath string
 }
 
-func ObserveBackups(
+func (labels LegacyTreeLabels) ObserveBackups(
 	ctx context.Context,
 	operationDir string,
 	activeAuthority journalinventory.ActiveJournalAuthority,
@@ -204,7 +210,7 @@ func ObserveBackups(
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
 ) ([]recovery.BackupEvidence, error) {
-	backupPaths := make([]string, 0, len(entries))
+	backupPaths := make([]journalrecord.BackupReference, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -221,7 +227,7 @@ func ObserveBackups(
 			continue
 		}
 		seen[entry.Backup().Path()] = struct{}{}
-		backupPaths = append(backupPaths, entry.Backup().Path())
+		backupPaths = append(backupPaths, entry.Backup())
 	}
 	if len(backupPaths) == 0 {
 		return []recovery.BackupEvidence{}, nil
@@ -241,7 +247,7 @@ func ObserveBackups(
 	if err != nil {
 		return nil, fmt.Errorf("bind recovery operation directory: %w", err)
 	}
-	observations, observeErr := observeRecoveryBackupsRooted(
+	observations, observeErr := labels.observeRecoveryBackupsRooted(
 		ctx,
 		root,
 		activeAuthority,
@@ -252,11 +258,11 @@ func ObserveBackups(
 	return observations, errors.Join(observeErr, root.Close())
 }
 
-func observeRecoveryBackupsRooted(
+func (labels LegacyTreeLabels) observeRecoveryBackupsRooted(
 	ctx context.Context,
 	root *rootedpath.CapturedRoot,
 	activeAuthority journalinventory.ActiveJournalAuthority,
-	backupPaths []string,
+	backupPaths []journalrecord.BackupReference,
 	filesystem mutationfs.RootedReader,
 	budget *physicalwork.Budget,
 ) ([]recovery.BackupEvidence, error) {
@@ -278,7 +284,8 @@ func observeRecoveryBackupsRooted(
 		return nil, err
 	}
 	observations := make([]recovery.BackupEvidence, 0, len(backupPaths))
-	for _, backupPath := range backupPaths {
+	for _, backup := range backupPaths {
+		backupPath := backup.Path()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -298,7 +305,11 @@ func observeRecoveryBackupsRooted(
 		if err != nil {
 			return nil, fmt.Errorf("acquire recovery backup %q: %w", backupPath, err)
 		}
-		observation, observeErr := ObserveBackup(
+		var read treeHashLabels
+		if labels != nil && backup.Kind() == recovery.PathKindDirectory && !artifact.ContentHash(backup.ContentHash()).IsInstalled() {
+			read.collect = make(artifact.ExecutablePaths)
+		}
+		observation, observeErr := read.observeBackup(
 			ctx,
 			backupPath,
 			filesystem,
@@ -314,6 +325,9 @@ func observeRecoveryBackupsRooted(
 		}
 		if closeErr != nil {
 			return nil, closeErr
+		}
+		if read.collect != nil && observation.Error == "" && observation.Hashes.Source == backup.ContentHash() {
+			labels[backupPath] = read.collect
 		}
 		observations = append(observations, observation)
 	}
@@ -400,7 +414,11 @@ func ObserveBackup(
 	capability rootedpath.CommitCapability,
 	budget *physicalwork.Budget,
 ) (recovery.BackupEvidence, error) {
-	observed, err := observeRootedRecoveryCapability(
+	return treeHashLabels{}.observeBackup(ctx, journalPath, filesystem, capability, budget)
+}
+
+func (labels treeHashLabels) observeBackup(ctx context.Context, journalPath string, filesystem mutationfs.RootedReader, capability rootedpath.CommitCapability, budget *physicalwork.Budget) (recovery.BackupEvidence, error) {
+	observed, err := labels.observeRootedRecoveryCapability(
 		ctx,
 		journalPath,
 		"",
@@ -414,6 +432,7 @@ func ObserveBackup(
 		return recovery.BackupEvidence{}, err
 	}
 	result := recovery.BackupEvidence{
+		Hashes:      observed.Hashes,
 		BackupPath:  journalPath,
 		Exists:      observed.Exists,
 		Kind:        observed.Kind,

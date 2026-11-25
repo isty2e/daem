@@ -175,7 +175,7 @@ func TestRecoveryBackupRejectsDirectoryGrowthBeyondExactWork(t *testing.T) {
 	}
 }
 
-func TestRecoveryBackupRejectsExecutableModeDrift(t *testing.T) {
+func TestLegacyFileBackupVerifiesBytesIndependentlyOfMode(t *testing.T) {
 	root := t.TempDir()
 	content := []byte("content")
 	path := filepath.Join(root, "file")
@@ -199,8 +199,8 @@ func TestRecoveryBackupRejectsExecutableModeDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := backup.ReadFile(t.Context()); err == nil {
-		t.Fatal("recovery file executable-mode drift was accepted")
+	if got, err := backup.ReadFile(t.Context()); err != nil || string(got) != string(content) {
+		t.Fatalf("read backup after chmod: got %q, error %v", got, err)
 	}
 }
 

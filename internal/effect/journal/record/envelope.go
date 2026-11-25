@@ -20,14 +20,16 @@ const (
 	// ordinary projection that deleted its physical document.
 	ordinaryRootRestoreVersion = 18
 	nativeRootRestoreVersion   = 19
+	ordinaryInstalledVersion   = 20
+	nativeInstalledVersion     = 21
 )
 
 func SupportsOrdinaryVersion(version int) bool {
-	return version == OrdinaryVersion || version == ordinaryRootRestoreVersion
+	return version == OrdinaryVersion || version == ordinaryRootRestoreVersion || version == ordinaryInstalledVersion
 }
 
 func SupportsNativeVersion(version int) bool {
-	return version == native16Version || version == native17Version || version == nativeRootRestoreVersion
+	return version == native16Version || version == native17Version || version == nativeRootRestoreVersion || version == nativeInstalledVersion
 }
 
 // Fingerprint identifies exact serialized bytes, not validation or host authority.

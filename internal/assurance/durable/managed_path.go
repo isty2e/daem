@@ -83,8 +83,11 @@ func (state ManagedPathState) validate() error {
 	if err := state.destination.ValidateScope(state.scope); err != nil {
 		return fmt.Errorf("managed path state destination: %w", err)
 	}
-	if err := state.contentHash.Validate(); err != nil {
+	if err := state.contentHash.ValidateManaged(); err != nil {
 		return fmt.Errorf("managed path state content hash: %w", err)
+	}
+	if state.contentHash.IsInstalled() && !realization.IsInstalledContentSubject(state.subject) {
+		return fmt.Errorf("installed-content baseline requires a copied artifact subject")
 	}
 	if err := realization.ValidateManagedPathPermissionState(
 		state.contentKind,
@@ -113,6 +116,15 @@ func (state ManagedPathState) Destination() output.Destination { return state.de
 // ContentHash returns the last applied content hash.
 func (state ManagedPathState) ContentHash() artifact.ContentHash { return state.contentHash }
 
+func (snapshot Snapshot) HasInstalledHashes() bool {
+	for _, row := range snapshot.ManagedPaths() {
+		if row.ContentHash().IsInstalled() {
+			return true
+		}
+	}
+	return false
+}
+
 // ContentKind returns whether this baseline owns a file or directory path.
 func (state ManagedPathState) ContentKind() realization.PathProjectionContentKind {
 	return state.contentKind
@@ -125,6 +137,33 @@ func (state ManagedPathState) PermissionPolicy() realization.PathPermissionPolic
 
 // FileMode returns the exact permission baseline when exact permissions apply.
 func (state ManagedPathState) FileMode() os.FileMode { return state.fileMode }
+
+// WithVerifiedTreeBaseline upgrades only directory rows whose recorded digest
+// was reproduced. The verifier does not adopt the current host contents.
+func (snapshot Snapshot) WithVerifiedTreeBaseline(hashes artifact.PathHashes) (Snapshot, error) {
+	if err := hashes.Source.Validate(); err != nil {
+		return Snapshot{}, err
+	}
+	if !hashes.Installed.IsInstalled() || hashes.Installed.ValidateManaged() != nil {
+		return Snapshot{}, fmt.Errorf("verified tree requires an installed digest")
+	}
+	paths := snapshot.ManagedPaths()
+	matched := false
+	for i, path := range paths {
+		if path.contentKind != realization.PathProjectionDirectory || !realization.IsInstalledContentSubject(path.subject) {
+			continue
+		}
+		switch path.contentHash {
+		case hashes.Source, hashes.Installed:
+			paths[i].contentHash = hashes.Installed
+			matched = true
+		}
+	}
+	if !matched {
+		return Snapshot{}, fmt.Errorf("baseline tree %s does not match a recorded skill in this statefile", hashes.Source)
+	}
+	return snapshot.WithManagedPaths(paths)
+}
 
 // Equal reports semantic equality between two managed-path baselines.
 func (state ManagedPathState) Equal(other ManagedPathState) bool {

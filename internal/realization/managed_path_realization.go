@@ -6,9 +6,19 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
+
+// IsInstalledContentSubject identifies copied artifacts whose permissions are
+// chosen on creation rather than reconciled against the installed path.
+func IsInstalledContentSubject(subject topology.SubjectID) bool {
+	id, ok := topologyprojection.EntityID(subject)
+	return ok && (id.Kind() == entity.KindInstructions || id.Kind() == entity.KindSkill || id.Kind() == entity.KindHookAsset)
+}
 
 // PathPermissionPolicy identifies which regular-file permission facts are
 // semantic for convergence. Directory and link projections use none.

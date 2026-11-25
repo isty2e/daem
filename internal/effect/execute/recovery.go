@@ -30,6 +30,7 @@ import (
 // RecoveryOptions configures workflow-owned validation before and after each
 // visibility-changing recovery effect.
 type RecoveryOptions struct {
+	TreeBaseline                recovery.TreeBaseline
 	ValidateBeforeEffects       func(context.Context, mutation.PhysicalAuthoritySet) error
 	ValidateVisibilityAuthority func(context.Context) error
 	AcceptVisibilityChanges     func(context.Context) error
@@ -64,6 +65,7 @@ func ExecuteRecoveryPlanWithOptions(
 	if plan.Classification() == recovery.ClassificationBlocked {
 		return fmt.Errorf("recovery is blocked")
 	}
+	options.TreeBaseline = options.TreeBaseline.With(plan.TreeBaseline())
 	if options.Resolver == nil {
 		return fmt.Errorf("recovery destination resolver is required")
 	}
@@ -526,6 +528,7 @@ func recoveryPlanLoadOptions(
 	authority *mutationAuthority,
 ) journal.PlanLoadOptions {
 	return journal.PlanLoadOptions{
+		TreeBaseline:      options.TreeBaseline,
 		Filesystem:        options.Filesystem,
 		RootedCapability:  authority.destinations.JournalCapability,
 		Resolver:          authority.destinations.JournalResolver(options.Resolver),

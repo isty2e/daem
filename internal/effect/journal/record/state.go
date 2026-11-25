@@ -295,7 +295,7 @@ func validateRecoveryContentHash(value string, context string) error {
 	if value == "" {
 		return nil
 	}
-	if err := artifact.ContentHash(value).Validate(); err != nil {
+	if err := artifact.ContentHash(value).ValidateManaged(); err != nil {
 		return fmt.Errorf("%s: %w", context, err)
 	}
 	return nil
@@ -306,7 +306,7 @@ func validateRecoveryManagedMembership(state recoveryManagedMembership) error {
 		if state.ContentHash == "" {
 			return fmt.Errorf("managed state content hash is required")
 		}
-		if err := artifact.ContentHash(state.ContentHash).Validate(); err != nil {
+		if err := artifact.ContentHash(state.ContentHash).ValidateManaged(); err != nil {
 			return fmt.Errorf("managed state content hash: %w", err)
 		}
 		return nil

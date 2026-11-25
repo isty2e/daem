@@ -16,10 +16,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
 
 type RestorationAction struct {
+	TreeModes           recovery.TreeModes
 	Kind                recovery.ActionKind
 	Scope               target.Scope
 	Destination         string
@@ -252,6 +254,9 @@ func executeRecoveryHostActionPlan(
 				if err != nil {
 					return err
 				}
+				if staged[index].existed {
+					fileMode = staged[index].fileMode
+				}
 				content, err := backup.ReadFile(ctx)
 				if err != nil {
 					return fmt.Errorf("read backup for %q: %w", action.Destination, err)
@@ -284,7 +289,7 @@ func executeRecoveryHostActionPlan(
 				staged[index].attempted = true
 				staged[index].effectState = recoveryWholePathState{
 					existed: true, kind: recovery.PathKindFile,
-					contentHash: action.BackupHash, fileMode: fileMode.Perm(),
+					contentHash: string(artifact.HashFileContentWithExecutable(content, fileMode.Perm()&0o111 != 0)), fileMode: fileMode.Perm(),
 				}
 				staged[index].effectKnown = true
 				if err := authority.operation.CommitFileAgainst(
@@ -311,16 +316,19 @@ func executeRecoveryHostActionPlan(
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
 				staged[index].attempted = true
-				staged[index].effectState = recoveryWholePathState{
-					existed: true, kind: recovery.PathKindDirectory, contentHash: action.BackupHash,
-				}
-				staged[index].effectKnown = true
 				if err := authority.operation.CommitDirectoryAgainst(
 					ctx,
 					destination,
 					staged[index].existed,
 					staged[index].identity,
-					func(writer mutationfs.RootedTreeWriter) error { return backup.CopyDirectory(ctx, writer) },
+					func(writer mutationfs.RootedTreeWriter) error {
+						hash, err := backup.restoreDirectory(ctx, writer, action.TreeModes, staged[index].treeModes)
+						if err == nil {
+							staged[index].effectState = recoveryWholePathState{existed: true, kind: recovery.PathKindDirectory, contentHash: string(hash)}
+							staged[index].effectKnown = true
+						}
+						return err
+					},
 				); err != nil {
 					return fmt.Errorf("restore directory %q: %w", action.Destination, err)
 				}

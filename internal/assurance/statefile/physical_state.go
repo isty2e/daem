@@ -21,6 +21,8 @@ type PhysicalState struct {
 	snapshot durable.Snapshot
 	codec    PhysicalCodec
 	missing  MissingState
+	identity mutationfs.EntryIdentity
+	mode     fs.FileMode
 }
 
 type physicalStateMissingError struct{ cause error }
@@ -32,6 +34,11 @@ func (failure *physicalStateMissingError) Unwrap() error { return failure.cause 
 func (state PhysicalState) Snapshot() durable.Snapshot { return state.snapshot }
 
 func (state PhysicalState) Codec() PhysicalCodec { return state.codec }
+
+// ExistingFile identifies the exact physical file from which the facts were decoded.
+func (state PhysicalState) ExistingFile() (mutationfs.EntryIdentity, fs.FileMode, bool) {
+	return state.identity, state.mode, state.identity != nil
+}
 
 func (state PhysicalState) Missing() (MissingState, bool) {
 	return state.missing, state.missing.Path() != ""
@@ -167,7 +174,7 @@ func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget 
 		return PhysicalState{}, err
 	}
 	codec.selection = selection
-	return PhysicalState{snapshot: snapshot, codec: codec}, nil
+	return PhysicalState{snapshot: snapshot, codec: codec, identity: loaded.Identity(), mode: loaded.Mode().Perm()}, nil
 }
 
 func canonicalPhysicalPath(path string, budget rootedpath.PhysicalTraversalBudget) (string, error) {

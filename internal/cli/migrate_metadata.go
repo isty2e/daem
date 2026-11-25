@@ -16,6 +16,7 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 	flags.Bool("json", false, "emit structured JSON")
 	recoverConversion := flags.Bool("recover", false, "recover interrupted metadata conversion or clean inactive metadata")
 	var references []string
+	baselineTree := baselineTreeFlag(flags)
 	flags.Func("reference", "independently known legacy lookup path; may be repeated", func(path string) error {
 		if path == "" {
 			return fmt.Errorf("reference path is required")
@@ -56,7 +57,7 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 			planMetadata = options.metadataMigrationPlan
 		}
 		prepared, err := planMetadata(options.context, migrate.MetadataInput{
-			ManifestPath: *manifest, Recover: *recoverConversion, References: references,
+			ManifestPath: *manifest, Recover: *recoverConversion, References: references, BaselineTree: *baselineTree,
 		})
 		if err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("migrate metadata failed: "))

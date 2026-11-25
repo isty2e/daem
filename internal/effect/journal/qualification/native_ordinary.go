@@ -17,6 +17,7 @@ import (
 )
 
 type nativeOrdinaryAssessment struct {
+	trees       recovery.TreeBaseline
 	paths       []recovery.PathEvidence
 	backups     []recovery.BackupEvidence
 	entries     recovery.EntryAssessment
@@ -24,6 +25,10 @@ type nativeOrdinaryAssessment struct {
 }
 
 func LoadOrdinaryBackups(ctx context.Context, journal journalrecord.Native, directory string, active journalinventory.ActiveJournalAuthority, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) ([]recovery.Entry, []recovery.BackupEvidence, error) {
+	return LegacyTreeLabels(nil).loadOrdinaryBackups(ctx, journal, directory, active, filesystem, budget)
+}
+
+func (labels LegacyTreeLabels) loadOrdinaryBackups(ctx context.Context, journal journalrecord.Native, directory string, active journalinventory.ActiveJournalAuthority, filesystem mutationfs.RootedReader, budget *physicalwork.Budget) ([]recovery.Entry, []recovery.BackupEvidence, error) {
 	entries, err := journal.OrdinaryEntries(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -32,7 +37,7 @@ func LoadOrdinaryBackups(ctx context.Context, journal journalrecord.Native, dire
 	if err != nil {
 		return nil, nil, err
 	}
-	backups, err := ObserveBackups(ctx, directory, active, views, filesystem, budget)
+	backups, err := labels.ObserveBackups(ctx, directory, active, views, filesystem, budget)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -43,7 +48,8 @@ func LoadOrdinaryBackups(ctx context.Context, journal journalrecord.Native, dire
 }
 
 func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, options NativeReadOptions, registry ownership.Registry) (nativeOrdinaryAssessment, error) {
-	entries, backups, err := LoadOrdinaryBackups(ctx, journal, options.Directory, options.Active, options.Documents.Filesystem, options.Documents.Budget)
+	labels := make(LegacyTreeLabels)
+	entries, backups, err := labels.loadOrdinaryBackups(ctx, journal, options.Directory, options.Active, options.Documents.Filesystem, options.Documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -70,7 +76,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	paths, err := ObservePaths(ctx, ordinaryViews, filesystem, manifest, options.Resolver, options.Documents.OrdinaryCapabilities, options.Documents.Codecs, options.Documents.Budget)
+	paths, err := labels.ObservePaths(ctx, ordinaryViews, filesystem, manifest, options.Resolver, options.Documents.OrdinaryCapabilities, options.Documents.Codecs, options.Documents.Budget)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -82,7 +88,11 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
-	checkpoints, err := ordinaryRetirementCheckpoints(journal, ctx, paths, options)
+	proof := recovery.ObservedTreeBaselines(entries, paths, backups)
+	for i, entry := range entries {
+		entries[i] = proof.LiveEntry(entry)
+	}
+	checkpoints, err := ordinaryRetirementCheckpoints(journal.WithObservedTrees(proof), ctx, paths, options)
 	if err != nil {
 		return nativeOrdinaryAssessment{}, err
 	}
@@ -93,7 +103,7 @@ func assessOrdinaryRecovery(journal journalrecord.Native, ctx context.Context, o
 	if !assessed.Recoverable() {
 		return nativeOrdinaryAssessment{}, &SelectedPhaseError{cause: fmt.Errorf("ordinary host paths differ from the recorded recovery envelope")}
 	}
-	return nativeOrdinaryAssessment{entries: assessed, paths: paths, backups: backups, checkpoints: checkpoints}, nil
+	return nativeOrdinaryAssessment{trees: proof, entries: assessed, paths: paths, backups: backups, checkpoints: checkpoints}, nil
 }
 
 func ordinaryRetirementCheckpoints(journal journalrecord.Native, ctx context.Context, paths []recovery.PathEvidence, options NativeReadOptions) ([]recovery.RemovalCleanupObligation, error) {

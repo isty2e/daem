@@ -17,11 +17,30 @@ import (
 // filesystem traversal. Sibling components use exact Go string order, and a
 // directory precedes every descendant.
 type DirectoryHashBuilder struct {
-	hasher       hash.Hash
-	previousPath string
-	directories  map[string]struct{}
-	result       ContentHash
-	failure      error
+	hasher               hash.Hash
+	installed            hash.Hash
+	legacyCandidate      hash.Hash
+	candidateExecutables ExecutablePaths
+	observedExecutables  ExecutablePaths
+	previousPath         string
+	directories          map[string]struct{}
+	result               ContentHash
+	failure              error
+}
+
+// ExecutablePaths supplies only the executable labels for a candidate hash-v1
+// tree. A match still requires every path, kind and byte in the observed tree.
+type ExecutablePaths map[string]bool
+
+func NewLegacyTreeEvidenceBuilder(candidate, collect ExecutablePaths) *DirectoryHashBuilder {
+	b := NewDirectoryEvidenceBuilder()
+	b.observedExecutables = collect
+	if candidate != nil {
+		b.candidateExecutables = candidate
+		b.legacyCandidate = sha256.New()
+		writeRecord(b.legacyCandidate, hashFormatVersion)
+	}
+	return b
 }
 
 // NewDirectoryHashBuilder starts an empty canonical directory hash.
@@ -34,12 +53,41 @@ func NewDirectoryHashBuilder() *DirectoryHashBuilder {
 	}
 }
 
+// NewDirectoryEvidenceBuilder also computes the installation baseline in the
+// same traversal. Source-only consumers do not pay for this second digest.
+func NewDirectoryEvidenceBuilder() *DirectoryHashBuilder {
+	b := NewDirectoryHashBuilder()
+	b.installed = beginInstalled("directory")
+	return b
+}
+
+func (builder *DirectoryHashBuilder) Hashes() (PathHashes, error) {
+	source, err := builder.Sum()
+	if err != nil {
+		return PathHashes{}, err
+	}
+	if builder.installed == nil {
+		return PathHashes{}, fmt.Errorf("directory has no installed hash")
+	}
+	hashes := PathHashes{Source: source, Installed: finishInstalled(builder.installed)}
+	if builder.legacyCandidate != nil {
+		hashes.Alternate = ContentHash(hashAlgorithm + ":" + hex.EncodeToString(builder.legacyCandidate.Sum(nil)))
+	}
+	return hashes, nil
+}
+
 // AddDirectory appends one directory entry in depth-first component-lexical order.
 func (builder *DirectoryHashBuilder) AddDirectory(relativePath string) error {
 	if err := builder.admit(relativePath); err != nil {
 		return err
 	}
 	writeRecord(builder.hasher, "dir", relativePath)
+	if builder.legacyCandidate != nil {
+		writeRecord(builder.legacyCandidate, "dir", relativePath)
+	}
+	if builder.installed != nil {
+		writeRecord(builder.installed, "dir", relativePath)
+	}
 	builder.directories[relativePath] = struct{}{}
 	return nil
 }
@@ -68,7 +116,19 @@ func (builder *DirectoryHashBuilder) AddFile(
 	writeRecord(builder.hasher, "file", relativePath, executableLabel(executable), strconv.FormatInt(size, 10))
 
 	reader := contextHashReader{ctx: ctx, reader: content}
-	written, err := io.CopyN(builder.hasher, reader, size)
+	var destination io.Writer = builder.hasher
+	if builder.installed != nil {
+		writeRecord(builder.installed, "file", relativePath, strconv.FormatInt(size, 10))
+		destination = io.MultiWriter(builder.hasher, builder.installed)
+	}
+	if builder.observedExecutables != nil && executable {
+		builder.observedExecutables[relativePath] = true
+	}
+	if builder.legacyCandidate != nil {
+		writeRecord(builder.legacyCandidate, "file", relativePath, executableLabel(builder.candidateExecutables[relativePath]), strconv.FormatInt(size, 10))
+		destination = io.MultiWriter(destination, builder.legacyCandidate)
+	}
+	written, err := io.CopyN(destination, reader, size)
 	if err != nil {
 		return builder.fail(fmt.Errorf("hash directory file %q after %d bytes: %w", relativePath, written, err))
 	}
@@ -81,6 +141,9 @@ func (builder *DirectoryHashBuilder) AddFile(
 		return builder.fail(fmt.Errorf("hash directory file %q: %w", relativePath, readErr))
 	}
 	writeRecord(builder.hasher, "endfile")
+	if builder.legacyCandidate != nil {
+		writeRecord(builder.legacyCandidate, "endfile")
+	}
 	return nil
 }
 

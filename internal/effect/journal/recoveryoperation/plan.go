@@ -37,6 +37,7 @@ var ErrNoRecoverableJournal = errors.New("no recoverable journal operation")
 // classification. Rooted capabilities and the ownership reader are borrowed
 // for the load.
 type PlanLoadOptions struct {
+	TreeBaseline       recovery.TreeBaseline
 	RootedCapability   journalnamespace.CapabilityResolver
 	Resolver           func(destination output.Destination) (string, error)
 	OwnershipRegistry  ownershipmutation.RegistryReader
@@ -195,6 +196,19 @@ func ActiveRecoveryPlan(recoverable RecoverablePlan) (recovery.Plan, bool) {
 	return active.plan.Clone(), true
 }
 
+// ObservedTreeBaseline retains digest equivalences proven in this preview so
+// confirmation can recheck the live bytes even if executable bits change.
+func ObservedTreeBaseline(plan RecoverablePlan) recovery.TreeBaseline {
+	switch active := plan.(type) {
+	case activeRecoverablePlan:
+		return active.plan.TreeBaseline()
+	case NativeRecoveryPlan:
+		return active.assessment.OrdinaryTreeBaseline()
+	default:
+		return recovery.TreeBaseline{}
+	}
+}
+
 // ActiveRecoveryJournalAuthority returns operation-local physical evidence for
 // only an active-journal recovery selection.
 func ActiveRecoveryJournalAuthority(
@@ -253,6 +267,9 @@ func LoadRecoverablePlanWithOptions(
 		}
 		if inventory.Active() != nil {
 			if _, release := inventory.Active().Record().NativeRelease(); release {
+				if !options.TreeBaseline.Empty() {
+					return nil, fmt.Errorf("a baseline tree requires an active journal with a recorded directory")
+				}
 				if options.ValidateBeforeActiveObservation != nil {
 					if err := options.ValidateBeforeActiveObservation(ctx, inventory.Active().Record()); err != nil {
 						return nil, err
@@ -431,7 +448,11 @@ func loadActivePlanFromInventory(
 	if inventory.Active() == nil {
 		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
 	}
-	journal, ok := inventory.Active().Record().Ordinary()
+	active, err := inventory.Active().WithTreeBaseline(options.TreeBaseline)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	journal, ok := active.Record().Ordinary()
 	if !ok {
 		return recovery.Plan{}, fmt.Errorf("legacy recovery planning requires a journal15 inventory record")
 	}
@@ -525,7 +546,12 @@ func loadActivePlanFromInventory(
 	if manifestAuthority != nil {
 		defer manifestAuthority.Close()
 	}
-	observations, err := journalqualification.ObservePaths(
+	labels := make(journalqualification.LegacyTreeLabels)
+	backupObservations, err := labels.ObserveBackups(ctx, operationDir, inventory.Active().PhysicalAuthority(), planningEntries, options.Filesystem, planningBudget)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	observations, err := labels.ObservePaths(
 		ctx,
 		planningEntries,
 		options.Filesystem,
@@ -544,17 +570,6 @@ func loadActivePlanFromInventory(
 		provisionalAcquires,
 		registry,
 		resolver,
-		planningBudget,
-	)
-	if err != nil {
-		return recovery.Plan{}, err
-	}
-	backupObservations, err := journalqualification.ObserveBackups(
-		ctx,
-		operationDir,
-		inventory.Active().PhysicalAuthority(),
-		planningEntries,
-		options.Filesystem,
 		planningBudget,
 	)
 	if err != nil {

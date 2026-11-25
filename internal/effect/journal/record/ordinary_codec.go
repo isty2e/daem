@@ -276,6 +276,9 @@ func validateRecoveryJournal(journal recoveryJournal, stateEncoder durable.Snaps
 }
 
 func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
+	if err := validateInstalledEvidenceVersion(journal.Version, journal.StatefileBefore, journal.StatefileAfter, journal.Entries); err != nil {
+		return err
+	}
 	if !SupportsOrdinaryVersion(journal.Version) {
 		return fmt.Errorf("unsupported recovery journal version %d", journal.Version)
 	}

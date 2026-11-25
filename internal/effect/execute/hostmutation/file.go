@@ -116,6 +116,9 @@ func (path PreparedPath) Remove(ctx context.Context) error {
 	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
+	if _, err := precondition.refreshTree(ctx); err != nil {
+		return err
+	}
 	capability, err := precondition.takeRootedCapability()
 	if err != nil {
 		return err
@@ -131,6 +134,23 @@ func (path PreparedPath) WriteFile(ctx context.Context, content []byte, fileMode
 	}
 	if !precondition.destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
+	}
+	if precondition.existed && precondition.hash.IsInstalled() {
+		identity, err := precondition.filesystem.CaptureRootedEntryIdentity(ctx, precondition.capability)
+		if err != nil {
+			return err
+		}
+		if !precondition.identity.Equal(identity) {
+			live, mode, current, err := precondition.filesystem.ReadRootedRegularFile(ctx, precondition.capability)
+			if err != nil {
+				return err
+			}
+			if !sameManagedObject(precondition.identity, current) || !precondition.hash.MatchesFile(live) {
+				return fmt.Errorf("managed file %q changed while preparing publication", precondition.destination.Logical())
+			}
+			precondition.identity, precondition.fileMode = current, mode.Perm()
+		}
+		fileMode = precondition.fileMode
 	}
 	capability, err := precondition.takeRootedCapability()
 	if err != nil {

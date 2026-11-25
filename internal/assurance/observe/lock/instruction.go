@@ -58,16 +58,19 @@ func instructionLockObservations(
 		}
 		lockedIdentity, hasIdentity := candidate.locked.ExactSupply()
 		stale := !hasIdentity || !lockedIdentity.Equal(identity)
+		var hashes artifact.PathHashes
 		if !stale {
-			if err := resolution.View().Verify(ctx, identity); err != nil {
+			hashes, err = resolution.View().PathHashes(ctx)
+			if err != nil {
 				return nil, fmt.Errorf("instructions %q: verify source: %w", resource.ID().Name(), err)
 			}
+			stale = hashes.Source != identity.ContentHash()
 		}
 		observation, err := observe.NewExactSupplyObservation(candidate.locked.SubjectID(), stale)
 		if err != nil {
 			return nil, err
 		}
-		observations = append(observations, observation)
+		observations = append(observations, observation.WithInstalledHash(hashes.Installed))
 	}
 
 	return observations, nil

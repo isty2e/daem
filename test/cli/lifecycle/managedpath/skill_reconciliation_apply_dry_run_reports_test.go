@@ -230,5 +230,5 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, filepath.Join(tempDir, "skills/oracle")))
 }

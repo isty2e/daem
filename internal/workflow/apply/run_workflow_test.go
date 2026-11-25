@@ -64,7 +64,7 @@ func TestRunWritesSelectedInstructionOutputAndStatefile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load statefile: %v", err)
 	}
-	assertApplyStateResource(t, state, "project", "codex", "project", "AGENTS.md", instructionHash)
+	assertApplyStateResource(t, state, "project", "codex", "project", "AGENTS.md", string(artifact.InstalledFileHash([]byte("shared instructions\n"))))
 	assertApplyStateResource(t, state, "project", "claude-code", "project", "CLAUDE.md", claudeOldHash)
 	assertNoApplyRecoveryArtifacts(t, paths)
 }

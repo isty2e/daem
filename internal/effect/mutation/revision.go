@@ -35,6 +35,7 @@ const (
 	revisionCaptureBoundedFile
 	revisionCaptureRequiredAbsentEntry
 	revisionCaptureDirectoryListing
+	revisionCaptureInstalledContent
 )
 
 // RevisionRequest identifies the boundary observation used to capture a revision.
@@ -54,6 +55,16 @@ func NewBoundedContentRevisionRequest(path string, effect PathEffect) RevisionRe
 		Effect:      effect,
 		captureMode: revisionCaptureContent,
 	}
+}
+
+// NewInstalledContentRevisionRequest binds approval to installed bytes and tree
+// structure. The same path used as supply still has an executable-sensitive revision.
+func NewInstalledContentRevisionRequest(path string, effect PathEffect) RevisionRequest {
+	return RevisionRequest{Path: path, Effect: effect, captureMode: revisionCaptureInstalledContent}
+}
+
+func (request RevisionRequest) IsInstalledContent() bool {
+	return request.captureMode == revisionCaptureInstalledContent
 }
 
 // NewBoundedFileRevisionRequest observes an absent path or one regular file
@@ -291,6 +302,7 @@ func captureRevision(
 			return SnapshotRevision{}, err
 		}
 		hasher := newRevisionHasher(identity.keyPath, revisionFile)
+		treeBudget.installed = request.IsInstalledContent()
 		if err := hashRevisionFile(
 			ctx,
 			hasher,
@@ -331,6 +343,7 @@ func captureRevision(
 			return SnapshotRevision{}, err
 		}
 		hasher := newRevisionHasher(identity.keyPath, revisionDirectory)
+		treeBudget.installed = request.IsInstalledContent()
 		if err := hashRevisionDirectory(
 			ctx,
 			hasher,
@@ -669,15 +682,11 @@ func hashRevisionOpenedFile(
 	if err := budget.admitTreeBytes(entry.size); err != nil {
 		return err
 	}
-	executable := "not-executable"
-	if entry.executable() {
-		executable = "executable"
-	}
 	writeRevisionRecord(
 		hasher,
 		"file",
 		filepath.ToSlash(relative),
-		executable,
+		budget.executionLabel(entry.executable()),
 		strconv.FormatInt(entry.size, 10),
 	)
 	reader := &revisionContextReader{ctx: ctx, reader: file}
@@ -724,11 +733,7 @@ func hashRevisionFile(
 	if err := budget.admitBytes(opened.Size()); err != nil {
 		return err
 	}
-	executable := "not-executable"
-	if opened.Mode().Perm()&0o111 != 0 {
-		executable = "executable"
-	}
-	writeRevisionRecord(hasher, "file", filepath.ToSlash(relative), executable, strconv.FormatInt(opened.Size(), 10))
+	writeRevisionRecord(hasher, "file", filepath.ToSlash(relative), budget.executionLabel(opened.Mode().Perm()&0o111 != 0), strconv.FormatInt(opened.Size(), 10))
 	reader := &revisionContextReader{ctx: ctx, reader: file}
 	if _, err := io.CopyN(hasher, reader, opened.Size()); err != nil {
 		return fmt.Errorf("read mutation revision file %q: %w", path, err)

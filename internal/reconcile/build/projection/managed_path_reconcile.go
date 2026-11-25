@@ -18,17 +18,17 @@ func reconcileManagedPathDesired(
 	evidence map[managedPathEvidenceKey]observe.ManagedPathEvidence,
 	manageUnmanagedMatches bool,
 ) managedPathDecision {
+	matchesBaseline := hasState && current.Matches(state.ContentHash())
+	modeAccepted := realization.IsInstalledContentSubject(input.Subject) || input.PermissionPolicy.AcceptsMode(input.DesiredFileMode, current.FileMode())
 	if !hasState {
 		if !current.Exists() {
 			return newManagedPathCreate(input, reconcile.ReasonMissingOutput)
 		}
-		if manageUnmanagedMatches && current.ContentHash() == input.DesiredHash &&
-			input.PermissionPolicy.AcceptsMode(input.DesiredFileMode, current.FileMode()) {
+		if manageUnmanagedMatches && current.Matches(input.DesiredHash) && modeAccepted {
 			return newManagedPathRecord(input, reconcile.ReasonManagedExisting, "")
 		}
 		detail := "destination exists but is not recorded as managed"
-		if input.ContentKind == realization.PathProjectionFile &&
-			!input.PermissionPolicy.AcceptsMode(input.DesiredFileMode, current.FileMode()) {
+		if input.ContentKind == realization.PathProjectionFile && !modeAccepted {
 			detail = "destination exists with a different file mode and is not recorded as managed"
 		}
 		return newManagedPathBlocked(input, reconcile.ReasonUnmanagedOutputExists, detail)
@@ -43,8 +43,8 @@ func reconcileManagedPathDesired(
 			return newManagedPathBlocked(input, reconcile.ReasonMissingLiveObservation, "fresh evidence for the previous managed destination is required")
 		}
 		retirePrevious := !previousEvidence.Exists() && aggregate.IsAgentConfigDocumentSubject(input.Subject)
-		if !retirePrevious && (!previousEvidence.Exists() || previousEvidence.ContentHash() != state.ContentHash() ||
-			!state.PermissionPolicy().AcceptsMode(state.FileMode(), previousEvidence.FileMode())) {
+		if !retirePrevious && (!previousEvidence.Matches(state.ContentHash()) ||
+			!realization.IsInstalledContentSubject(state.Subject()) && !state.PermissionPolicy().AcceptsMode(state.FileMode(), previousEvidence.FileMode())) {
 			return newManagedPathBlocked(input, reconcile.ReasonDriftedOutput, "previous managed destination differs from statefile baseline")
 		}
 		if current.Exists() {
@@ -54,6 +54,7 @@ func reconcileManagedPathDesired(
 			input.RetiresAbsentPrevious = true
 			return newManagedPathReplace(input, reconcile.ReasonContentChanged, "previous managed destination is absent")
 		}
+		input.PreviousObservation = previousEvidence
 		return newManagedPathReplace(input, reconcile.ReasonContentChanged, "managed destination changed")
 	}
 
@@ -67,16 +68,16 @@ func reconcileManagedPathDesired(
 			"current path kind cannot satisfy the desired placement mode",
 		)
 	}
-	if current.ContentHash() != state.ContentHash() && current.ContentHash() != input.DesiredHash {
-		return newManagedPathBlocked(input, reconcile.ReasonDriftedOutput, "managed output content differs from statefile baseline")
+	if !matchesBaseline && !current.Matches(input.DesiredHash) {
+		return newManagedPathBlocked(input, reconcile.ReasonDriftedOutput, baselineMismatch(state))
 	}
-	if current.ContentHash() != input.DesiredHash {
+	if !current.Matches(input.DesiredHash) {
 		return newManagedPathReplace(input, reconcile.ReasonContentChanged, "")
 	}
-	if !input.PermissionPolicy.AcceptsMode(input.DesiredFileMode, current.FileMode()) {
+	if !modeAccepted {
 		return newManagedPathReplace(input, reconcile.ReasonFileModeChanged, "")
 	}
-	if state.ContentHash() != input.DesiredHash ||
+	if !matchesBaseline ||
 		state.PermissionPolicy() != input.PermissionPolicy ||
 		(state.PermissionPolicy() == realization.PathPermissionsExact && state.FileMode() != input.DesiredFileMode) ||
 		!sameManagedPathConsumers(state.ConsumerTargets(), input.ConsumerTargets) {

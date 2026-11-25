@@ -299,7 +299,7 @@ func TestRecoveryBackupObservationRejectsExhaustedPathBudgetBeforePayloadWork(t 
 	}
 	before := budget.RemainingTreeWork()
 
-	_, err := journalqualification.ObserveBackups(
+	_, err := journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
@@ -340,7 +340,7 @@ func TestRecoveryBackupObservationRejectsReplacedOperationDirectory(t *testing.T
 		BackupPath: "backups/file",
 	})
 
-	_, err = journalqualification.ObserveBackups(
+	_, err = journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		t.Context(),
 		operationDir,
 		authority,
@@ -377,7 +377,7 @@ func TestRecoveryBackupObservationRejectsOperationDirectoryReplacementAfterIdent
 		movedDir:     filepath.Join(parent, "moved-operation"),
 	}
 
-	_, err = journalqualification.ObserveBackups(
+	_, err = journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		t.Context(),
 		operationDir,
 		authority,
@@ -405,7 +405,7 @@ func TestRecoveryBackupObservationReportsMissingBoundedEntry(t *testing.T) {
 		BackupPath: "backups/missing",
 	})
 
-	observations, err := journalqualification.ObserveBackups(
+	observations, err := journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
@@ -435,7 +435,7 @@ func TestRecoveryBackupObservationRejectsSymlink(t *testing.T) {
 		BackupPath: "backups/link",
 	})
 
-	observations, err := journalqualification.ObserveBackups(
+	observations, err := journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		t.Context(),
 		operationDir,
 		recoveryBackupActiveAuthorityForTest(t, operationDir),
@@ -453,7 +453,7 @@ func TestRecoveryBackupObservationRejectsSymlink(t *testing.T) {
 }
 
 func TestRecoveryBackupObservationsNeedNoFilesystemWithoutBackupEvidence(t *testing.T) {
-	observations, err := journalqualification.ObserveBackups(
+	observations, err := journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		t.Context(),
 		"unused",
 		journalinventory.ActiveJournalAuthority{},
@@ -693,7 +693,7 @@ func recoveryBackupObservationsForTest(
 	if err != nil {
 		t.Fatalf("canonicalize recovery operation directory: %v", err)
 	}
-	return journalqualification.ObserveBackups(
+	return journalqualification.LegacyTreeLabels(nil).ObserveBackups(
 		ctx,
 		canonicalOperationDir,
 		recoveryBackupActiveAuthorityForTest(t, canonicalOperationDir),

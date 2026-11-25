@@ -46,6 +46,7 @@ type hostRollbackEntry struct {
 	backupPath         string
 	backup             RollbackBackup
 	fileMode           os.FileMode
+	treeModes          map[string]os.FileMode
 	identity           mutationfs.EntryIdentity
 	stagedState        recoveryWholePathState
 	stagedWork         workmeasure.ArtifactWork

@@ -147,6 +147,8 @@ func (authority RemovalNamespaceAuthority) equal(other RemovalNamespaceAuthority
 type RemovalState struct {
 	before   *BeforePathState
 	expected *ExpectedPathState
+	// A proven digest for comparing live bytes, not part of the recorded demand.
+	installedTree string
 }
 
 // MaximumRemovalStatesPerIntent admits at most the complete before and
@@ -163,6 +165,7 @@ func NewBeforeRemovalState(state BeforePathState) (RemovalState, error) {
 	// removable rooted entry. Keeping it out of the demand basis prevents
 	// capture-time backup allocation from changing execute-time authority.
 	copy.BackupPath = ""
+	copy.TreeModes = ""
 	return RemovalState{before: &copy}, nil
 }
 
@@ -409,6 +412,7 @@ const (
 // RemovalResidueEntryObservation is a bounded, no-follow semantic projection of
 // one exact residue entry. It carries no filesystem capability.
 type RemovalResidueEntryObservation struct {
+	hashes            ContentEvidence
 	status            RemovalResidueEntryStatus
 	kind              string
 	contentHash       string
@@ -599,6 +603,11 @@ func (obligation RemovalCleanupObligation) Discharge() (RemovalCleanupObligation
 	return obligation, nil
 }
 
+func (observation RemovalResidueEntryObservation) WithContentHashes(hashes ContentEvidence) RemovalResidueEntryObservation {
+	observation.hashes = hashes
+	return observation
+}
+
 // Equal compares the complete immutable obligation/result value.
 func (obligation RemovalCleanupObligation) Equal(other RemovalCleanupObligation) bool {
 	return obligation.intent.equal(other.intent) &&
@@ -765,6 +774,9 @@ func (intent RemovalIntent) AdmitsCleanupProgress(observation RemovalResidueEntr
 }
 
 func removalStateAdmitsEntry(state RemovalState, observation RemovalResidueEntryObservation) bool {
+	if state.installedTree != "" && observation.kind == PathKindDirectory && observation.hashes.Installed == state.installedTree {
+		return true
+	}
 	if before, present := state.Before(); present {
 		return before.Existed && observation.matchesEntry(before.Kind, before.ContentHash, before.PathMode, before.LinkTarget, before.PathExisted)
 	}
@@ -775,6 +787,9 @@ func removalStateAdmitsEntry(state RemovalState, observation RemovalResidueEntry
 func (observation RemovalResidueEntryObservation) matchesEntry(kind, hash string, mode *PermissionMode, linkTarget string, documentRoot bool) bool {
 	if observation.kind != kind || observation.linkTarget != linkTarget {
 		return false
+	}
+	if !documentRoot && observation.hashes.Installed != "" && (kind == PathKindFile || kind == PathKindDirectory) {
+		return observation.hashes.Matches(hash)
 	}
 	if documentRoot && kind == PathKindFile && mode != nil && observation.pathMode != nil {
 		if (*mode&0o111 != 0) != (*observation.pathMode&0o111 != 0) {

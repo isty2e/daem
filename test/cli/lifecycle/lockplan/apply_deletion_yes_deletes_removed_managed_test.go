@@ -198,7 +198,7 @@ render_to = "AGENTS.md"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResourceNamed(t, state, "updated", "codex", "project", "AGENTS.md", updatedHash)
+	testkit.AssertStateResourceNamed(t, state, "updated", "codex", "project", "AGENTS.md", testkit.InstalledHash(t, filepath.Join(tempDir, "AGENTS.md")))
 	testkit.AssertStateResourceMissing(t, state, "removed", "claude-code", "project", "CLAUDE.md")
 	testkit.AssertNoRecoveryArtifacts(t, tempDir)
 }

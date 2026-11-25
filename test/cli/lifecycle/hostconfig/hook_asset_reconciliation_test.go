@@ -76,8 +76,11 @@ func TestHookAssetPublicCLILifecycleForCodexAndClaude(t *testing.T) {
 	assertHookAssetStateExactMode(t, state, hookAssetStatePath("guard", assetHash), 0o700)
 	testkit.AssertManagedPathState(
 		t, state, entity.KindHookAsset, "guard", []string{"claude-code", "codex"},
-		"project", hookAssetStatePath("guard", assetHash), assetHash, "file",
+		"project", hookAssetStatePath("guard", assetHash), string(artifact.InstalledFileHash([]byte(scriptContent))), "file",
 	)
+	if err := os.Chmod(assetDestination, 0o640); err != nil {
+		t.Fatal(err)
+	}
 
 	statusStdout, _ := runHookAssetCLI(t, []string{"status", "--manifest", manifestPath}, 0)
 	for _, want := range []string{
@@ -130,7 +133,7 @@ func TestHookAssetPublicCLILifecycleForCodexAndClaude(t *testing.T) {
 	testkit.AssertManagedPathStateMissing(t, state, entity.KindHookAsset, "guard", "project", hookAssetStatePath("guard", assetHash))
 	testkit.AssertManagedPathState(
 		t, state, entity.KindHookAsset, "guard", []string{"claude-code", "codex"},
-		"project", hookAssetStatePath("guard", updatedAssetHash), updatedAssetHash, "file",
+		"project", hookAssetStatePath("guard", updatedAssetHash), string(artifact.InstalledFileHash([]byte(updatedScriptContent))), "file",
 	)
 
 	testkit.WriteHookManifestAndLock(t, tempDir, hookAssetManifest("echo done"))
@@ -157,7 +160,7 @@ func TestHookAssetPublicCLILifecycleForCodexAndClaude(t *testing.T) {
 	testkit.AssertManagedPathStateMissing(t, state, entity.KindHookAsset, "guard", "project", hookAssetStatePath("guard", updatedAssetHash))
 }
 
-func TestHookAssetPublicCLIManageExistingRequiresExactMode(t *testing.T) {
+func TestHookAssetPublicCLIAdoptsMatchingContentWithoutChangingPermissions(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	scriptContent := "#!/bin/sh\necho guard\n"
@@ -172,19 +175,8 @@ func TestHookAssetPublicCLIManageExistingRequiresExactMode(t *testing.T) {
 		t.Fatalf("Chmod returned error: %v", err)
 	}
 
-	stdout, stderr := runHookAssetCLI(t, []string{"apply", "--manifest", manifestPath, "--manage-existing", "--yes"}, 1)
-	if !strings.Contains(stdout+stderr, "unmanaged_output_exists") ||
-		!strings.Contains(stdout+stderr, "different file mode") {
-		t.Fatalf("stdout=%q stderr=%q, want mode mismatch unmanaged diagnostic", stdout, stderr)
-	}
-	testkit.AssertPathMissing(t, filepath.Join(tempDir, ".codex/hooks.json"))
-	testkit.AssertPathMissing(t, filepath.Join(tempDir, ".daem/state.json"))
+	stdout, _ := runHookAssetCLI(t, []string{"apply", "--manifest", manifestPath, "--manage-existing", "--yes"}, 0)
 	assertFileMode(t, assetDestination, 0o755)
-
-	if err := os.Chmod(assetDestination, 0o700); err != nil {
-		t.Fatalf("Chmod returned error: %v", err)
-	}
-	stdout, _ = runHookAssetCLI(t, []string{"apply", "--manifest", manifestPath, "--manage-existing", "--yes"}, 0)
 	if !strings.Contains(stdout, `record resource="hook_asset/guard"`) ||
 		!strings.Contains(stdout, "reason=managed_existing") {
 		t.Fatalf("stdout = %q, want managed_existing record for exact content/mode asset", stdout)
@@ -192,7 +184,7 @@ func TestHookAssetPublicCLIManageExistingRequiresExactMode(t *testing.T) {
 	state := loadHookAssetState(t, tempDir)
 	testkit.AssertManagedPathState(
 		t, state, entity.KindHookAsset, "guard", []string{"claude-code", "codex"},
-		"project", hookAssetStatePath("guard", assetHash), assetHash, "file",
+		"project", hookAssetStatePath("guard", assetHash), string(artifact.InstalledFileHash([]byte(scriptContent))), "file",
 	)
 }
 

@@ -81,11 +81,16 @@ source = "instructions/AGENTS.md"
 	if err := os.Chmod(destinationPath, 0o700); err != nil {
 		t.Fatalf("Chmod destination to 0700 returned error: %v", err)
 	}
-	stdout = runInstructionModeCLI(t, []string{"apply", "--manifest", manifestPath, "--yes"}, 1)
-	if !strings.Contains(stdout, "drifted_output") {
-		t.Fatalf("apply output = %q, want executable-bit drift rejection", stdout)
-	}
+	runInstructionModeCLI(t, []string{"status", "--manifest", manifestPath, "--check"}, 0)
+	runInstructionModeCLI(t, []string{"apply", "--manifest", manifestPath, "--yes"}, 0)
+	testkit.WriteFile(t, root, "instructions/AGENTS.md", "updated instructions\n")
+	runInstructionModeCLI(t, []string{"lock", "--manifest", manifestPath}, 0)
+	runInstructionModeCLI(t, []string{"apply", "--manifest", manifestPath, "--yes"}, 0)
+	testkit.AssertFileContent(t, destinationPath, "updated instructions\n")
 	assertInstructionMode(t, destinationPath, 0o700)
+	testkit.WriteFile(t, root, "AGENTS.md", "user edit\n")
+	runInstructionModeCLI(t, []string{"apply", "--manifest", manifestPath, "--yes"}, 1)
+	testkit.AssertFileContent(t, destinationPath, "user edit\n")
 	testkit.AssertNoRecoveryArtifacts(t, root)
 }
 

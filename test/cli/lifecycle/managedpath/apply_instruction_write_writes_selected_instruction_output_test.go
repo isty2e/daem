@@ -108,8 +108,9 @@ targets = ["codex", "claude-code"]
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", instructionHash)
-	testkit.AssertStateResource(t, state, "claude-code", "CLAUDE.md", instructionHash)
+	installed := testkit.InstalledHash(t, filepath.Join(tempDir, "AGENTS.md"))
+	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", installed)
+	testkit.AssertStateResource(t, state, "claude-code", "CLAUDE.md", installed)
 }
 
 func TestRunApplyUpdatesManagedInstructionOutputAndCapturesBackup(t *testing.T) {
@@ -156,7 +157,7 @@ source = "instructions/AGENTS.md"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", newHash)
+	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", testkit.InstalledHash(t, filepath.Join(tempDir, "AGENTS.md")))
 	testkit.AssertNoRecoveryArtifacts(t, tempDir)
 }
 

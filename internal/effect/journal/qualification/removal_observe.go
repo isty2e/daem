@@ -96,8 +96,9 @@ func ObserveRootedRemovalEntry(
 			)
 			return observation, observed, work, observationErr
 		}
-		entry, err := recovery.NewRemovalFileObservation(recovery.PermissionMode(mode.Perm()),
-			string(artifact.HashFileContent(content)), string(artifact.HashFileContentWithExecutable(content, true)))
+		hashes := artifact.FileHashes(content, false)
+		entry, err := recovery.NewRemovalFileObservation(recovery.PermissionMode(mode.Perm()), string(hashes.Source), string(hashes.Alternate))
+		entry = entry.WithContentHashes(recoveryContentEvidence(hashes))
 		return entry, observed, work, err
 	case mutationfs.EntryKindDirectory:
 		sink := newRootedTreeHashSink(ctx)
@@ -134,7 +135,7 @@ func ObserveRootedRemovalEntry(
 		if workErr := budget.AdmitTreeWithin(work, maximumWork); workErr != nil {
 			return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, workErr
 		}
-		hash, hashErr := sink.hash()
+		hashes, hashErr := sink.hasher.Hashes()
 		if hashErr != nil {
 			observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 				recovery.RemovalResidueEntryUnavailable,
@@ -145,9 +146,9 @@ func ObserveRootedRemovalEntry(
 		observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 			recovery.RemovalResidueEntryPresent,
 			recovery.PathKindDirectory,
-			string(hash), nil, "", "",
+			string(hashes.Source), nil, "", "",
 		)
-		return observation, observed, work, observationErr
+		return observation.WithContentHashes(recoveryContentEvidence(hashes)), observed, work, observationErr
 	case mutationfs.EntryKindSymlink, mutationfs.EntryKindSpecial:
 		observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 			recovery.RemovalResidueEntryUnsupported,

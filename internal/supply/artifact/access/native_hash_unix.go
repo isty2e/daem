@@ -21,6 +21,10 @@ func walkNative(
 	sink TreeSink,
 	budget *traversalBudget,
 ) (result artifact.ContentHash, resultErr error) {
+	return walkNativeHashes(ctx, view, sink, budget, nil, nil)
+}
+
+func walkNativeHashes(ctx context.Context, view View, sink TreeSink, budget *traversalBudget, hashes *artifact.PathHashes, tree *artifact.DirectoryHashBuilder) (result artifact.ContentHash, resultErr error) {
 	handle, err := openNativeRoot(ctx, view.root, view.kind, view.rootAuthority)
 	if err != nil {
 		return "", err
@@ -37,9 +41,14 @@ func walkNative(
 	var contentHash artifact.ContentHash
 	switch handle.entry.kind {
 	case nativeKindFile:
-		contentHash, err = hashNativeFile(ctx, handle.entry, ".", sink)
+		if hashes != nil {
+			*hashes, err = artifact.FileHashesFromReader(ctx, &nativeFileReader{ctx: ctx, fd: handle.entry.fd}, handle.entry.size, handle.entry.mode.Perm()&0o111 != 0)
+			contentHash = hashes.Source
+		} else {
+			contentHash, err = hashNativeFile(ctx, handle.entry, ".", sink)
+		}
 	case nativeKindDirectory:
-		contentHash, err = hashNativeDirectory(ctx, handle.entry, sink, budget)
+		contentHash, err = hashNativeDirectory(ctx, handle.entry, sink, budget, hashes, tree)
 	default:
 		err = fmt.Errorf("artifact access root has unsupported kind")
 	}
@@ -92,13 +101,19 @@ func hashNativeDirectory(
 	root nativeEntry,
 	sink TreeSink,
 	budget *traversalBudget,
+	hashes *artifact.PathHashes,
+	builder *artifact.DirectoryHashBuilder,
 ) (artifact.ContentHash, error) {
 	if sink != nil {
 		if err := sink.BeginDirectory(".", root.mode); err != nil {
 			return "", err
 		}
 	}
-	builder := artifact.NewDirectoryHashBuilder()
+	if builder == nil && hashes != nil {
+		builder = artifact.NewDirectoryEvidenceBuilder()
+	} else if builder == nil {
+		builder = artifact.NewDirectoryHashBuilder()
+	}
 	if err := hashNativeDirectoryEntries(ctx, root.fd, ".", 0, builder, sink, budget); err != nil {
 		return "", err
 	}
@@ -106,6 +121,11 @@ func hashNativeDirectory(
 		if err := sink.EndDirectory(".", root.mode); err != nil {
 			return "", err
 		}
+	}
+	if hashes != nil {
+		var err error
+		*hashes, err = builder.Hashes()
+		return hashes.Source, err
 	}
 	return builder.Sum()
 }

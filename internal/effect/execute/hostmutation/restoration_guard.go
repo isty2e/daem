@@ -85,19 +85,13 @@ func validateRecoveryExpectedFile(
 		expected.PathExisted ||
 		expected.Kind != recovery.PathKindFile ||
 		expected.LinkTarget != "" ||
-		expected.PathMode == nil ||
-		expected.PathMode.FileMode().Perm() != mode.Perm() {
+		expected.PathMode == nil {
 		return fmt.Errorf("recovery file %q differs from expected kind or mode", action.Destination)
 	}
-	contentHash := string(artifact.HashFileContentWithExecutable(
-		content,
-		mode.Perm()&0o111 != 0,
-	))
-	if contentHash != expected.ContentHash {
+	if !artifact.ContentHash(expected.ContentHash).MatchesFile(content) {
 		return fmt.Errorf(
-			"recovery file %q hash %q does not match expected %q",
+			"recovery file %q does not match expected hash %q",
 			action.Destination,
-			contentHash,
 			expected.ContentHash,
 		)
 	}
@@ -327,26 +321,35 @@ func stageRootedRollbackDestinations(
 			return nil, fmt.Errorf("charge rooted rollback directory staging: %w", err)
 		}
 		contentHash := sink.contentHash()
+		hashes, err := sink.hashBuilder.Hashes()
+		if err != nil {
+			return nil, err
+		}
 		for _, action := range actions {
+			observed := contentHash
+			if artifact.ContentHash(action.action.ExpectedAfter.ContentHash).IsInstalled() {
+				observed = hashes.Installed
+			}
 			if err := validateRecoveryExpectedDirectory(
 				action.action,
-				string(contentHash),
+				string(observed),
 				string(artifact.ArtifactKindDirectory),
 			); err != nil {
 				return nil, err
 			}
 		}
 		baseline.kind = recovery.PathKindDirectory
+		baseline.treeModes = sink.modes
 		baseline.stagedWork = work
 		baseline.identity = captured
 		baseline.stagedState = recoveryWholePathState{
-			existed: true, kind: recovery.PathKindDirectory, contentHash: string(contentHash),
+			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hashes.Installed),
 		}
 		baseline.backup, err = OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,
-			baseline.stagedState.contentHash,
+			string(contentHash),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("bind rooted rollback directory %q: %w", destination.Logical(), err)
@@ -469,12 +472,12 @@ func observeRecoveryWholePathState(
 				destination.Logical(),
 			)
 		}
-		hash, err := sink.Sum()
+		hashes, err := sink.builder.Hashes()
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}
 		return recoveryWholePathState{
-			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hash),
+			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hashes.Installed),
 		}, captured, nil
 	}
 	return recoveryWholePathState{}, nil, fmt.Errorf("rollback source %q has no admitted state", destination.Logical())
@@ -573,6 +576,7 @@ func recoveryStageMaximumFileBytes(
 }
 
 type rollbackTreeBackupSink struct {
+	modes          map[string]fs.FileMode
 	ctx            context.Context
 	root           string
 	hashBuilder    *artifact.DirectoryHashBuilder
@@ -596,7 +600,7 @@ func newRollbackTreeBackupSink(
 	return &rollbackTreeBackupSink{
 		ctx:         ctx,
 		root:        root,
-		hashBuilder: artifact.NewDirectoryHashBuilder(),
+		hashBuilder: artifact.NewDirectoryEvidenceBuilder(), modes: make(map[string]fs.FileMode),
 	}
 }
 
@@ -607,6 +611,7 @@ func (sink *rollbackTreeBackupSink) VisitRoot(mode fs.FileMode) error {
 	if err := os.Mkdir(sink.root, 0o700); err != nil {
 		return err
 	}
+	sink.modes["."] = mode.Perm() | fs.ModeDir
 	sink.directoryModes = append(sink.directoryModes, rollbackTreeDirectoryMode{
 		path: sink.root,
 		mode: mode.Perm(),
@@ -629,6 +634,7 @@ func (sink *rollbackTreeBackupSink) VisitDirectory(
 	if err := sink.hashBuilder.AddDirectory(path.Path()); err != nil {
 		return err
 	}
+	sink.modes[path.Path()] = mode.Perm() | fs.ModeDir
 	sink.entries++
 	sink.directoryModes = append(sink.directoryModes, rollbackTreeDirectoryMode{
 		path: backupPath,
@@ -651,6 +657,7 @@ func (sink *rollbackTreeBackupSink) VisitRegularFile(
 	}
 	sink.entries++
 	sink.bytes += size
+	sink.modes[path.Path()] = mode.Perm()
 	backupPath := filepath.Join(sink.root, filepath.FromSlash(path.Path()))
 	file, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -18,6 +19,30 @@ type Loaded struct {
 	native      *Native
 	release     *NativeRelease
 	nativeCodec durable.SnapshotCodec
+}
+
+// WithTreeBaseline binds the supplied digest pair to a recorded physical
+// directory. The admitted wire record and its authority fingerprint stay intact.
+func (record Loaded) WithTreeBaseline(proof recovery.TreeBaseline) (Loaded, error) {
+	if proof.Empty() {
+		return record, nil
+	}
+	var entries []recoveryEntry
+	if ordinary, ok := record.Ordinary(); ok {
+		entries = ordinary.record.Entries
+		ordinary.treeBaseline = ordinary.treeBaseline.With(proof)
+		record.ordinary = &ordinary
+	} else if native, ok := record.Native(); ok {
+		entries = native.record.Entries
+		native.treeBaseline = native.treeBaseline.With(proof)
+		record.native = &native
+	}
+	for _, entry := range entries {
+		if proof.Matches(entry.Before.Kind, entry.Before.ContentHash) || proof.Matches(entry.ExpectedAfter.Kind, entry.ExpectedAfter.ContentHash) {
+			return record, nil
+		}
+	}
+	return Loaded{}, fmt.Errorf("baseline tree does not match a recorded directory in the active journal")
 }
 
 func (record Loaded) Initialized() bool {
@@ -128,7 +153,7 @@ func DecodeNativeSnapshot(ctx context.Context, snapshot mutationfs.RegularFileSn
 	if !SupportsNativeVersion(version) {
 		return Loaded{}, UnsupportedVersion(version)
 	}
-	if version == native17Version {
+	if version == native17Version || version == nativeInstalledVersion {
 		var purpose struct {
 			Purpose string `json:"purpose"`
 		}

@@ -232,6 +232,12 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			return err
 		}
 		for _, consumer := range consumers {
+			if kind == physicalOccupancyWholePath {
+				if err := builder.AddInstalledPathPair(path, string(consumer), string(scope), write); err != nil {
+					return err
+				}
+				continue
+			}
 			if write {
 				if err := builder.AddDocumentWritePair(path, string(consumer), string(scope)); err != nil {
 					return err

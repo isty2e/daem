@@ -33,6 +33,13 @@ import (
 
 func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec snapshotCodec) (durable.Snapshot, error) {
 	var hookSettings durable.ClaudeHookSettings
+	installed := version == installedSnapshotVersion
+	if installed {
+		version = snapshotVersion
+		if len(persisted.ClaudeHookSettings) != 0 {
+			version = hookPlacementSnapshotVersion
+		}
+	}
 	if version == hookPlacementSnapshotVersion {
 		var path string
 		if err := json.Unmarshal(persisted.ClaudeHookSettings, &path); err != nil {
@@ -81,6 +88,9 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec sna
 		}
 	}
 	for index, row := range persisted.ManagedPaths {
+		if !installed && artifact.ContentHash(row.ContentHash).IsInstalled() {
+			return durable.Snapshot{}, fmt.Errorf("statefile v%d cannot carry an installed content hash", persisted.Version)
+		}
 		state, err := row.canonical()
 		if err != nil {
 			return durable.Snapshot{}, fmt.Errorf("managed_paths[%d]: %w", index, err)

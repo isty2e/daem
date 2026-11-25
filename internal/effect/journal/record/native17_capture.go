@@ -144,7 +144,7 @@ func NewNative17Capture(ctx context.Context, operationID string, createdAt time.
 		rows = append(rows, byReference[reference])
 	}
 	record := native17JournalRecord{
-		Version: native17Version, Purpose: "host-mutation", Manifest: persistedRootReference(manifest), Roots: rows, DocumentGroups: records,
+		Version: nativeCaptureVersion(before, after), Purpose: "host-mutation", Manifest: persistedRootReference(manifest), Roots: rows, DocumentGroups: records,
 		nativeRecordBody: nativeRecordBody{
 			OperationID: operationID, Operation: OperationApply, CreatedAt: createdAt.UTC().Format(time.RFC3339),
 			StateAuthority: recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(owner.StatefileAuthority()), ManifestPath: owner.ManifestPath()},

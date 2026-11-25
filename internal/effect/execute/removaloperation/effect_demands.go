@@ -164,7 +164,10 @@ func beforeManagedPathRemovalState(
 	state := recovery.BeforePathState{
 		Existed:     true,
 		Kind:        kind,
-		ContentHash: string(previous.ContentHash()),
+		ContentHash: string(effect.PreviousLiveHash()),
+	}
+	if destination == effect.Destination() && effect.LiveHash() != "" {
+		state.ContentHash = string(effect.LiveHash())
 	}
 	if kind == recovery.PathKindFile {
 		mode, err := managedRemovalFileMode(effect, destination, previous, evidenceByDestination)
@@ -185,12 +188,12 @@ func managedRemovalFileMode(
 	// The live effect mode is exact for an in-place transition. A relocation
 	// needs the separately observed old destination because its persisted state
 	// may intentionally use executable-class rather than exact permissions.
-	if effect.Destination() == destination && effect.LiveHash() == previous.ContentHash() {
+	if effect.Destination() == destination && effect.LiveHash() == effect.PreviousLiveHash() {
 		return effect.LiveFileMode(), nil
 	}
 	items := evidenceByDestination[destination]
 	for _, item := range items {
-		if item.Exists() && item.ContentHash() == previous.ContentHash() {
+		if item.Subject() == previous.Subject() && item.Matches(effect.PreviousLiveHash()) {
 			return item.FileMode(), nil
 		}
 	}

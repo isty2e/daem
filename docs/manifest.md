@@ -327,7 +327,12 @@ segments in archives are rejected independently of these budgets.
 
 ## Skills
 
-Skills are declared with `[[skill]]`.
+Skills are declared with `[[skill]]`. When copying a skill, daem creates new
+regular files with mode `0600`, or `0700` if the locked source file is
+executable. Updates preserve the permissions of files and directories that
+remain at the same relative path with the same kind. Changing only an existing
+source file's executable bit changes its lock hash, but does not chmod the
+installed file.
 
 ```toml
 [[skill]]
@@ -1241,7 +1246,7 @@ Fields:
 | `source` | string or table | yes | none | Source location for the file bytes. A plain string is shorthand for a local source path. |
 | `kind` | string | yes | none | Must be `file` in the current implementation slice. |
 | `scope` | string | no | `defaults.scope` | Asset install scope. A hook may reference only an asset with the same effective scope. |
-| `executable` | boolean | no | `false` | When true, the installed file is required to be executable. |
+| `executable` | boolean | no | `false` | Create a new asset with mode `0700` when true, or `0600` when false. |
 
 Current validation rules:
 
@@ -1251,19 +1256,18 @@ Current validation rules:
 - A selected supported Codex or Claude Code hook may reference a selected
   same-scope hook asset with `{hook_file:<name>}`. Missing, malformed,
   cross-scope, or unsupported placeholders fail before host mutation.
-- Lock records the hook asset source identity, artifact kind, content hash,
-  executable flag, effective scope, declaration provenance, and managed-path
-  exact permission mode (`0600` for non-executable files or `0700` for
-  executable files).
+- Lock records the source and materialized asset identities, executable flag,
+  scope, declaration provenance, and creation mode. Changing `executable`
+  selects a different installation path. At an existing path, daem leaves the
+  current permissions alone, including an executable bit you removed.
 - `status` and `apply` materialize only hook assets referenced by selected
   supported hook commands. An unreferenced hook asset may remain declared and
   locked without creating a host output.
 - Removing the final selected hook reference removes the owned installed asset
   through normal statefile-owned deletion rules. Removing the declaration while
   a selected hook still references it is rejected before mutation.
-- `apply --manage-existing` may record an unmanaged hook asset output only when
-  the live file content and required file mode exactly match the locked desired
-  output.
+- `apply --manage-existing` can adopt an unowned regular file at the selected
+  asset path when its bytes match the locked asset. Adoption keeps its permissions.
 - Import remains command-config-only. It does not infer `[hook_asset.<name>]`
   declarations from absolute, relative, shell, or `PATH` command text.
 - Runtime hook trust and approval remain host-owned. Codex may still require
@@ -1271,7 +1275,9 @@ Current validation rules:
 
 ## Instructions
 
-Instructions are declared under `[instructions.<name>]`.
+Instructions are declared under `[instructions.<name>]`. Changing the
+permissions of an installed instruction file does not make its contents stale.
+Updating the file's text preserves its current permissions.
 
 ```toml
 [instructions.project]

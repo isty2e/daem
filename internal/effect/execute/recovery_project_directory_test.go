@@ -11,7 +11,10 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	"github.com/isty2e/daem/internal/effect/journal/qualification"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/realization"
@@ -24,6 +27,12 @@ import (
 )
 
 func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
+	t.Run("labels from verified backup", func(t *testing.T) { restoreLegacyProjectTree(t, false) })
+	t.Run("reference for changed source labels", func(t *testing.T) { restoreLegacyProjectTree(t, true) })
+}
+
+func restoreLegacyProjectTree(t *testing.T, supplyReference bool) {
+	t.Helper()
 	base := t.TempDir()
 	projectRoot := filepath.Join(base, "project")
 	stateDir := filepath.Join(base, "state")
@@ -37,6 +46,11 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		_ = os.Chmod(hostPath, 0o700)
 	})
 	writeRecoveryTestFile(t, filepath.Join(hostPath, "SKILL.md"), []byte("before skill\n"))
+	if !supplyReference {
+		if err := os.Chmod(filepath.Join(hostPath, "SKILL.md"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	writeRecoveryTestFile(t, filepath.Join(hostPath, "nested", "before.txt"), []byte("before nested\n"))
 	if err := os.Chmod(filepath.Join(hostPath, "nested"), 0o500); err != nil {
 		t.Fatalf("make before nested directory read-only: %v", err)
@@ -55,6 +69,17 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	}
 	writeRecoveryTestFile(t, filepath.Join(afterSource, "SKILL.md"), []byte("after skill\n"))
 	writeRecoveryTestFile(t, filepath.Join(afterSource, "nested", "after.txt"), []byte("after nested\n"))
+	if err := os.Chmod(filepath.Join(afterSource, "SKILL.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var baseline recovery.TreeBaseline
+	if supplyReference {
+		hashes, err := qualification.ReadBaselineTree(t.Context(), afterSource, physicalwork.NewCaptureBudget(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseline = recovery.VerifiedTree(string(hashes.Source), string(hashes.Installed))
+	}
 	afterHash, _, err := access.HashPath(context.Background(), afterSource)
 	if err != nil {
 		t.Fatalf("hash after project tree: %v", err)
@@ -195,20 +220,27 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		t.Fatalf("make after project tree read-only: %v", err)
 	}
 	writeRecoveryTestStatefile(t, paths.StatefilePath, currentState)
+	if err := os.Chmod(filepath.Join(hostPath, "SKILL.md"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	load := testPlanLoadOptions(paths)
+	load.TreeBaseline = baseline
 
 	recoveryPlan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
 		paths.JournalPaths(),
-		testPlanLoadOptions(paths),
+		load,
 	)
 	if err != nil {
 		t.Fatalf("LoadActivePlan returned error: %v", err)
 	}
+	options := testRecoveryOptions(paths)
+	options.TreeBaseline = load.TreeBaseline
 	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		paths,
-		testRecoveryOptions(paths),
+		options,
 	); err != nil {
 		t.Fatalf("ExecuteRecoveryPlan returned error: %v", err)
 	}
@@ -217,6 +249,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(hostPath, "nested", "after.txt")); !os.IsNotExist(err) {
 		t.Fatalf("after-only path stat error = %v, want absence", err)
 	}
-	assertRecoveryTestMode(t, hostPath, 0o550)
+	assertRecoveryTestMode(t, hostPath, 0o500)
+	assertRecoveryTestMode(t, filepath.Join(hostPath, "SKILL.md"), 0o640)
 	assertRecoveryTestMode(t, filepath.Join(hostPath, "nested"), 0o500)
 }

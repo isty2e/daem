@@ -98,8 +98,11 @@ but the managed runtime artifact is the repaired byte tree.
 Lossless replay and inverse reconstruction cover normalized paths, directory/
 regular-file kinds, bytes and recorded permission bits, independent of umask.
 Symlinks and special files are rejected. Inodes/hard links, timestamps, uid/gid,
-xattrs and ACLs do not round-trip. Artifact hash-v1 covers bytes, paths, kinds
-and executable class; an operation may require stronger exact-mode matching.
+xattrs and ACLs do not round-trip. The lock's artifact hash-v1 covers bytes,
+paths, kinds and executable class. For installed skills, instruction files
+and hook assets, the statefile uses a separate `installed-v1:sha256:` digest
+of paths, kinds and bytes. Changing a local executable bit does not invalidate
+that digest or change how daem verifies the source.
 
 ### Lockfile Repair Entries
 

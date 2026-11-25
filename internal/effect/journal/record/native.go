@@ -105,7 +105,13 @@ func (journal Native) OrdinaryRemovalIntents() ([]recovery.RemovalIntent, error)
 	if err := journal.requireNativeValue(); err != nil {
 		return nil, err
 	}
-	return canonicalRecoveryRemovalIntents(journal.record.RemovalIntents)
+	intents, err := canonicalRecoveryRemovalIntents(journal.record.RemovalIntents)
+	return journal.treeBaseline.LiveIntents(intents), err
+}
+
+func (journal Native) WithObservedTrees(proof recovery.TreeBaseline) Native {
+	journal.treeBaseline = journal.treeBaseline.With(proof)
+	return journal
 }
 
 func (journal Native) RemovalIntents() ([]recovery.RemovalIntent, error) {
