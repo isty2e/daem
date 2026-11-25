@@ -83,11 +83,17 @@ func (document ProtectedDocument) Restriction(userID, groupID, observedMode uint
 	if document.userID != userID || document.groupID != groupID {
 		return 0, false, &ProtectionRefusal{kind: ProtectionOwnerChanged}
 	}
-	if observedMode & ^uint32(0o777) != 0 || observedMode&0o700 != document.modeCap&0o700 || observedMode&0o111 != document.modeCap&0o111 {
+	if observedMode & ^uint32(0o777) != 0 {
 		return 0, false, &ProtectionRefusal{kind: ProtectionModeChanged}
 	}
 	restricted := observedMode & document.modeCap
-	return restricted, restricted != observedMode, nil
+	if restricted == observedMode {
+		return observedMode, false, nil
+	}
+	if (observedMode^document.modeCap)&0o711 != 0 {
+		return 0, false, &ProtectionRefusal{kind: ProtectionModeChanged}
+	}
+	return restricted, true, nil
 }
 
 // InitialRestriction requires the frozen ceiling to match invocation-start

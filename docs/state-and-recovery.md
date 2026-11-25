@@ -266,7 +266,9 @@ settings file cannot satisfy the recorded binding.
 Dry-run reports actions and blockers without changing permissions. Confirmed
 recovery can restrict independently qualified documents even when another is
 blocked, but succeeds only after every selected protection is confirmed cleared.
-It removes newly granted access without restoring rights already removed.
+If access is already within the recorded limit, recovery leaves the file alone.
+For example, it can clear a record made at `0600` after the owner changes the
+file to `0400`, without granting write access again.
 Failed or uncertain qualification leaves unresolved work; an `unknown` result
 does not assert that the old record is still present. Clearing a protection is
 not proof that temporary access never occurred. Permission-only recovery does
