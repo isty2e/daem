@@ -10,10 +10,62 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
 )
+
+func TestFilePublicationRechecksChangedStageBeforeReplacement(t *testing.T) {
+	for _, change := range []string{"tag", "privileged mode", "content"} {
+		t.Run(change, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			path := filepath.Join(root, "config")
+			writeTestFile(t, path, "before", 0o600)
+			request, err := NewFileReplacement(path, []byte("after"), 0o600, captureIdentity(t, path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			faults := faultPlan{actions: map[phase]func(){phaseCommitEntry: func() {
+				entries, err := os.ReadDir(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, entry := range entries {
+					if !strings.HasPrefix(entry.Name(), temporaryPrefix) {
+						continue
+					}
+					stage := filepath.Join(root, entry.Name())
+					switch change {
+					case "tag":
+						err = unix.Setxattr(stage, "user.daem.note", []byte("tag"), 0)
+					case "privileged mode":
+						err = unix.Chmod(stage, 0o2600)
+					case "content":
+						err = os.WriteFile(stage, []byte("other"), 0o600)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				t.Fatal("staged file not found")
+			}}}
+			err = commitFileWithFaults(t.Context(), request, faults)
+			if change == "tag" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertFile(t, path, "after", 0o600)
+			} else {
+				if err == nil {
+					t.Fatal("publication accepted the changed stage")
+				}
+				assertFile(t, path, "before", 0o600)
+			}
+		})
+	}
+}
 
 func TestCommitFileVerifiesSameInodePayloadAfterVisibility(t *testing.T) {
 	root := canonicalTempDir(t)

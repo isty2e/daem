@@ -589,27 +589,25 @@ func TestPreparedRootedTreeRejectsNestedFileModeMutationAfterPreparation(t *test
 	}
 }
 
-func TestPreparedRootedTreeRejectsNestedFileMetadataMutationAfterPreparation(t *testing.T) {
+func TestPreparedRootedTreeAcceptsUnrelatedTagsAfterPreparation(t *testing.T) {
 	root, prepared, capability := prepareNestedRootedTreeForMutationTest(t)
 	xattrName := "user.daem.rooted-tree-test"
 	if runtime.GOOS == "darwin" {
 		xattrName = "com.daem.rooted-tree-test"
 	}
-	entry := filepath.Join(prepared.stagePath, "nested", "entry")
-	fsclock.WaitForTick(t, entry)
-	if err := unix.Setxattr(entry, xattrName, []byte("changed"), 0); err != nil {
-		if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
-			t.Skipf("extended attributes unavailable: %v", err)
+	for _, entry := range []string{prepared.stagePath, filepath.Join(prepared.stagePath, "nested"), filepath.Join(prepared.stagePath, "nested", "entry")} {
+		if err := unix.Setxattr(entry, xattrName, []byte("tag"), 0); err != nil {
+			if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
+				t.Skipf("extended attributes unavailable: %v", err)
+			}
+			t.Fatal(err)
 		}
-		t.Fatalf("mutate nested file metadata: %v", err)
 	}
-
-	err := prepared.Commit(t.Context())
-	assertFailure(t, err, failureUncommitted, phaseValidate)
+	if err := prepared.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	assertClosedRootedCapability(t, capability)
-	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
-		t.Fatalf("metadata-mutated tree was published: %v", statErr)
-	}
+	assertFile(t, filepath.Join(root, "published", "nested", "entry"), "planned", 0o600)
 }
 
 func TestPreparedRootedTreeRejectsNestedFileMutationAcrossCommitPhases(t *testing.T) {
@@ -629,9 +627,16 @@ func TestPreparedRootedTreeRejectsNestedFileMutationAcrossCommitPhases(t *testin
 			entry := filepath.Join(prepared.stagePath, "nested", "entry")
 			faults := faultPlan{actions: map[phase]func(){
 				test.phase: func() {
+					info, err := os.Stat(entry)
+					if err != nil {
+						t.Fatal(err)
+					}
 					fsclock.WaitForTick(t, entry)
 					if err := os.WriteFile(entry, []byte("changed"), 0o600); err != nil {
 						t.Fatalf("mutate nested file: %v", err)
+					}
+					if err := os.Chtimes(entry, info.ModTime(), info.ModTime()); err != nil {
+						t.Fatal(err)
 					}
 				},
 			}}
@@ -823,7 +828,7 @@ func TestPreparedRootedTreeValidatesEveryPlannedDescendantMount(t *testing.T) {
 		t.Context(),
 		prepared.stageFD,
 		prepared.stagePath,
-		prepared.snapshot.root,
+		&prepared.snapshot.root,
 		0,
 		func(uintptr) error {
 			validated++
@@ -839,7 +844,7 @@ func TestPreparedRootedTreeValidatesEveryPlannedDescendantMount(t *testing.T) {
 	}
 }
 
-func TestPrepareRootedTreeRejectsUnrepresentedExtendedAttribute(t *testing.T) {
+func TestPrepareRootedTreePublishesWithUnrelatedCreationTag(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatalf("create captured root: %v", err)
@@ -862,14 +867,14 @@ func TestPrepareRootedTreeRejectsUnrepresentedExtendedAttribute(t *testing.T) {
 			0,
 		)
 	})
-	if prepared != nil {
-		t.Fatal("PrepareRootedTree returned a stage with unrepresented metadata")
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertFailure(t, err, failureUnsupportedGuarantee, phaseValidate)
+	if err := prepared.Commit(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	assertClosedRootedCapability(t, capability)
-	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
-		t.Fatalf("metadata-bearing tree was published: %v", statErr)
-	}
+	assertFile(t, filepath.Join(root, "published", "entry"), "planned", 0o600)
 }
 
 func TestPrepareRootedTreeRejectsUnrepresentedModeAndLinkAuthority(t *testing.T) {

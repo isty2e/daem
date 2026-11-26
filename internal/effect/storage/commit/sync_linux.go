@@ -10,9 +10,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const linuxUserModifiableFlags = 0x000380ff
-
-const linuxSELinuxXattrName = "security.selinux"
+const (
+	linuxUserModifiableFlags = 0x000380ff
+	linuxNoDump              = 0x40 // FS_NODUMP_FL
+)
 
 const linuxPreparedTreeKernelManagedFlags = 0x00000100 | // FS_DIRTY_FL
 	0x00000200 | // FS_COMPRBLK_FL
@@ -60,25 +61,49 @@ func capturePreservedMetadata(fd int, _ *unix.Stat_t) (preservedMetadata, error)
 	if err != nil {
 		return preservedMetadata{}, unsupported("file flags cannot be inspected", err)
 	}
-	if flags&linuxUserModifiableFlags != 0 {
+	if flags&linuxUserModifiableFlags&^linuxNoDump != 0 {
 		return preservedMetadata{}, unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", flags), nil)
 	}
-	metadata, err := captureXattrs(fd)
+	names, err := listXattrNames(fd)
 	if err != nil {
 		return preservedMetadata{}, err
 	}
-	for name := range metadata.xattrs {
-		if isLinuxACL(name) {
-			return preservedMetadata{}, unsupported("POSIX ACL metadata cannot be preserved", nil)
+	metadata := preservedMetadata{replacement: true, noDump: flags&linuxNoDump != 0, xattrs: make(map[string][]byte)}
+	for _, name := range names {
+		if err := admitLinuxAccess(name); err != nil {
+			return preservedMetadata{}, err
 		}
+		if linuxContentSignature(name) {
+			continue
+		}
+		value, err := readXattrValue(fd, name)
+		if err != nil {
+			return preservedMetadata{}, err
+		}
+		metadata.xattrs[name] = value
 	}
-	metadata.replacement = true
 	return metadata, nil
 }
 
 func applyPreservedMetadata(fd int, metadata preservedMetadata) error {
-	if err := applyXattrs(fd, metadata); err != nil {
-		return err
+	for name, value := range metadata.xattrs {
+		if linuxAccessLabel(name) {
+			continue // Verify the OS-assigned label; do not relabel the new inode.
+		}
+		if err := unix.Fsetxattr(fd, name, value, 0); err != nil {
+			return unsupported(fmt.Sprintf("extended attribute %q cannot be preserved", name), err)
+		}
+	}
+	if metadata.noDump {
+		flags, err := linuxFileFlags(fd)
+		if err != nil {
+			return err
+		}
+		if flags&linuxNoDump == 0 {
+			if err := unix.IoctlSetPointerInt(fd, unix.FS_IOC_SETFLAGS, flags|linuxNoDump); err != nil {
+				return unsupported("backup-exclusion flag cannot be preserved", err)
+			}
+		}
 	}
 	return verifyPreservedMetadata(fd, metadata)
 }
@@ -88,26 +113,31 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	if err != nil {
 		return unsupported("file flags cannot be inspected", err)
 	}
-	if flags&linuxUserModifiableFlags != 0 {
+	if flags&linuxUserModifiableFlags&^linuxNoDump != 0 || (metadata.noDump && flags&linuxNoDump == 0) {
 		return unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", flags), nil)
 	}
 	names, err := listXattrNames(fd)
 	if err != nil {
 		return err
 	}
+	present := make(map[string]bool, len(names))
 	for _, name := range names {
-		if isLinuxACL(name) {
-			return unsupported("POSIX ACL metadata cannot be preserved", nil)
+		present[name] = true
+		if err := admitLinuxAccess(name); err != nil {
+			return err
 		}
-	}
-	if err := verifyXattrNames(names, metadata); err != nil {
-		return err
+		if _, known := metadata.xattrs[name]; !known && metadata.replacement && linuxAccessLabel(name) {
+			return unsupported(fmt.Sprintf("replacement has a different access label %q", name), nil)
+		}
 	}
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		return err
 	}
 	for name, expected := range metadata.xattrs {
+		if !present[name] {
+			return unsupported(fmt.Sprintf("extended attribute %q is missing", name), nil)
+		}
 		// NON-GOAL: detecting later same-name user.* value changes without owner
 		// read permission. Linux withholds these values even on the retained fd;
 		// their prepared same-inode check is the value evidence. Revisit if an
@@ -159,11 +189,11 @@ func capturePreparedTreePlatformMetadataFacts(fd int, path string, _ *unix.Stat_
 	if err := validatePreparedTreeLinuxFlags(path, flags); err != nil {
 		return 0, err
 	}
-	return uint64(flags), nil
+	return uint64(flags &^ linuxNoDump), nil
 }
 
 func validatePreparedTreeLinuxFlags(path string, flags int) error {
-	if unsupportedFlags := flags &^ linuxPreparedTreeKernelManagedFlags; unsupportedFlags != 0 {
+	if unsupportedFlags := flags &^ (linuxPreparedTreeKernelManagedFlags | linuxNoDump); unsupportedFlags != 0 {
 		return unsupported(
 			fmt.Sprintf("prepared tree entry %q contains unsupported file flags 0x%x", path, unsupportedFlags),
 			nil,
@@ -172,12 +202,24 @@ func validatePreparedTreeLinuxFlags(path string, flags int) error {
 	return nil
 }
 
-func isAllowedPreparedTreeXattr(name string) bool {
-	return name == linuxSELinuxXattrName
+func preparedTreeAccessLabel(name string) (bool, error) {
+	return linuxAccessLabel(name), admitLinuxAccess(name)
 }
 
-func isLinuxACL(name string) bool {
-	return name == "system.posix_acl_access" || name == "system.posix_acl_default"
+func linuxAccessLabel(name string) bool {
+	return !linuxContentSignature(name) && (strings.HasPrefix(name, "security.") || strings.HasPrefix(name, "system.") || strings.HasPrefix(name, "trusted."))
+}
+
+func linuxContentSignature(name string) bool {
+	return name == "security.ima" || name == "security.evm"
+}
+
+func admitLinuxAccess(name string) error {
+	switch name {
+	case "system.posix_acl_access", "system.posix_acl_default", "security.capability":
+		return unsupported(fmt.Sprintf("cannot preserve access control %q on replacement", name), nil)
+	}
+	return nil
 }
 
 func linuxFileFlags(fd int) (int, error) {

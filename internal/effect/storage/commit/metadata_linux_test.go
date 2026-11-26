@@ -19,28 +19,32 @@ func TestPreparedTreeLinuxFlagsRejectUnrepresentedSemantics(t *testing.T) {
 			}
 		})
 	}
-	for _, flags := range []int{0, 0x00080000, 0x00001000} {
+	for _, flags := range []int{0, 0x00080000, 0x00001000, linuxNoDump} {
 		if err := validatePreparedTreeLinuxFlags("entry", flags); err != nil {
 			t.Fatalf("validatePreparedTreeLinuxFlags(%#x) returned error: %v", flags, err)
 		}
 	}
 }
 
-func TestPreparedTreeLinuxXattrsAdmitOnlySELinuxCreationLabel(t *testing.T) {
+func TestPreparedTreeInspectsLinuxAccessMetadata(t *testing.T) {
 	tests := []struct {
-		name string
-		want bool
+		name   string
+		read   bool
+		refuse bool
 	}{
-		{name: linuxSELinuxXattrName, want: true},
-		{name: "security.ima", want: false},
-		{name: "security.capability", want: false},
-		{name: "system.posix_acl_access", want: false},
-		{name: "user.daem", want: false},
+		{name: "security.selinux", read: true},
+		{name: "security.ima"},
+		{name: "security.capability", refuse: true},
+		{name: "system.posix_acl_access", refuse: true},
+		{name: "system.posix_acl_default", refuse: true},
+		{name: "user.daem"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := isAllowedPreparedTreeXattr(test.name); got != test.want {
-				t.Fatalf("isAllowedPreparedTreeXattr(%q) = %t, want %t", test.name, got, test.want)
+			read := false
+			facts, err := capturePreparedTreeXattrFacts("entry", []string{test.name}, func(string) ([]byte, error) { read = true; return []byte("value"), nil })
+			if (err != nil) != test.refuse || (test.refuse && !isUnsupported(err)) || read != test.read || (len(facts) == 1) != test.read {
+				t.Fatalf("read=%t facts=%v error=%v", read, facts, err)
 			}
 		})
 	}

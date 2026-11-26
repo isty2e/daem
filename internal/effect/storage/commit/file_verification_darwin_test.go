@@ -39,7 +39,7 @@ func TestDarwinUnreadablePublicationRevalidatesFileFlags(t *testing.T) {
 	}
 	var mutationErr error
 	faults := faultPlan{actions: map[phase]func(){phaseSyncParent: func() {
-		mutationErr = unix.Chflags(path, unix.UF_NODUMP)
+		mutationErr = unix.Chflags(path, unix.UF_IMMUTABLE)
 	}}}
 	err = commitFileWithFaults(t.Context(), request, faults)
 	if mutationErr != nil {

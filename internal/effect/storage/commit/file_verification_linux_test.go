@@ -67,9 +67,9 @@ func TestUnreadableFilePublicationRevalidatesMetadataNames(t *testing.T) {
 			if mutationErr != nil {
 				t.Fatal(mutationErr)
 			}
-			if test.create {
+			if test.add {
 				if err != nil {
-					t.Fatal("creation rejected permitted additional metadata", err)
+					t.Fatal("publication rejected an unrelated new attribute", err)
 				}
 			} else {
 				assertFailure(t, err, failureIndeterminateCommit, phaseVerifyEntry)

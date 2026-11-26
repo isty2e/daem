@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestPermissionRestrictionRefusesLinuxAccessACL(t *testing.T) {
+func TestRestrictionAndReplacementLeaveLinuxAccessACLIntact(t *testing.T) {
 	root := canonicalTempDir(t)
 	path := filepath.Join(root, "config")
 	writePermissionFixture(t, path, "unchanged", 0o644)
@@ -40,5 +40,15 @@ func TestPermissionRestrictionRefusesLinuxAccessACL(t *testing.T) {
 	if result.Restricted() {
 		t.Fatal("access ACL was modified")
 	}
+	replacement, err := NewFileReplacement(path, []byte("changed"), 0o600, captureIdentity(t, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFailure(t, CommitFile(t.Context(), replacement), failureUnsupportedGuarantee, phaseCaptureMetadata)
 	assertFile(t, path, "unchanged", 0o644)
+	value := make([]byte, len(acl))
+	n, err := unix.Getxattr(path, "system.posix_acl_access", value)
+	if err != nil || string(value[:n]) != string(acl) {
+		t.Fatalf("original ACL did not survive: %v", err)
+	}
 }

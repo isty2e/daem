@@ -91,7 +91,7 @@ func applyPreparedTreeDirectoryMode(
 	if err := budget.admitDepth(depth); err != nil {
 		return err
 	}
-	if err := verifyOpenedPreparedTreeAuthority(ctx, directoryFD, directoryPath, *expected, budget); err != nil {
+	if err := verifyOpenedPreparedTreeAuthority(ctx, directoryFD, directoryPath, expected, budget); err != nil {
 		return err
 	}
 	names, err := readDirectoryNames(ctx, directoryFD, directoryPath, len(expected.children))
@@ -111,15 +111,7 @@ func applyPreparedTreeDirectoryMode(
 		child := &expected.children[index]
 		name := names[index]
 		childPath := filepath.Join(directoryPath, name)
-		identity, stat, err := observeAnyAt(directoryFD, name, childPath)
-		if err != nil {
-			return err
-		}
-		if !child.identity.sameEntry(identity) ||
-			!child.facts.equal(preparedTreeFactsFromStat(&stat)) {
-			return fmt.Errorf("prepared tree entry %q changed", childPath)
-		}
-		childFD, err := openExpectedAt(directoryFD, name, childPath, child.identity)
+		childFD, err := child.openAt(directoryFD, name, childPath)
 		if err != nil {
 			return err
 		}
@@ -197,7 +189,7 @@ func applyPreparedTreeFileMode(
 	expected *preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 ) error {
-	if err := verifyOpenedPreparedTreeEntry(ctx, fileFD, filePath, *expected, budget); err != nil {
+	if err := verifyOpenedPreparedTreeEntry(ctx, fileFD, filePath, expected, budget); err != nil {
 		return err
 	}
 	if expected.facts.mode != expected.expectation.mode.Perm() {
@@ -341,7 +333,7 @@ func normalizePreparedTreeDirectoryForCleanup(
 				budget,
 			)
 		} else {
-			err = verifyOpenedPreparedTreeEntry(ctx, childFD, childPath, *child, budget)
+			err = verifyOpenedPreparedTreeEntry(ctx, childFD, childPath, child, budget)
 		}
 		closeErr := unix.Close(childFD)
 		if err != nil {

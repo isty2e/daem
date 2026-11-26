@@ -28,17 +28,31 @@ func capturePreservedMetadata(fd int, stat *unix.Stat_t) (preservedMetadata, err
 	if err := validateDarwinFileMetadata(fd, stat); err != nil {
 		return preservedMetadata{}, err
 	}
-	return preservedMetadata{}, nil
+	return preservedMetadata{noDump: stat.Flags&unix.UF_NODUMP != 0}, nil
 }
 
-func applyPreservedMetadata(fd int, _ preservedMetadata) error {
-	return verifyPreservedMetadata(fd, preservedMetadata{})
+func applyPreservedMetadata(fd int, metadata preservedMetadata) error {
+	if metadata.noDump {
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return err
+		}
+		if stat.Flags&unix.UF_NODUMP == 0 {
+			if err := unix.Fchflags(fd, int(stat.Flags|unix.UF_NODUMP)); err != nil {
+				return unsupported("backup-exclusion flag cannot be preserved", err)
+			}
+		}
+	}
+	return verifyPreservedMetadata(fd, metadata)
 }
 
-func verifyPreservedMetadata(fd int, _ preservedMetadata) error {
+func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
 		return err
+	}
+	if metadata.noDump && stat.Flags&unix.UF_NODUMP == 0 {
+		return unsupported("backup-exclusion flag did not verify", nil)
 	}
 	return validateDarwinFileMetadata(fd, &stat)
 }
@@ -46,7 +60,7 @@ func verifyPreservedMetadata(fd int, _ preservedMetadata) error {
 // Ordinary file writes validate their access envelope, not opaque xattr fidelity.
 // Newly created objects retain attributes assigned by the OS or environment.
 func validateDarwinFileMetadata(fd int, stat *unix.Stat_t) error {
-	if stat.Flags != 0 {
+	if stat.Flags&^unix.UF_NODUMP != 0 {
 		return unsupported(fmt.Sprintf("file flags 0x%x cannot be preserved", stat.Flags), nil)
 	}
 	return requireNoDarwinACL(fd)
@@ -71,13 +85,12 @@ func requireNoDarwinACL(fd int) error {
 	return nil
 }
 
-func isAllowedPreparedTreeXattr(name string) bool {
-	// Creation attributes are fingerprinted, not ignorable replacement extras.
-	return name == "com.apple.provenance" || name == "com.apple.macl"
+func preparedTreeAccessLabel(name string) (bool, error) {
+	return name == "com.apple.macl", nil
 }
 
 func capturePreparedTreePlatformMetadataFacts(fd int, path string, stat *unix.Stat_t) (uint64, error) {
-	if stat.Flags != 0 {
+	if stat.Flags&^unix.UF_NODUMP != 0 {
 		return 0, unsupported(
 			fmt.Sprintf("prepared tree entry %q contains unsupported file flags 0x%x", path, stat.Flags),
 			nil,

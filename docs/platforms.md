@@ -79,30 +79,33 @@ source, storage or host effects. `doctor` retains the diagnostic exceptions belo
 
 ### macOS Metadata During Writes
 
-Daem uses private temporary directories to prepare transactions, journals,
-caches and directory outputs for publication. It accepts readable
-`com.apple.provenance` and `com.apple.macl` attributes on these directories and
-their contents, recording fingerprints without stripping or rewriting the
-attributes. Before publishing this data, daem rejects unreadable values or
-changes, additions and removals since its initial inspection. Unknown
-attributes, ACLs and file flags remain unsupported here.
+Replacing a regular file keeps its ordinary permissions and its backup-exclusion
+flag (`UF_NODUMP`). The new file keeps the extended attributes macOS gives it;
+daem does not copy Finder tags or other opaque attributes from the old file.
+Daem refuses a replacement if it cannot preserve an access control list (ACL)
+or encounters an unsupported file flag, such as the immutable flag.
 
-Ordinary file creation and replacement, including manifests, lockfiles, state,
-claim registries and managed outputs, use a separate write path. On macOS these
-writes enforce the requested permissions, invoking-user ownership, supported
-ACL/file-flag boundary, target identity and durable publication. They do not copy
-or require equality of extended attributes; byte-for-byte xattr preservation is
-not part of this contract. New files retain attributes assigned by macOS instead
-of rewriting them from the old inode. This also avoids opaque attribute failures
-while validating newly created parent directories. ACLs and file flags remain
-unsupported rather than silently discarded. Linux replacement metadata policy is
-unchanged. A failure during final verification can still occur after a replacement
-has become visible. A successful `--dry-run` does not exercise these write paths.
+When preparing a directory for publication, daem checks the files and their
+contents. A Finder tag or a change to `com.apple.provenance` does not invalidate
+them. A change to the access label `com.apple.macl` does.
 
 [Permission-only recovery](state-and-recovery.md#permission-only-recovery)
 narrows access on the existing file. A Finder tag or the backup-exclusion flag
 (`UF_NODUMP`) stays in place and does not block `chmod`. An ACL, or a flag that
 prevents the required change, still blocks the restriction.
+
+### Linux Metadata During Writes
+
+When replacing a regular file, daem preserves existing user attributes
+(`user.*`), including their values. An unrelated attribute added to the new
+file does not block publication. The kernel manages content signatures such as
+`security.ima`; daem does not copy an old signature to new bytes.
+
+Daem refuses a replacement that would discard a POSIX ACL or carry file
+capabilities onto new code. If the OS assigns a different access label (for
+example, SELinux), daem refuses the replacement rather than relabeling the file.
+The backup-exclusion flag is preserved. A dry run does not exercise filesystem
+writes; a failure in final verification can occur after the new file is visible.
 
 ## Unsupported Builds
 
