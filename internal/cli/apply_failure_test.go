@@ -20,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -99,14 +100,68 @@ func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing
 	}
 }
 
+type refuseEditedNativeConfig struct {
+	storagecommit.Adapter
+	path string
+}
+
+func (store refuseEditedNativeConfig) ReplaceRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode os.FileMode, expected mutationfs.EntryIdentity) error {
+	path, err := capability.Destination().LexicalPath()
+	if err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	if path != store.path {
+		return store.Adapter.ReplaceRootedFile(ctx, capability, content, mode, expected)
+	}
+	// An external edit prevents automatic recovery after the refused replacement.
+	if err := os.WriteFile(path, []byte("unmanaged = true\nmodel = 'external'\n"), mode); err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	return errors.Join(&storagecommit.SELinuxLabelError{Destination: path, Err: os.ErrPermission}, capability.Close())
+}
+
 func TestApplyRollbackGuidancePreservesManifestSelection(t *testing.T) {
-	err := applyprogram.RollbackFailure{Cause: &storagecommit.SELinuxLabelError{Destination: "settings.json", Err: os.ErrPermission}}
-	for _, requested := range []string{"", "other/daem.toml"} {
-		diagnostic := applyFailureDiagnostic(requested, err, applyFailureExecution, applyworkflow.CommandResult{ExecutionAttempted: true}, false)
-		text := diagnostic.HumanText()
-		if !strings.Contains(text, "daem recover --dry-run") || strings.Contains(text, "--manifest") != (requested != "") || strings.Contains(text, "other/daem.toml") {
-			t.Errorf("recovery guidance for selection %q: %s", requested, text)
-		}
+	for _, manifest := range []string{"daem.toml", "selected.toml"} {
+		t.Run(manifest, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(root)
+			t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+			writeApplyConfirmationFile(t, root, manifest, `
+version = 1
+targets = ["codex"]
+[[agent_config]]
+id = "settings"
+scope = "project"
+path = "config.toml"
+source = "./source.toml"
+ownership = "keys"
+`)
+			writeApplyConfirmationFile(t, root, "source.toml", "model = 'managed'\n")
+			writeApplyConfirmationFile(t, root, ".codex/config.toml", "unmanaged = true\n")
+
+			var selector []string
+			if manifest != "daem.toml" {
+				selector = []string{"--manifest", manifest}
+			}
+			if code, _, stderr := runCaptureCLI(t, append([]string{"lock"}, selector...)); code != 0 {
+				t.Fatalf("lock failed: %s", stderr)
+			}
+			_, stderr, code := runCLIEdge(t, append([]string{"apply", "--yes"}, selector...), RunOptions{
+				ApplyExecuteOptions: applyworkflow.ExecuteOptions{NativeFilesystem: refuseEditedNativeConfig{path: filepath.Join(root, ".codex", "config.toml")}},
+			})
+			if code != 1 || !strings.Contains(stderr, "existing SELinux label") {
+				t.Fatalf("apply with selector %v returned %d: %s", selector, code, stderr)
+			}
+			_, hint, found := strings.Cut(stderr, "daem recover --dry-run")
+			hint, _, _ = strings.Cut(hint, "\n")
+			if !found || strings.Contains(hint, "--manifest") != (len(selector) != 0) || strings.Contains(hint, manifest) {
+				t.Errorf("wrong recovery guidance for selector %v: %s", selector, stderr)
+			}
+		})
 	}
 }
 
