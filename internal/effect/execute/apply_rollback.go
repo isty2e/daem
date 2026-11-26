@@ -253,9 +253,9 @@ func settlePreHostApplyFailure(
 		),
 	); rollbackErr != nil {
 		return fmt.Errorf(
-			"%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run",
+			"%w; ownership rollback failed: %w; recovery journal retained; run: daem recover --dry-run",
 			primary,
-			rollbackErr,
+			applyprogram.RollbackFailure{Cause: rollbackErr},
 		)
 	}
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
@@ -429,7 +429,7 @@ func applyRecoveryErrorWithEvents(
 	}, execution); err != nil {
 		err = execution.finish(err, nil)
 		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return fmt.Errorf("%w; guarded rollback failed: %w; recovery journal retained; run: daem recover --dry-run", primary, applyprogram.RollbackFailure{Cause: err})
 	}
 	events.Emit(executionevent.RollbackRestored, executionevent.StageRollbackRestore, nil, nil)
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {

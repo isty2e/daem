@@ -969,7 +969,7 @@ func executeActiveRecoveryRollbackCompensation(
 func recoveryRollbackFailure(primary error, rollbackErr error, cleanupErr error) error {
 	result := primary
 	if rollbackErr != nil {
-		result = fmt.Errorf("%w; rollback failed: %v", result, rollbackErr)
+		result = fmt.Errorf("%w; rollback failed: %w", result, applyprogram.RollbackFailure{Cause: rollbackErr})
 	}
 	if cleanupErr != nil {
 		result = errors.Join(

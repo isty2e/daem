@@ -492,13 +492,10 @@ func applyRecoverGuidance(manifestPath, requestedManifestPath, purpose string) c
 }
 
 func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflow.CommandResult, explicitManifest bool) (clipresent.FailureDiagnostic, applyworkflow.FailureReason) {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	cancelled := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	if cancelled || stage == applyFailurePlanning || stage == applyFailureExecution {
 		failure := applyworkflow.ClassifyFailure(err, result)
-		return clipresent.NewFailureDiagnostic(failure.PrimaryDetail()), failure.Reason()
-	}
-	if stage == applyFailurePlanning || stage == applyFailureExecution {
-		failure := applyworkflow.ClassifyFailure(err, result)
-		if failure.Phase() == applyworkflow.FailurePhasePreflight {
+		if !cancelled && failure.Phase() == applyworkflow.FailurePhasePreflight {
 			if diagnostic, globalMetadata := clipresent.GlobalMetadataFailureDiagnostic(err); globalMetadata {
 				return diagnostic, failure.Reason()
 			}
@@ -506,7 +503,7 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 				return diagnostic, failure.Reason()
 			}
 		}
-		if stage == applyFailurePlanning {
+		if !cancelled && stage == applyFailurePlanning {
 			if cause, ok := applyInputErrorCause(err, failure); ok {
 				return clipresent.FailureDiagnosticFromError(cause), failure.Reason()
 			}
@@ -529,8 +526,16 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 			}
 		}
 		diagnostic := clipresent.NewFailureDiagnostic(failure.PrimaryDetail())
-		if path := failure.SELinuxLabelDestination(); stage == applyFailureExecution && path != "" {
-			diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("affected file: " + clipresent.Quote(path)))
+		if stage == applyFailureExecution {
+			if path := failure.SELinuxLabelDestination(); path != "" {
+				diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("affected file: " + clipresent.Quote(path)))
+			}
+			if path := failure.RollbackSELinuxLabelDestination(); path != "" {
+				diagnostic = diagnostic.WithGuidance(
+					clipresent.NoteGuidance("rollback file: "+clipresent.Quote(path)),
+					clipresent.InstructionGuidance("run daem recover --dry-run with the same manifest to inspect the retained journal"),
+				)
+			}
 		}
 		return diagnostic, failure.Reason()
 	}

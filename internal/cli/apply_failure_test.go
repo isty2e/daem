@@ -14,6 +14,7 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -29,37 +30,62 @@ import (
 
 func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing.T) {
 	const privateDir = "private-label-fixture"
-	path := filepath.Join(privateDir, `quoted"dir`, "AGENTS.md")
-	cause := fmt.Errorf("replace: %w", &storagecommit.SELinuxLabelError{Destination: path, Err: os.ErrPermission})
-	result := applyworkflow.CommandResult{ExecutionAttempted: true}
-	var human, wire bytes.Buffer
-	printApplyFailure(&human, cause, applyFailureExecution, result, false)
-	failure := applyworkflow.ClassifyFailure(cause, result)
-	if err := clipresent.PrintApplyResultJSON(&wire, clipresent.ApplyResultJSONInput{ExecutionAttempted: true, Failure: &failure}); err != nil {
-		t.Fatal(err)
-	}
-	var payload struct {
-		Errors []struct {
-			Code    applyworkflow.FailureReason
-			Phase   applyworkflow.FailurePhase
-			Outcome applyworkflow.FailureOutcome
-			Message string
-		}
-	}
-	if err := json.Unmarshal(wire.Bytes(), &payload); err != nil || len(payload.Errors) != 1 {
-		t.Fatalf("expected one JSON error, got %s (%v)", &wire, err)
-	}
-	const denial = "existing SELinux label: permission denied"
-	fileNote := clipresent.NoteGuidance("affected file: " + clipresent.Quote(path)).HumanText()
-	if !strings.Contains(human.String(), denial) || !strings.Contains(human.String(), fileNote) {
-		t.Fatal("missing cause or quoted destination:", &human)
-	}
-	entry := payload.Errors[0]
-	if entry.Code != applyworkflow.FailureReasonApplyIncomplete || entry.Phase != applyworkflow.FailurePhaseExecution || entry.Outcome != applyworkflow.FailureOutcomeIncomplete || !strings.Contains(entry.Message, denial) || strings.Contains(wire.String(), privateDir) {
-		t.Fatalf("wrong failure code or destination disclosure: %+v", entry)
-	}
-	if cancelled := applyworkflow.ClassifyFailure(errors.Join(cause, context.Canceled), result); cancelled.Reason() != applyworkflow.FailureReasonCancelled || cancelled.SELinuxLabelDestination() != "" {
-		t.Fatal("label failure displaced cancellation:", cancelled.Detail())
+	const raw = "private-kernel-fixture"
+	denial := fmt.Errorf("%s: %w", raw, os.ErrPermission)
+	forward := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `quoted"dir`, "AGENTS.md"), Err: denial}
+	restore := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `quoted"dir`, "settings.json"), Err: denial}
+	rollback := applyprogram.RollbackFailure{Cause: restore}
+
+	for _, tc := range []struct {
+		name              string
+		err               error
+		forward, rollback bool
+		reason            applyworkflow.FailureReason
+		outcome           applyworkflow.FailureOutcome
+	}{
+		{"forward", forward, true, false, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"restored", applyprogram.NewRollbackError(forward, nil), true, false, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeRolledBack},
+		{"rollback refused", errors.Join(errors.New("state commit failed"), rollback), false, true, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"restore cause also unwrapped", errors.Join(restore, rollback), false, true, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"both writes refused", errors.Join(forward, rollback), true, true, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"cancelled", errors.Join(forward, context.Canceled), false, false, applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
+		{"rollback after cancellation", errors.Join(context.Canceled, rollback), false, true, applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := applyworkflow.CommandResult{ExecutionAttempted: true}
+			var human, wire bytes.Buffer
+			printApplyFailure(&human, tc.err, applyFailureExecution, result, false)
+			failure := applyworkflow.ClassifyFailure(tc.err, result)
+			if err := clipresent.PrintApplyResultJSON(&wire, clipresent.ApplyResultJSONInput{ExecutionAttempted: true, Failure: &failure}); err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Errors []struct {
+					Code    applyworkflow.FailureReason
+					Phase   applyworkflow.FailurePhase
+					Outcome applyworkflow.FailureOutcome
+					Message string
+				}
+			}
+			if err := json.Unmarshal(wire.Bytes(), &payload); err != nil || len(payload.Errors) != 1 {
+				t.Fatalf("expected one JSON error, got %s (%v)", &wire, err)
+			}
+			entry := payload.Errors[0]
+			if entry.Code != tc.reason || entry.Phase != applyworkflow.FailurePhaseExecution || entry.Outcome != tc.outcome || strings.Contains(wire.String(), privateDir) || strings.Contains(wire.String(), raw) {
+				t.Fatal("wrong classification or private error evidence in JSON:", &wire)
+			}
+			for _, text := range []string{entry.Message, human.String()} {
+				primary, secondary, rollbackReported := strings.Cut(text, "rollback failed:")
+				if strings.Contains(primary, forward.Summary()) != tc.forward || rollbackReported != tc.rollback || strings.Contains(secondary, restore.Summary()) != tc.rollback {
+					t.Fatalf("wrong cause for forward or rollback failure: %s", text)
+				}
+			}
+			forwardNote := clipresent.NoteGuidance("affected file: " + clipresent.Quote(forward.Destination)).HumanText()
+			restoreNote := clipresent.NoteGuidance("rollback file: " + clipresent.Quote(restore.Destination)).HumanText()
+			if strings.Contains(human.String(), forwardNote) != tc.forward || strings.Contains(human.String(), restoreNote) != tc.rollback || strings.Contains(human.String(), "daem recover --dry-run") != tc.rollback || strings.Contains(human.String(), raw) {
+				t.Fatal("wrong file or recovery guidance:", &human)
+			}
+		})
 	}
 }
 

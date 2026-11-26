@@ -119,6 +119,7 @@ type Failure struct {
 	nativeSupport          nativeSupportReason
 	documentAdmission      *nativeoperation.DocumentAdmissionError
 	selinuxLabel           *storagecommit.SELinuxLabelError
+	rollbackLabel          *storagecommit.SELinuxLabelError
 	staleAgentConfigSource entity.ID
 	missingState           *ownershipobserve.MissingStateRefusal
 	cleanupAttempted       bool
@@ -148,6 +149,17 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	}
 	if failure.reason == FailureReasonApplyIncomplete || failure.reason == FailureReasonApplyRefused {
 		errors.As(err, &failure.selinuxLabel)
+	}
+	if phase == FailurePhaseExecution {
+		for cause := applyprogram.FailedRollbackCause(err); cause != nil; cause = applyprogram.FailedRollbackCause(cause) {
+			if errors.As(cause, &failure.rollbackLabel) {
+				break
+			}
+		}
+		// Native recovery also unwraps this error for standalone recover.
+		if failure.selinuxLabel == failure.rollbackLabel {
+			failure.selinuxLabel = nil
+		}
 	}
 	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
 	for _, step := range result.RecoveryCleanup {
@@ -346,9 +358,19 @@ func (failure Failure) SELinuxLabelDestination() string {
 	return failure.selinuxLabel.Destination
 }
 
+func (failure Failure) RollbackSELinuxLabelDestination() string {
+	if failure.rollbackLabel == nil {
+		return ""
+	}
+	return failure.rollbackLabel.Destination
+}
+
 func (failure Failure) withOutcomeFacts(detail string) string {
 	if failure.selinuxLabel != nil {
 		detail += "; " + failure.selinuxLabel.Summary()
+	}
+	if failure.rollbackLabel != nil {
+		detail += "; rollback failed: " + failure.rollbackLabel.Summary()
 	}
 	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
 		detail += "; journal recovery authority could not be classified"
