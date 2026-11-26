@@ -72,6 +72,44 @@ func TestDirectoryHashBuilderMatchesEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestTreeMembershipDistinguishesMissingAndWrongKindFromAdditional(t *testing.T) {
+	root := t.TempDir()
+	shipped := filepath.Join(root, "empty")
+	if err := os.Mkdir(shipped, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	view, err := access.OpenView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := view.TreeInventory(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "local"), []byte("extra"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(wantMatch bool) {
+		t.Helper()
+		for _, skipAdditional := range []bool{false, true} {
+			whole, selected, err := view.ObserveTreeMembers(t.Context(), release.Members, skipAdditional)
+			if err != nil || (selected == release.Installed) != wantMatch || (whole.Installed == "") != skipAdditional || whole.Installed == release.Installed {
+				t.Fatalf("skipAdditional=%t: whole %q, selected %q, release %q, err %v", skipAdditional, whole.Installed, selected, release.Installed, err)
+			}
+		}
+	}
+	check(true)
+	if err := os.Remove(shipped); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	if err := os.WriteFile(shipped, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+}
+
 func TestDirectoryHashBuilderAcceptsComponentOrderedPrefixSiblings(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "a"), 0o750); err != nil {

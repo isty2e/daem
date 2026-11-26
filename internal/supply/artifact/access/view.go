@@ -329,6 +329,42 @@ func (view View) TreeHashes(ctx context.Context, candidate, collect artifact.Exe
 	return view.pathHashes(ctx, artifact.NewLegacyTreeEvidenceBuilder(candidate, collect))
 }
 
+func (view View) TreeInventory(ctx context.Context, executables artifact.ExecutablePaths) (artifact.TreeInventory, error) {
+	if view.kind != artifact.ArtifactKindDirectory {
+		return artifact.TreeInventory{}, fmt.Errorf("tree inventory requires a directory")
+	}
+	b := artifact.NewTreeInventoryBuilder(executables)
+	_, err := view.installedTreeHashes(ctx, b)
+	if err != nil {
+		return artifact.TreeInventory{}, err
+	}
+	return b.Inventory()
+}
+
+// ObserveTreeMembers returns whole-tree hashes only when no entry was skipped.
+func (view View) ObserveTreeMembers(ctx context.Context, members artifact.TreeMembers, skipAdditional bool) (whole artifact.PathHashes, selected artifact.ContentHash, err error) {
+	if view.kind != artifact.ArtifactKindDirectory || !members.Known() {
+		return whole, "", fmt.Errorf("tree membership observation requires a directory and inventory")
+	}
+	b := artifact.NewSelectedTreeBuilder(members, skipAdditional)
+	hashes, err := view.installedTreeHashes(ctx, b)
+	if err != nil {
+		return whole, "", err
+	}
+	if b.ObservedWholeTree() {
+		whole = hashes
+	}
+	return whole, b.SelectedInstalledHash(), nil
+}
+
+func (view View) installedTreeHashes(ctx context.Context, builder *artifact.DirectoryHashBuilder) (artifact.PathHashes, error) {
+	limit := TraversalLimit{maxEntries: artifact.MaximumInstalledTreeEntries + 1, maxBytes: artifact.MaximumInstalledTreeBytes}
+	structure := TreeStructureLimit{maximumEntries: artifact.MaximumInstalledTreeEntries, maximumDepth: artifact.MaximumInstalledTreeDepth, initialized: true}
+	var hashes artifact.PathHashes
+	_, _, err := view.hashDirectoryWithLimits(ctx, limit, structure, &hashes, builder)
+	return hashes, err
+}
+
 func (view View) pathHashes(ctx context.Context, tree *artifact.DirectoryHashBuilder) (artifact.PathHashes, error) {
 	if err := view.validateOperation(ctx); err != nil {
 		return artifact.PathHashes{}, err
@@ -413,17 +449,17 @@ func (view View) HashDirectoryWithLimits(
 	traversalLimit TraversalLimit,
 	structureLimit TreeStructureLimit,
 ) (artifact.ContentHash, TraversalMeasurement, error) {
-	return view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, nil)
+	return view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, nil, nil)
 }
 
 // DirectoryHashesWithLimits derives both digest formats from one bounded walk.
 func (view View) DirectoryHashesWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit) (artifact.PathHashes, TraversalMeasurement, error) {
 	var hashes artifact.PathHashes
-	_, work, err := view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, &hashes)
+	_, work, err := view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, &hashes, nil)
 	return hashes, work, err
 }
 
-func (view View) hashDirectoryWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit, hashes *artifact.PathHashes) (artifact.ContentHash, TraversalMeasurement, error) {
+func (view View) hashDirectoryWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit, hashes *artifact.PathHashes, builder *artifact.DirectoryHashBuilder) (artifact.ContentHash, TraversalMeasurement, error) {
 	if view.kind != artifact.ArtifactKindDirectory {
 		return "", TraversalMeasurement{}, fmt.Errorf("bounded directory hash requires a directory artifact")
 	}
@@ -437,7 +473,7 @@ func (view View) hashDirectoryWithLimits(ctx context.Context, traversalLimit Tra
 		return "", TraversalMeasurement{}, err
 	}
 	budget := traversalBudget{limit: traversalLimit, structureLimit: &structureLimit}
-	contentHash, err := walkNativeHashes(ctx, view, nil, &budget, hashes, nil)
+	contentHash, err := walkNativeHashes(ctx, view, nil, &budget, hashes, builder)
 	if err != nil {
 		return "", TraversalMeasurement{}, err
 	}

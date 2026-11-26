@@ -22,6 +22,12 @@ type DirectoryHashBuilder struct {
 	legacyCandidate      hash.Hash
 	candidateExecutables ExecutablePaths
 	observedExecutables  ExecutablePaths
+	collectedMembers     []string
+	selection            TreeMembers
+	selectedInstalled    hash.Hash
+	matchingEntries      int
+	skipAdditional       bool
+	skipped              bool
 	previousPath         string
 	directories          map[string]struct{}
 	result               ContentHash
@@ -61,6 +67,65 @@ func NewDirectoryEvidenceBuilder() *DirectoryHashBuilder {
 	return b
 }
 
+// NewTreeInventoryBuilder collects the inventory from the same byte stream as the source hash.
+func NewTreeInventoryBuilder(executables ExecutablePaths) *DirectoryHashBuilder {
+	b := NewLegacyTreeEvidenceBuilder(nil, executables)
+	b.collectedMembers = []string{}
+	return b
+}
+
+func (builder *DirectoryHashBuilder) Inventory() (TreeInventory, error) {
+	if builder.collectedMembers == nil {
+		return TreeInventory{}, fmt.Errorf("directory hash did not collect an inventory")
+	}
+	hashes, err := builder.Hashes()
+	if err != nil {
+		return TreeInventory{}, err
+	}
+	members, err := NewTreeMembers(builder.collectedMembers)
+	return TreeInventory{PathHashes: hashes, Members: members}, err
+}
+
+// NewSelectedTreeBuilder hashes shipped paths separately from the whole tree.
+// In a read-only membership check the walker need not open unrelated children.
+func NewSelectedTreeBuilder(selection TreeMembers, skipAdditional bool) *DirectoryHashBuilder {
+	b := NewDirectoryEvidenceBuilder()
+	b.selection, b.skipAdditional = selection, skipAdditional
+	b.selectedInstalled = beginInstalled("directory")
+	return b
+}
+
+func (builder *DirectoryHashBuilder) SkipEntry(relativePath string) bool {
+	if builder.skipAdditional && !builder.selection.Includes(relativePath) {
+		builder.skipped = true
+		return true
+	}
+	return false
+}
+
+func (builder *DirectoryHashBuilder) SelectedInstalledHash() ContentHash {
+	if builder.selectedInstalled == nil || builder.matchingEntries != len(builder.selection.entries) {
+		return ""
+	}
+	return finishInstalled(builder.selectedInstalled)
+}
+
+func (builder *DirectoryHashBuilder) matchesSelected(name string, directory bool) bool {
+	if builder.selectedInstalled == nil {
+		return false
+	}
+	i, ok := builder.selection.lookup(name)
+	if !ok || strings.HasSuffix(builder.selection.entries[i], "/") != directory {
+		return false
+	}
+	builder.matchingEntries++
+	return true
+}
+
+func (builder *DirectoryHashBuilder) ObservedWholeTree() bool { return !builder.skipped }
+
+func (builder *DirectoryHashBuilder) SkipsAdditionalEntries() bool { return builder.skipAdditional }
+
 func (builder *DirectoryHashBuilder) Hashes() (PathHashes, error) {
 	source, err := builder.Sum()
 	if err != nil {
@@ -87,6 +152,12 @@ func (builder *DirectoryHashBuilder) AddDirectory(relativePath string) error {
 	}
 	if builder.installed != nil {
 		writeRecord(builder.installed, "dir", relativePath)
+	}
+	if builder.collectedMembers != nil {
+		builder.collectedMembers = append(builder.collectedMembers, relativePath+"/")
+	}
+	if builder.matchesSelected(relativePath, true) {
+		writeRecord(builder.selectedInstalled, "dir", relativePath)
 	}
 	builder.directories[relativePath] = struct{}{}
 	return nil
@@ -120,6 +191,13 @@ func (builder *DirectoryHashBuilder) AddFile(
 	if builder.installed != nil {
 		writeRecord(builder.installed, "file", relativePath, strconv.FormatInt(size, 10))
 		destination = io.MultiWriter(builder.hasher, builder.installed)
+	}
+	if builder.collectedMembers != nil {
+		builder.collectedMembers = append(builder.collectedMembers, relativePath)
+	}
+	if builder.matchesSelected(relativePath, false) {
+		writeRecord(builder.selectedInstalled, "file", relativePath, strconv.FormatInt(size, 10))
+		destination = io.MultiWriter(destination, builder.selectedInstalled)
 	}
 	if builder.observedExecutables != nil && executable {
 		builder.observedExecutables[relativePath] = true
