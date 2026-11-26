@@ -275,6 +275,7 @@ func commitWindowsFileWithFaultsAndParent(
 		}
 		return cleanupStage(err, phaseCommitEntry)
 	}
+	request.notePublication(EntryIdentity{kind: entryKindRegular, platform: platformIdentity{native: stageFacts.identity}})
 	if err := faults.check(ctx, phaseVerifyEntry); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}

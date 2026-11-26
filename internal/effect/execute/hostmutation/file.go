@@ -11,18 +11,18 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
-func (operation *Operation) CommitFileAgainst(ctx context.Context, destination mutationnamespace.Destination, content []byte, fileMode os.FileMode, expectedExists bool, expected mutationfs.EntryIdentity) error {
+func (operation *Operation) CommitFileAgainst(ctx context.Context, destination mutationnamespace.Destination, content []byte, fileMode os.FileMode, expectedExists bool, expected mutationfs.EntryIdentity) (mutationfs.EntryIdentity, error) {
 	if !destination.IsRooted() {
-		return errors.New("mutation destination is invalid")
+		return nil, errors.New("mutation destination is invalid")
+	}
+	if expectedExists != (expected != nil) {
+		return nil, errors.New("file publication requires the identity of an existing destination")
 	}
 	capability, err := operation.destinations.Acquire(destination)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if expectedExists {
-		return operation.filesystem.ReplaceRootedFile(ctx, capability, content, fileMode, expected)
-	}
-	return operation.filesystem.CreateRootedFile(ctx, capability, content, fileMode)
+	return operation.filesystem.PublishRootedFile(ctx, capability, content, fileMode, expected)
 }
 
 func (operation *Operation) MutateFile(
@@ -31,38 +31,44 @@ func (operation *Operation) MutateFile(
 	fileMode os.FileMode,
 	allowMissing bool,
 	maximumBytes int64,
-	mutation func(existing []byte, mode os.FileMode, exists bool) (content []byte, keepFile bool, err error),
-) error {
+	mutation func(existing []byte, mode os.FileMode, identity mutationfs.EntryIdentity) (content []byte, keepFile bool, err error),
+) (mutationfs.EntryIdentity, error) {
 	if !destination.IsRooted() {
-		return errors.New("mutation destination is invalid")
+		return nil, errors.New("mutation destination is invalid")
 	}
 	capability, err := operation.destinations.Acquire(destination)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	existing, mode, expected, err := operation.filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
 	exists := err == nil
 	if err != nil && !(allowMissing && errors.Is(err, os.ErrNotExist)) {
 		_ = capability.Close()
-		return err
+		return nil, err
 	}
-	content, keepFile, err := mutation(existing, mode, exists)
+	if exists && expected == nil {
+		return nil, errors.Join(errors.New("existing file has no entry identity"), capability.Close())
+	}
+	if !exists {
+		expected = nil
+	}
+	content, keepFile, err := mutation(existing, mode, expected)
 	if err != nil {
 		_ = capability.Close()
-		return err
+		return nil, err
 	}
 	if !keepFile {
 		if !exists {
 			_ = capability.Close()
-			return nil
+			return nil, nil
 		}
 		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, expected, artifact.InstalledFileHash(existing))
-		return err
+		return nil, err
 	}
-	if !exists {
-		return operation.filesystem.CreateRootedFile(ctx, capability, content, fileMode)
+	if exists {
+		fileMode = mode.Perm()
 	}
-	return operation.filesystem.ReplaceRootedFile(ctx, capability, content, mode.Perm(), expected)
+	return operation.filesystem.PublishRootedFile(ctx, capability, content, fileMode, expected)
 }
 
 func (operation *Operation) readFile(ctx context.Context, destination mutationnamespace.Destination, maximumBytes int64) ([]byte, os.FileMode, error) {

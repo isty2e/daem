@@ -287,14 +287,16 @@ func executeRecoveryHostActionPlan(
 				staged[index].attempted = true
 				staged[index].effectState = recoveryFileState(content, fileMode)
 				staged[index].effectKnown = true
-				if err := authority.operation.CommitFileAgainst(
+				published, err := authority.operation.CommitFileAgainst(
 					ctx,
 					destination,
 					content,
 					fileMode,
 					staged[index].existed,
 					staged[index].identity,
-				); err != nil {
+				)
+				staged[index].publishedFile = published
+				if err != nil {
 					return fmt.Errorf("restore file %q: %w", action.Destination, err)
 				}
 			case recovery.PathKindDirectory:
@@ -516,13 +518,14 @@ func executeRecoveryAggregateActionGroup(
 	}
 	var expected aggregate.RenderedDocument
 	expectedKnown := false
-	mutationErr := authority.operation.MutateFile(
+	published, mutationErr := authority.operation.MutateFile(
 		ctx,
 		group.destination,
 		fileMode,
 		!firstAction.ExpectedAfter.PathExisted,
 		max(int64(1), staged[firstIndex].stagedWork.Bytes()),
-		func(existing []byte, mode os.FileMode, exists bool) ([]byte, bool, error) {
+		func(existing []byte, mode os.FileMode, identity mutationfs.EntryIdentity) ([]byte, bool, error) {
+			exists := identity != nil
 			if err := validateRecoveryWholeFileInput(
 				firstAction.Destination,
 				baselineWholeState,
@@ -531,6 +534,9 @@ func executeRecoveryAggregateActionGroup(
 				exists,
 			); err != nil {
 				return nil, true, err
+			}
+			if exists && !mutationfs.SameEntryObject(staged[firstIndex].identity, identity) {
+				return nil, true, fmt.Errorf("aggregate recovery document %q changed entry identity after staging", firstAction.Destination)
 			}
 			for _, index := range group.indexes {
 				if err := validateRecoveryExpectedContentPath(actions[index], existing, exists, codecs); err != nil {
@@ -569,6 +575,9 @@ func executeRecoveryAggregateActionGroup(
 			return candidate.Content(), candidate.Exists(), nil
 		},
 	)
+	for _, index := range group.indexes {
+		staged[index].publishedFile = published
+	}
 	if mutationErr != nil {
 		if expectedKnown {
 			effectState := recoveryDocumentWholeState(expected.Document(), fileMode)

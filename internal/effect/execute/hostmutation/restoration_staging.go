@@ -52,6 +52,7 @@ type hostRollbackEntry struct {
 	stagedWork         workmeasure.ArtifactWork
 	effectMaximumKinds map[string]workmeasure.ArtifactWork
 	effectState        recoveryWholePathState
+	publishedFile      mutationfs.EntryIdentity
 	effectKnown        bool
 	attempted          bool
 }
@@ -463,7 +464,8 @@ func restoreRollbackGroup(
 	}
 	matchesEffect := false
 	for _, entry := range entries {
-		if entry.attempted && entry.effectKnown && current.sameContent(entry.effectState) {
+		if entry.attempted && entry.effectKnown && current.sameContent(entry.effectState) &&
+			(current.kind != recovery.PathKindFile || mutationfs.SameEntryObject(entry.publishedFile, identity)) {
 			matchesEffect = true
 			break
 		}
@@ -500,7 +502,7 @@ func restoreRollbackGroup(
 		if current.kind == recovery.PathKindFile {
 			mode = current.fileMode
 		}
-		if err := authority.operation.CommitFileAgainst(
+		if _, err := authority.operation.CommitFileAgainst(
 			ctx,
 			baseline.destination,
 			content,

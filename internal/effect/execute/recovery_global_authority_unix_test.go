@@ -596,7 +596,7 @@ func TestRecoveryDirectFileCommitRejectsStagedEntryDrift(t *testing.T) {
 }
 
 func TestRecoveryRollbackRechecksFileAfterCommittedRecoveryEffect(t *testing.T) {
-	for _, edit := range []string{"permissions only", "permissions and content"} {
+	for _, edit := range []string{"permissions only", "permissions and content", "same bytes in another file"} {
 		t.Run(edit, func(t *testing.T) {
 			destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 			fixture := newGlobalFileRecoveryFixture(t, destination, true)
@@ -644,18 +644,25 @@ func TestRecoveryRollbackRechecksFileAfterCommittedRecoveryEffect(t *testing.T) 
 			}
 			assertRecoveryTestContent(t, fixture.admittedPath, fixture.before)
 
+			want := fixture.before
 			if edit == "permissions and content" {
-				writeRecoveryTestFile(t, fixture.admittedPath, []byte("external after recovery effect\n"))
+				want = []byte("external after recovery effect\n")
+				writeRecoveryTestFile(t, fixture.admittedPath, want)
+			} else if edit == "same bytes in another file" {
+				writeRecoveryTestFile(t, fixture.admittedPath+".new", want)
+				if err := os.Rename(fixture.admittedPath+".new", fixture.admittedPath); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err := os.Chmod(fixture.admittedPath, 0o544); err != nil {
 				t.Fatal(err)
 			}
 			err = rollback.Restore(context.Background(), authority.generalExecutionWorkBudget, applyprogram.VisibilityGate{})
-			if edit == "permissions and content" {
+			if edit != "permissions only" {
 				if err == nil {
 					t.Fatal("rollback overwrote a file changed outside the recovery attempt")
 				}
-				assertRecoveryTestContent(t, fixture.admittedPath, []byte("external after recovery effect\n"))
+				assertRecoveryTestContent(t, fixture.admittedPath, want)
 			} else {
 				if err != nil {
 					t.Fatal(err)

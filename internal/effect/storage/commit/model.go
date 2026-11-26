@@ -137,6 +137,14 @@ type FileCommit struct {
 	expected       EntryIdentity
 	expectedParent EntryIdentity
 	capability     rootedpath.CommitCapability
+	published      *EntryIdentity
+}
+
+func (request FileCommit) notePublication(staged EntryIdentity) {
+	if request.published != nil {
+		staged.path = request.path
+		*request.published = staged
+	}
 }
 
 // NewRootedFileCreate constructs an absent-destination file request bound to

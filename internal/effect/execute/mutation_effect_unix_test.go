@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -32,7 +33,7 @@ func TestCommitFileDestinationAgainstRejectsProjectFinalSymlink(t *testing.T) {
 	}
 	authority, destination := projectMutationDestinationForTest(t, root, ".agent/config")
 
-	err := authority.hostMutation().CommitFileAgainst(
+	_, err := authority.hostMutation().CommitFileAgainst(
 		context.Background(), destination, []byte("managed"), 0o600, false, nil,
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureFinalSymlink) {
@@ -56,7 +57,7 @@ func TestCommitFileDestinationAgainstRejectsAncestorRedirectAfterCapture(t *test
 		t.Fatalf("redirect project parent: %v", err)
 	}
 
-	err := authority.hostMutation().CommitFileAgainst(
+	_, err := authority.hostMutation().CommitFileAgainst(
 		context.Background(), destination, []byte("managed"), 0o600, false, nil,
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorSymlink) {
@@ -78,8 +79,8 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 	outside := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(outside, "config"), "outside")
 
-	err := authority.hostMutation().MutateFile(context.Background(), destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
-		if !exists {
+	_, err := authority.hostMutation().MutateFile(context.Background(), destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, identity mutationfs.EntryIdentity) ([]byte, bool, error) {
+		if identity == nil {
 			t.Fatal("mutation input unexpectedly reported missing destination")
 		}
 		if string(existing) != "inside" {
@@ -157,7 +158,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 }
 
 func TestMutationHelpersRejectInvalidDestination(t *testing.T) {
-	err := (*mutationAuthority)(nil).hostMutation().CommitFileAgainst(
+	_, err := (*mutationAuthority)(nil).hostMutation().CommitFileAgainst(
 		context.Background(), mutationnamespace.Destination{}, []byte("content"), 0o600, false, nil,
 	)
 	if err == nil {

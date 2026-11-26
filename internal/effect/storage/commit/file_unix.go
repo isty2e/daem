@@ -352,6 +352,7 @@ func commitFileWithFaultsAndParentRefresh(
 	if err != nil {
 		return failFileBeforeVisibility(request.path, phaseCommitEntry, err, anchor, temporaryName, temporaryIdentity, faults)
 	}
+	request.notePublication(temporaryIdentity)
 
 	err = faults.run(ctx, phaseSyncParent, func() error { return syncDirectory(anchor.parentFD()) })
 	if err != nil {

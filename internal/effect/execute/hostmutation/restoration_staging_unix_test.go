@@ -114,10 +114,13 @@ func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = restoration.Cleanup(context.Background()) })
-	writeRestorationTestFile(t, destination, before)
 	entry := &restoration.rollback.entries[0]
 	entry.attempted, entry.effectKnown = true, true
 	entry.effectState = recoveryFileState(before, 0o600)
+	entry.publishedFile, err = fixture.operation.CommitFileAgainst(t.Context(), entry.destination, before, 0o600, true, entry.identity)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(entry.backupPath, []byte(strings.Repeat("x", len(after))), 0o600); err != nil {
 		t.Fatal(err)
 	}

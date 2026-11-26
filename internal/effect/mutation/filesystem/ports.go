@@ -114,6 +114,10 @@ type RootedCommitter interface {
 		mode fs.FileMode,
 		expected EntryIdentity,
 	) error
+	// PublishRootedFile identifies the staged object that was renamed into place.
+	// A nil expectation requires absence. A later commit error can accompany
+	// an object identity; it is evidence for re-observation, not a precondition.
+	PublishRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode fs.FileMode, expected EntryIdentity) (EntryIdentity, error)
 	RemoveRootedEntry(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
