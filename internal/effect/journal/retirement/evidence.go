@@ -78,15 +78,6 @@ func validateRecordFile(evidence EntryEvidence, subject string) error {
 	if !evidence.owned {
 		return fmt.Errorf("%s %q is not owned by the invoking user", subject, evidence.name)
 	}
-	if evidence.name != RecordFileName && evidence.mode != RecordMode {
-		return fmt.Errorf(
-			"%s %q permissions are %04o, want %04o",
-			subject,
-			evidence.name,
-			evidence.mode,
-			RecordMode,
-		)
-	}
 	if evidence.size > MaximumRecordBytes {
 		return fmt.Errorf("%s %q exceeds %d bytes", subject, evidence.name, MaximumRecordBytes)
 	}

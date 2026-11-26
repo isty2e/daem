@@ -22,7 +22,7 @@ func TestValidateControlAdmitsCanonicalRecordAndRegularTemporaries(t *testing.T)
 			control := mustControl(
 				t, record,
 				mustEntry(t, ".daem-tmp-old", EntryRegular, RecordMode, true, 0),
-				mustEntry(t, ".daem-tmp-new", EntryRegular, RecordMode, true, MaximumRecordBytes),
+				mustEntry(t, ".daem-tmp-new", EntryRegular, 0o644, true, MaximumRecordBytes),
 			)
 
 			if !control.Record().Identity().equal(record.Identity()) ||
@@ -208,15 +208,6 @@ func TestValidateControlRejectsMalformedTree(t *testing.T) {
 			children: []EntryEvidence{
 				validRecord,
 				mustEntry(t, ".daem-tmp-write", EntrySpecial, RecordMode, true, 0),
-			},
-			content: content,
-		},
-		{
-			name:      "temporary wrong mode",
-			directory: validDirectory,
-			children: []EntryEvidence{
-				validRecord,
-				mustEntry(t, ".daem-tmp-write", EntryRegular, 0o644, true, 0),
 			},
 			content: content,
 		},

@@ -20,7 +20,7 @@ const (
 	// DirectoryMode is the exact mode for control, residue, and GC directories.
 	DirectoryMode fs.FileMode = 0o700
 
-	// RecordMode is the creation mode for records and the required mode of private temporaries.
+	// RecordMode is the creation mode for a new retirement record.
 	RecordMode fs.FileMode = 0o600
 
 	maximumRecordJSONDepth = 2
