@@ -12,7 +12,8 @@ import (
 
 const (
 	linuxUserModifiableFlags = 0x000380ff
-	linuxNoDump              = 0x40 // FS_NODUMP_FL
+	linuxNoDump              = 0x40  // FS_NODUMP_FL
+	linuxNoCompress          = 0x400 // FS_NOCOMP_FL, also set by Btrfs on incompressible files
 )
 
 const linuxPreparedTreeKernelManagedFlags = 0x00000100 | // FS_DIRTY_FL
@@ -186,20 +187,18 @@ func capturePreparedTreePlatformMetadataFacts(fd int, path string, _ *unix.Stat_
 	if err != nil {
 		return 0, unsupported("prepared tree file flags cannot be inspected", err)
 	}
-	if err := validatePreparedTreeLinuxFlags(path, flags); err != nil {
-		return 0, err
-	}
-	return uint64(flags &^ linuxNoDump), nil
+	return preparedTreeLinuxFlagFacts(path, flags)
 }
 
-func validatePreparedTreeLinuxFlags(path string, flags int) error {
-	if unsupportedFlags := flags &^ (linuxPreparedTreeKernelManagedFlags | linuxNoDump); unsupportedFlags != 0 {
-		return unsupported(
+func preparedTreeLinuxFlagFacts(path string, flags int) (uint64, error) {
+	facts := flags &^ (linuxNoDump | linuxNoCompress)
+	if unsupportedFlags := facts &^ linuxPreparedTreeKernelManagedFlags; unsupportedFlags != 0 {
+		return 0, unsupported(
 			fmt.Sprintf("prepared tree entry %q contains unsupported file flags 0x%x", path, unsupportedFlags),
 			nil,
 		)
 	}
-	return nil
+	return uint64(facts), nil
 }
 
 func preparedTreeAccessLabel(name string) (bool, error) {

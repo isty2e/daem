@@ -9,19 +9,21 @@ func TestPreparedTreeLinuxFlagsRejectUnrepresentedSemantics(t *testing.T) {
 		name  string
 		flags int
 	}{
-		{name: "no copy-on-write", flags: 0x00800000},
+		{name: "no copy-on-write with compression disabled", flags: 0x00800000 | linuxNoCompress},
 		{name: "case-folded directory", flags: 0x40000000},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := validatePreparedTreeLinuxFlags("entry", test.flags); !isUnsupported(err) {
-				t.Fatalf("validatePreparedTreeLinuxFlags(%#x) error = %v, want unsupported", test.flags, err)
+			if _, err := preparedTreeLinuxFlagFacts("entry", test.flags); !isUnsupported(err) {
+				t.Fatalf("flags %#x: error = %v, want unsupported", test.flags, err)
 			}
 		})
 	}
-	for _, flags := range []int{0, 0x00080000, 0x00001000, linuxNoDump} {
-		if err := validatePreparedTreeLinuxFlags("entry", flags); err != nil {
-			t.Fatalf("validatePreparedTreeLinuxFlags(%#x) returned error: %v", flags, err)
+	for _, flags := range []int{0, 0x00080000, 0x00001000} {
+		for _, ignored := range []int{0, linuxNoDump, linuxNoCompress, linuxNoDump | linuxNoCompress} {
+			if facts, err := preparedTreeLinuxFlagFacts("entry", flags|ignored); err != nil || facts != uint64(flags) {
+				t.Fatalf("flags %#x: facts = %#x, error = %v; want %#x", flags|ignored, facts, err, flags)
+			}
 		}
 	}
 }
