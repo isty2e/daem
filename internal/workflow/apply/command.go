@@ -31,6 +31,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -117,6 +118,7 @@ type Failure struct {
 	backendTransition      *readiness.MCPBackendTransitionError
 	nativeSupport          nativeSupportReason
 	documentAdmission      *nativeoperation.DocumentAdmissionError
+	selinuxLabel           *storagecommit.SELinuxLabelError
 	staleAgentConfigSource entity.ID
 	missingState           *ownershipobserve.MissingStateRefusal
 	cleanupAttempted       bool
@@ -143,6 +145,9 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	}
 	if phase == FailurePhasePreflight && failure.reason != FailureReasonCancelled {
 		errors.As(err, &failure.missingState)
+	}
+	if failure.reason == FailureReasonApplyIncomplete || failure.reason == FailureReasonApplyRefused {
+		errors.As(err, &failure.selinuxLabel)
 	}
 	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
 	for _, step := range result.RecoveryCleanup {
@@ -333,7 +338,18 @@ func (failure Failure) NativeSupportRepairInstruction() string {
 	return failure.nativeSupport.repairInstruction()
 }
 
+// SELinuxLabelDestination identifies the affected file for local human diagnostics.
+func (failure Failure) SELinuxLabelDestination() string {
+	if failure.selinuxLabel == nil {
+		return ""
+	}
+	return failure.selinuxLabel.Destination
+}
+
 func (failure Failure) withOutcomeFacts(detail string) string {
+	if failure.selinuxLabel != nil {
+		detail += "; " + failure.selinuxLabel.Summary()
+	}
 	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
 		detail += "; journal recovery authority could not be classified"
 	}

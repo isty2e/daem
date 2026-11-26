@@ -26,6 +26,29 @@ import (
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
+func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	cause := fmt.Errorf("replace: %w", &storagecommit.SELinuxLabelError{Destination: path, Err: os.ErrPermission})
+	result := applyworkflow.CommandResult{ExecutionAttempted: true}
+	var human, wire bytes.Buffer
+	printApplyFailure(&human, cause, applyFailureExecution, result, false)
+	failure := applyworkflow.ClassifyFailure(cause, result)
+	if err := clipresent.PrintApplyResultJSON(&wire, clipresent.ApplyResultJSONInput{ExecutionAttempted: true, Failure: &failure}); err != nil {
+		t.Fatal(err)
+	}
+	for _, output := range []string{human.String(), wire.String()} {
+		if !strings.Contains(output, "existing SELinux label: permission denied") {
+			t.Fatal("missing cause:", output)
+		}
+	}
+	if !strings.Contains(human.String(), path) || strings.Contains(wire.String(), path) || failure.Reason() != applyworkflow.FailureReasonApplyIncomplete {
+		t.Fatal("wrong destination disclosure or failure code:", human.String(), wire.String())
+	}
+	if cancelled := applyworkflow.ClassifyFailure(errors.Join(cause, context.Canceled), result); cancelled.Reason() != applyworkflow.FailureReasonCancelled || cancelled.SELinuxLabelDestination() != "" {
+		t.Fatal("label failure displaced cancellation:", cancelled.Detail())
+	}
+}
+
 func TestNativeProtectionDiagnosticsAreActionableOnlyInPlanning(t *testing.T) {
 	for _, unverified := range []bool{false, true} {
 		err, privatePath := nativeProtectionFailure(t, unverified, ".codex/auth.json")

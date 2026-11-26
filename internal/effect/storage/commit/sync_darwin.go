@@ -24,12 +24,14 @@ func syncDirectory(fd int) error {
 	return nil
 }
 
-func capturePreservedMetadata(fd int, stat *unix.Stat_t) (preservedMetadata, error) {
+func capturePreservedMetadata(fd int, stat *unix.Stat_t, _ string) (preservedMetadata, error) {
 	if err := validateDarwinFileMetadata(fd, stat); err != nil {
 		return preservedMetadata{}, err
 	}
 	return preservedMetadata{noDump: stat.Flags&unix.UF_NODUMP != 0}, nil
 }
+
+func prepareReplacementAccess(_ int, _ preservedMetadata) error { return nil }
 
 func applyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	if metadata.noDump {

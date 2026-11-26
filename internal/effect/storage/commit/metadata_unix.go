@@ -10,9 +10,10 @@ import (
 )
 
 type preservedMetadata struct {
-	xattrs      map[string][]byte
-	replacement bool
-	noDump      bool
+	xattrs       map[string][]byte
+	existingPath string
+	selinuxLabel []byte
+	noDump       bool
 }
 
 func listXattrNames(fd int) ([]string, error) {

@@ -104,7 +104,7 @@ func TestDarwinFileMetadataDoesNotCopyOrRequireOpaqueAttributes(t *testing.T) {
 	old := preservedMetadata{xattrs: map[string][]byte{
 		"com.daem.test":             []byte("previous-inode"),
 		"com.daem.only-on-previous": []byte("not-required"),
-	}, replacement: true}
+	}, existingPath: path}
 	if err := verifyPreservedMetadata(int(file.Fd()), old); err != nil {
 		t.Fatal("old opaque attributes became a verification requirement", err)
 	}

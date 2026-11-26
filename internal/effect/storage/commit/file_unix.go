@@ -240,6 +240,18 @@ func commitFileWithFaultsAndParentRefresh(
 		}
 	}()
 
+	if request.policy == filePolicyReplaceExpected {
+		err = faults.run(ctx, phasePrepareFileAccess, func() error {
+			return prepareReplacementAccess(temporaryFD, metadata)
+		})
+		if err != nil {
+			temporaryIdentity, err = refreshedTemporaryIdentity(temporaryFD, temporaryIdentity, err)
+			_ = unix.Close(temporaryFD)
+			closed = true
+			return failFileBeforeVisibility(request.path, phasePrepareFileAccess, err, anchor, temporaryName, temporaryIdentity, faults)
+		}
+	}
+
 	err = faults.writePayload(ctx, fdWriter{fd: temporaryFD}, request.payload)
 	temporaryIdentity, err = refreshedTemporaryIdentity(temporaryFD, temporaryIdentity, err)
 	if err != nil {
@@ -502,7 +514,7 @@ func validateFileDestination(anchor *anchoredParent, request FileCommit) (preser
 		if err != nil {
 			return preservedMetadata{}, err
 		}
-		metadata, err := capturePreservedMetadata(fd, &stat)
+		metadata, err := capturePreservedMetadata(fd, &stat, request.path)
 		return metadata, atPhase(phaseCaptureMetadata, err)
 	default:
 		return preservedMetadata{}, fmt.Errorf("invalid file commit policy")

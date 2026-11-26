@@ -3,6 +3,7 @@
 package commit
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,7 @@ const (
 	linuxUserModifiableFlags = 0x000380ff
 	linuxNoDump              = 0x40  // FS_NODUMP_FL
 	linuxNoCompress          = 0x400 // FS_NOCOMP_FL, also set by Btrfs on incompressible files
+	linuxSELinuxLabel        = "security.selinux"
 )
 
 const linuxPreparedTreeKernelManagedFlags = 0x00000100 | // FS_DIRTY_FL
@@ -57,7 +59,7 @@ func syncDirectory(fd int) error {
 	return nil
 }
 
-func capturePreservedMetadata(fd int, _ *unix.Stat_t) (preservedMetadata, error) {
+func capturePreservedMetadata(fd int, _ *unix.Stat_t, path string) (preservedMetadata, error) {
 	flags, err := linuxFileFlags(fd)
 	if err != nil {
 		return preservedMetadata{}, unsupported("file flags cannot be inspected", err)
@@ -69,12 +71,16 @@ func capturePreservedMetadata(fd int, _ *unix.Stat_t) (preservedMetadata, error)
 	if err != nil {
 		return preservedMetadata{}, err
 	}
-	metadata := preservedMetadata{replacement: true, noDump: flags&linuxNoDump != 0, xattrs: make(map[string][]byte)}
+	metadata := preservedMetadata{existingPath: path, noDump: flags&linuxNoDump != 0, xattrs: make(map[string][]byte)}
+	metadata.selinuxLabel, err = readSELinuxLabel(fd)
+	if err != nil {
+		return preservedMetadata{}, &SELinuxLabelError{Destination: path, Err: err}
+	}
 	for _, name := range names {
 		if err := admitLinuxAccess(name); err != nil {
 			return preservedMetadata{}, err
 		}
-		if linuxContentSignature(name) {
+		if name == linuxSELinuxLabel || linuxContentSignature(name) {
 			continue
 		}
 		value, err := readXattrValue(fd, name)
@@ -86,10 +92,46 @@ func capturePreservedMetadata(fd int, _ *unix.Stat_t) (preservedMetadata, error)
 	return metadata, nil
 }
 
+func readSELinuxLabel(fd int) ([]byte, error) {
+	label, err := readXattrValue(fd, linuxSELinuxLabel)
+	if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.EOPNOTSUPP) {
+		return nil, nil
+	}
+	return label, err
+}
+
+func (metadata preservedMetadata) matchesSELinuxLabel(fd int) (bool, error) {
+	current, err := readSELinuxLabel(fd)
+	if err != nil {
+		return false, &SELinuxLabelError{Destination: metadata.existingPath, Err: err}
+	}
+	return (current == nil) == (metadata.selinuxLabel == nil) && bytes.Equal(current, metadata.selinuxLabel), nil
+}
+
+func (metadata preservedMetadata) verifySELinuxLabel(fd int) error {
+	if matches, err := metadata.matchesSELinuxLabel(fd); err != nil || matches {
+		return err
+	}
+	return &SELinuxLabelError{Destination: metadata.existingPath, Err: unsupported("replacement label differs from the original", nil)}
+}
+
+func prepareReplacementAccess(fd int, metadata preservedMetadata) error {
+	if matches, err := metadata.matchesSELinuxLabel(fd); err != nil || matches {
+		return err
+	}
+	if metadata.selinuxLabel == nil {
+		return &SELinuxLabelError{Destination: metadata.existingPath, Err: unsupported("cannot remove the kernel-assigned label", nil)}
+	}
+	if err := unix.Fsetxattr(fd, linuxSELinuxLabel, metadata.selinuxLabel, 0); err != nil {
+		return &SELinuxLabelError{Destination: metadata.existingPath, Err: unsupported("cannot label the empty replacement", err)}
+	}
+	return metadata.verifySELinuxLabel(fd)
+}
+
 func applyPreservedMetadata(fd int, metadata preservedMetadata) error {
 	for name, value := range metadata.xattrs {
 		if linuxAccessLabel(name) {
-			continue // Verify the OS-assigned label; do not relabel the new inode.
+			continue // Other access labels must match the OS-assigned values.
 		}
 		if err := unix.Fsetxattr(fd, name, value, 0); err != nil {
 			return unsupported(fmt.Sprintf("extended attribute %q cannot be preserved", name), err)
@@ -127,7 +169,7 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 		if err := admitLinuxAccess(name); err != nil {
 			return err
 		}
-		if _, known := metadata.xattrs[name]; !known && metadata.replacement && linuxAccessLabel(name) {
+		if _, known := metadata.xattrs[name]; !known && metadata.existingPath != "" && name != linuxSELinuxLabel && linuxAccessLabel(name) {
 			return unsupported(fmt.Sprintf("replacement has a different access label %q", name), nil)
 		}
 	}
@@ -153,6 +195,9 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 		if string(actual) != string(expected) {
 			return unsupported(fmt.Sprintf("extended attribute %q did not verify", name), nil)
 		}
+	}
+	if metadata.existingPath != "" {
+		return metadata.verifySELinuxLabel(fd)
 	}
 	return nil
 }

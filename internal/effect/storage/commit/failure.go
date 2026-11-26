@@ -3,6 +3,7 @@ package commit
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"sort"
 
@@ -19,6 +20,26 @@ const (
 // ErrRegularFileReadLimitExceeded classifies a bounded regular-file read that
 // observed more payload than its caller admitted.
 var ErrRegularFileReadLimitExceeded = errors.New("regular file read limit exceeded")
+
+// SELinuxLabelError identifies the destination whose existing label could not be preserved.
+type SELinuxLabelError struct {
+	Destination string
+	Err         error
+}
+
+func (err *SELinuxLabelError) Error() string {
+	return fmt.Sprintf("preserve existing SELinux label on %q: %v", err.Destination, err.Err)
+}
+
+func (err *SELinuxLabelError) Unwrap() error { return err.Err }
+
+// Summary omits the local path and raw filesystem error.
+func (err *SELinuxLabelError) Summary() string {
+	if errors.Is(err.Err, fs.ErrPermission) {
+		return "cannot preserve the existing SELinux label: permission denied"
+	}
+	return "cannot preserve the existing SELinux label"
+}
 
 // RegularFileReadLimitError reports the first size known to exceed a bounded
 // regular-file read.

@@ -528,7 +528,11 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 					WithGuidance(clipresent.InstructionGuidance(instruction)), failure.Reason()
 			}
 		}
-		return clipresent.NewFailureDiagnostic(failure.PrimaryDetail()), failure.Reason()
+		diagnostic := clipresent.NewFailureDiagnostic(failure.PrimaryDetail())
+		if path := failure.SELinuxLabelDestination(); stage == applyFailureExecution && path != "" {
+			diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("affected file: " + clipresent.Quote(path)))
+		}
+		return diagnostic, failure.Reason()
 	}
 	switch stage {
 	case applyFailureProjection:
