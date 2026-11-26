@@ -102,11 +102,16 @@ file does not block publication. The kernel manages content signatures such as
 `security.ima`; daem does not copy an old signature to new bytes.
 
 Daem refuses a replacement that would discard a POSIX ACL or carry file
-capabilities onto new code. When replacing an existing file under SELinux, daem
-keeps that file's full security context. If the kernel gives the temporary file
-a different label, daem applies the existing file's label and checks it before
-writing any content. If this fails, the original stays in place. New files get
-the kernel's label; other access labels must match without relabeling.
+capabilities onto new code. Under SELinux, daem keeps the existing file's full
+security context. If the temporary file has a different label, daem applies
+the original label and verifies it before writing any content. If the current
+login cannot set that label, for example because the file belongs to a different
+SELinux user, the replacement stops and the original stays in place. Other
+access labels must match without relabeling.
+
+A new regular file or missing parent directory keeps the label the kernel gives
+its temporary name. If a policy rule specifies a different label for the final
+name, daem does not apply it after the rename.
 
 The backup-exclusion flag is preserved. A dry run does not exercise filesystem
 writes; a failure in final verification can occur after the new file is visible.
