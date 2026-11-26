@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -281,8 +282,9 @@ func (authority *Operation) beginForwardRemoval(
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
-	fileHash artifact.ContentHash,
+	contentHash artifact.ContentHash,
 	intent recovery.RemovalIntent,
+	modes map[string]fs.FileMode,
 ) (admittedRemovalEntry, error) {
 	if !authority.forwardRemovalPrepared {
 		return admittedRemovalEntry{}, fmt.Errorf("forward removal capacity was not prepared before effects")
@@ -313,19 +315,20 @@ func (authority *Operation) beginForwardRemoval(
 	if err != nil {
 		return admittedRemovalEntry{}, err
 	}
-	observation, observedIdentity, work, err := journalqualification.ObserveRootedRemovalEntry(
+	observation, observedIdentity, work, err := journalqualification.ObserveRootedRemovalEntryWithModes(
 		ctx,
 		authority.filesystem,
 		capability,
 		observationBudget,
 		envelope.MaximumWork(),
+		modes,
 	)
 	if err != nil {
 		return admittedRemovalEntry{}, err
 	}
 	sameTarget := expected != nil && observedIdentity != nil && expected.Equal(observedIdentity)
-	if fileHash != "" {
-		sameTarget = mutationfs.SameEntryObject(expected, observedIdentity) && observation.MatchesFileContent(string(fileHash))
+	if contentHash != "" {
+		sameTarget = mutationfs.SameEntryObject(expected, observedIdentity) && observation.MatchesContent(string(contentHash))
 	}
 	if observation.Status() != recovery.RemovalResidueEntryPresent || !sameTarget || !intent.AdmitsEntry(observation) {
 		return admittedRemovalEntry{}, fmt.Errorf("forward removal candidate changed after capacity reservation")

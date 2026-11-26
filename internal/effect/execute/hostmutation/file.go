@@ -123,18 +123,11 @@ func (path PreparedPath) Remove(ctx context.Context) error {
 	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
-	if _, err := precondition.refreshTree(ctx); err != nil {
-		return err
-	}
 	capability, err := precondition.takeRootedCapability()
 	if err != nil {
 		return err
 	}
-	var fileHash artifact.ContentHash
-	if precondition.identity.Kind() == mutationfs.EntryKindFile {
-		fileHash = precondition.hash
-	}
-	_, err = precondition.operation.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity, fileHash)
+	_, err = precondition.operation.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity, precondition.hash)
 	return err
 }
 

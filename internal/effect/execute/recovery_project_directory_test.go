@@ -36,15 +36,24 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 
 type afterPreparedRestore struct {
 	mutationfs.Store
-	afterPrepare func()
+	prepared rootedpath.Destination
+	edit     func()
 }
 
-func (s afterPreparedRestore) PrepareRootedTree(ctx context.Context, capability rootedpath.CommitCapability, populate func(mutationfs.RootedTreeWriter) error) (mutationfs.PreparedRootedTree, error) {
+func (s *afterPreparedRestore) PrepareRootedTree(ctx context.Context, capability rootedpath.CommitCapability, populate func(mutationfs.RootedTreeWriter) error) (mutationfs.PreparedRootedTree, error) {
 	prepared, err := s.Store.PrepareRootedTree(ctx, capability, populate)
 	if err == nil {
-		s.afterPrepare()
+		s.prepared = capability.Destination()
 	}
 	return prepared, err
+}
+
+func (s *afterPreparedRestore) CaptureRootedEntryIdentity(ctx context.Context, capability rootedpath.CommitCapability) (mutationfs.EntryIdentity, error) {
+	if s.edit != nil && capability.Destination().Equal(s.prepared) {
+		s.edit()
+		s.edit = nil
+	}
+	return s.Store.CaptureRootedEntryIdentity(ctx, capability)
 }
 
 func restoreLegacyProjectTree(t *testing.T, supplyReference, editDuringRestore bool) {
@@ -256,7 +265,7 @@ func restoreLegacyProjectTree(t *testing.T, supplyReference, editDuringRestore b
 	wantMode := os.FileMode(0o640)
 	if supplyReference || editDuringRestore {
 		wantMode = 0o644
-		options.Filesystem = afterPreparedRestore{options.Filesystem, func() {
+		options.Filesystem = &afterPreparedRestore{Store: options.Filesystem, edit: func() {
 			if err := os.Chmod(file, wantMode); err != nil {
 				t.Fatal(err)
 			}

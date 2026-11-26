@@ -528,7 +528,6 @@ func restoreRollbackGroup(
 			baseline.destination,
 			current,
 			identity,
-			maximumKinds[current.kind], budget,
 			func(writer mutationfs.RootedTreeWriter) error {
 				return baseline.backup.CopyDirectory(ctx, writer, baseline.stagedWork)
 			},

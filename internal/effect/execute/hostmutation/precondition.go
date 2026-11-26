@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
@@ -24,8 +23,6 @@ type managedPathPrecondition struct {
 	hash        artifact.ContentHash
 	identity    mutationfs.EntryIdentity
 	fileMode    os.FileMode
-	treeModes   map[string]fs.FileMode
-	treeLimits  mutationfs.TreeTraversalLimits
 	capability  rootedpath.CommitCapability
 	filesystem  mutationfs.RootedStore
 	consumed    bool
@@ -148,7 +145,6 @@ func (operation *Operation) captureRootedManagedPathPrecondition(
 		return fail(fmt.Errorf("managed destination %q content kind %q is unsupported", destination.Logical(), contentKind))
 	}
 	sink := NewDirectoryHashSink(ctx)
-	sink.modes = make(map[string]fs.FileMode)
 	identity, err := operation.filesystem.SnapshotRootedDirectory(
 		ctx,
 		capability,
@@ -172,33 +168,8 @@ func (operation *Operation) captureRootedManagedPathPrecondition(
 	}
 	return managedPathPrecondition{
 		destination: destination, existed: true, hash: hashes.Installed, identity: identity,
-		treeModes: sink.modes, treeLimits: managedTreeTraversalLimits(),
 		capability: capability, filesystem: operation.filesystem,
 	}, nil
-}
-
-// Reopen through the same retained root and prove the whole tree again before
-// retiring it. A child can change without changing its parent's identity.
-func (p *managedPathPrecondition) refreshTree(ctx context.Context) (bool, error) {
-	if p.treeModes == nil {
-		return false, nil
-	}
-	sink := NewDirectoryHashSink(ctx)
-	sink.modes = make(map[string]fs.FileMode)
-	identity, err := p.filesystem.SnapshotRootedDirectory(ctx, p.capability, p.treeLimits, sink)
-	if err != nil {
-		return false, err
-	}
-	hashes, err := sink.builder.Hashes()
-	if err != nil {
-		return false, err
-	}
-	if !mutationfs.SameEntryObject(p.identity, identity) || hashes.Installed != p.hash {
-		return false, fmt.Errorf("managed tree %q changed while preparing publication", p.destination.Logical())
-	}
-	changed := !maps.Equal(p.treeModes, sink.modes)
-	p.treeModes, p.identity = sink.modes, identity
-	return changed, nil
 }
 
 func managedPathFileModeMatches(actual os.FileMode, expected *os.FileMode) bool {
@@ -236,24 +207,17 @@ func (operation *Operation) verifyInstalledPath(ctx context.Context, destination
 type DirectoryHashSink struct {
 	ctx     context.Context
 	builder *artifact.DirectoryHashBuilder
-	modes   map[string]fs.FileMode
 }
 
 func NewDirectoryHashSink(ctx context.Context) *DirectoryHashSink {
 	return &DirectoryHashSink{ctx: ctx, builder: artifact.NewDirectoryEvidenceBuilder()}
 }
 
-func (sink *DirectoryHashSink) VisitRoot(mode fs.FileMode) error {
-	if sink.modes != nil {
-		sink.modes["."] = mode.Perm() | fs.ModeDir
-	}
+func (*DirectoryHashSink) VisitRoot(fs.FileMode) error {
 	return nil
 }
 
-func (sink *DirectoryHashSink) VisitDirectory(path mutationfs.TreeRelativePath, mode fs.FileMode) error {
-	if sink.modes != nil {
-		sink.modes[path.Path()] = mode.Perm() | fs.ModeDir
-	}
+func (sink *DirectoryHashSink) VisitDirectory(path mutationfs.TreeRelativePath, _ fs.FileMode) error {
 	return sink.builder.AddDirectory(path.Path())
 }
 
@@ -263,9 +227,6 @@ func (sink *DirectoryHashSink) VisitRegularFile(
 	size int64,
 	content io.Reader,
 ) error {
-	if sink.modes != nil {
-		sink.modes[path.Path()] = mode.Perm()
-	}
 	return sink.builder.AddFile(sink.ctx, path.Path(), mode.Perm()&0o111 != 0, size, content)
 }
 

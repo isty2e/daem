@@ -4,15 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
-	"github.com/isty2e/daem/internal/effect/physicalwork"
-	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -35,7 +31,7 @@ func (path PreparedPath) WriteDirectory(
 		if err != nil {
 			return err
 		}
-		return view.CopyVerified(ctx, identity, sink.ForInstallation(precondition.treeModes))
+		return view.CopyVerified(ctx, identity, sink.ForInstallation())
 	}, precondition)
 }
 
@@ -46,6 +42,9 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 ) (resultErr error) {
 	if precondition == nil || precondition.consumed || precondition.capability == nil {
 		return fmt.Errorf("managed path rooted precondition is unavailable or consumed")
+	}
+	if precondition.existed && precondition.identity == nil {
+		return fmt.Errorf("existing tree publication destination requires a captured identity")
 	}
 	destination := precondition.destination
 	capability, err := operation.destinations.Acquire(destination)
@@ -64,16 +63,6 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		}
 	}()
 
-	changed, err := precondition.refreshTree(ctx)
-	if err != nil {
-		return err
-	}
-	if changed {
-		if err := prepared.PreserveMatchingModes(ctx, precondition.treeModes); err != nil {
-			return err
-		}
-	}
-
 	destinationRetired := false
 	removalCapability, err := precondition.takeRootedCapability()
 	if err != nil {
@@ -84,7 +73,12 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		// no-clobber commit; there is no existing destination to retire.
 		_ = removalCapability.Close()
 	} else {
-		if _, err := operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity, ""); err != nil {
+		if precondition.identity.Kind() == mutationfs.EntryKindDirectory {
+			_, err = operation.removals.RetireTreeForReplacement(ctx, destination, removalCapability, precondition.identity, precondition.hash, prepared)
+		} else {
+			_, err = operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity, precondition.hash)
+		}
+		if err != nil {
 			return err
 		}
 		destinationRetired = true
@@ -102,8 +96,6 @@ func (operation *Operation) restoreDirectoryAgainst(
 	destination mutationnamespace.Destination,
 	state recoveryWholePathState,
 	expected mutationfs.EntryIdentity,
-	work workmeasure.ArtifactWork,
-	budget *physicalwork.Budget,
 	populate func(mutationfs.RootedTreeWriter) error,
 ) error {
 	if !destination.IsRooted() {
@@ -116,22 +108,12 @@ func (operation *Operation) restoreDirectoryAgainst(
 	precondition := &managedPathPrecondition{
 		destination: destination,
 		existed:     state.existed,
+		hash:        artifact.ContentHash(state.contentHash),
 		identity:    expected,
 		capability:  capability,
 		filesystem:  operation.filesystem,
 	}
 	defer precondition.close()
-	if state.existed && state.kind == recovery.PathKindDirectory {
-		if err := admitRecoveryObservation(budget, state.kind, work); err != nil {
-			return err
-		}
-		precondition.treeLimits, err = recoveryTraversalLimits(work)
-		if err != nil {
-			return err
-		}
-		precondition.hash = artifact.ContentHash(state.contentHash)
-		precondition.treeModes = make(map[string]fs.FileMode)
-	}
 	return operation.commitRootedDirectoryWithPrecondition(
 		ctx,
 		populate,

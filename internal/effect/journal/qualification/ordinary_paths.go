@@ -365,17 +365,24 @@ type rootedTreeHashSink struct {
 	hasher  *artifact.DirectoryHashBuilder
 	entries int
 	bytes   int64
+	modes   map[string]fs.FileMode
 }
 
 func newRootedTreeHashSink(ctx context.Context) *rootedTreeHashSink {
 	return &rootedTreeHashSink{ctx: ctx, hasher: artifact.NewDirectoryEvidenceBuilder()}
 }
 
-func (*rootedTreeHashSink) VisitRoot(fs.FileMode) error {
+func (sink *rootedTreeHashSink) VisitRoot(mode fs.FileMode) error {
+	if sink.modes != nil {
+		sink.modes["."] = mode.Perm() | fs.ModeDir
+	}
 	return nil
 }
 
-func (sink *rootedTreeHashSink) VisitDirectory(path mutationfs.TreeRelativePath, _ fs.FileMode) error {
+func (sink *rootedTreeHashSink) VisitDirectory(path mutationfs.TreeRelativePath, mode fs.FileMode) error {
+	if sink.modes != nil {
+		sink.modes[path.Path()] = mode.Perm() | fs.ModeDir
+	}
 	sink.entries++
 	return sink.hasher.AddDirectory(path.Path())
 }
@@ -386,6 +393,9 @@ func (sink *rootedTreeHashSink) VisitRegularFile(
 	size int64,
 	content io.Reader,
 ) error {
+	if sink.modes != nil {
+		sink.modes[path.Path()] = mode.Perm()
+	}
 	sink.entries++
 	sink.bytes += size
 	return sink.hasher.AddFile(

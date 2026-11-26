@@ -26,6 +26,12 @@ func ObserveRootedRemovalEntry(
 	budget *physicalwork.Budget,
 	maximumWork workmeasure.ArtifactWork,
 ) (recovery.RemovalResidueEntryObservation, mutationfs.EntryIdentity, workmeasure.ArtifactWork, error) {
+	return ObserveRootedRemovalEntryWithModes(ctx, filesystem, capability, budget, maximumWork, nil)
+}
+
+// ObserveRootedRemovalEntryWithModes also collects the permissions of the
+// directory entries whose contents are being measured for retirement.
+func ObserveRootedRemovalEntryWithModes(ctx context.Context, filesystem mutationfs.RootedReader, capability rootedpath.CommitCapability, budget *physicalwork.Budget, maximumWork workmeasure.ArtifactWork, modes map[string]fs.FileMode) (recovery.RemovalResidueEntryObservation, mutationfs.EntryIdentity, workmeasure.ArtifactWork, error) {
 	if ctx == nil {
 		return recovery.RemovalResidueEntryObservation{}, nil, workmeasure.ArtifactWork{}, fmt.Errorf("removal residue observation context is required")
 	}
@@ -102,6 +108,7 @@ func ObserveRootedRemovalEntry(
 		return entry, observed, work, err
 	case mutationfs.EntryKindDirectory:
 		sink := newRootedTreeHashSink(ctx)
+		sink.modes = modes
 		limits, admittedWork, readerCapacity, limitErr := recoveryTreeTraversalLimitsForBudget(
 			maximumWork,
 			budget,

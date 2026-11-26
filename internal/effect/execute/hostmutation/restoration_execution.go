@@ -318,7 +318,6 @@ func executeRecoveryHostActionPlan(
 					destination,
 					staged[index].stagedState,
 					staged[index].identity,
-					staged[index].stagedWork, budget,
 					func(writer mutationfs.RootedTreeWriter) error {
 						hash, err := backup.restoreDirectory(ctx, writer, action.TreeModes)
 						if err == nil {
