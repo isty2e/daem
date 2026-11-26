@@ -329,8 +329,9 @@ segments in archives are rejected independently of these budgets.
 
 Skills are declared with `[[skill]]`. When copying a skill, daem creates new
 regular files with mode `0600`, or `0700` if the locked source file is
-executable. Updates preserve the permissions of files and directories that
-remain at the same relative path with the same kind. Changing only an existing
+executable. New directories use the source directory's permissions. Updates
+preserve the permissions of files and directories that remain at the same
+relative path with the same kind. Changing only an existing
 source file's executable bit changes its lock hash, but does not chmod the
 installed file.
 
@@ -1613,9 +1614,11 @@ retains its original bytes. An edited document without a final LF may gain one.
 ### Whole Files And Ownership Changes
 
 Use `ownership = "document"` for a dedicated file such as `prefs.toml` or
-`prefs.jsonc`. Lock and apply copy its complete source, with exact `0600`
-permissions. Source updates replace the managed file; removing the declaration
-removes it. A changed host file is not silently overwritten or deleted.
+`prefs.jsonc`. Apply creates a missing file with mode `0600`. Source updates
+replace the managed contents and preserve the file's current permissions.
+Changing only its permissions does not trigger an update or block removal.
+Removing the declaration deletes the file if its contents still match the
+recorded version.
 Shared host files such as Codex `config.toml` and Pi `settings.json`, along with
 the reserved paths listed above, cannot use whole-document ownership.
 
@@ -1643,15 +1646,14 @@ Run `daem lock`, preview with `daem apply --dry-run`, and apply to finish the
 switch. Make any further changes to the desired values after the switch.
 
 Interrupted narrowing follows the existing state-commit boundary. Before commit,
-if the file still equals the recorded post-apply image, rollback restores the exact
-pre-operation bytes and permissions. Otherwise it restores only selected values,
-preserving edits to released keys and unrelated comments; a third selected value
+if the file still has the recorded post-apply bytes, rollback restores the exact
+pre-operation bytes and keeps the file's current permissions. Otherwise it
+restores only selected values, preserving edits to released keys and unrelated comments; a third selected value
 blocks recovery. After commit, recovery finalizes without replaying host writes.
 
 To switch from key ownership to whole-file ownership, keep the declaration's `id`,
 target, scope and path, and set `ownership` to `document`. Its source must exactly
-match the current host file, including comments and formatting, and the host file
-must already have `0600` permissions. Relock and preview with
+match the current host file, including comments and formatting. Relock and preview with
 `daem apply --dry-run --manage-existing`, then run `daem apply --manage-existing`.
 This records whole-file ownership and retires the declaration's
 key records without rewriting the file or changing its permissions. A missing file,

@@ -64,7 +64,7 @@ func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durabl
 	if err != nil {
 		return Native{}, err
 	}
-	if version == native17Version || version == nativeRootRestoreVersion || version == nativeInstalledVersion {
+	if boundNativeHostVersion(version) {
 		return decodeNative17(ctx, content, codec)
 	}
 	if version != native16Version {

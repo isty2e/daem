@@ -38,6 +38,8 @@ func TestPrepareWholeDocumentDerivesAllMutationImages(t *testing.T) {
 						switch kind {
 						case "create":
 							input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
+						case "replace":
+							expectedMode = input.BeforeMode
 						case "record":
 							set = payload.PayloadSet{}
 							expected, expectedMode = input.Before, input.BeforeMode
@@ -56,6 +58,10 @@ func TestPrepareWholeDocumentDerivesAllMutationImages(t *testing.T) {
 						after, err := comparison.Match(t.Context(), expected, expectedMode)
 						if err != nil || !after.MatchesExpected() || !after.Recoverable() {
 							t.Fatalf("derived expected image differs: %+v, %v", after, err)
+						}
+						mode, present := comparison.ExpectedState().RegularFileMode()
+						if present != (expectedMode != nil) || present && mode != *expectedMode {
+							t.Fatalf("expected image mode: %04o (present=%t), want %v", mode, present, expectedMode)
 						}
 						third, err := comparison.Match(t.Context(), aggregate.ExistingDocument([]byte("external third bytes")), recovery.NewPermissionMode(0o600))
 						if err != nil || third.Recoverable() {
@@ -88,9 +94,6 @@ func TestPrepareWholeDocumentRejectsMisjoinedFactsWithoutComparison(t *testing.T
 		{"wrong live bytes", func(_ *testing.T, _ *wholePreparationFixture, input *journalpublication.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.Before = aggregate.ExistingDocument([]byte("stale observation"))
 		}},
-		{"wrong live executable class", func(_ *testing.T, _ *wholePreparationFixture, input *journalpublication.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
-			input.BeforeMode = recovery.NewPermissionMode(0o744)
-		}},
 		{"missing payload", func(_ *testing.T, _ *wholePreparationFixture, _ *journalpublication.WholeDocumentPreparationInput, _ *journalrecord.ManagedPathMutation, set *payload.PayloadSet) {
 			*set = payload.PayloadSet{}
 		}},
@@ -106,13 +109,6 @@ func TestPrepareWholeDocumentRejectsMisjoinedFactsWithoutComparison(t *testing.T
 		}},
 		{"record desired mismatch", func(t *testing.T, f *wholePreparationFixture, _ *journalpublication.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathRecordMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.expected), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o644, &f.previous))
-		}},
-		{"record mode mismatch", func(t *testing.T, f *wholePreparationFixture, _ *journalpublication.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
-			*mutation = requireWholeMutation(t)(journalrecord.NewManagedPathRecordMutation(f.subject, f.consumers(), f.scope, f.destination, artifact.HashFileContent(f.before), artifact.HashFileContent(f.before), realization.PathProjectionFile, 0o600, &f.previous))
-		}},
-		{"removal baseline mode mismatch", func(t *testing.T, f *wholePreparationFixture, input *journalpublication.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
-			*mutation = f.mutation(t, "remove")
-			input.BeforeMode = recovery.NewPermissionMode(0o640)
 		}},
 		{"removal baseline hash mismatch", func(t *testing.T, f *wholePreparationFixture, input *journalpublication.WholeDocumentPreparationInput, mutation *journalrecord.ManagedPathMutation, _ *payload.PayloadSet) {
 			input.Before = aggregate.ExistingDocument([]byte("changed since baseline"))
@@ -175,14 +171,14 @@ func TestPrepareWholeDocumentPreservesDriftedOriginalAndEmptyFile(t *testing.T) 
 
 	input := fixture.input()
 	input.BeforeMode = recovery.NewPermissionMode(0o744)
-	mutation := requireWholeMutation(t)(journalrecord.NewManagedPathReplaceMutation(fixture.subject, fixture.consumers(), fixture.scope, fixture.destination, artifact.HashFileContent(nil), artifact.HashFileContentWithExecutable(fixture.before, true), realization.PathProjectionFile, 0o600, fixture.previous))
-	executableDrift, err := journalpublication.PrepareWholeDocument(t.Context(), input, mutation, fixture.payloads(t, nil, 0o600))
+	comparison, err = journalpublication.PrepareWholeDocument(t.Context(), input, fixture.mutation(t, "replace"), fixture.payloads(t, nil, 0o600))
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err = executableDrift.Match(t.Context(), input.Before, input.BeforeMode)
-	if err != nil || !before.MatchesBefore() {
-		t.Fatalf("actual original executable-class drift was discarded: %+v, %v", before, err)
+	before, err = comparison.Match(t.Context(), input.Before, input.BeforeMode)
+	mode, present := comparison.ExpectedState().RegularFileMode()
+	if err != nil || !before.MatchesBefore() || !present || mode != *input.BeforeMode {
+		t.Fatalf("chmod changed the content baseline or was not preserved: %+v, mode=%04o, %v", before, mode, err)
 	}
 }
 

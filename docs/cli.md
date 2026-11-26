@@ -2480,8 +2480,9 @@ separation between their private plugin namespaces and the managed settings;
 aliases or nested overlaps without an admitted rewrite profile refuse before execution.
 Their commands do not receive permission to change captured native settings.
 
-Dedicated whole files must already be applied, with contents and permissions
-matching their recorded ownership. Refresh does not adopt externally matching
+Dedicated whole files must already be applied and their contents must match
+the recorded baseline. Changing only their permissions does not block Refresh.
+Refresh does not adopt externally matching
 files, apply changed sources or complete key/whole-file ownership changes.
 Removing a declaration does not make Refresh delete its file or release its
 ownership; use Apply for that change. Whole-owned files must be physically

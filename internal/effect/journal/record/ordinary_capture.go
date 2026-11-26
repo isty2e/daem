@@ -75,7 +75,7 @@ func usesInstalledEvidence(before, after durable.Snapshot, entries []recoveryEnt
 }
 
 func validateInstalledEvidenceVersion(version int, before, after durable.Snapshot, entries []recoveryEntry) error {
-	if version != ordinaryInstalledVersion && version != nativeInstalledVersion && usesInstalledEvidence(before, after, entries) {
+	if version != ordinaryInstalledVersion && version != nativeInstalledVersion && version != nativeWholeModeVersion && usesInstalledEvidence(before, after, entries) {
 		return fmt.Errorf("recovery journal version %d cannot carry installed-content evidence", version)
 	}
 	return nil
@@ -115,13 +115,13 @@ func (journal Native) WithOrdinaryEvidence(material OrdinaryEvidence) (Native, e
 		if journal.current == nil {
 			return Native{}, fmt.Errorf("publishing a removed projection root requires a bound native journal")
 		}
-		record.Version = nativeRootRestoreVersion
+		record.Version = max(record.Version, nativeRootRestoreVersion)
 	}
 	if usesInstalledEvidence(material.before, material.after, material.entries) {
 		if journal.current == nil {
 			return Native{}, fmt.Errorf("installed-content evidence requires a bound native journal")
 		}
-		record.Version = nativeInstalledVersion
+		record.Version = max(record.Version, nativeInstalledVersion)
 	}
 	record.Entries = append([]recoveryEntry{}, material.entries...)
 	record.ClaimTransitions = append([]recoveryClaimTransition{}, material.claims...)

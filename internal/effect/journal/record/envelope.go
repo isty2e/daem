@@ -22,6 +22,7 @@ const (
 	nativeRootRestoreVersion   = 19
 	ordinaryInstalledVersion   = 20
 	nativeInstalledVersion     = 21
+	nativeWholeModeVersion     = 22
 )
 
 func SupportsOrdinaryVersion(version int) bool {
@@ -29,7 +30,11 @@ func SupportsOrdinaryVersion(version int) bool {
 }
 
 func SupportsNativeVersion(version int) bool {
-	return version == native16Version || version == native17Version || version == nativeRootRestoreVersion || version == nativeInstalledVersion
+	return version == native16Version || boundNativeHostVersion(version)
+}
+
+func boundNativeHostVersion(version int) bool {
+	return version == native17Version || version == nativeRootRestoreVersion || version == nativeInstalledVersion || version == nativeWholeModeVersion
 }
 
 // Fingerprint identifies exact serialized bytes, not validation or host authority.

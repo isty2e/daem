@@ -338,8 +338,6 @@ func buildManagedPathDecisions(
 			decision = newManagedPathBlocked(facts, reconcile.ReasonMissingOutput, "managed output is missing")
 		case !current.Matches(state.ContentHash()):
 			decision = newManagedPathBlocked(facts, reconcile.ReasonDriftedOutput, baselineMismatch(state))
-		case !realization.IsInstalledContentSubject(subject) && !state.PermissionPolicy().AcceptsMode(state.FileMode(), current.FileMode()):
-			decision = newManagedPathBlocked(facts, reconcile.ReasonDriftedOutput, "managed output file mode differs from statefile baseline")
 		case len(remaining) != 0:
 			decision = newManagedPathRecord(facts, reconcile.ReasonStateStale, "selected consumer removed from shared ownership")
 		default:

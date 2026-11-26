@@ -128,7 +128,7 @@ func TestManagedPathExpectationAndModeSelectionRetainRealizationOwnedExactMode(t
 	}
 }
 
-func TestReconcileManagedPathDesiredRepairsArbitraryExactModeDrift(t *testing.T) {
+func TestManagedPathKeepsItsCreationModeWithoutRepairingChmod(t *testing.T) {
 	subject := syntheticManagedFileSubject(t, "future-exact")
 	contentHash := artifact.HashFileContent([]byte("future\n"))
 	state, err := durable.NewManagedPathState(
@@ -150,33 +150,13 @@ func TestReconcileManagedPathDesiredRepairsArbitraryExactModeDrift(t *testing.T)
 		ContentKind: realization.PathProjectionFile, PlacementMode: realization.PathProjectionCopy,
 		PermissionPolicy: realization.PathPermissionsExact, DesiredFileMode: 0o640,
 	}
-	for _, test := range []struct {
-		name     string
-		liveMode os.FileMode
-		wantKind reconcile.ManagedPathDecisionKind
-	}{
-		{name: "drift", liveMode: 0o600, wantKind: reconcile.ManagedPathReplace},
-		{name: "converged", liveMode: 0o640, wantKind: reconcile.ManagedPathNoOp},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			current, err := observe.NewManagedPathEvidence(
-				subject,
-				outputtest.Parse(t, ".daem/future-exact"),
-				true,
-				contentHash,
-				test.liveMode,
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			decision := reconcileManagedPathDesired(facts, current, state, true, nil, false)
-			if decision.Kind() != test.wantKind {
-				t.Fatalf("decision kind = %s, want %s", decision.Kind(), test.wantKind)
-			}
-			if decision.DesiredFileMode() != 0o640 {
-				t.Fatalf("desired exact mode = %04o, want 0640", decision.DesiredFileMode())
-			}
-		})
+	current, err := observe.NewManagedPathEvidence(subject, facts.Destination, true, contentHash, 0o744)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision := reconcileManagedPathDesired(facts, current, state, true, nil, false)
+	if decision.Kind() != reconcile.ManagedPathNoOp || decision.DesiredFileMode() != 0o640 {
+		t.Fatalf("chmod triggered %s or changed creation mode to %04o", decision.Kind(), decision.DesiredFileMode())
 	}
 }
 

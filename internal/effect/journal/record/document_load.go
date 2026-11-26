@@ -42,7 +42,11 @@ func (journal Native) validateExpectedBaselines(ctx context.Context, indexes jou
 		}
 		images = append(images, identity)
 	}
-	return indexes.ValidateExpectedBaselines(ctx, groups, codecs, images)
+	modeBaseline := journaldocument.RecordedStateMode
+	if journal.record.Version == nativeWholeModeVersion {
+		modeBaseline = journaldocument.PreserveExistingMode
+	}
+	return indexes.ValidateExpectedBaselines(ctx, groups, codecs, images, modeBaseline)
 }
 
 func (journal Native) documentBindings(ctx context.Context) ([][]ownership.DocumentBindingIntent, error) {

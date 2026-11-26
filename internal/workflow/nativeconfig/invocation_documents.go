@@ -197,8 +197,8 @@ func (documents InvocationDocuments) RequireManagedState(input readiness.NativeA
 			if err != nil {
 				return err
 			}
-			document, mode, observed := input.Documents.Evidence().Document(alias)
-			if !observed || !document.Exists() || mode == nil || mode.FileMode() != state.FileMode() || artifact.HashFileContent(document.Content()) != state.ContentHash() {
+			document, _, observed := input.Documents.Evidence().Document(alias)
+			if !observed || !document.Exists() || artifact.HashFileContent(document.Content()) != state.ContentHash() {
 				return fmt.Errorf("whole-file settings require apply before refresh")
 			}
 		}

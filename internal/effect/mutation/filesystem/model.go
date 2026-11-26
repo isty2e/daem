@@ -27,6 +27,26 @@ type EntryIdentity interface {
 	Kind() EntryKind
 }
 
+// SameEntryObject allows a metadata change on the same object. Callers must
+// separately verify the content on which they base a mutation.
+func SameEntryObject(before, now EntryIdentity) bool {
+	if before == nil || now == nil || before.Kind() != now.Kind() {
+		return false
+	}
+	if before.Equal(now) {
+		return true
+	}
+	type token interface{ ObjectFingerprint() (string, error) }
+	left, l := before.(token)
+	right, r := now.(token)
+	if !l || !r {
+		return false
+	}
+	a, e := left.ObjectFingerprint()
+	b, f := right.ObjectFingerprint()
+	return e == nil && f == nil && a != "" && a == b
+}
+
 // TreeStructureLimits bounds one recursive filesystem tree shape. Entry
 // cardinality is global across descendants and excludes the selected root.
 // Depth counts directories below the selected root.

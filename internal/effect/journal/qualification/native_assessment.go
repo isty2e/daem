@@ -249,14 +249,7 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		}
 		var restoration journaldocument.Restoration
 		if _, narrowing := narrowed[recordIndex]; before && narrowing && current.Equal(group.Comparison().ExpectedDocument()) {
-			root, rootErr := recovery.NewPartialDocumentState(current.Exists(), mode, nil)
-			if rootErr != nil {
-				return Assessment{}, rootErr
-			}
-			if !root.SameRootMetadata(group.Comparison().BeforeState()) && !root.SameRootMetadata(group.Comparison().ExpectedState()) {
-				return Assessment{}, fmt.Errorf("narrowed document root is outside the recorded metadata envelope")
-			}
-			restoration, err = journaldocument.NewRestoration(current, mode, group.Comparison().BeforeDocument(), group.Comparison().BeforeMode())
+			restoration, err = group.Comparison().RestoreOriginal(current, mode)
 		} else {
 			restoration, err = group.Comparison().RestoreBefore(ctx, current, mode)
 		}

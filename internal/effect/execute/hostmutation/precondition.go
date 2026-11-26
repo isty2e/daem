@@ -193,27 +193,12 @@ func (p *managedPathPrecondition) refreshTree(ctx context.Context) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	if !sameManagedObject(p.identity, identity) || hashes.Installed != p.hash {
+	if !mutationfs.SameEntryObject(p.identity, identity) || hashes.Installed != p.hash {
 		return false, fmt.Errorf("managed tree %q changed while preparing publication", p.destination.Logical())
 	}
 	changed := !maps.Equal(p.treeModes, sink.modes)
 	p.treeModes, p.identity = sink.modes, identity
 	return changed, nil
-}
-
-func sameManagedObject(before, now mutationfs.EntryIdentity) bool {
-	if before.Equal(now) {
-		return true
-	}
-	type token interface{ ObjectFingerprint() (string, error) }
-	left, l := before.(token)
-	right, r := now.(token)
-	if !l || !r || before.Kind() != now.Kind() {
-		return false
-	}
-	a, e := left.ObjectFingerprint()
-	b, f := right.ObjectFingerprint()
-	return e == nil && f == nil && a != "" && a == b
 }
 
 func managedPathFileModeMatches(actual os.FileMode, expected *os.FileMode) bool {

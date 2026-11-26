@@ -463,8 +463,8 @@ func prepareNativeWholeAdoptions(ctx context.Context, before nativeApplyStateInd
 			return nil, fmt.Errorf("keys-to-whole transition requires an exact manage-existing record")
 		}
 		if effect.Kind() == ManagedPathEffectRecord && !hasPrevious {
-			if !adopting || effect.LiveHash() != effect.DesiredHash() || !effect.PermissionPolicy().AcceptsMode(effect.DesiredFileMode(), effect.LiveFileMode()) {
-				return nil, fmt.Errorf("native whole adoption requires exact record identity, mode and approval")
+			if !adopting || effect.LiveHash() != effect.DesiredHash() {
+				return nil, fmt.Errorf("native whole adoption requires matching content and approval")
 			}
 			adoptions = append(adoptions, NativeWholeAdoption{source: source.source, record: effect, retired: owned})
 		}

@@ -68,19 +68,6 @@ func (mode ExactPathPermissionMode) isZero() bool {
 	return mode == (ExactPathPermissionMode{})
 }
 
-// AcceptsMode reports whether observed permission bits satisfy the policy
-// after content identity has already proved the executable class.
-func (policy PathPermissionPolicy) AcceptsMode(expected os.FileMode, observed os.FileMode) bool {
-	switch policy {
-	case PathPermissionsNone, PathPermissionsExecutableClass:
-		return true
-	case PathPermissionsExact:
-		return expected.Perm() == observed.Perm()
-	default:
-		return false
-	}
-}
-
 // ManagedPathProjectionInput carries one concrete managed path realization.
 type ManagedPathProjectionInput struct {
 	PlacementID            string

@@ -208,8 +208,8 @@ func TestDocumentRestorationKeepsWholeAndSelectedExistenceSeparate(t *testing.T)
 	if err != nil || !restored.Document().Equal(input.Before) || !restored.Changed() {
 		t.Fatalf("whole restoration did not recover original bytes: %v", err)
 	}
-	if actual, present := restored.RegularFileMode(); !present || actual != BeforeMode {
-		t.Fatal("whole restoration did not recover original exact mode")
+	if actual, present := restored.RegularFileMode(); !present || actual != expectedMode {
+		t.Fatal("whole restoration did not preserve the current mode")
 	}
 	input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
 	whole, err = document.NewWholeComparison(t.Context(), input)

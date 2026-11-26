@@ -65,7 +65,7 @@ func TestExpectedBaselineRequiresTheExactOrderedHookSet(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregatecodec.Catalog(), nil); (err == nil) != tc.valid {
+			if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregatecodec.Catalog(), nil, PreserveExistingMode); (err == nil) != tc.valid {
 				t.Fatalf("expected image accepted = %t, want %t: %v", err == nil, tc.valid, err)
 			}
 		})

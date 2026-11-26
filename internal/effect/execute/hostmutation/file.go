@@ -145,7 +145,7 @@ func (path PreparedPath) WriteFile(ctx context.Context, content []byte, fileMode
 			if err != nil {
 				return err
 			}
-			if !sameManagedObject(precondition.identity, current) || !precondition.hash.MatchesFile(live) {
+			if !mutationfs.SameEntryObject(precondition.identity, current) || !precondition.hash.MatchesFile(live) {
 				return fmt.Errorf("managed file %q changed while preparing publication", precondition.destination.Logical())
 			}
 			precondition.identity, precondition.fileMode = current, mode.Perm()

@@ -485,6 +485,68 @@ func TestNativeDocumentNarrowingReturnedErrors(t *testing.T) {
 	}
 }
 
+func TestWholeDocumentUpdateRecoveryPreservesUserPermissions(t *testing.T) {
+	for _, initial := range []os.FileMode{0o600, 0o740} {
+		t.Run(fmt.Sprintf("%04o", initial), func(t *testing.T) {
+			f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
+			f.applyWhole(t)
+			if err := os.Chmod(f.Destination, initial); err != nil {
+				t.Fatal(err)
+			}
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check")
+			testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
+			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
+			code, out, diagnostic := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "host", "apply", "--yes")
+			if code != nativefixture.RecoveryExit {
+				t.Fatalf("did not reach host publication: %d %s %s", code, out, diagnostic)
+			}
+			journals, err := filepath.Glob(filepath.Join(f.Paths.RecoveryDir, "*", "journal.json"))
+			if err != nil || len(journals) != 1 {
+				t.Fatalf("expected one interrupted journal: %v, %v", journals, err)
+			}
+			var header struct{ Version int }
+			if err := json.Unmarshal(testkit.ReadFile(t, journals[0]), &header); err != nil {
+				t.Fatal(err)
+			}
+			wantVersion := 17
+			if initial != 0o600 {
+				wantVersion = 22
+			}
+			if header.Version != wantVersion {
+				t.Fatalf("journal format %d for existing mode %04o; want %d", header.Version, initial, wantVersion)
+			}
+			testkit.AssertFileContent(t, f.Destination, f.changed)
+			if info, err := os.Stat(f.Destination); err != nil || info.Mode().Perm() != initial {
+				t.Fatalf("update changed the live permissions: %v, %v", info, err)
+			}
+			if err := os.WriteFile(f.Destination, []byte("# user edit\n"), initial); err != nil {
+				t.Fatal(err)
+			}
+			code, _, _ = testkit.RunCapturedCLI("recover", "--manifest", f.Manifest, "--yes")
+			if code == 0 {
+				t.Fatal("recovery accepted third-party bytes")
+			}
+			testkit.AssertFileContent(t, f.Destination, "# user edit\n")
+			if err := os.WriteFile(f.Destination, []byte(f.changed), initial); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(f.Destination, 0o444); err != nil {
+				t.Fatal(err)
+			}
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
+			testkit.AssertFileContent(t, f.Destination, f.changed)
+			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+			testkit.AssertFileContent(t, f.Destination, f.original)
+			if info, err := os.Stat(f.Destination); err != nil || info.Mode().Perm() != 0o444 {
+				t.Fatalf("rollback lost current permissions: %v, %v", info, err)
+			}
+			nativefixture.RunLifecycleCommand(t, "apply", "--manifest", f.Manifest, "--yes")
+			nativefixture.RunLifecycleCommand(t, "status", "--manifest", f.Manifest, "--check")
+			testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+		})
+	}
+}
+
 func TestNativeDocumentWholeRecovery(t *testing.T) {
 	selected := target.TargetCodex
 	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
@@ -496,6 +558,9 @@ func TestNativeDocumentWholeRecovery(t *testing.T) {
 					var beforeState []byte
 					if remove {
 						f.applyWhole(t)
+						if err := os.Chmod(f.Destination, 0o744); err != nil {
+							t.Fatal(err)
+						}
 						beforeState = testkit.ReadFile(t, f.Paths.StatefilePath)
 						testkit.WriteFile(t, f.workspace, "daem.toml", fmt.Sprintf("version=1\ntargets=[%q]\n", selected))
 						nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
@@ -516,6 +581,9 @@ func TestNativeDocumentWholeRecovery(t *testing.T) {
 					if boundary == "host" {
 						if remove {
 							testkit.AssertFileContent(t, f.Destination, f.original)
+							if info, err := os.Stat(f.Destination); err != nil || info.Mode().Perm() != 0o744 {
+								t.Fatalf("recreated document lost its before mode: %v, %v", info, err)
+							}
 							if !bytes.Equal(beforeState, testkit.ReadFile(t, f.Paths.StatefilePath)) {
 								t.Fatal("whole removal rollback changed its persisted baseline")
 							}
@@ -924,7 +992,7 @@ func TestNativeDocumentKeyToWholeRefusesUnsafeAdoption(t *testing.T) {
 			scope = target.ScopeGlobal
 		}
 
-		for _, fault := range []string{"no consent", "different bytes", "stale lock", "mode mismatch", "missing file", "retarget"} {
+		for _, fault := range []string{"no consent", "different bytes", "stale lock", "missing file", "retarget"} {
 			t.Run(string(selected)+"/"+string(scope)+"/"+fault, func(t *testing.T) {
 				f := prepareNativeKeyToWholeFixture(t, selected, scope)
 				other := filepath.Join(filepath.Dir(f.Destination), "other"+filepath.Ext(f.Destination))
@@ -935,10 +1003,6 @@ func TestNativeDocumentKeyToWholeRefusesUnsafeAdoption(t *testing.T) {
 				case "different bytes":
 					testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.original+"\n")
 					nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
-				case "mode mismatch":
-					if err := os.Chmod(f.Destination, 0o644); err != nil {
-						t.Fatal(err)
-					}
 				case "missing file":
 					if err := os.Remove(f.Destination); err != nil {
 						t.Fatal(err)
@@ -976,6 +1040,9 @@ func TestNativeDocumentKeyToWholePreservesMatchingCurrentDrift(t *testing.T) {
 		t.Run(string(selected)+"/"+string(scope), func(t *testing.T) {
 			f := prepareNativeKeyToWholeFixture(t, selected, scope)
 			testkit.WriteFile(t, filepath.Dir(f.Destination), filepath.Base(f.Destination), f.changed)
+			if err := os.Chmod(f.Destination, 0o744); err != nil {
+				t.Fatal(err)
+			}
 			testkit.WriteFile(t, f.workspace, filepath.Base(f.source), f.changed)
 			nativefixture.RunLifecycleCommand(t, "lock", "--manifest", f.Manifest)
 			before, err := os.Stat(f.Destination)

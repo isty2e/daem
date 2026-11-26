@@ -60,8 +60,8 @@ invoking-user-owned regular file with exact mode `0600`; final symlinks,
 special files, replacement during a read, oversized content, and other
 permission modes are rejected.
 
-For installed instructions, hook assets and copied skills, daem compares
-content, not permission bits. Updating a file preserves its current mode,
+For installed instructions, hook assets, copied skills and whole `agent_config`
+files, daem compares content, not permission bits. Updating a file preserves its current mode,
 even when it is `0444` and the operating system allows replacement through
 the parent directory. Rolling back a tree preserves the current permissions
 of surviving entries and restores the saved modes of entries daem removed.
@@ -302,7 +302,10 @@ the last ordinary projection deletes its settings file, daem writes format 18
 plan this rollback but fail before recreating the file. They reject the new
 formats instead. Journals that need installed-content evidence use format 20
 (21 when combined with native changes). These journals can keep tree backups
-private and record restoration modes separately from the backup files.
+private and record restoration modes separately from the backup files. Format
+22 records the current permissions of a whole configuration file when they
+differ from its creation mode. On rollback, daem keeps the permissions of a
+surviving file and uses the recorded mode only to recreate a deleted file.
 Use the writing version or a newer compatible version to
 recover, and keep the journal and backups if a version mismatch blocks recovery.
 

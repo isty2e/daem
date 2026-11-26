@@ -204,9 +204,6 @@ func (effect ManagedPathEffect) Validate() error {
 		if facts.liveHash != facts.previousLiveHash {
 			return fmt.Errorf("remove effect live hash does not match previous managed state")
 		}
-		if aggregate.IsAgentConfigDocumentSubject(facts.subject) && !facts.previous.PermissionPolicy().AcceptsMode(facts.previous.FileMode(), facts.liveFileMode) {
-			return fmt.Errorf("remove effect live mode does not match previous managed state")
-		}
 		return nil
 	}
 	if effect.Kind() == ManagedPathEffectRetireAbsent {
@@ -262,9 +259,6 @@ func (effect ManagedPathEffect) Validate() error {
 		}
 		if facts.liveHash != facts.desiredHash {
 			return fmt.Errorf("record effect live hash does not match desired hash")
-		}
-		if aggregate.IsAgentConfigDocumentSubject(facts.subject) && !facts.permissionPolicy.AcceptsMode(facts.desiredFileMode, facts.liveFileMode) {
-			return fmt.Errorf("record effect live mode does not satisfy desired permission policy")
 		}
 	}
 	return nil
@@ -343,14 +337,10 @@ func (effect ManagedPathEffect) LiveFileMode() os.FileMode {
 	return effect.facts().liveFileMode
 }
 
-// StateFileMode returns the exact permission baseline that durable state must
-// retain, or zero when executable class is the complete permission contract.
+// StateFileMode retains the declared creation mode for exact-policy records.
 func (effect ManagedPathEffect) StateFileMode() os.FileMode {
 	if effect.PermissionPolicy() != realization.PathPermissionsExact {
 		return 0
-	}
-	if effect.Kind() == ManagedPathEffectRecord && aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
-		return effect.LiveFileMode().Perm()
 	}
 	return effect.DesiredFileMode().Perm()
 }
@@ -414,7 +404,7 @@ func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journalrecord.M
 			mutation, err = journalrecord.NewManagedPathRemoveMutation(previous, effect.LiveHash())
 		case ManagedPathEffectRecord:
 			expectedMode := effect.DesiredFileMode()
-			if effect.ContentKind() == realization.PathProjectionFile {
+			if effect.ContentKind() == realization.PathProjectionFile && !aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
 				expectedMode = effect.LiveFileMode()
 			}
 			mutation, err = journalrecord.NewManagedPathRecordMutation(
