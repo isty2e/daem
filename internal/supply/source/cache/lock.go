@@ -271,8 +271,12 @@ func wrapLockValidation(path string, err error) error {
 }
 
 func prepareLockRoot(root string) error {
-	if err := os.MkdirAll(root, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(root), 0o700); err != nil {
 		return err
+	}
+	createErr := os.Mkdir(root, 0o700)
+	if createErr != nil && !errors.Is(createErr, os.ErrExist) {
+		return createErr
 	}
 	info, err := os.Lstat(root)
 	if err != nil {
@@ -281,8 +285,8 @@ func prepareLockRoot(root string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("lock root is not a non-symlink directory")
 	}
-	if err := os.Chmod(root, 0o700); err != nil {
-		return err
+	if createErr == nil && info.Mode().Perm() != 0o700 {
+		return os.Chmod(root, 0o700)
 	}
 	return nil
 }
@@ -294,9 +298,6 @@ func validateLockRecord(path string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("lock record has unsupported file mode %s", info.Mode())
-	}
-	if info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("lock record permissions are %04o, want 0600", info.Mode().Perm())
 	}
 	return nil
 }

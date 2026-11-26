@@ -170,7 +170,11 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 	if !ok {
 		return nil, fmt.Errorf("native recovery requires rooted observation")
 	}
-	journal, ok := inventory.Active().Record().Native()
+	active, err := inventory.Active().WithTreeBaseline(options.TreeBaseline)
+	if err != nil {
+		return nil, err
+	}
+	journal, ok := active.Record().Native()
 	if !ok {
 		return nil, fmt.Errorf("native recovery requires a native16 inventory record")
 	}
@@ -208,7 +212,6 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 			result = nil
 		}
 	}()
-	active := inventory.Active()
 	read := journalqualification.ReadOptions{Protection: profile.Protection, Rules: journalqualification.RecordedRuleExpectations(), Artifacts: root, Filesystem: filesystem, Budget: profile.Budget, Limits: profile.Limits, Codecs: profile.Codecs}
 	var records journalrecord.LoadedDocuments
 	var raw ownership.Registry
@@ -258,7 +261,7 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 	operation.ordinaryCapabilities = ordinaryCapabilities
 	read.OrdinaryCapabilities = ordinaryCapabilities
 	blocked := false
-	assessment, err := journalqualification.ReadNativeSourceAssessment(ctx, *active, journalqualification.NativeReadOptions{
+	assessment, err := journalqualification.ReadNativeSourceAssessment(ctx, active, journalqualification.NativeReadOptions{
 		Documents: read,
 		Roots:     operation.roots, State: profile.StateReader, Registry: options.OwnershipRegistry,
 		Resolver: options.Resolver, RawRegistry: profile.RawRegistry, RecoveryDemand: operation.demand,
@@ -287,7 +290,14 @@ func loadNativeRecoveryOperation(ctx context.Context, paths journalpublication.P
 	if err != nil {
 		return nil, err
 	}
-	operation.plan = NativeRecoveryPlan{source: *active, blocked: blocked, journal: journal, capture: nativeCaptureResult(*active), active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope, documentRequests: requests}
+	if inferred := assessment.Facts().OrdinaryTreeBaseline(); !inferred.Empty() {
+		active, err = active.WithTreeBaseline(options.TreeBaseline.With(inferred))
+		if err != nil {
+			return nil, err
+		}
+		journal, _ = active.Record().Native()
+	}
+	operation.plan = NativeRecoveryPlan{source: active, blocked: blocked, journal: journal, capture: nativeCaptureResult(active), active: active.PhysicalAuthority(), inventory: inv, assessment: assessment.Facts(), registryScope: scope, documentRequests: requests}
 	operation.plan, err = operation.plan.assessCleanup(ctx, options, profile.Budget)
 	if err != nil {
 		return nil, err
@@ -301,6 +311,7 @@ func OpenNativeRecovery(ctx context.Context, paths journalpublication.Paths, sel
 	if options.NativeDocuments == nil || selected.Blocked() {
 		return nil, fmt.Errorf("native recovery profile is required")
 	}
+	options.TreeBaseline = options.TreeBaseline.With(selected.assessment.OrdinaryTreeBaseline())
 	inventoryOptions := inventoryOptionsFromPlan(options)
 	inventoryOptions.Decoder = nativeRecoveryInventoryDecoder(options.StateCodec, options.NativeDocuments.StateCodec)
 	inventory, err := journalinventory.LoadRoot(ctx, paths.RecoveryDir, inventoryOptions)

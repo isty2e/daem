@@ -101,7 +101,7 @@ func ValidateNativeRevision(ctx context.Context, directory, fingerprint string, 
 	if err != nil {
 		return err
 	}
-	if snapshot.Mode().Perm() != journalrecord.Mode || journalrecord.Fingerprint(snapshot.Content()) != fingerprint {
+	if journalrecord.Fingerprint(snapshot.Content()) != fingerprint {
 		return fmt.Errorf("published native journal record revision changed")
 	}
 	return journalinventory.ValidateActiveJournalRoot(ctx, filesystem, root, budget, active)

@@ -289,11 +289,22 @@ func TestClaudeHookAndKeyShareSettings(t *testing.T) {
 			manifest := filepath.Join(workspace, "daem.toml")
 			destination := filepath.Join(claudeHome, "settings.json")
 			const outside = `{"unmanaged":42}`
+			mode := os.FileMode(0o600)
 			if tc.existing {
 				testkit.WriteFile(t, claudeHome, "settings.json", outside)
+				mode = 0o644
+				if err := os.Chmod(destination, mode); err != nil {
+					t.Fatal(err)
+				}
 			}
 
-			for _, step := range tc.steps {
+			for i, step := range tc.steps {
+				if i == 1 {
+					mode = 0o444
+					if err := os.Chmod(destination, mode); err != nil {
+						t.Fatal(err)
+					}
+				}
 				t.Logf("applying model=%q hooks=%v", step.model, step.hooks)
 				writeClaudeHookKeyManifest(t, workspace, "global", step.model, step.hooks...)
 				nativefixture.RunLifecycleCommand(t, "lock", "--manifest", manifest)
@@ -301,6 +312,7 @@ func TestClaudeHookAndKeyShareSettings(t *testing.T) {
 				nativefixture.RunLifecycleCommand(t, "apply", "--manifest", manifest, "--yes", "--verbose")
 
 				content := testkit.ReadFile(t, destination)
+				nativefixture.RequireSharedMode(t, destination, mode)
 				requireClaudeHookKeyValues(t, content, step.model, step.hooks...)
 				nativefixture.RequireSharedValues(t, configdocument.JSON, content, outside, tc.existing)
 				nativefixture.RequireLifecycleClean(t, nativefixture.RunLifecycleCommand(t, "status", "--manifest", manifest, "--check", "--json"))

@@ -78,7 +78,7 @@ func (journal Native) documentPlacement(ctx context.Context) (journaldocument.Ph
 	if ctx == nil {
 		return journaldocument.PhysicalPlacement{}, fmt.Errorf("document placement context is required")
 	}
-	if journal.record.Version == native17Version {
+	if journal.current != nil {
 		groups := make([][]journaldocument.AliasRoute, len(journal.record.DocumentGroups))
 		for index, group := range journal.record.DocumentGroups {
 			routes, err := group.namespace.boundRoutes(ctx)

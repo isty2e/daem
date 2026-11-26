@@ -2,14 +2,15 @@ package fileset
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
 )
 
-func TestRollbackDoesNotSkipChangedModeKindOrInvalidBackup(t *testing.T) {
-	for _, change := range []string{"mode", "kind", "backup"} {
+func TestRollbackPreservesPermissionsButRefusesConflictingEvidence(t *testing.T) {
+	for _, change := range []string{"mode", "content", "kind", "backup"} {
 		t.Run(change, func(t *testing.T) {
 			root := t.TempDir()
 			stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
@@ -27,9 +28,11 @@ func TestRollbackDoesNotSkipChangedModeKindOrInvalidBackup(t *testing.T) {
 					}
 					switch change {
 					case "mode":
-						if err := os.Chmod(second, 0o640); err != nil {
+						if err := os.Chmod(first, 0o640); err != nil {
 							t.Fatal(err)
 						}
+					case "content":
+						writeFixture(t, second, "edited", 0o640)
 					case "kind":
 						if err := os.Remove(second); err != nil {
 							t.Fatal(err)
@@ -47,8 +50,17 @@ func TestRollbackDoesNotSkipChangedModeKindOrInvalidBackup(t *testing.T) {
 					return syscall.EROFS
 				},
 			})
-			if err == nil {
-				t.Fatal("unsafe rollback was accepted")
+			if !errors.Is(err, syscall.EROFS) {
+				t.Fatalf("lost the write failure: %v", err)
+			}
+			if change == "mode" {
+				assertContent(t, first, "a-before")
+				assertMode(t, first, 0o640)
+				assertMissing(t, transactionDir(stateDir))
+				return
+			}
+			if change == "content" {
+				assertContent(t, second, "edited")
 			}
 			if _, err := os.Lstat(transactionDir(stateDir)); err != nil {
 				t.Fatalf("unresolved evidence was removed: %v", err)

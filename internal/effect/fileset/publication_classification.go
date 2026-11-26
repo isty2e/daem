@@ -77,6 +77,6 @@ func classifyPublicationTarget(ctx context.Context, target PublicationTarget) (t
 }
 
 func classifyPublicationImage(target PublicationTarget, current PublicationImage) targetClassification {
-	after := current.Equal(target.after)
-	return targetClassification{cleanAfter: after, recoverable: after || current.Equal(target.before)}
+	after := current.sameContent(target.after)
+	return targetClassification{cleanAfter: after, recoverable: after || current.sameContent(target.before)}
 }

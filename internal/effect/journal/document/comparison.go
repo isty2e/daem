@@ -160,8 +160,8 @@ func (comparison Comparison) Match(ctx context.Context, current aggregate.Docume
 		return ComparisonMatch{}, err
 	}
 	if comparison.whole {
-		before := comparison.before.Equal(current) && comparison.beforeState.SameRootMetadata(observed)
-		expected := comparison.expected.Equal(current) && comparison.expectedState.SameRootMetadata(observed)
+		before := comparison.before.Equal(current)
+		expected := comparison.expected.Equal(current)
 		if err := ctx.Err(); err != nil {
 			return ComparisonMatch{}, err
 		}

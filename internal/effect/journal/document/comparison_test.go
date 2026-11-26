@@ -15,7 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestDocumentComparisonBindsWholeBytesAndExactMetadata(t *testing.T) {
+func TestWholeDocumentComparisonUsesBytesAndPresence(t *testing.T) {
 	BeforeMode, expectedMode, thirdMode := recovery.PermissionMode(0o644), recovery.PermissionMode(0o600), recovery.PermissionMode(0o640)
 	input := comparisonInput("opaque original", "opaque expected", &BeforeMode, &expectedMode)
 	comparison, err := document.NewWholeComparison(t.Context(), input)
@@ -32,8 +32,8 @@ func TestDocumentComparisonBindsWholeBytesAndExactMetadata(t *testing.T) {
 		{"before", input.Before, &BeforeMode, true, false},
 		{"expected", input.Expected, &expectedMode, false, true},
 		{"third bytes", aggregate.ExistingDocument([]byte("unrecorded")), &expectedMode, false, false},
-		{"third mode", input.Expected, &thirdMode, false, false},
-		{"mixed bytes and mode", input.Expected, &BeforeMode, false, false},
+		{"user chmod after update", input.Expected, &thirdMode, false, true},
+		{"user chmod before update", input.Before, &thirdMode, true, false},
 		{"missing", aggregate.AbsentDocument(), nil, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -224,8 +224,8 @@ func TestDocumentComparisonRefusesUnboundOverlappingAndInvalidEvidence(t *testin
 	}
 	thirdMode := recovery.PermissionMode(0o640)
 	match, err := comparison.Match(t.Context(), input.Expected, &thirdMode)
-	if err != nil || match.Recoverable() {
-		t.Fatalf("third mode was admitted: %+v, %v", match, err)
+	if err != nil || !match.MatchesExpected() {
+		t.Fatalf("chmod changed the selected recovery phase: %+v, %v", match, err)
 	}
 	invalid = input
 	invalid.ExpectedMode = &thirdMode

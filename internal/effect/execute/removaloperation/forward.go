@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 type forwardRemovalReservation struct {
@@ -270,15 +272,22 @@ func (authority *Operation) observeForwardRemovalCurrent(
 	return matching[0], work, true, nil
 }
 
+type admittedRemovalEntry struct {
+	identity mutationfs.EntryIdentity
+	limits   mutationfs.TreeTraversalLimits
+}
+
 func (authority *Operation) beginForwardRemoval(
 	ctx context.Context,
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	contentHash artifact.ContentHash,
 	intent recovery.RemovalIntent,
-) (mutationfs.TreeTraversalLimits, error) {
+	modes map[string]fs.FileMode,
+) (admittedRemovalEntry, error) {
 	if !authority.forwardRemovalPrepared {
-		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal capacity was not prepared before effects")
+		return admittedRemovalEntry{}, fmt.Errorf("forward removal capacity was not prepared before effects")
 	}
 	relation := Relation{Scope: destination.Scope(), Destination: destination.Logical()}
 	reservations := authority.forwardRemovalReservations[relation]
@@ -296,30 +305,33 @@ func (authority *Operation) beginForwardRemoval(
 		var err error
 		envelope, err = envelope.Envelope(reservation.capacity)
 		if err != nil {
-			return mutationfs.TreeTraversalLimits{}, err
+			return admittedRemovalEntry{}, err
 		}
 	}
 	if !haveEnvelope {
-		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal has no unconsumed state reservation")
+		return admittedRemovalEntry{}, fmt.Errorf("forward removal has no unconsumed state reservation")
 	}
 	observationBudget, err := envelope.BeginObservation()
 	if err != nil {
-		return mutationfs.TreeTraversalLimits{}, err
+		return admittedRemovalEntry{}, err
 	}
-	observation, observedIdentity, work, err := journalqualification.ObserveRootedRemovalEntry(
+	observation, observedIdentity, work, err := journalqualification.ObserveRootedRemovalEntryWithModes(
 		ctx,
 		authority.filesystem,
 		capability,
 		observationBudget,
 		envelope.MaximumWork(),
+		modes,
 	)
 	if err != nil {
-		return mutationfs.TreeTraversalLimits{}, err
+		return admittedRemovalEntry{}, err
 	}
-	if observation.Status() != recovery.RemovalResidueEntryPresent ||
-		observedIdentity == nil || !expected.Equal(observedIdentity) ||
-		!intent.AdmitsEntry(observation) {
-		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal candidate changed after capacity reservation")
+	sameTarget := expected != nil && observedIdentity != nil && expected.Equal(observedIdentity)
+	if contentHash != "" {
+		sameTarget = mutationfs.SameEntryObject(expected, observedIdentity) && observation.MatchesContent(string(contentHash))
+	}
+	if observation.Status() != recovery.RemovalResidueEntryPresent || !sameTarget || !intent.AdmitsEntry(observation) {
+		return admittedRemovalEntry{}, fmt.Errorf("forward removal candidate changed after capacity reservation")
 	}
 	matched := -1
 	for index := range reservations {
@@ -328,21 +340,21 @@ func (authority *Operation) beginForwardRemoval(
 			continue
 		}
 		if !reservation.capacity.Admits(work) {
-			return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal candidate exceeds its reserved work")
+			return admittedRemovalEntry{}, fmt.Errorf("forward removal candidate exceeds its reserved work")
 		}
 		matched = index
 		break
 	}
 	if matched < 0 {
-		return mutationfs.TreeTraversalLimits{}, fmt.Errorf("forward removal candidate has no matching state reservation")
+		return admittedRemovalEntry{}, fmt.Errorf("forward removal candidate has no matching state reservation")
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(work.Entries(), recovery.MaximumArtifactTreeDepth, work.Bytes())
+	if err != nil {
+		return admittedRemovalEntry{}, err
 	}
 	reservations[matched].consumed = true
 	authority.forwardRemovalReservations[relation] = reservations
-	return mutationfs.NewTreeTraversalLimits(
-		work.Entries(),
-		recovery.MaximumArtifactTreeDepth,
-		work.Bytes(),
-	)
+	return admittedRemovalEntry{identity: observedIdentity, limits: limits}, nil
 }
 
 func (authority *Operation) PrepareForward(ctx context.Context, certificates []ForwardCandidate) error {

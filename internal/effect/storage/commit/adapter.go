@@ -179,15 +179,39 @@ func (Adapter) ReplaceRootedFile(
 	mode fs.FileMode,
 	expected mutationfs.EntryIdentity,
 ) error {
-	identity, err := concreteEntryIdentity(expected)
-	if err != nil {
-		return errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
-	}
-	request, err := NewRootedFileReplacement(capability, content, mode, identity)
+	request, err := rootedFileReplacement(capability, content, mode, expected)
 	if err != nil {
 		return errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
 	}
 	return CommitFile(ctx, request)
+}
+
+func rootedFileReplacement(capability rootedpath.CommitCapability, content []byte, mode fs.FileMode, expected mutationfs.EntryIdentity) (FileCommit, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		return FileCommit{}, err
+	}
+	return NewRootedFileReplacement(capability, content, mode, identity)
+}
+
+func (Adapter) PublishRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode fs.FileMode, expected mutationfs.EntryIdentity) (mutationfs.EntryIdentity, error) {
+	var request FileCommit
+	var err error
+	if expected == nil {
+		request, err = NewRootedFileCreate(capability, content, mode)
+	} else {
+		request, err = rootedFileReplacement(capability, content, mode, expected)
+	}
+	if err != nil {
+		return nil, errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
+	}
+	var published EntryIdentity
+	request.published = &published
+	err = CommitFile(ctx, request)
+	if !published.valid() {
+		return nil, err
+	}
+	return published, err
 }
 
 func (adapter Adapter) ReplaceRootedFileWithOutcome(

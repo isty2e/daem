@@ -142,7 +142,7 @@ func TestCarrierStateReconstructionUsesTheCorrectExpectedPhysicalGroup(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := index.ValidateExpectedBaselines(t.Context(), groups, codecs, nil); err != nil {
+		if err := index.ValidateExpectedBaselines(t.Context(), groups, codecs, nil, PreserveExistingMode); err != nil {
 			t.Fatal("after baseline was checked against the retired source", err)
 		}
 		retained := slices.Clone(inputs)
@@ -185,7 +185,7 @@ func TestCarrierStateReconstructionUsesTheCorrectExpectedPhysicalGroup(t *testin
 			}
 		}
 		groups[targetIndex].comparison = inputs[source].comparison
-		if err := index.ValidateExpectedBaselines(t.Context(), groups, codecs, nil); err == nil {
+		if err := index.ValidateExpectedBaselines(t.Context(), groups, codecs, nil, PreserveExistingMode); err == nil {
 			t.Fatal("target without its managed after value passed baseline validation")
 		}
 		slices.Reverse(inputs)
@@ -237,7 +237,7 @@ func TestCarrierTransferKeepsAnotherCurrentContributorsSourceCreation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := index.ValidateExpectedBaselines(t.Context(), groups, codecs, nil); err != nil {
+	if err := index.ValidateExpectedBaselines(t.Context(), groups, codecs, nil, PreserveExistingMode); err != nil {
 		t.Fatal("mixed source creation lost a managed after value", err)
 	}
 	unselected := source

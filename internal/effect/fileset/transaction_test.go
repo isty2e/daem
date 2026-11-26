@@ -12,7 +12,37 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
+	"github.com/isty2e/daem/internal/effect/mutation"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
+
+func commitFile(ctx context.Context, path string, content []byte, mode os.FileMode) error {
+	path, err := mutation.CanonicalDirectoryEntryPath(path)
+	if err != nil {
+		return err
+	}
+	current, _, identity, err := readPublicationTarget(ctx, path, maximumTargetBytes)
+	if err != nil {
+		return err
+	}
+	var request storagecommit.FileCommit
+	if current.exists {
+		request, err = storagecommit.NewFileReplacement(path, content, mode, identity)
+	} else {
+		request, err = storagecommit.NewFileCreate(path, content, mode)
+	}
+	if err != nil {
+		return err
+	}
+	return storagecommit.CommitFile(ctx, request)
+}
+
+func fileMode(state fileState) os.FileMode {
+	if state.Exists {
+		return os.FileMode(state.Mode)
+	}
+	return 0o600
+}
 
 func TestCommitWritesEveryTargetAndRemovesEvidence(t *testing.T) {
 	root := t.TempDir()
@@ -664,9 +694,8 @@ func TestLoadMarkerRejectsCorruptAndExposedEvidence(t *testing.T) {
 	if err := os.Chmod(activeMarker, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadMarker(context.Background(), activeMarker); err == nil ||
-		!strings.Contains(err.Error(), "permissions") {
-		t.Fatalf("loadMarker error = %v, want permission rejection", err)
+	if _, err := loadMarker(context.Background(), activeMarker); err == nil {
+		t.Fatal("loadMarker admitted an empty object as a marker")
 	}
 }
 
@@ -1174,20 +1203,20 @@ func TestTransactionPhysicalReadsRejectOversizedFiles(t *testing.T) {
 	})
 
 	t.Run("classify target", func(t *testing.T) {
-		matches, err := fileMatchesExpected(t.Context(), oversized, hashBytes(nil), 0o600)
-		if err == nil || matches {
-			t.Fatalf("fileMatchesExpected = (%t, %v), want bounded read failure", matches, err)
+		_, err := classifyTargets(t.Context(), transactionMarker{Targets: []targetMarker{{Path: oversized}}})
+		if err == nil {
+			t.Fatal("classification admitted an oversized target")
 		}
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
 		writeCalled := false
-		err := restoreFile(t.Context(), filepath.Join(root, "target"), fileState{
+		err := restoreTransaction(t.Context(), transactionMarker{Targets: []targetMarker{{Path: filepath.Join(root, "target"), Before: fileState{
 			Exists:     true,
 			Hash:       hashBytes(nil),
 			BackupPath: oversized,
 			Mode:       0o600,
-		}, operations{writeFile: func(context.Context, string, []byte, os.FileMode) error {
+		}}}}, operations{writeFile: func(context.Context, string, []byte, os.FileMode) error {
 			writeCalled = true
 			return nil
 		}})

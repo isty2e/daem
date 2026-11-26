@@ -135,7 +135,7 @@ func TestBuildRecoveryPlanTreatsPermissionDriftAsNeitherGuardedSide(t *testing.T
 	requireErrorAction(t, plan, "blocked", "path differs from both before and expected-after states")
 }
 
-func TestBuildRecoveryPlanTreatsProjectionContainerModeDriftAsNeitherGuardedSide(t *testing.T) {
+func TestBuildRecoveryPlanAcceptsExpectedProjectionAfterChmod(t *testing.T) {
 	contract := recoveryTestAggregateContract(t)
 	address := contract.Address()
 	document := address.Document()
@@ -169,8 +169,7 @@ func TestBuildRecoveryPlanTreatsProjectionContainerModeDriftAsNeitherGuardedSide
 
 	plan := mustBuildRecoveryPlan(t, journal, journal.StatefileBefore, []recoveryPathObservation{observation}, nil)
 
-	requireClassification(t, plan, recovery.ClassificationBlocked)
-	requireErrorAction(t, plan, "blocked", "path differs from both before and expected-after states")
+	requireClassification(t, plan, recovery.ClassificationCleanAfter)
 }
 
 func TestBuildRecoveryPlanReportsPathObservationErrors(t *testing.T) {

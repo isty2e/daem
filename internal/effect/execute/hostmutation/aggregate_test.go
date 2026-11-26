@@ -31,7 +31,7 @@ import (
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
 
-func TestAggregateEffectRejectsDocumentAndModeChangesAfterPlanning(t *testing.T) {
+func TestAggregateEffectRejectsDocumentChangesAfterPlanning(t *testing.T) {
 	before := aggregate.ExistingDocument([]byte(`{"unmanaged":{"value":"before"}}` + "\n"))
 	effect := hookAggregateInsertionEffect(t, before)
 	codec, ok := testAggregateCodecs().Lookup(effect.CodecContractID())
@@ -40,13 +40,9 @@ func TestAggregateEffectRejectsDocumentAndModeChangesAfterPlanning(t *testing.T)
 	}
 
 	changed := aggregate.ExistingDocument([]byte(`{"unmanaged":{"value":"after"}}` + "\n"))
-	if _, err := validateAndRenderAggregate(effect, changed, aggregate.DocumentFileMode, codec); err == nil ||
+	if _, err := validateAndRenderAggregate(effect, changed, codec); err == nil ||
 		!strings.Contains(err.Error(), "document changed after planning") {
 		t.Fatalf("document drift error = %v, want effect-time document rejection", err)
-	}
-	if _, err := validateAndRenderAggregate(effect, before, 0o644, codec); err == nil ||
-		!strings.Contains(err.Error(), "mode changed after planning") {
-		t.Fatalf("mode drift error = %v, want effect-time mode rejection", err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -111,6 +112,15 @@ func (inventory RootInventory) ControlSnapshot() *mutationfs.DirectorySnapshot {
 func (active ActiveJournal) Identity() retirement.Identity { return active.identity }
 
 func (active ActiveJournal) Record() journalrecord.Loaded { return active.record }
+
+func (active ActiveJournal) WithTreeBaseline(proof recovery.TreeBaseline) (ActiveJournal, error) {
+	record, err := active.record.WithTreeBaseline(proof)
+	if err != nil {
+		return ActiveJournal{}, err
+	}
+	active.record = record
+	return active, nil
+}
 
 func (active ActiveJournal) OperationDir() string { return active.operationDir }
 
@@ -480,7 +490,6 @@ func loadRetirementControl(
 		if child.Name() != retirement.RecordFileName ||
 			child.Kind() != mutationfs.EntryKindFile ||
 			!child.OwnedByInvoker() ||
-			child.Mode() != retirement.RecordMode ||
 			child.Size() > retirement.MaximumRecordBytes {
 			continue
 		}
@@ -621,7 +630,6 @@ func loadJournalDirectoryEvidence(
 	}
 	if journalEntry.Kind() != mutationfs.EntryKindFile ||
 		!journalEntry.OwnedByInvoker() ||
-		journalEntry.Mode() != journalrecord.Mode ||
 		journalEntry.Size() > journalrecord.MaximumBytes {
 		return journalDirectoryEvidence{}, fmt.Errorf(
 			"recovery journal %q has invalid file metadata",

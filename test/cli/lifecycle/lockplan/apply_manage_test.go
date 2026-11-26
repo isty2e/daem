@@ -47,7 +47,7 @@ source = "instructions/AGENTS.md"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", instructionHash)
+	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", testkit.InstalledHash(t, filepath.Join(tempDir, "AGENTS.md")))
 
 	var statusStdout bytes.Buffer
 	var statusStderr bytes.Buffer
@@ -106,7 +106,7 @@ targets = ["antigravity-cli"]
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResourceNamed(t, state, "global", "antigravity-cli", "global", "~/.gemini/GEMINI.md", instructionHash)
+	testkit.AssertStateResourceNamed(t, state, "global", "antigravity-cli", "global", "~/.gemini/GEMINI.md", testkit.InstalledHash(t, sourcePath))
 }
 
 func TestRunApplyDryRunReportsManagedExistingInstructionOutput(t *testing.T) {

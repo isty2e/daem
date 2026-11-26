@@ -18,6 +18,45 @@ import (
 
 const rootedLockTestWatchdog = 5 * time.Second
 
+func TestCacheLockReusesRecordAndDirectoryWithUserPermissions(t *testing.T) {
+	root := physicalTestRoot(t, t.TempDir())
+	captured := mustCaptureRootedLockRoot(t, root)
+	defer captured.Close()
+	directory := filepath.Join(root, "locks")
+	locker := NewLocker(directory)
+	key := mustKey(t, "cache-lock", "permissions")
+	record := filepath.Join(directory, key.PathComponent()+".lock")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(record, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	for _, acquire := range []func() (*Lock, error){
+		func() (*Lock, error) { return locker.Acquire(t.Context(), key) },
+		func() (*Lock, error) { return locker.acquireRooted(t.Context(), captured, key) },
+	} {
+		lock, err := acquire()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := lock.Release(); err != nil {
+			t.Fatal(err)
+		}
+		for path, mode := range map[string]os.FileMode{directory: 0o750, record: 0o640} {
+			if info, err := os.Stat(path); err != nil || info.Mode().Perm() != mode {
+				t.Fatalf("reacquiring changed %s: %v, %v", path, info, err)
+			}
+		}
+	}
+}
+
 func TestRootedLockerWaiterCancellationReportsPathAfterWaitEntered(t *testing.T) {
 	cacheRoot := physicalTestRoot(t, t.TempDir())
 	firstRoot := mustCaptureRootedLockRoot(t, cacheRoot)

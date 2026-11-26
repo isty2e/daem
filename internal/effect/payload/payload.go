@@ -52,8 +52,9 @@ func (payload FilePayload) validate() error {
 // DirectoryPayload is an exact directory identity plus the non-owning view
 // needed to copy it into unpublished Effect staging.
 type DirectoryPayload struct {
-	identity artifact.ExactIdentity
-	view     access.View
+	identity  artifact.ExactIdentity
+	view      access.View
+	installed artifact.ContentHash
 }
 
 // Identity returns the exact directory artifact identity.
@@ -114,9 +115,14 @@ func NewDirectoryPayload(
 	if err := payload.validate(); err != nil {
 		return Payload{}, err
 	}
-	if err := view.Verify(ctx, identity); err != nil {
+	hashes, err := view.PathHashes(ctx)
+	if err != nil {
 		return Payload{}, fmt.Errorf("directory payload access: %w", err)
 	}
+	if hashes.Source != identity.ContentHash() {
+		return Payload{}, fmt.Errorf("directory payload does not match the verified source")
+	}
+	directory.installed = hashes.Installed
 	return payload, nil
 }
 
@@ -197,10 +203,17 @@ func (payload Payload) VerifyHash(expected artifact.ContentHash, destination out
 	if err := payload.validate(); err != nil {
 		return fmt.Errorf("host payload for %q: %w", destination, err)
 	}
-	if err := expected.Validate(); err != nil {
+	if err := expected.ValidateManaged(); err != nil {
 		return fmt.Errorf("planned host payload hash for %q: %w", destination, err)
 	}
 	actual := payload.Hash()
+	if expected.IsInstalled() {
+		if payload.file != nil {
+			actual = artifact.InstalledFileHash(payload.file.content)
+		} else {
+			actual = payload.directory.installed
+		}
+	}
 	if actual != expected {
 		return fmt.Errorf("host payload hash %q does not match planned hash %q for %q", actual, expected, destination)
 	}

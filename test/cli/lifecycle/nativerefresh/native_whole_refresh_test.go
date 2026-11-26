@@ -96,6 +96,9 @@ func TestNativeCurrentWholeDocumentWithOrdinaryChange(t *testing.T) {
 func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
 	f, g, source := nativeWholeRefreshFixture(t, target.TargetCodex, target.ScopeProject, target.ScopeProject)
 	f.Require(t, "apply", "--yes")
+	if err := os.Chmod(g.Destination, 0o440); err != nil {
+		t.Fatal(err)
+	}
 	before, err := statefile.DecodePersistedFacts(t.Context(), testkit.ReadFile(t, g.Paths.StatefilePath))
 	if err != nil {
 		t.Fatal(err)
@@ -128,13 +131,13 @@ func TestNativeWholeRefreshPreservesCurrentOwnership(t *testing.T) {
 	testkit.AssertFileContent(t, f.Manifest, manifest)
 	testkit.AssertFileContent(t, g.Paths.LockfilePath, locked)
 	testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\nrefresh\n")
-	nativefixture.RequireSharedMode(t, g.Destination, 0o600)
+	nativefixture.RequireSharedMode(t, g.Destination, 0o440)
 	f.Require(t, "status", "--check")
 	testkit.AssertNoRecoveryArtifacts(t, f.Workspace)
 }
 
 func TestNativeWholeRefreshRequiresAppliedAndCurrentFiles(t *testing.T) {
-	for _, change := range []string{"desired", "host", "external-match", "missing", "widened", "tightened", "new", "narrow", "empty-narrow", "adopt"} {
+	for _, change := range []string{"desired", "host", "external-match", "missing", "new", "narrow", "empty-narrow", "adopt"} {
 		t.Run(change, func(t *testing.T) {
 			f, g, source := nativeWholeRefreshFixture(t, target.TargetPi, target.ScopeProject, target.ScopeProject)
 			original := string(testkit.ReadFile(t, source))
@@ -166,14 +169,6 @@ func TestNativeWholeRefreshRequiresAppliedAndCurrentFiles(t *testing.T) {
 				testkit.WriteFile(t, filepath.Dir(g.Destination), filepath.Base(g.Destination), changed)
 			case "missing":
 				if err := os.Remove(g.Destination); err != nil {
-					t.Fatal(err)
-				}
-			case "widened", "tightened":
-				mode := os.FileMode(0o666)
-				if change == "tightened" {
-					mode = 0o400
-				}
-				if err := os.Chmod(g.Destination, mode); err != nil {
 					t.Fatal(err)
 				}
 			case "narrow", "empty-narrow":
@@ -217,6 +212,14 @@ func TestNativeWholeRefreshRevalidatesDisclosure(t *testing.T) {
 				testkit.WriteFile(t, filepath.Dir(path), filepath.Base(path), string(testkit.ReadFile(t, path))+"// after disclosure\n")
 			}
 			result, err := refreshworkflow.Execute(t.Context(), prepared, refreshworkflow.ExecuteOptions{})
+			if change == "mode" {
+				if err != nil || !result.Attempted {
+					t.Fatalf("chmod invalidated the disclosed refresh: attempted=%t, %v", result.Attempted, err)
+				}
+				nativefixture.RequireSharedMode(t, g.Destination, 0o666)
+				testkit.AssertFileContent(t, f.Calls, "install\ninstall\nrefresh\n")
+				return
+			}
 			if err == nil || result.Attempted || result.ResultClass != refreshworkflow.ResultRefused {
 				t.Fatalf("disclosed whole settings were reused: %#v %v", result, err)
 			}

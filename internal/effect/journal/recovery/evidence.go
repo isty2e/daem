@@ -55,7 +55,7 @@ func backupMismatch(before BeforePathState, backups map[string]BackupEvidence) s
 	if backup.Kind != before.Kind {
 		return fmt.Sprintf("backup kind %q does not match before kind %q", backup.Kind, before.Kind)
 	}
-	if backup.ContentHash != before.ContentHash {
+	if backup.ContentHash != before.ContentHash && !backup.Hashes.Matches(before.ContentHash) {
 		return fmt.Sprintf("backup hash %q does not match before hash %q", backup.ContentHash, before.ContentHash)
 	}
 	switch backup.Kind {
@@ -69,6 +69,12 @@ func backupMismatch(before BeforePathState, backups map[string]BackupEvidence) s
 			)
 		}
 	case PathKindDirectory:
+		if before.TreeModes != "" {
+			modes, err := before.TreeModes.Unpack()
+			if err != nil || len(modes) != backup.Work.Entries()+1 {
+				return "backup tree permission count does not match its contents"
+			}
+		}
 		if backup.Work.Entries() > MaximumArtifactTreeEntries ||
 			backup.Work.Bytes() > MaximumArtifactTreeBytes {
 			return fmt.Sprintf(
@@ -84,13 +90,8 @@ func backupMismatch(before BeforePathState, backups map[string]BackupEvidence) s
 }
 
 func pathMatchesBefore(before BeforePathState, observation PathEvidence) bool {
-	if observation.ContentPath != "" {
-		if observation.PathExisted != before.PathExisted {
-			return false
-		}
-		if before.PathExisted && !permissionModesEqual(before.PathMode, observation.PathMode) {
-			return false
-		}
+	if observation.ContentPath != "" && (observation.PathExisted != before.PathExisted || observation.PathExisted != (observation.PathMode != nil)) {
+		return false
 	}
 	if !before.Existed {
 		return !observation.Exists
@@ -100,9 +101,12 @@ func pathMatchesBefore(before BeforePathState, observation PathEvidence) bool {
 	}
 	switch before.Kind {
 	case PathKindFile:
-		return observation.ContentHash == before.ContentHash && permissionModesEqual(before.PathMode, observation.PathMode)
+		if observation.ContentPath == "" && observation.Hashes.Installed != "" {
+			return observation.PathMode != nil && observation.Hashes.Matches(before.ContentHash)
+		}
+		return observation.ContentHash == before.ContentHash && (observation.ContentPath != "" || permissionModesEqual(before.PathMode, observation.PathMode))
 	case PathKindDirectory:
-		return observation.ContentHash == before.ContentHash
+		return observation.ContentHash == before.ContentHash || observation.Hashes.Matches(before.ContentHash)
 	case PathKindSymlink:
 		return observation.LinkTarget == before.LinkTarget
 	default:
@@ -111,13 +115,8 @@ func pathMatchesBefore(before BeforePathState, observation PathEvidence) bool {
 }
 
 func pathMatchesExpected(expected ExpectedPathState, observation PathEvidence) bool {
-	if observation.ContentPath != "" {
-		if observation.PathExisted != expected.PathExisted {
-			return false
-		}
-		if expected.PathExisted && !permissionModesEqual(expected.PathMode, observation.PathMode) {
-			return false
-		}
+	if observation.ContentPath != "" && (observation.PathExisted != expected.PathExisted || observation.PathExisted != (observation.PathMode != nil)) {
+		return false
 	}
 	if !expected.Existed {
 		return !observation.Exists
@@ -127,9 +126,12 @@ func pathMatchesExpected(expected ExpectedPathState, observation PathEvidence) b
 	}
 	switch expected.Kind {
 	case PathKindFile:
-		return observation.ContentHash == expected.ContentHash && permissionModesEqual(expected.PathMode, observation.PathMode)
+		if observation.ContentPath == "" && observation.Hashes.Installed != "" {
+			return observation.PathMode != nil && observation.Hashes.Matches(expected.ContentHash)
+		}
+		return observation.ContentHash == expected.ContentHash && (observation.ContentPath != "" || permissionModesEqual(expected.PathMode, observation.PathMode))
 	case PathKindDirectory:
-		return observation.ContentHash == expected.ContentHash
+		return observation.ContentHash == expected.ContentHash || observation.Hashes.Matches(expected.ContentHash)
 	case PathKindSymlink:
 		return observation.LinkTarget == expected.LinkTarget
 	default:

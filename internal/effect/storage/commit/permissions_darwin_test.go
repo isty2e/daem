@@ -16,6 +16,9 @@ func TestPermissionRestrictionPreservesDarwinExtendedAttributes(t *testing.T) {
 	if err := unix.Setxattr(path, "com.daem.permission-test", []byte("retained"), 0); err != nil {
 		t.Fatal(err)
 	}
+	if err := unix.Chflags(path, unix.UF_NODUMP); err != nil {
+		t.Fatal(err)
+	}
 	request := permissionRequestForTest(t, captureRootForCommitTest(t, root), "config", 0o600)
 	result, err := RestrictRootedFilePermissions(t.Context(), request)
 	if err != nil || !result.Expanded() || !result.Restricted() {
@@ -25,6 +28,10 @@ func TestPermissionRestrictionPreservesDarwinExtendedAttributes(t *testing.T) {
 	length, err := unix.Getxattr(path, "com.daem.permission-test", value[:])
 	if err != nil || string(value[:length]) != "retained" {
 		t.Fatal("permission restriction changed unrelated xattrs", err)
+	}
+	var stat unix.Stat_t
+	if err := unix.Stat(path, &stat); err != nil || stat.Flags&unix.UF_NODUMP == 0 {
+		t.Fatal("permission restriction lost the backup-exclusion flag", err)
 	}
 }
 
@@ -40,7 +47,7 @@ func TestPermissionRestrictionRefusesDarwinACLAndFileFlags(t *testing.T) {
 				}
 				t.Cleanup(func() { _ = exec.Command("/bin/chmod", "-N", path).Run() })
 			} else {
-				if err := unix.Chflags(path, unix.UF_NODUMP); err != nil {
+				if err := unix.Chflags(path, unix.UF_IMMUTABLE); err != nil {
 					t.Fatal(err)
 				}
 				t.Cleanup(func() { _ = unix.Chflags(path, 0) })

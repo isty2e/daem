@@ -182,14 +182,6 @@ func decodeRecoveryJournalSnapshot(
 		snapshot.Identity().Kind() != mutationfs.EntryKindFile {
 		return recoveryJournal{}, fmt.Errorf("recovery journal snapshot is uninitialized")
 	}
-	if mode := snapshot.Mode().Perm(); mode != Mode {
-		return recoveryJournal{}, fmt.Errorf(
-			"recovery journal %q permissions are %04o, want %04o",
-			path,
-			mode,
-			Mode,
-		)
-	}
 	content := snapshot.Content()
 	version, err := jsonstrict.ValidateVersionedObject(
 		content,
@@ -199,7 +191,7 @@ func decodeRecoveryJournalSnapshot(
 	if err != nil {
 		return recoveryJournal{}, err
 	}
-	if version != OrdinaryVersion {
+	if !SupportsOrdinaryVersion(version) {
 		return recoveryJournal{}, UnsupportedVersion(version)
 	}
 
@@ -276,7 +268,10 @@ func validateRecoveryJournal(journal recoveryJournal, stateEncoder durable.Snaps
 }
 
 func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
-	if journal.Version != OrdinaryVersion {
+	if err := validateInstalledEvidenceVersion(journal.Version, journal.StatefileBefore, journal.StatefileAfter, journal.Entries); err != nil {
+		return err
+	}
+	if !SupportsOrdinaryVersion(journal.Version) {
 		return fmt.Errorf("unsupported recovery journal version %d", journal.Version)
 	}
 	if !IsSafeOperationID(journal.OperationID) {

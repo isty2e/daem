@@ -52,7 +52,7 @@ func TestNativeAbsentRetirementDoesNotAdmitDesiredRecreationOrOrdinaryAbsence(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	retiring, err = classifyAggregateProjection(codec, retiring, true, false, nil)
+	retiring, err = classifyAggregateProjection(codec, retiring, false, nil)
 	if err != nil || retiring.Kind() != reconcile.AggregateRecord || len(retiring.deltas) != 1 || retiring.deltas[0].kind != reconcile.AggregateRemove {
 		t.Fatal("a new parent document changed the absent key retirement", err, retiring.Kind(), retiring.Reason())
 	}

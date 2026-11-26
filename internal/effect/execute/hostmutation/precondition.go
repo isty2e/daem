@@ -84,7 +84,7 @@ func (operation *Operation) captureRootedManagedPathPrecondition(
 	expectedFileMode *os.FileMode,
 ) (managedPathPrecondition, error) {
 	if expectedExists {
-		if err := expectedHash.Validate(); err != nil {
+		if err := expectedHash.ValidateManaged(); err != nil {
 			return managedPathPrecondition{}, fmt.Errorf(
 				"managed destination %q expected hash: %w",
 				destination.Logical(),
@@ -121,16 +121,10 @@ func (operation *Operation) captureRootedManagedPathPrecondition(
 		if err != nil {
 			return fail(err)
 		}
-		hash := artifact.HashFileContentWithExecutable(
-			content,
-			mode.Perm()&0o111 != 0,
-		)
-
-		if hash != expectedHash {
+		if !expectedHash.MatchesFile(content) {
 			return fail(fmt.Errorf(
-				"managed destination %q hash %q does not match expected %q",
+				"managed destination %q does not match expected hash %q",
 				destination.Logical(),
-				hash,
 				expectedHash,
 			))
 		}
@@ -160,20 +154,20 @@ func (operation *Operation) captureRootedManagedPathPrecondition(
 	if err != nil {
 		return fail(err)
 	}
-	hash, err := sink.Sum()
+	hashes, err := sink.builder.Hashes()
 	if err != nil {
 		return fail(err)
 	}
-	if hash != expectedHash {
+	if !hashes.Matches(expectedHash) {
 		return fail(fmt.Errorf(
 			"managed destination %q hash %q does not match expected %q",
 			destination.Logical(),
-			hash,
+			hashes.Installed,
 			expectedHash,
 		))
 	}
 	return managedPathPrecondition{
-		destination: destination, existed: true, hash: expectedHash, identity: identity,
+		destination: destination, existed: true, hash: hashes.Installed, identity: identity,
 		capability: capability, filesystem: operation.filesystem,
 	}, nil
 }
@@ -202,13 +196,8 @@ func (path PreparedPath) Close() error {
 	return path.state.close()
 }
 
-func (operation *Operation) VerifyPath(ctx context.Context, destination mutationnamespace.Destination, expectedExists bool, expectedHash artifact.ContentHash, contentKind realization.PathProjectionContentKind, expectedFileMode os.FileMode) error {
-	var exactFileMode *os.FileMode
-	if expectedExists && contentKind == realization.PathProjectionFile {
-		mode := expectedFileMode.Perm()
-		exactFileMode = &mode
-	}
-	observed, err := operation.CapturePath(ctx, destination, expectedExists, expectedHash, contentKind, exactFileMode)
+func (operation *Operation) verifyInstalledPath(ctx context.Context, destination mutationnamespace.Destination, expectedExists bool, expectedHash artifact.ContentHash, contentKind realization.PathProjectionContentKind) error {
+	observed, err := operation.CapturePath(ctx, destination, expectedExists, expectedHash, contentKind, nil)
 	if err != nil {
 		return err
 	}
@@ -221,10 +210,12 @@ type DirectoryHashSink struct {
 }
 
 func NewDirectoryHashSink(ctx context.Context) *DirectoryHashSink {
-	return &DirectoryHashSink{ctx: ctx, builder: artifact.NewDirectoryHashBuilder()}
+	return &DirectoryHashSink{ctx: ctx, builder: artifact.NewDirectoryEvidenceBuilder()}
 }
 
-func (*DirectoryHashSink) VisitRoot(fs.FileMode) error { return nil }
+func (*DirectoryHashSink) VisitRoot(fs.FileMode) error {
+	return nil
+}
 
 func (sink *DirectoryHashSink) VisitDirectory(path mutationfs.TreeRelativePath, _ fs.FileMode) error {
 	return sink.builder.AddDirectory(path.Path())

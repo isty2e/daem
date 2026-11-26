@@ -126,7 +126,7 @@ func TestNativeKeyRecoveryCompensatesReturnedStorageError(t *testing.T) {
 }
 
 func TestNativeKeyRecoveryCompensatesCancellation(t *testing.T) {
-	// Exercise cancellation with the key/MCP mode transition; storage-error cases cover restoration shapes.
+	// Exercise cancellation with both key and MCP edits; storage-error cases cover restoration shapes.
 	kind := "mixed-new"
 	t.Run(kind, func(t *testing.T) {
 		fixture := nativefixture.NewRecoveryFixture(t, kind)

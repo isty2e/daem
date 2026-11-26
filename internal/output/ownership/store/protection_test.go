@@ -413,8 +413,8 @@ func TestProtectionStoreRefusesInvalidCanceledForeignAndControlTargets(t *testin
 	if err := os.Chmod(store.Path(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.LoadPendingProtections(t.Context()); err == nil {
-		t.Fatal("public registry supplied safety authority")
+	if rows, err := store.LoadPendingProtections(t.Context()); err != nil || len(rows) != 0 {
+		t.Fatal("permission change altered pending protections", err)
 	}
 	missing := mustStore(t, filepath.Join(root, "missing.json"))
 	if rows, err := missing.LoadPendingProtections(t.Context()); err != nil || len(rows) != 0 {

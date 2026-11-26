@@ -130,6 +130,35 @@ func TestPermissionRestrictionIntersectsWithoutRestoringOrReadingContent(t *test
 	}
 }
 
+func TestPermissionRestrictionRechecksAccessWithoutFreezingUserMetadata(t *testing.T) {
+	root := canonicalTempDir(t)
+	path := filepath.Join(root, "config")
+	writePermissionFixture(t, path, "same bytes", 0o664)
+	captured := captureRootForCommitTest(t, root)
+	request := permissionRequestForTest(t, captured, "config", 0o640)
+	result, err := restrictRootedFilePermissions(t.Context(), request, faultPlan{
+		actions: map[phase]func(){phaseApplyMode: func() {
+			if err := unix.Setxattr(path, "user.daem-note", []byte("latest"), 0); errors.Is(err, unix.EOPNOTSUPP) {
+				t.Skip("filesystem does not support user extended attributes")
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0o604); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	})
+	if err != nil || !result.Restricted() {
+		t.Fatal("permission restriction did not settle", err)
+	}
+	assertFile(t, path, "same bytes", 0o600)
+	var note [16]byte
+	n, err := unix.Getxattr(path, "user.daem-note", note[:])
+	if err != nil || string(note[:n]) != "latest" {
+		t.Fatal("changed user attribute did not survive permission restriction", err)
+	}
+}
+
 func TestPermissionRestrictionRefusesUnqualifiedMetadataAndAliases(t *testing.T) {
 	for _, mode := range []string{"owner bits", "execute bits", "recorded uid", "recorded gid", "hard link", "symlink", "special bits"} {
 		t.Run(mode, func(t *testing.T) {

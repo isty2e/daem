@@ -200,13 +200,6 @@ func (store Store) load(
 		}
 		return ownership.Registry{}, fmt.Errorf("read ownership registry: %w", err)
 	}
-	if snapshot.Mode().Perm()&0o077 != 0 {
-		return ownership.Registry{}, fmt.Errorf(
-			"ownership registry %q permissions %04o expose authority metadata",
-			store.path,
-			snapshot.Mode().Perm(),
-		)
-	}
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
@@ -395,7 +388,7 @@ func (store Store) loadRootedCapability(
 	expectedRemovals []ownership.Claim,
 	observations *pathAuthorityObservationSession,
 ) (ownership.Registry, error) {
-	content, mode, _, readErr := storagecommit.ReadRootedRegularFileUpTo(
+	content, _, _, readErr := storagecommit.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
 		maximumOwnershipRegistryBytes,
@@ -409,13 +402,6 @@ func (store Store) loadRootedCapability(
 	}
 	if closeErr != nil {
 		return ownership.Registry{}, closeErr
-	}
-	if mode.Perm()&0o077 != 0 {
-		return ownership.Registry{}, fmt.Errorf(
-			"ownership registry %q permissions %04o expose authority metadata",
-			store.path,
-			mode.Perm(),
-		)
 	}
 	return decodePersistedRegistryForClaimRemovals(
 		ctx,
@@ -549,16 +535,7 @@ func (store Store) Apply(
 		return ownership.Registry{}, err
 	}
 
-	var request storagecommit.FileCommit
-	if capability != nil && exists {
-		request, err = storagecommit.NewRootedFileReplacement(capability, content, 0o600, expectedEntry)
-	} else if capability != nil {
-		request, err = storagecommit.NewRootedFileCreate(capability, content, 0o600)
-	} else if exists {
-		request, err = storagecommit.NewFileReplacement(store.path, content, 0o600, expectedEntry)
-	} else {
-		request, err = storagecommit.NewFileCreate(store.path, content, 0o600)
-	}
+	request, err := store.publication(capability, content, expectedEntry, exists)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("prepare ownership registry commit: %w", err)
 	}

@@ -166,11 +166,11 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 			filepath.Join(planned.context.Paths.ManifestRoot, "skills", "review"),
 			mutation.PathEffectReferent,
 		): false,
-		mutation.NewBoundedContentRevisionRequest(
+		mutation.NewInstalledContentRevisionRequest(
 			filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
 			mutation.PathEffectDirectoryEntry,
 		): false,
-		mutation.NewBoundedContentRevisionRequest(
+		mutation.NewInstalledContentRevisionRequest(
 			filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
 			mutation.PathEffectReferent,
 		): false,

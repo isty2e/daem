@@ -75,3 +75,7 @@ func walkNative(
 func unavailableTraversal() error {
 	return ErrNoFollowTraversalUnavailable
 }
+
+func walkNativeHashes(context.Context, View, TreeSink, *traversalBudget, *artifact.PathHashes, *artifact.DirectoryHashBuilder) (artifact.ContentHash, error) {
+	return "", unavailableTraversal()
+}

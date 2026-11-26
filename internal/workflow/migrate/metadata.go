@@ -19,6 +19,7 @@ type MetadataInput struct {
 	ManifestPath string
 	Recover      bool
 	References   []string
+	BaselineTree string
 }
 
 type MetadataDisclosure struct {
@@ -59,6 +60,12 @@ func PlanMetadata(ctx context.Context, input MetadataInput) (*PreparedMetadata, 
 	budget, err := physicalwork.NewBudget(0)
 	if err != nil {
 		return nil, err
+	}
+	if input.BaselineTree != "" {
+		if input.Recover || len(input.References) != 0 {
+			return nil, fmt.Errorf("--baseline-tree updates the selected state only; use --recover or --reference separately")
+		}
+		return planTreeBaseline(ctx, paths, input.BaselineTree, budget)
 	}
 	if input.Recover {
 		if len(input.References) != 0 {

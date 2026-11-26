@@ -16,6 +16,9 @@ import (
 )
 
 func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
+	if snapshot.HasInstalledHashes() {
+		return persistedSnapshotAtVersion(snapshot, installedSnapshotVersion)
+	}
 	if snapshot.ClaudeHookSettings().Path() != "" {
 		return persistedSnapshotAtVersion(snapshot, hookPlacementSnapshotVersion)
 	}

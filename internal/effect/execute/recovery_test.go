@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -419,7 +420,7 @@ func TestRecoveryRollbackFailureDistinguishesCleanupResidue(t *testing.T) {
 	if !errors.Is(err, primary) || !errors.Is(err, cleanupErr) {
 		t.Fatalf("recoveryRollbackFailure error = %v, want both causes", err)
 	}
-	if strings.Contains(err.Error(), "rollback failed") {
+	if applyprogram.FailedRollbackCause(err) != nil || strings.Contains(err.Error(), "rollback failed") {
 		t.Fatalf("cleanup-only error = %v, must not report host-state rollback failure", err)
 	}
 	if !strings.Contains(err.Error(), "cleanup recovery rollback stage") {
@@ -428,7 +429,7 @@ func TestRecoveryRollbackFailureDistinguishesCleanupResidue(t *testing.T) {
 
 	rollbackErr := errors.New("restore before-image failed")
 	err = recoveryRollbackFailure(primary, rollbackErr, nil)
-	if !errors.Is(err, primary) || !strings.Contains(err.Error(), "rollback failed") {
+	if !errors.Is(err, primary) || !errors.Is(applyprogram.FailedRollbackCause(err), rollbackErr) {
 		t.Fatalf("rollback error = %v, want rollback failure classification", err)
 	}
 }

@@ -30,6 +30,11 @@ func NoteGuidance(message string) Guidance {
 	return textGuidance(GuidanceNote, "note: ", message)
 }
 
+func FilePathNote(label, path string) Guidance {
+	message := boundedHumanDetail(path, func(value string) string { return Escape(label) + ": " + Quote(value) })
+	return Guidance{kind: GuidanceNote, message: message, humanPrefix: "note: "}
+}
+
 func InstructionGuidance(message string) Guidance {
 	return textGuidance(GuidanceInstruction, "next: ", message)
 }

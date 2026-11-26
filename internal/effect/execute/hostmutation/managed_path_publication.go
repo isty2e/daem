@@ -3,8 +3,8 @@ package hostmutation
 import (
 	"context"
 	"fmt"
+	"io/fs"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/payload"
@@ -21,7 +21,7 @@ func (operation *Operation) ApplyManagedPathStep(ctx context.Context, step Manag
 		if err != nil {
 			return EffectNotStarted, err
 		}
-		if err := operation.VerifyPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.LiveFileMode()); err != nil {
+		if err := operation.verifyInstalledPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind()); err != nil {
 			return EffectNotStarted, err
 		}
 		return EffectExpectedAfter, nil
@@ -30,8 +30,7 @@ func (operation *Operation) ApplyManagedPathStep(ctx context.Context, step Manag
 		if step.phase == ManagedPathPublishPhase {
 			return operation.publishManagedPathRelocation(ctx, effect, payloads)
 		}
-		previous, _ := effect.PreviousState()
-		return operation.retireManagedPathRelocation(ctx, previous)
+		return operation.retireManagedPathRelocation(ctx, effect)
 	}
 	return operation.applyManagedPathMutation(ctx, effect, payloads)
 }
@@ -51,7 +50,7 @@ func (operation *Operation) applyManagedPathMutation(ctx context.Context, effect
 		if err := precondition.Remove(ctx); err != nil {
 			return ProgressAfterMutationError(err), fmt.Errorf("remove managed destination %q: %w", effect.Destination(), err)
 		}
-		if err := operation.VerifyPath(ctx, destination, false, "", effect.ContentKind(), 0); err != nil {
+		if err := operation.verifyInstalledPath(ctx, destination, false, "", effect.ContentKind()); err != nil {
 			return EffectIndeterminate, mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify removed managed destination %q: %w", effect.Destination(), err))
 		}
 		return EffectExpectedAfter, nil
@@ -64,7 +63,7 @@ func (operation *Operation) applyManagedPathMutation(ctx context.Context, effect
 	if err := commitManagedPathDestination(ctx, effect, prepared, precondition); err != nil {
 		return ProgressAfterMutationError(err), fmt.Errorf("write destination %q: %w", effect.Destination(), err)
 	}
-	if err := operation.VerifyPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode()); err != nil {
+	if err := operation.verifyInstalledPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind()); err != nil {
 		return EffectIndeterminate, mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify managed destination %q: %w", effect.Destination(), err))
 	}
 	return EffectExpectedAfter, nil
@@ -87,18 +86,19 @@ func (operation *Operation) publishManagedPathRelocation(ctx context.Context, ef
 	if err := commitManagedPathDestination(ctx, effect, prepared, precondition); err != nil {
 		return ProgressAfterMutationError(err), fmt.Errorf("write relocated managed destination %q: %w", effect.Destination(), err)
 	}
-	if err := operation.VerifyPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind(), effect.DesiredFileMode()); err != nil {
+	if err := operation.verifyInstalledPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind()); err != nil {
 		return EffectIndeterminate, mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify relocated managed destination %q: %w", effect.Destination(), err))
 	}
 	return EffectExpectedAfter, nil
 }
 
-func (operation *Operation) retireManagedPathRelocation(ctx context.Context, previous durable.ManagedPathState) (EffectProgress, error) {
+func (operation *Operation) retireManagedPathRelocation(ctx context.Context, effect effectpreparation.ManagedPathEffect) (EffectProgress, error) {
+	previous, _ := effect.PreviousState()
 	destination, err := operation.destinations.Resolve(previous.Scope(), previous.Destination())
 	if err != nil {
 		return EffectNotStarted, err
 	}
-	precondition, err := operation.CapturePath(ctx, destination, true, previous.ContentHash(), previous.ContentKind(), nil)
+	precondition, err := operation.CapturePath(ctx, destination, true, effect.PreviousLiveHash(), previous.ContentKind(), nil)
 	if err != nil {
 		return EffectNotStarted, err
 	}
@@ -106,7 +106,7 @@ func (operation *Operation) retireManagedPathRelocation(ctx context.Context, pre
 	if err := precondition.Remove(ctx); err != nil {
 		return ProgressAfterMutationError(err), fmt.Errorf("remove previous managed destination %q: %w", previous.Destination(), err)
 	}
-	if err := operation.VerifyPath(ctx, destination, false, "", previous.ContentKind(), 0); err != nil {
+	if err := operation.verifyInstalledPath(ctx, destination, false, "", previous.ContentKind()); err != nil {
 		return EffectIndeterminate, mutationfs.MarkEffectIndeterminate(fmt.Errorf("verify previous managed destination removal %q: %w", previous.Destination(), err))
 	}
 	return EffectExpectedAfter, nil
@@ -119,7 +119,7 @@ func commitManagedPathDestination(ctx context.Context, effect effectpreparation.
 		if !ok {
 			return fmt.Errorf("managed file effect for %q has a non-file payload", effect.Destination())
 		}
-		return precondition.WriteFile(ctx, file.Bytes(), effect.DesiredFileMode())
+		return precondition.WriteFile(ctx, file.Bytes(), precondition.publishMode(effect.DesiredFileMode()))
 	case realization.PathProjectionDirectory:
 		directory, ok := prepared.Directory()
 		if !ok {
@@ -129,4 +129,11 @@ func commitManagedPathDestination(ctx context.Context, effect effectpreparation.
 	default:
 		return fmt.Errorf("managed path content kind %q is unsupported", effect.ContentKind())
 	}
+}
+
+func (path PreparedPath) publishMode(createMode fs.FileMode) fs.FileMode {
+	if path.state.existed {
+		return path.state.fileMode
+	}
+	return createMode
 }

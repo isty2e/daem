@@ -11,7 +11,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
+	"github.com/isty2e/daem/internal/effect/journal/qualification"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
 	"github.com/isty2e/daem/internal/realization"
@@ -24,6 +29,35 @@ import (
 )
 
 func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
+	t.Run("labels from verified backup", func(t *testing.T) { restoreLegacyProjectTree(t, false, false) })
+	t.Run("chmod after staging with reference for changed labels", func(t *testing.T) { restoreLegacyProjectTree(t, true, false) })
+	t.Run("late content edit is retained", func(t *testing.T) { restoreLegacyProjectTree(t, false, true) })
+}
+
+type afterPreparedRestore struct {
+	mutationfs.Store
+	prepared rootedpath.Destination
+	edit     func()
+}
+
+func (s *afterPreparedRestore) PrepareRootedTree(ctx context.Context, capability rootedpath.CommitCapability, populate func(mutationfs.RootedTreeWriter) error) (mutationfs.PreparedRootedTree, error) {
+	prepared, err := s.Store.PrepareRootedTree(ctx, capability, populate)
+	if err == nil {
+		s.prepared = capability.Destination()
+	}
+	return prepared, err
+}
+
+func (s *afterPreparedRestore) CaptureRootedEntryIdentity(ctx context.Context, capability rootedpath.CommitCapability) (mutationfs.EntryIdentity, error) {
+	if s.edit != nil && capability.Destination().Equal(s.prepared) {
+		s.edit()
+		s.edit = nil
+	}
+	return s.Store.CaptureRootedEntryIdentity(ctx, capability)
+}
+
+func restoreLegacyProjectTree(t *testing.T, supplyReference, editDuringRestore bool) {
+	t.Helper()
 	base := t.TempDir()
 	projectRoot := filepath.Join(base, "project")
 	stateDir := filepath.Join(base, "state")
@@ -37,6 +71,11 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		_ = os.Chmod(hostPath, 0o700)
 	})
 	writeRecoveryTestFile(t, filepath.Join(hostPath, "SKILL.md"), []byte("before skill\n"))
+	if !supplyReference {
+		if err := os.Chmod(filepath.Join(hostPath, "SKILL.md"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	writeRecoveryTestFile(t, filepath.Join(hostPath, "nested", "before.txt"), []byte("before nested\n"))
 	if err := os.Chmod(filepath.Join(hostPath, "nested"), 0o500); err != nil {
 		t.Fatalf("make before nested directory read-only: %v", err)
@@ -55,6 +94,17 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	}
 	writeRecoveryTestFile(t, filepath.Join(afterSource, "SKILL.md"), []byte("after skill\n"))
 	writeRecoveryTestFile(t, filepath.Join(afterSource, "nested", "after.txt"), []byte("after nested\n"))
+	if err := os.Chmod(filepath.Join(afterSource, "SKILL.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var baseline recovery.TreeBaseline
+	if supplyReference {
+		hashes, err := qualification.ReadBaselineTree(t.Context(), afterSource, physicalwork.NewCaptureBudget(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseline = recovery.VerifiedTree(string(hashes.Source), string(hashes.Installed))
+	}
 	afterHash, _, err := access.HashPath(context.Background(), afterSource)
 	if err != nil {
 		t.Fatalf("hash after project tree: %v", err)
@@ -195,21 +245,60 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		t.Fatalf("make after project tree read-only: %v", err)
 	}
 	writeRecoveryTestStatefile(t, paths.StatefilePath, currentState)
+	if err := os.Chmod(filepath.Join(hostPath, "SKILL.md"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	load := testPlanLoadOptions(paths)
+	load.TreeBaseline = baseline
 
 	recoveryPlan, err := journal.LoadActivePlanWithOptions(
 		context.Background(),
 		paths.JournalPaths(),
-		testPlanLoadOptions(paths),
+		load,
 	)
 	if err != nil {
 		t.Fatalf("LoadActivePlan returned error: %v", err)
 	}
-	if err := executeRecoveryPlanWithOptionsForTest(
+	options := testRecoveryOptions(paths)
+	options.TreeBaseline = load.TreeBaseline
+	file := filepath.Join(hostPath, "SKILL.md")
+	wantMode := os.FileMode(0o640)
+	if supplyReference || editDuringRestore {
+		wantMode = 0o644
+		options.Filesystem = &afterPreparedRestore{Store: options.Filesystem, edit: func() {
+			if err := os.Chmod(file, wantMode); err != nil {
+				t.Fatal(err)
+			}
+			if editDuringRestore {
+				if err := os.WriteFile(file, []byte("user edit\n"), wantMode); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}}
+	}
+	err = executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		paths,
-		testRecoveryOptions(paths),
-	); err != nil {
+		options,
+	)
+	assertRecoveryTestMode(t, file, wantMode)
+	if editDuringRestore {
+		if err == nil {
+			t.Fatal("recovery accepted a concurrent edit")
+		}
+		assertRecoveryTestContent(t, file, []byte("user edit\n"))
+		assertRecoveryTestContent(t, filepath.Join(hostPath, "nested", "after.txt"), []byte("after nested\n"))
+		if err := os.WriteFile(file, []byte("after skill\n"), wantMode); err != nil {
+			t.Fatal(err)
+		}
+		retry, loadErr := journal.LoadActivePlanWithOptions(t.Context(), paths.JournalPaths(), load)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		err = executeRecoveryPlanWithOptionsForTest(t.Context(), retry, paths, testRecoveryOptions(paths))
+	}
+	if err != nil {
 		t.Fatalf("ExecuteRecoveryPlan returned error: %v", err)
 	}
 	assertRecoveryTestContent(t, filepath.Join(hostPath, "SKILL.md"), []byte("before skill\n"))
@@ -217,6 +306,6 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(hostPath, "nested", "after.txt")); !os.IsNotExist(err) {
 		t.Fatalf("after-only path stat error = %v, want absence", err)
 	}
-	assertRecoveryTestMode(t, hostPath, 0o550)
+	assertRecoveryTestMode(t, hostPath, 0o500)
 	assertRecoveryTestMode(t, filepath.Join(hostPath, "nested"), 0o500)
 }

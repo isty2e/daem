@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -18,7 +17,6 @@ import (
 const (
 	maximumStatefileBytes     int64 = 16 << 20
 	maximumStatefileJSONDepth       = 64
-	statefileMode                   = os.FileMode(0o600)
 )
 
 // Load reads current state or one exact empty retired statefile into canonical durable state.
@@ -65,7 +63,7 @@ func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, pat
 		return durable.Snapshot{}, pathauthority.Reference{}, err
 	}
 	switch version {
-	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion, hookPlacementSnapshotVersion, locatedHookPlacementVersion:
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion, hookPlacementSnapshotVersion, locatedHookPlacementVersion, installedSnapshotVersion, locatedInstalledVersion:
 		codec, err := currentSnapshotCodec(ctx)
 		if err != nil {
 			return durable.Snapshot{}, pathauthority.Reference{}, err
@@ -93,7 +91,7 @@ func statefileDocumentVersion(content []byte) (int, error) {
 
 func decodeSupported(content []byte, version int, codec snapshotCodec) (durable.Snapshot, error) {
 	switch version {
-	case snapshotVersion, hookPlacementSnapshotVersion:
+	case snapshotVersion, hookPlacementSnapshotVersion, installedSnapshotVersion:
 		return decodeSnapshotDocument[managedAggregateV10DTO](content, version, codec)
 	case previousSnapshotVersion, legacySnapshotVersion:
 		codec.nativeDocuments = false
@@ -170,14 +168,6 @@ func readStatefile(ctx context.Context, path string) ([]byte, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumStatefileBytes)
 	if err != nil {
 		return nil, err
-	}
-	if mode := snapshot.Mode().Perm(); mode != statefileMode {
-		return nil, fmt.Errorf(
-			"statefile %q permissions are %04o, want %04o",
-			path,
-			mode,
-			statefileMode,
-		)
 	}
 	return snapshot.Content(), nil
 }

@@ -105,6 +105,8 @@ func RestoreProjectionDocument(current aggregate.Document, mode *PermissionMode,
 	}
 	if !rendered.Document().Exists() {
 		candidateMode = nil
+	} else if current.Exists() {
+		candidateMode = mode
 	}
 	before, err := NewPartialDocumentState(current.Exists(), mode, []aggregate.Snapshot{observed})
 	if err != nil {

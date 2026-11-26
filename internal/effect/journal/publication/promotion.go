@@ -120,7 +120,7 @@ func PromoteProvisionalAcquire(
 		ctx,
 		capability,
 		content,
-		journalrecord.Mode,
+		snapshot.Mode().Perm(),
 		snapshot.Identity(),
 		activeAuthority.Identity(),
 	)

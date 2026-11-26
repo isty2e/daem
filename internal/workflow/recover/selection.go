@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/fileset"
+	"github.com/isty2e/daem/internal/effect/journal/qualification"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -15,10 +17,25 @@ import (
 
 func planRecoveryOperation(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 	budget := physicalwork.NewCaptureBudget(nil)
+	if input.BaselineTree != "" {
+		hashes, err := qualification.ReadBaselineTree(ctx, input.BaselineTree, budget)
+		if err != nil {
+			return nil, err
+		}
+		input.treeProof = recovery.VerifiedTree(string(hashes.Source), string(hashes.Installed))
+	}
 	planned, journalErr := planRecoveryWithFilesystemFenceAndBudget(ctx, input, storagecommit.Adapter{}, func(ctx context.Context, authority recoverygate.StateDirAuthority) error {
 		return authority.RequireClear(ctx)
 	}, budget)
 	// Retired-journal cleanup remains independent of host/state/Registry contents.
+	if input.BaselineTree != "" {
+		if journalErr != nil {
+			return nil, journalErr
+		}
+		if planned.plan.AuthorityKind() != journal.RecoveryAuthorityActiveJournal {
+			return nil, fmt.Errorf("--baseline-tree requires an active journal with a recorded directory")
+		}
+	}
 	if journalErr == nil && planned.plan.AuthorityKind() == journal.RecoveryAuthorityJournalCleanup {
 		return newPreparedRecovery(planned), nil
 	}

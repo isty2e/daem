@@ -31,18 +31,29 @@ const (
 // EntryIdentity is ephemeral evidence for revalidating one directory entry.
 // It is not a durable revision, lease, or atomic compare-and-swap token.
 type EntryIdentity struct {
-	path       string
-	kind       entryKind
-	platform   platformIdentity
-	protection string
+	path     string
+	kind     entryKind
+	platform platformIdentity
+	uid, gid uint32
+	mode     uint32
 }
 
 // ProtectionFingerprint describes observed ownership and mode, not file identity.
 func (identity EntryIdentity) ProtectionFingerprint() (string, error) {
-	if !identity.valid() || identity.protection == "" {
+	return identity.fingerprintWithMode(identity.mode)
+}
+
+// OwnershipFingerprint binds the owner, group, kind and special bits for an
+// edit to selected settings. The user retains control of ordinary permissions.
+func (identity EntryIdentity) OwnershipFingerprint() (string, error) {
+	return identity.fingerprintWithMode(identity.mode &^ 0o777)
+}
+
+func (identity EntryIdentity) fingerprintWithMode(mode uint32) (string, error) {
+	if !identity.valid() || identity.mode == 0 {
 		return "", fmt.Errorf("entry protection evidence is unavailable")
 	}
-	digest := sha256.Sum256([]byte(identity.protection))
+	digest := sha256.Sum256([]byte(fmt.Sprintf("posix:%d:%d:%o", identity.uid, identity.gid, mode)))
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
@@ -119,13 +130,22 @@ const (
 
 // FileCommit is a valid file publication request.
 type FileCommit struct {
-	path           string
-	payload        []byte
-	mode           fs.FileMode
-	policy         filePolicy
-	expected       EntryIdentity
-	expectedParent EntryIdentity
-	capability     rootedpath.CommitCapability
+	path            string
+	payload         []byte
+	mode            fs.FileMode
+	keepPermissions bool
+	policy          filePolicy
+	expected        EntryIdentity
+	expectedParent  EntryIdentity
+	capability      rootedpath.CommitCapability
+	published       *EntryIdentity
+}
+
+func (request FileCommit) notePublication(staged EntryIdentity) {
+	if request.published != nil {
+		staged.path = request.path
+		*request.published = staged
+	}
 }
 
 // NewRootedFileCreate constructs an absent-destination file request bound to
@@ -175,6 +195,10 @@ func NewFileReplacement(
 	if err := validateCommitPath(path); err != nil {
 		return FileCommit{}, err
 	}
+	keep := mode == mutationfs.KeepFilePermissions
+	if keep {
+		mode = 0
+	}
 	if err := validateFileMode(mode); err != nil {
 		return FileCommit{}, err
 	}
@@ -182,11 +206,12 @@ func NewFileReplacement(
 		return FileCommit{}, err
 	}
 	return FileCommit{
-		path:     path,
-		payload:  append([]byte(nil), payload...),
-		mode:     mode,
-		policy:   filePolicyReplaceExpected,
-		expected: expected,
+		path:            path,
+		payload:         append([]byte(nil), payload...),
+		mode:            mode,
+		policy:          filePolicyReplaceExpected,
+		keepPermissions: keep,
+		expected:        expected,
 	}, nil
 }
 

@@ -27,6 +27,18 @@ type unexpectedArgumentError struct {
 	argument string
 }
 
+func baselineTreeFlag(flags *flag.FlagSet) *string {
+	var directory string
+	flags.Func("baseline-tree", "read-only directory reproducing a recorded legacy skill digest", func(value string) error {
+		if value == "" || directory != "" {
+			return fmt.Errorf("provide one nonempty baseline directory")
+		}
+		directory = value
+		return nil
+	})
+	return &directory
+}
+
 func (err *unexpectedArgumentError) Error() string {
 	return fmt.Sprintf("unexpected argument %q", err.argument)
 }

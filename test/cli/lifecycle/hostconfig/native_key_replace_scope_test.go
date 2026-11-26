@@ -48,17 +48,23 @@ func TestNativeKeyReplacementTargetScopes(t *testing.T) {
 	}
 }
 
-func TestNativeKeyReplacementBindsProtectionAndSource(t *testing.T) {
-	for _, change := range []string{"mode", "source", "selected-value", "unknown-version", "undeclared-selector"} {
+func TestNativeKeyReplacementPreservesPermissionsChangedAfterPreview(t *testing.T) {
+	fixture := nativeReplacementRecoveryFixture(t, "managed")
+	fingerprint := nativeReplacementFingerprint(t, fixture)
+	if err := os.Chmod(fixture.Destination, 0o744); err != nil {
+		t.Fatal(err)
+	}
+	nativefixture.RunRecoveryCommand(t, fixture, "none", "replace", "agent-config", "preferences", "--yes", "--expect-plan", fingerprint)
+	nativefixture.RequireSharedMode(t, fixture.Destination, 0o744)
+}
+
+func TestNativeKeyReplacementBindsSourceAndSelection(t *testing.T) {
+	for _, change := range []string{"source", "selected-value", "unknown-version", "undeclared-selector"} {
 		t.Run(change, func(t *testing.T) {
 			fixture := nativeReplacementRecoveryFixture(t, "managed")
 			fingerprint := nativeReplacementFingerprint(t, fixture)
 			extra := []string{}
 			switch change {
-			case "mode":
-				if err := os.Chmod(fixture.Destination, 0o600); err != nil {
-					t.Fatal(err)
-				}
 			case "source":
 				nativefixture.WriteRecoveryDesired(t, fixture, "new-source", "old.js")
 			case "selected-value":

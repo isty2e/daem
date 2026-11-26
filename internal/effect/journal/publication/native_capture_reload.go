@@ -98,15 +98,12 @@ func decodeNativeCaptureInventoryJournal(ctx context.Context, snapshot mutationf
 	if err != nil {
 		return journalrecord.Loaded{}, err
 	}
-	switch version {
-	case journalrecord.OrdinaryVersion:
+	switch {
+	case journalrecord.SupportsOrdinaryVersion(version):
 		return journalrecord.DecodeOrdinarySnapshot(ctx, snapshot, path, codec)
-	case journalrecord.NativeVersion:
+	case journalrecord.SupportsNativeVersion(version):
 		return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, codec)
 	default:
-		if journalrecord.SupportsNativeVersion(version) {
-			return journalrecord.DecodeNativeSnapshot(ctx, snapshot, path, codec)
-		}
 		return journalrecord.Loaded{}, journalrecord.UnsupportedVersion(version)
 	}
 }

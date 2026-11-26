@@ -6,9 +6,19 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
+
+// IsInstalledContentSubject identifies copied artifacts whose permissions are
+// chosen on creation rather than reconciled against the installed path.
+func IsInstalledContentSubject(subject topology.SubjectID) bool {
+	id, ok := topologyprojection.EntityID(subject)
+	return ok && (id.Kind() == entity.KindInstructions || id.Kind() == entity.KindSkill || id.Kind() == entity.KindHookAsset)
+}
 
 // PathPermissionPolicy identifies which regular-file permission facts are
 // semantic for convergence. Directory and link projections use none.
@@ -56,19 +66,6 @@ func (mode ExactPathPermissionMode) Equal(other ExactPathPermissionMode) bool {
 
 func (mode ExactPathPermissionMode) isZero() bool {
 	return mode == (ExactPathPermissionMode{})
-}
-
-// AcceptsMode reports whether observed permission bits satisfy the policy
-// after content identity has already proved the executable class.
-func (policy PathPermissionPolicy) AcceptsMode(expected os.FileMode, observed os.FileMode) bool {
-	switch policy {
-	case PathPermissionsNone, PathPermissionsExecutableClass:
-		return true
-	case PathPermissionsExact:
-		return expected.Perm() == observed.Perm()
-	default:
-		return false
-	}
 }
 
 // ManagedPathProjectionInput carries one concrete managed path realization.

@@ -51,7 +51,7 @@ func TestPublicationClassificationCoversWholeSetWithoutStaticCount(t *testing.T)
 	}
 }
 
-func TestPublicationClassificationDistinguishesAbsenceEmptyAndMode(t *testing.T) {
+func TestPublicationClassificationDistinguishesAbsenceFromReadOnlyEmptyFile(t *testing.T) {
 	path := filepath.Join(mustCanonicalStateDir(t, t.TempDir()), "state.json")
 	absent := AbsentPublicationImage()
 	writeFixture(t, path, "", 0o600)
@@ -89,8 +89,8 @@ func TestPublicationClassificationDistinguishesAbsenceEmptyAndMode(t *testing.T)
 		t.Fatal(err)
 	}
 	got, err = classifyPublicationTargets(t.Context(), intent)
-	if err != nil || got.cleanAfter || got.recoverable {
-		t.Fatal("changed image permissions were accepted", got, err)
+	if err != nil || !got.cleanAfter || !got.recoverable {
+		t.Fatal("permission change obscured the complete After set", got, err)
 	}
 }
 

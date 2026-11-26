@@ -425,7 +425,7 @@ func advanceRetirementRecord(
 		ctx,
 		capability,
 		content,
-		retirement.RecordMode,
+		mutationfs.KeepFilePermissions,
 		identity,
 	)
 	if err != nil {

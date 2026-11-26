@@ -424,6 +424,10 @@ func TestApplyWithOptionsRefusesRollbackOverTouchedPathDrift(t *testing.T) {
 		executionevent.RollbackRestoreFailed,
 	})
 	assertNoEventKind(t, events, executionevent.JournalCleaned)
+	blocked := events[len(events)-1].Err
+	if blocked == nil || !errors.Is(applyprogram.FailedRollbackCause(err), blocked) || errors.Is(err, blocked) {
+		t.Fatalf("guarded rollback refusal was not reported separately from the apply failure: %v", err)
+	}
 	entries, readDirErr := os.ReadDir(fixture.paths.RecoveryDir)
 	if readDirErr != nil || len(entries) != 1 {
 		t.Fatalf("recovery entries = %#v, error = %v, want retained journal", entries, readDirErr)
@@ -513,7 +517,7 @@ func TestApplyWithOptionsCancellationAfterSuccessfulEffectUsesGuardedRollback(t 
 	assertNoActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
 }
 
-func TestApplyWithOptionsRefusesRollbackOverTouchedModeDrift(t *testing.T) {
+func TestApplyRollsBackCreatedFileAfterChmod(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	first := fixture.createAction("first", "FIRST.md", "first\n")
 	second := fixture.createAction("second", "SECOND.md", "second\n")
@@ -528,17 +532,11 @@ func TestApplyWithOptionsRefusesRollbackOverTouchedModeDrift(t *testing.T) {
 			}
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "guarded rollback is blocked by current evidence") {
-		t.Fatalf("error = %v, want mode-drift rollback refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
+		t.Fatalf("expected rollback after payload mismatch: %v", err)
 	}
-	info, statErr := os.Stat(fixture.hostPath("FIRST.md"))
-	if statErr != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("touched mode = %v, error = %v, want external 0640 preserved", info, statErr)
-	}
-	entries, readDirErr := os.ReadDir(fixture.paths.RecoveryDir)
-	if readDirErr != nil || len(entries) != 1 {
-		t.Fatalf("recovery entries = %#v, error = %v, want retained journal", entries, readDirErr)
-	}
+	assertHostMissing(t, fixture.hostPath("FIRST.md"))
+	assertNoActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
 }
 
 func TestApplyWithOptionsJournalCleanupFailureDoesNotRollbackAfterStatefileWrite(t *testing.T) {

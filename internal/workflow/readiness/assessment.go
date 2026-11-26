@@ -225,6 +225,7 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
+	managedInputs.withLegacyTreeEvidence(locked, supplyObservations)
 	managedEvidence, err := observeManagedPaths(ctx, resolver, managedInputs.requests, native...)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe managed paths: %w", err)

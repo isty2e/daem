@@ -20,6 +20,19 @@ func HashDirectory(t *testing.T, path string) string {
 	return HashPathKind(t, path, artifact.ArtifactKindDirectory)
 }
 
+func InstalledHash(t *testing.T, path string) string {
+	t.Helper()
+	view, err := access.OpenView(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashes, err := view.PathHashes(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(hashes.Installed)
+}
+
 func HashPathKind(t *testing.T, path string, wantKind artifact.ArtifactKind) string {
 	t.Helper()
 

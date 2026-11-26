@@ -82,7 +82,7 @@ func AssessNativeRelease(ctx context.Context, source journalinventory.ActiveJour
 	}
 	entries := snapshot.Entries()
 	if !source.PhysicalAuthority().Matches(snapshot.RootIdentity()) || snapshot.RootMode() != retirement.DirectoryMode || !snapshot.RootOwnedByInvoker() ||
-		len(entries) != 1 || entries[0].Name() != journalrecord.FileName || entries[0].Kind() != mutationfs.EntryKindFile || entries[0].Mode() != journalrecord.Mode || !entries[0].OwnedByInvoker() {
+		len(entries) != 1 || entries[0].Name() != journalrecord.FileName || entries[0].Kind() != mutationfs.EntryKindFile || !entries[0].OwnedByInvoker() {
 		return NativeReleaseAssessment{}, fmt.Errorf("native release journal-only evidence changed")
 	}
 	current, err := options.State(ctx)

@@ -115,7 +115,7 @@ func TestCompilerKeepsLocatedBytesAndRecognizesNoop(t *testing.T) {
 	fixture.assertUnchanged(t)
 }
 
-func TestCompilerRejectsOtherOwnerPermissionsBeforeProducingAPlan(t *testing.T) {
+func TestCompilerIncludesReadableParticipantWithDifferentPermissions(t *testing.T) {
 	fixture := compilerFixture(t, 2)
 	if err := os.Chmod(fixture.states[1], 0o640); err != nil {
 		t.Fatal(err)
@@ -125,8 +125,8 @@ func TestCompilerRejectsOtherOwnerPermissionsBeforeProducingAPlan(t *testing.T) 
 		t.Fatal(err)
 	}
 	plan, err := compilePlan(t.Context(), compilerInput{Paths: fixture.paths, PhysicalWorkBudget: budget}, liveSources(budget), nil)
-	if err == nil || plan.Changed() || len(plan.materialize) != 0 {
-		t.Fatal("foreign owner failure admitted a partial conversion", err)
+	if err != nil || !plan.Changed() || plan.materialize[fixture.states[1]] == nil {
+		t.Fatal("conversion omitted a readable participant", err)
 	}
 	fixture.assertUnchanged(t)
 }
@@ -153,7 +153,7 @@ func TestLiveSourceDoesNotProveAbsenceThroughAncestorAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry, err := liveSources(budget)(t.Context(), filepath.Join(parent, "state.json"), stateSource)
+	entry, err := liveSources(budget)(t.Context(), filepath.Join(parent, "state.json"))
 	if err == nil || entry.image.Validate() == nil {
 		t.Fatal("ancestor alias was admitted as proven absence", err)
 	}

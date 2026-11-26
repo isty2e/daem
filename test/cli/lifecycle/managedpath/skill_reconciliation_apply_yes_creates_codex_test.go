@@ -59,7 +59,7 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, filepath.Join(tempDir, "skills/oracle")))
 	testkit.AssertNoRecoveryArtifacts(t, tempDir)
 }
 
@@ -295,7 +295,7 @@ scope = "global"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "global", "~/.agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "global", "~/.agents/skills/oracle", testkit.InstalledHash(t, sourcePath))
 }
 
 func TestRunApplyYesCreatesOpenCodeProjectSkillDirectoryAndStatefileRecord(t *testing.T) {
@@ -335,5 +335,5 @@ targets = ["opencode"]
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".opencode/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".opencode/skills/oracle", testkit.InstalledHash(t, filepath.Join(tempDir, "skills/oracle")))
 }

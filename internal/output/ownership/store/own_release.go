@@ -76,12 +76,7 @@ func (store Store) ConvergeOwnReleaseAfterCommit(ctx context.Context, release ow
 			}
 		}
 	}
-	var request storagecommit.FileCommit
-	if capability != nil {
-		request, err = storagecommit.NewRootedFileReplacement(capability, content, 0o600, expectedEntry)
-	} else {
-		request, err = storagecommit.NewFileReplacement(store.path, content, 0o600, expectedEntry)
-	}
+	request, err := store.publication(capability, content, expectedEntry, true)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("prepare own metadata release: %w", err)
 	}

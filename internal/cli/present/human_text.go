@@ -90,13 +90,17 @@ func Quote(value string) string {
 }
 
 func humanErrorDetail(value string) string {
+	return boundedHumanDetail(value, Escape)
+}
+
+func boundedHumanDetail(value string, render func(string) string) string {
 	maximumRawBytes := maximumHumanErrorDetailRunes * utf8.UTFMax
 	if len(value) > maximumRawBytes {
 		return errorEvidenceRedactionMarker + errorEvidenceTruncationMarker
 	}
 
 	return subprocess.NewCapturePolicy(nil, maximumHumanErrorDetailRunes).
-		Sanitize(Escape(value), false).Text()
+		Sanitize(render(value), false).Text()
 }
 
 // BoundedErrorEvidence projects a bounded error cause tree into sanitized,

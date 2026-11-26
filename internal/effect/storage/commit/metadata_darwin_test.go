@@ -104,7 +104,7 @@ func TestDarwinFileMetadataDoesNotCopyOrRequireOpaqueAttributes(t *testing.T) {
 	old := preservedMetadata{xattrs: map[string][]byte{
 		"com.daem.test":             []byte("previous-inode"),
 		"com.daem.only-on-previous": []byte("not-required"),
-	}, replacement: true}
+	}, existingPath: path}
 	if err := verifyPreservedMetadata(int(file.Fd()), old); err != nil {
 		t.Fatal("old opaque attributes became a verification requirement", err)
 	}
@@ -136,7 +136,7 @@ func TestCommitFileRejectsACLsAndFlags(t *testing.T) {
 		{
 			name: "file flag",
 			prepare: func(t *testing.T, path string) {
-				if err := unix.Chflags(path, unix.UF_NODUMP); err != nil {
+				if err := unix.Chflags(path, unix.UF_IMMUTABLE); err != nil {
 					t.Fatalf("Chflags returned error: %v", err)
 				}
 			},
@@ -254,75 +254,42 @@ func TestPrepareRootedTreeRejectsInheritedACL(t *testing.T) {
 	}
 }
 
-func TestPrepareRootedTreeRejectsDescendantFileFlag(t *testing.T) {
+func TestPreparedTreeAdmitsBackupExclusion(t *testing.T) {
 	root := canonicalTempDir(t)
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, "published")
-	var entry string
 	prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
 		if err := writer.WriteFile(treePathForTest(t, "entry"), 0o600, strings.NewReader("planned")); err != nil {
 			return err
 		}
 		concrete := writer.(*rootedTreeWriterUnix)
-		entry = filepath.Join(concrete.prepared.stagePath, "entry")
-		return unix.Chflags(entry, unix.UF_NODUMP)
+		return unix.Chflags(filepath.Join(concrete.prepared.stagePath, "entry"), unix.UF_NODUMP)
 	})
-	if entry != "" {
-		defer unix.Chflags(entry, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if prepared != nil {
-		t.Fatal("PrepareRootedTree returned a stage with file flags")
+	if err := prepared.Commit(t.Context()); err != nil {
+		t.Fatal(err)
 	}
-	assertFailure(t, err, failureUnsupportedGuarantee, phaseValidate)
-	assertClosedRootedCapability(t, capability)
-	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
-		t.Fatalf("flag-bearing tree was published: %v", statErr)
-	}
+	assertFile(t, filepath.Join(root, "published", "entry"), "planned", 0o600)
 }
 
-func TestPrepareRootedTreeRejectsDarwinProvenanceXattrDrift(t *testing.T) {
-	root := canonicalTempDir(t)
-	captured := captureRootForCommitTest(t, root)
-	capability := rootedCapabilityForCommitTest(t, captured, "published")
-	provenanceChanged := false
-	prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		if err := writer.WriteFile(treePathForTest(t, "entry"), 0o600, strings.NewReader("planned")); err != nil {
-			return err
-		}
-		concrete := writer.(*rootedTreeWriterUnix)
-		entry := filepath.Join(concrete.prepared.stagePath, "entry")
-		if err := unix.Setxattr(entry, "com.apple.provenance", []byte("unrepresented"), 0); err != nil {
-			if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EOPNOTSUPP) {
-				t.Skipf("extended attributes unavailable: %v", err)
-			}
-			return err
-		}
-		size, err := unix.Getxattr(entry, "com.apple.provenance", nil)
-		if err != nil {
-			return err
-		}
-		value := make([]byte, size)
-		if _, err := unix.Getxattr(entry, "com.apple.provenance", value); err != nil {
-			return err
-		}
-		provenanceChanged = string(value) == "unrepresented"
-		return nil
-	})
-	if !provenanceChanged {
-		if prepared == nil {
-			t.Fatalf("PrepareRootedTree failed before provenance mutability could be determined: %v", err)
-		}
-		if abortErr := prepared.Abort(t.Context()); abortErr != nil {
-			t.Fatalf("abort prepared tree after immutable provenance probe: %v", abortErr)
-		}
-		t.Skip("macOS retained its kernel-owned provenance value")
+func TestDarwinFileReplacementPreservesBackupExclusion(t *testing.T) {
+	path := filepath.Join(canonicalTempDir(t), "config")
+	writeTestFile(t, path, "before", 0o600)
+	if err := unix.Chflags(path, unix.UF_NODUMP); err != nil {
+		t.Fatal(err)
 	}
-	if prepared != nil {
-		t.Fatal("PrepareRootedTree returned a stage after provenance metadata drift")
+	request, err := NewFileReplacement(path, []byte("after"), 0o600, captureIdentity(t, path))
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertFailure(t, err, failureUncommitted, phaseValidate)
-	assertClosedRootedCapability(t, capability)
-	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
-		t.Fatalf("provenance-bearing tree was published: %v", statErr)
+	if err := CommitFile(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, path, "after", 0o600)
+	var stat unix.Stat_t
+	if err := unix.Stat(path, &stat); err != nil || stat.Flags&unix.UF_NODUMP == 0 {
+		t.Fatalf("backup-exclusion flag was lost: flags=%x err=%v", stat.Flags, err)
 	}
 }

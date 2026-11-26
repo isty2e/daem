@@ -230,13 +230,15 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		if err != nil {
 			return Assessment{}, fmt.Errorf("observe native document[%d]: %w", index, err)
 		}
+		stage := DocumentAssessment{current: current, mode: mode, identity: identity}
 		recordIndex, _ := qualified.RecordIndex(index)
 		if demand.afterOnly && slices.Contains(demand.retired, recordIndex) {
 			expected, err := afterIndexes.After().MatchCommittedAfter(ctx, group, current, mode, options.Documents.Codecs)
 			if err != nil {
 				return Assessment{}, err
 			}
-			stages = append(stages, DocumentAssessment{current: current, mode: mode, identity: identity, expected: expected})
+			stage.expected = expected
+			stages = append(stages, stage)
 			allBefore, allExpected = false, allExpected && expected
 			continue
 		}
@@ -249,14 +251,7 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		}
 		var restoration journaldocument.Restoration
 		if _, narrowing := narrowed[recordIndex]; before && narrowing && current.Equal(group.Comparison().ExpectedDocument()) {
-			root, rootErr := recovery.NewPartialDocumentState(current.Exists(), mode, nil)
-			if rootErr != nil {
-				return Assessment{}, rootErr
-			}
-			if !root.SameRootMetadata(group.Comparison().BeforeState()) && !root.SameRootMetadata(group.Comparison().ExpectedState()) {
-				return Assessment{}, fmt.Errorf("narrowed document root is outside the recorded metadata envelope")
-			}
-			restoration, err = journaldocument.NewRestoration(current, mode, group.Comparison().BeforeDocument(), group.Comparison().BeforeMode())
+			restoration, err = group.Comparison().RestoreOriginal(current, mode)
 		} else {
 			restoration, err = group.Comparison().RestoreBefore(ctx, current, mode)
 		}
@@ -268,7 +263,8 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		}
 		allBefore = allBefore && !restoration.Changed()
 		allExpected = allExpected && match.MatchesExpected()
-		stages = append(stages, DocumentAssessment{current: current, mode: mode, identity: identity, restoration: restoration, expected: match.MatchesExpected()})
+		stage.restoration, stage.expected = restoration, match.MatchesExpected()
+		stages = append(stages, stage)
 	}
 
 	result := Assessment{

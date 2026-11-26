@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -39,13 +40,14 @@ type recoveryStateAuthority struct {
 }
 
 type Native struct {
-	record    nativeRuntimeRecord
-	legacy    *native16Envelope
-	current   *native17Envelope
-	namespace nativeNamespaceFacts
-	owner     stateauthority.Authority
-	before    durable.Snapshot
-	after     durable.Snapshot
+	treeBaseline recovery.TreeBaseline
+	record       nativeRuntimeRecord
+	legacy       *native16Envelope
+	current      *native17Envelope
+	namespace    nativeNamespaceFacts
+	owner        stateauthority.Authority
+	before       durable.Snapshot
+	after        durable.Snapshot
 }
 
 func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durable.SnapshotCodec) (Native, error) {
@@ -62,7 +64,7 @@ func decodeNativeJournalRecord(ctx context.Context, content []byte, codec durabl
 	if err != nil {
 		return Native{}, err
 	}
-	if version == native17Version {
+	if boundNativeHostVersion(version) {
 		return decodeNative17(ctx, content, codec)
 	}
 	if version != native16Version {
@@ -108,6 +110,9 @@ func (record nativeJournalRecord) reconstructSnapshots(ctx context.Context, code
 	after, err := codec.Decode(record.StatefileAfter)
 	if err != nil {
 		return Native{}, fmt.Errorf("native journal after Snapshot: %w", err)
+	}
+	if err := validateInstalledEvidenceVersion(record.Version, before, after, record.Entries); err != nil {
+		return Native{}, err
 	}
 	if _, _, err := EncodeSnapshots(before, after, codec); err != nil {
 		return Native{}, err

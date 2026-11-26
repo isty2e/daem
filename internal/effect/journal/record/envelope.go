@@ -16,10 +16,25 @@ const (
 	OrdinaryVersion = 15
 	native16Version = 16
 	NativeVersion   = native17Version
+	// Earlier readers cannot execute the absent-root probe when undoing an
+	// ordinary projection that deleted its physical document.
+	ordinaryRootRestoreVersion = 18
+	nativeRootRestoreVersion   = 19
+	ordinaryInstalledVersion   = 20
+	nativeInstalledVersion     = 21
+	nativeWholeModeVersion     = 22
 )
 
+func SupportsOrdinaryVersion(version int) bool {
+	return version == OrdinaryVersion || version == ordinaryRootRestoreVersion || version == ordinaryInstalledVersion
+}
+
 func SupportsNativeVersion(version int) bool {
-	return version == native16Version || version == native17Version
+	return version == native16Version || boundNativeHostVersion(version)
+}
+
+func boundNativeHostVersion(version int) bool {
+	return version == native17Version || version == nativeRootRestoreVersion || version == nativeInstalledVersion || version == nativeWholeModeVersion
 }
 
 // Fingerprint identifies exact serialized bytes, not validation or host authority.

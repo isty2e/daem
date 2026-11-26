@@ -17,6 +17,7 @@ func RestorationActionsFor(actions []recovery.Action) ([]RestorationAction, erro
 				Kind: action.Kind, Scope: action.Scope, Destination: action.Destination,
 				ContentPath: action.ContentPath, BackupPath: action.BackupPath,
 				BackupHash: action.BackupHash, BackupKind: action.BackupKind, BackupWork: action.BackupWork,
+				TreeModes:      action.TreeModes,
 				BeforePathMode: action.BeforePathMode, BeforePathExisted: action.BeforePathExisted,
 				BeforeParentExisted: action.BeforeParentExisted, ExpectedAfter: action.ExpectedRestorationInput(),
 				AggregateContract: action.AggregateContract,

@@ -174,7 +174,7 @@ func pathMutationFromAggregate(mutation ManagedAggregateMutation) (pathMutation,
 	expectedDocument := mutation.expected.Document()
 	expectedPathMode := os.FileMode(0)
 	if expectedDocument.Exists() {
-		expectedPathMode = aggregate.DocumentFileMode
+		expectedPathMode = mutation.before.ModeForWrite(mutation.fileMode)
 	}
 	result := pathMutation{
 		Kind: CaptureKind(mutation.kind), Subject: mutation.subject,
@@ -186,7 +186,7 @@ func pathMutationFromAggregate(mutation ManagedAggregateMutation) (pathMutation,
 		ExpectedPathExists: expectedDocument.Exists(), ExpectedPathMode: expectedPathMode,
 		LivePathExists: mutation.before.Exists(), LivePathHash: documentHash(mutation.before, mutation.fileMode),
 		LivePathMode:      mutation.fileMode,
-		ExpectedPathHash:  documentHash(expectedDocument, aggregate.DocumentFileMode),
+		ExpectedPathHash:  documentHash(expectedDocument, expectedPathMode),
 		AggregateContract: pointerToAggregateContract(mutation.contract),
 		StateIndependent:  true,
 	}

@@ -240,26 +240,25 @@ func captureRootedExistingWithCapability(
 		if err != nil {
 			return recovery.BeforePathState{}, backupIndex, err
 		}
-		capturedHash := artifact.HashFileContentWithExecutable(
-			content,
-			mode.Perm()&0o111 != 0,
-		)
-
-		if capturedHash != action.LivePathHash() {
+		if !action.LivePathHash().MatchesFile(content) {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
-				"captured rooted path %q hash %q does not match live observation %q",
+				"captured rooted path %q does not match live observation %q",
 				action.Destination(),
-				capturedHash,
 				action.LivePathHash(),
 			)
 		}
-		if err := work.writeFile(absoluteBackupPath, content, mode); err != nil {
+		backupMode := mode
+		if action.LivePathHash().IsInstalled() {
+			backupMode = 0o600
+		}
+		if err := work.writeFile(absoluteBackupPath, content, backupMode); err != nil {
 			return recovery.BeforePathState{}, backupIndex, err
 		}
 		before.PathMode = recovery.NewPermissionMode(mode)
 		before.Kind = recovery.PathKindFile
 	case mutationfs.EntryKindDirectory:
 		sink := newRootedTreeBackupSink(ctx, absoluteBackupPath, work)
+		sink.private = action.LivePathHash().IsInstalled()
 		if _, err := filesystem.SnapshotRootedDirectory(
 			ctx,
 			capability,
@@ -269,6 +268,11 @@ func captureRootedExistingWithCapability(
 			return recovery.BeforePathState{}, backupIndex, err
 		}
 		capturedHash, err := sink.hash()
+		if err == nil && action.LivePathHash().IsInstalled() {
+			var hashes artifact.PathHashes
+			hashes, err = sink.hasher.Hashes()
+			capturedHash = hashes.Installed
+		}
 		if err != nil {
 			return recovery.BeforePathState{}, backupIndex, err
 		}
@@ -281,6 +285,9 @@ func captureRootedExistingWithCapability(
 			)
 		}
 		before.Kind = recovery.PathKindDirectory
+		if sink.private {
+			before.TreeModes = recovery.PackTreeModes(sink.modes)
+		}
 	default:
 		return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
 			"rooted destination %q has unsupported entry kind %q",

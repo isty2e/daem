@@ -469,14 +469,18 @@ func TestFinalizeJournalCleanupAdmitsInterruptedRecordTemporary(t *testing.T) {
 	identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-record-temporary")
 	writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
 	renameInventoryJournalToResidue(t, result, identity)
-	temporaryPath := filepath.Join(
-		recoveryRoot,
-		identity.ControlName(),
-		".daem-tmp-interrupted",
-	)
+	control := filepath.Join(recoveryRoot, identity.ControlName())
+	temporaryPath := filepath.Join(control, ".daem-tmp-interrupted")
 	if err := os.WriteFile(temporaryPath, []byte("partial\n"), retirement.RecordMode); err != nil {
 		t.Fatal(err)
 	}
+	// The replacement can be interrupted after staging the current record's mode.
+	for _, path := range []string{filepath.Join(control, retirement.RecordFileName), temporaryPath} {
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)

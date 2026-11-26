@@ -49,12 +49,12 @@ func (batch Batch) ApprovalEvidence() ([]ApprovalEvidence, error) {
 		original := batch.originals[index]
 		protection := "absent"
 		if original.document.Exists() {
-			identity, supported := original.identity.(interface{ ProtectionFingerprint() (string, error) })
+			identity, supported := original.identity.(interface{ OwnershipFingerprint() (string, error) })
 			if !supported {
 				return nil, fmt.Errorf("selected filesystem cannot project file protection for replacement approval")
 			}
 			var err error
-			protection, err = identity.ProtectionFingerprint()
+			protection, err = identity.OwnershipFingerprint()
 			if err != nil {
 				return nil, err
 			}

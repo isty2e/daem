@@ -96,7 +96,7 @@ func validateOrdinaryCaptureBackups(ctx context.Context, directory string, view 
 		if err := errors.Join(observeErr, capability.Close()); err != nil {
 			return err
 		}
-		if !observed.Exists || observed.Error != "" || !before.Matches(observed.Kind, observed.ContentHash) {
+		if !observed.Exists || observed.Error != "" || !before.MatchesObservation(observed) {
 			return fmt.Errorf("ordinary backup source does not match the captured before-state")
 		}
 	}

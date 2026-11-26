@@ -36,6 +36,7 @@ type managedPathEffectFacts struct {
 	destination      output.Destination
 	desiredHash      artifact.ContentHash
 	liveHash         artifact.ContentHash
+	previousLiveHash artifact.ContentHash
 	contentKind      realization.PathProjectionContentKind
 	permissionPolicy realization.PathPermissionPolicy
 	desiredFileMode  os.FileMode
@@ -102,6 +103,7 @@ func ManagedPathEffects(decisions []reconcile.ManagedPathDecision) ([]ManagedPat
 			destination:      decision.Destination(),
 			desiredHash:      decision.DesiredHash(),
 			liveHash:         decision.LiveHash(),
+			previousLiveHash: decision.PreviousLiveHash(),
 			contentKind:      decision.ContentKind(),
 			permissionPolicy: decision.PermissionPolicy(),
 			desiredFileMode:  decision.DesiredFileMode(),
@@ -196,14 +198,11 @@ func (effect ManagedPathEffect) Validate() error {
 		if facts.liveHash == "" {
 			return fmt.Errorf("remove effect requires previous managed state and fresh live hash")
 		}
-		if err := facts.liveHash.Validate(); err != nil {
+		if err := facts.liveHash.ValidateManaged(); err != nil {
 			return fmt.Errorf("remove effect live hash: %w", err)
 		}
-		if facts.liveHash != facts.previous.ContentHash() {
+		if facts.liveHash != facts.previousLiveHash {
 			return fmt.Errorf("remove effect live hash does not match previous managed state")
-		}
-		if !facts.previous.PermissionPolicy().AcceptsMode(facts.previous.FileMode(), facts.liveFileMode) {
-			return fmt.Errorf("remove effect live mode does not match previous managed state")
 		}
 		return nil
 	}
@@ -230,7 +229,7 @@ func (effect ManagedPathEffect) Validate() error {
 		}
 		previous = consumer
 	}
-	if err := facts.desiredHash.Validate(); err != nil {
+	if err := facts.desiredHash.ValidateManaged(); err != nil {
 		return fmt.Errorf("desired hash: %w", err)
 	}
 	if effect.Kind() == ManagedPathEffectReplace {
@@ -238,7 +237,7 @@ func (effect ManagedPathEffect) Validate() error {
 			return fmt.Errorf("replace effect requires previous managed state")
 		}
 		if facts.liveHash != "" {
-			if err := facts.liveHash.Validate(); err != nil {
+			if err := facts.liveHash.ValidateManaged(); err != nil {
 				return fmt.Errorf("replace effect live hash: %w", err)
 			}
 		} else if facts.previous.Scope() == facts.scope && facts.previous.Destination() == facts.destination {
@@ -255,14 +254,11 @@ func (effect ManagedPathEffect) Validate() error {
 		if facts.liveHash == "" {
 			return fmt.Errorf("record effect requires fresh live hash")
 		}
-		if err := facts.liveHash.Validate(); err != nil {
+		if err := facts.liveHash.ValidateManaged(); err != nil {
 			return fmt.Errorf("record effect live hash: %w", err)
 		}
 		if facts.liveHash != facts.desiredHash {
 			return fmt.Errorf("record effect live hash does not match desired hash")
-		}
-		if !facts.permissionPolicy.AcceptsMode(facts.desiredFileMode, facts.liveFileMode) {
-			return fmt.Errorf("record effect live mode does not satisfy desired permission policy")
 		}
 	}
 	return nil
@@ -321,6 +317,10 @@ func (effect ManagedPathEffect) DesiredHash() artifact.ContentHash { return effe
 
 func (effect ManagedPathEffect) LiveHash() artifact.ContentHash { return effect.facts().liveHash }
 
+func (effect ManagedPathEffect) PreviousLiveHash() artifact.ContentHash {
+	return effect.facts().previousLiveHash
+}
+
 func (effect ManagedPathEffect) ContentKind() realization.PathProjectionContentKind {
 	return effect.facts().contentKind
 }
@@ -337,14 +337,10 @@ func (effect ManagedPathEffect) LiveFileMode() os.FileMode {
 	return effect.facts().liveFileMode
 }
 
-// StateFileMode returns the exact permission baseline that durable state must
-// retain, or zero when executable class is the complete permission contract.
+// StateFileMode retains the declared creation mode for exact-policy records.
 func (effect ManagedPathEffect) StateFileMode() os.FileMode {
 	if effect.PermissionPolicy() != realization.PathPermissionsExact {
 		return 0
-	}
-	if effect.Kind() == ManagedPathEffectRecord {
-		return effect.LiveFileMode().Perm()
 	}
 	return effect.DesiredFileMode().Perm()
 }
@@ -386,16 +382,20 @@ func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journalrecord.M
 				if createErr != nil {
 					return nil, fmt.Errorf("managed path effect[%d] relocation creation: %w", index, createErr)
 				}
-				remove, removeErr := journalrecord.NewManagedPathRemoveMutation(previous, previous.ContentHash())
+				remove, removeErr := journalrecord.NewManagedPathRemoveMutation(previous, effect.PreviousLiveHash())
 				if removeErr != nil {
 					return nil, fmt.Errorf("managed path effect[%d] relocation removal: %w", index, removeErr)
 				}
 				mutations = append(mutations, create, remove)
 				continue
 			}
+			expectedMode := effect.DesiredFileMode()
+			if effect.ContentKind() == realization.PathProjectionFile && effect.DesiredHash().IsInstalled() {
+				expectedMode = effect.LiveFileMode()
+			}
 			mutation, err = journalrecord.NewManagedPathReplaceMutation(
 				effect.Subject(), effect.ConsumerTargets(), effect.Scope(), effect.Destination(),
-				effect.DesiredHash(), effect.LiveHash(), effect.ContentKind(), effect.DesiredFileMode(), previous,
+				effect.DesiredHash(), effect.LiveHash(), effect.ContentKind(), expectedMode, previous,
 			)
 		case ManagedPathEffectRemove:
 			if !hasPrevious {
@@ -404,7 +404,7 @@ func ManagedPathJournalMutations(effects []ManagedPathEffect) ([]journalrecord.M
 			mutation, err = journalrecord.NewManagedPathRemoveMutation(previous, effect.LiveHash())
 		case ManagedPathEffectRecord:
 			expectedMode := effect.DesiredFileMode()
-			if effect.ContentKind() == realization.PathProjectionFile {
+			if effect.ContentKind() == realization.PathProjectionFile && !aggregate.IsAgentConfigDocumentSubject(effect.Subject()) {
 				expectedMode = effect.LiveFileMode()
 			}
 			mutation, err = journalrecord.NewManagedPathRecordMutation(

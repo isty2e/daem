@@ -42,23 +42,23 @@ func (filesystem journalPublishFailingFilesystem) PrepareRootedTree(
 		return nil, err
 	}
 	return &journalPublishFailingPreparedTree{
-		prepared: prepared,
-		failure:  filesystem.failure,
+		PreparedRootedTree: prepared,
+		failure:            filesystem.failure,
 	}, nil
 }
 
 type journalPublishFailingPreparedTree struct {
-	prepared mutationfs.PreparedRootedTree
-	failure  error
+	mutationfs.PreparedRootedTree
+	failure error
 }
 
 func (prepared *journalPublishFailingPreparedTree) Commit(ctx context.Context) error {
 	kind, _ := mutationfs.FailureKindOf(prepared.failure)
 	if kind == mutationfs.FailureIndeterminateCommit {
-		if err := prepared.prepared.Commit(ctx); err != nil {
+		if err := prepared.PreparedRootedTree.Commit(ctx); err != nil {
 			return err
 		}
-	} else if err := prepared.prepared.Abort(ctx); err != nil {
+	} else if err := prepared.PreparedRootedTree.Abort(ctx); err != nil {
 		return err
 	}
 	return prepared.failure
@@ -79,10 +79,6 @@ func (prepared *journalPublishFailingPreparedTree) CommitWithOutcome(
 		panic(outcomeErr)
 	}
 	return outcome, err
-}
-
-func (prepared *journalPublishFailingPreparedTree) Abort(ctx context.Context) error {
-	return prepared.prepared.Abort(ctx)
 }
 
 func TestCaptureJournalLeavesPrivateResidueUntouchedWhenActiveEvidenceBlocksCapture(

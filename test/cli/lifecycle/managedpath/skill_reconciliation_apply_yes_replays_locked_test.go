@@ -79,7 +79,7 @@ compat_repair = true
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "ast-grep", "opencode", "project", ".opencode/skills/ast-grep", sourceHash)
+	testkit.AssertSkillPathState(t, state, "ast-grep", "opencode", "project", ".opencode/skills/ast-grep", testkit.InstalledHash(t, filepath.Join(tempDir, ".opencode/skills/ast-grep")))
 
 	stdout.Reset()
 	stderr.Reset()
@@ -138,7 +138,7 @@ compat_repair = true
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".opencode/skills/oracle", repairedHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".opencode/skills/oracle", testkit.InstalledHash(t, filepath.Join(tempDir, ".opencode/skills/oracle")))
 
 	stdout.Reset()
 	stderr.Reset()
@@ -484,5 +484,5 @@ scope = "global"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "pi", "global", "~/.pi/agent/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "pi", "global", "~/.pi/agent/skills/oracle", testkit.InstalledHash(t, sourcePath))
 }

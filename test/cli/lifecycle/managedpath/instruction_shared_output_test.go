@@ -133,7 +133,7 @@ func TestRunApplyWritesOneSharedInstructionOutputForOpenCodePiAntigravity(t *tes
 	testkit.AssertManagedPathState(
 		t, state, entity.KindInstructions, "project",
 		[]string{"antigravity-cli", "opencode", "pi"},
-		"project", "AGENTS.md", fixture.contentHash, "file",
+		"project", "AGENTS.md", testkit.InstalledHash(t, filepath.Join(fixture.root, "AGENTS.md")), "file",
 	)
 }
 
@@ -271,9 +271,10 @@ scope = "global"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResourceNamed(t, state, "global", "opencode", "global", "~/.config/opencode/AGENTS.md", contentHash)
-	testkit.AssertStateResourceNamed(t, state, "global", "pi", "global", "~/.pi/agent/AGENTS.md", contentHash)
-	testkit.AssertStateResourceNamed(t, state, "global", "antigravity-cli", "global", "~/.gemini/GEMINI.md", contentHash)
+	installed := testkit.InstalledHash(t, globalSourcePath)
+	testkit.AssertStateResourceNamed(t, state, "global", "opencode", "global", "~/.config/opencode/AGENTS.md", installed)
+	testkit.AssertStateResourceNamed(t, state, "global", "pi", "global", "~/.pi/agent/AGENTS.md", installed)
+	testkit.AssertStateResourceNamed(t, state, "global", "antigravity-cli", "global", "~/.gemini/GEMINI.md", installed)
 }
 
 func TestRunApplyRejectsAntigravitySymlinkInstructionModeBeforeMutation(t *testing.T) {

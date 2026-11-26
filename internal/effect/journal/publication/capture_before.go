@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +112,7 @@ func captureRecoveryBeforePath(
 			)
 		}
 		return captureExistingRecoveryBeforePath(
-			ctx, filesystem, operationDir, backupIndex, action, resolver,
+			ctx, filesystem, operationDir, backupIndex, action, resolver, work,
 		)
 	}
 	if !action.LiveExists() {
@@ -152,7 +151,7 @@ func captureRecoveryBeforePath(
 		)
 	}
 	return captureExistingRecoveryBeforePath(
-		ctx, filesystem, operationDir, backupIndex, action, resolver,
+		ctx, filesystem, operationDir, backupIndex, action, resolver, work,
 	)
 }
 
@@ -309,128 +308,38 @@ func captureAbsentContentPathRecoveryBefore(
 
 func captureExistingRecoveryBeforePath(
 	ctx context.Context,
-	filesystem mutationfs.PathReader,
+	filesystem mutationfs.RootedReader,
 	operationDir string,
 	backupIndex int,
 	action journalrecord.CaptureMutation,
 	resolver func(destination output.Destination) (string, error),
+	work *ordinaryCaptureWork,
 ) (recovery.BeforePathState, int, error) {
 	hostPath, err := resolver(action.Destination())
 	if err != nil {
 		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("resolve destination %q: %w", action.Destination(), err)
 	}
-	info, err := os.Lstat(hostPath)
+	entry, err := mutation.CanonicalDirectoryEntryPath(hostPath)
 	if err != nil {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("stat destination %q: %w", action.Destination(), err)
+		return recovery.BeforePathState{}, backupIndex, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("recovery journal cannot capture symlink destination %q yet", action.Destination())
+	backupDir, err := mutation.CanonicalDirectoryEntryPath(operationDir)
+	if err != nil {
+		return recovery.BeforePathState{}, backupIndex, err
 	}
-	if !info.Mode().IsRegular() && !info.IsDir() {
-		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("destination %q has unsupported file mode %s", action.Destination(), info.Mode())
+	if directoryContains(entry, backupDir) {
+		return recovery.BeforePathState{}, backupIndex, fmt.Errorf("backup directory is inside source %q", action.Destination())
 	}
-
-	backupIndex++
-	backupPath := filepath.ToSlash(filepath.Join("files", fmt.Sprintf("%06d", backupIndex)))
-	absoluteBackupPath := filepath.Join(operationDir, filepath.FromSlash(backupPath))
-	pathKind := recovery.PathKindFile
-	pathMode := regularFileMode(info)
-	if info.IsDir() {
-		pathKind = recovery.PathKindDirectory
-		if err := copyDirectory(hostPath, absoluteBackupPath); err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery backup for %q: %w", action.Destination(), err)
-		}
-	} else {
-		commitPath, err := mutation.CanonicalDirectoryEntryPath(hostPath)
-		if err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
-				"canonicalize recovery backup source for %q: %w",
-				action.Destination(),
-				err,
-			)
-		}
-		snapshot, err := filesystem.ReadRegularFileSnapshotUpTo(
-			ctx,
-			commitPath,
-			recovery.MaximumRecoveryBackupFileBytes,
-		)
-		if err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("read recovery backup for %q: %w", action.Destination(), err)
-		}
-		content := snapshot.Content()
-		capturedHash := artifact.HashFileContentWithExecutable(
-			content,
-			snapshot.Mode().Perm()&0o111 != 0,
-		)
-		if capturedHash != action.LivePathHash() {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf(
-				"captured path %q hash %q does not match live observation %q",
-				action.Destination(),
-				capturedHash,
-				action.LivePathHash(),
-			)
-		}
-		if err := writeRecoveryBackupFile(absoluteBackupPath, content, snapshot.Mode()); err != nil {
-			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("copy recovery backup for %q: %w", action.Destination(), err)
-		}
-		pathMode = recovery.NewPermissionMode(snapshot.Mode())
+	root, destination, err := rootedpath.CaptureDestinationNoFollow(entry)
+	if err != nil {
+		return recovery.BeforePathState{}, backupIndex, err
 	}
-
-	return recovery.BeforePathState{
-		Existed:     true,
-		PathMode:    pathMode,
-		Kind:        pathKind,
-		ContentHash: string(action.LivePathHash()),
-		BackupPath:  backupPath,
-	}, backupIndex, nil
-}
-
-func regularFileMode(info os.FileInfo) *recovery.PermissionMode {
-	if !info.Mode().IsRegular() {
-		return nil
+	capability, err := root.Acquire(destination)
+	if err != nil {
+		return recovery.BeforePathState{}, backupIndex, errors.Join(err, root.Close())
 	}
-	return recovery.NewPermissionMode(info.Mode())
-}
-
-func copyDirectory(sourcePath string, destinationPath string) error {
-	sourceRoot := filepath.Clean(sourcePath)
-	destinationRoot := filepath.Clean(destinationPath)
-	if directoryContains(sourceRoot, destinationRoot) {
-		return fmt.Errorf("copy destination %q must not be inside source directory %q", destinationRoot, sourceRoot)
-	}
-	return filepath.WalkDir(sourceRoot, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("stat %q: %w", path, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path %q is a symlink; symlinks are not supported", path)
-		}
-
-		relativePath, err := filepath.Rel(sourceRoot, path)
-		if err != nil {
-			return fmt.Errorf("compute relative path for %q: %w", path, err)
-		}
-		destination := filepath.Join(destinationRoot, relativePath)
-		if entry.IsDir() {
-			if err := os.MkdirAll(destination, info.Mode().Perm()); err != nil {
-				return fmt.Errorf("create directory %q: %w", destination, err)
-			}
-			return nil
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("path %q has unsupported file mode %s", path, info.Mode())
-		}
-		if err := copyFilePreservingMode(path, destination, info.Mode().Perm()); err != nil {
-			return fmt.Errorf("copy file %q: %w", path, err)
-		}
-
-		return nil
-	})
+	before, next, err := captureAndCloseRootedRecoveryBefore(ctx, filesystem, operationDir, backupIndex, action, capability, work)
+	return before, next, errors.Join(err, root.Close())
 }
 
 func directoryContains(parent string, child string) bool {
@@ -439,29 +348,4 @@ func directoryContains(parent string, child string) bool {
 		return false
 	}
 	return relativePath == "." || (relativePath != ".." && !strings.HasPrefix(relativePath, ".."+string(filepath.Separator)))
-}
-
-func copyFilePreservingMode(sourcePath string, destinationPath string, fileMode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o700); err != nil {
-		return err
-	}
-	sourceFile, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destinationFile, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fileMode)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(destinationFile, sourceFile); err != nil {
-		destinationFile.Close()
-		return err
-	}
-	if err := destinationFile.Close(); err != nil {
-		return err
-	}
-
-	return nil
 }

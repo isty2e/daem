@@ -69,7 +69,7 @@ func TestNativeWholeGroupPreservesEmptyFileAndActualPermission(t *testing.T) {
 		t.Fatal(err)
 	}
 	expectedMode, present := comparison.ExpectedState().RegularFileMode()
-	if !comparison.BeforeDocument().Exists() || comparison.BeforeDocument().ContentSize() != 0 || !comparison.ExpectedDocument().Exists() || comparison.ExpectedDocument().ContentSize() != 0 || comparison.BeforeMode() == nil || *comparison.BeforeMode() != 0o644 || !present || expectedMode != 0o600 {
+	if !comparison.BeforeDocument().Exists() || comparison.BeforeDocument().ContentSize() != 0 || !comparison.ExpectedDocument().Exists() || comparison.ExpectedDocument().ContentSize() != 0 || comparison.BeforeMode() == nil || *comparison.BeforeMode() != 0o644 || !present || expectedMode != 0o644 {
 		t.Fatal("empty file or actual host permission was collapsed into absence/private witness permission")
 	}
 	fixture.stageAndReconstruct(t, group, comparison)
@@ -153,16 +153,16 @@ func TestNativeWholeGroupRejectsProvisionalClaimMisjoinsBeforeRead(t *testing.T)
 	}
 }
 
-func TestNativeWholeGroupRetainedBaselineModeMustMatch(t *testing.T) {
+func TestNativeWholeGroupCapturesLatestMode(t *testing.T) {
 	for _, action := range []string{"record", "remove"} {
 		t.Run(action, func(t *testing.T) {
 			fixture := wholeGroupFixture(t, target.TargetCodex, target.ScopeProject, action, []byte("before"), nil)
 			if err := os.Chmod(fixture.path, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			group, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
-			if err == nil || !reflect.ValueOf(group).IsZero() || comparison.Validate() == nil {
-				t.Fatalf("stale retained baseline mode escaped: %v", err)
+			_, comparison, err := prepareWholeDocumentGroup(t.Context(), fixture.namespace, fixture.input)
+			if err != nil || comparison.BeforeMode() == nil || comparison.BeforeMode().FileMode() != 0o600 {
+				t.Fatalf("did not capture the current original mode: %v", err)
 			}
 		})
 	}

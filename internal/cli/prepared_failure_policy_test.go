@@ -14,6 +14,26 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
+func TestIncompatibleBaselineTreeOptionsAreUsageErrors(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		option  string
+	}{
+		{"migrate metadata", "--recover"},
+		{"migrate metadata", "--reference elsewhere"},
+		{"recover", "--release-output-ownership"},
+	} {
+		t.Run(test.command+" "+test.option, func(t *testing.T) {
+			args := strings.Fields(test.command + " --baseline-tree missing " + test.option + " --dry-run --json")
+			var stdout, stderr bytes.Buffer
+			if code := runWithoutTerminal(args, &stdout, &stderr); code != 2 {
+				t.Fatalf("exit %d, want usage error: %s%s", code, &stdout, &stderr)
+			}
+			commonFailureDiagnosticText(t, test.command, "usage", &stdout, &stderr)
+		})
+	}
+}
+
 func TestPreparedImportKeepsCommandOwnedUsageClassification(t *testing.T) {
 	for _, relativeData := range []bool{false, true} {
 		t.Run(fmt.Sprint(relativeData), func(t *testing.T) {

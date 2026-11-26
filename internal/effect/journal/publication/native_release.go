@@ -188,7 +188,7 @@ func validateNativeReleaseDirectory(ctx context.Context, authority *rootedpath.E
 		return fmt.Errorf("native release directory identity or private ownership changed")
 	}
 	entries := snapshot.Entries()
-	if len(entries) != 1 || entries[0].Name() != journalrecord.FileName || entries[0].Mode() != journalrecord.Mode || entries[0].Kind() != mutationfs.EntryKindFile || !entries[0].OwnedByInvoker() {
+	if len(entries) != 1 || entries[0].Name() != journalrecord.FileName || entries[0].Kind() != mutationfs.EntryKindFile || !entries[0].OwnedByInvoker() {
 		return fmt.Errorf("native release directory contains unowned artifacts")
 	}
 	return ctx.Err()

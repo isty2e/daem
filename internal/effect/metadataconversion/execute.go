@@ -118,7 +118,7 @@ func (plan Plan) Execute(ctx context.Context) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	if !plan.intent.Equal(fresh.intent) {
+	if !plan.intent.SamePublication(fresh.intent) {
 		return mutation.StaleSnapshotError{}
 	}
 	if err := validateHeldMetadataLeases(ctx, leases); err != nil {
@@ -128,7 +128,7 @@ func (plan Plan) Execute(ctx context.Context) (returnErr error) {
 		return err
 	}
 	return fileset.CommitFreshFileSet5(ctx, fileset.PublicationInput{
-		EvidenceRoot: plan.paths.GlobalMetadataDir(), Intent: plan.intent,
+		EvidenceRoot: plan.paths.GlobalMetadataDir(), Intent: fresh.intent,
 		Materializers: plan.materialize, PhysicalWorkBudget: plan.budget,
 	})
 }

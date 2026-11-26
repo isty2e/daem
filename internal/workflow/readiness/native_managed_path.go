@@ -97,7 +97,7 @@ func nativeWholePathEvidence(ctx context.Context, subject topology.SubjectID, al
 	var hash artifact.ContentHash
 	if document.Exists() {
 		fileMode = mode.FileMode()
-		hash = artifact.HashFileContentWithExecutable(document.Content(), fileMode&0o111 != 0)
+		hash = artifact.HashFileContent(document.Content())
 	}
 	return observe.NewManagedPathEvidence(subject, alias.AggregateRoot(), document.Exists(), hash, fileMode)
 }

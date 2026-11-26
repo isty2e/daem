@@ -327,7 +327,13 @@ segments in archives are rejected independently of these budgets.
 
 ## Skills
 
-Skills are declared with `[[skill]]`.
+Skills are declared with `[[skill]]`. When copying a skill, daem creates new
+regular files with mode `0600`, or `0700` if the locked source file is
+executable. New directories use the source directory's permissions. Updates
+preserve the permissions of files and directories that remain at the same
+relative path with the same kind. Changing only an existing
+source file's executable bit changes its lock hash, but does not chmod the
+installed file.
 
 ```toml
 [[skill]]
@@ -1241,7 +1247,7 @@ Fields:
 | `source` | string or table | yes | none | Source location for the file bytes. A plain string is shorthand for a local source path. |
 | `kind` | string | yes | none | Must be `file` in the current implementation slice. |
 | `scope` | string | no | `defaults.scope` | Asset install scope. A hook may reference only an asset with the same effective scope. |
-| `executable` | boolean | no | `false` | When true, the installed file is required to be executable. |
+| `executable` | boolean | no | `false` | Create a new asset with mode `0700` when true, or `0600` when false. |
 
 Current validation rules:
 
@@ -1251,19 +1257,18 @@ Current validation rules:
 - A selected supported Codex or Claude Code hook may reference a selected
   same-scope hook asset with `{hook_file:<name>}`. Missing, malformed,
   cross-scope, or unsupported placeholders fail before host mutation.
-- Lock records the hook asset source identity, artifact kind, content hash,
-  executable flag, effective scope, declaration provenance, and managed-path
-  exact permission mode (`0600` for non-executable files or `0700` for
-  executable files).
+- Lock records the source and materialized asset identities, executable flag,
+  scope, declaration provenance, and creation mode. Changing `executable`
+  selects a different installation path. At an existing path, daem leaves the
+  current permissions alone, including an executable bit you removed.
 - `status` and `apply` materialize only hook assets referenced by selected
   supported hook commands. An unreferenced hook asset may remain declared and
   locked without creating a host output.
 - Removing the final selected hook reference removes the owned installed asset
   through normal statefile-owned deletion rules. Removing the declaration while
   a selected hook still references it is rejected before mutation.
-- `apply --manage-existing` may record an unmanaged hook asset output only when
-  the live file content and required file mode exactly match the locked desired
-  output.
+- `apply --manage-existing` can adopt an unowned regular file at the selected
+  asset path when its bytes match the locked asset. Adoption keeps its permissions.
 - Import remains command-config-only. It does not infer `[hook_asset.<name>]`
   declarations from absolute, relative, shell, or `PATH` command text.
 - Runtime hook trust and approval remain host-owned. Codex may still require
@@ -1271,7 +1276,9 @@ Current validation rules:
 
 ## Instructions
 
-Instructions are declared under `[instructions.<name>]`.
+Instructions are declared under `[instructions.<name>]`. Changing the
+permissions of an installed instruction file does not make its contents stale.
+Updating the file's text preserves its current permissions.
 
 ```toml
 [instructions.project]
@@ -1500,11 +1507,11 @@ package code and loader-control paths are also reserved. These exclusions do not
 certify other keys as safe for credentials; do not put secrets in source files or
 locks.
 
-Existing key-only documents keep their permission bits; newly created documents
-use `0600`. When Codex MCP and key declarations share `config.toml`, the MCP
-document policy requires `0600`, and the preview includes that permission change.
-Both sets of changes are applied and recovered together, including when a path
-alias resolves to the same `config.toml`.
+Daem creates shared settings files with `0600`. If the file already exists,
+editing or removing a managed hook, MCP server, or configuration key preserves
+its current permissions. When Codex MCP and key declarations share `config.toml`,
+daem applies and recovers both sets of changes together, including when the
+declarations reach the file through different paths.
 
 Daem refuses an edit that would overwrite or remove another managed output,
 even when that output uses a different path to the same file or belongs to a
@@ -1607,9 +1614,11 @@ retains its original bytes. An edited document without a final LF may gain one.
 ### Whole Files And Ownership Changes
 
 Use `ownership = "document"` for a dedicated file such as `prefs.toml` or
-`prefs.jsonc`. Lock and apply copy its complete source, with exact `0600`
-permissions. Source updates replace the managed file; removing the declaration
-removes it. A changed host file is not silently overwritten or deleted.
+`prefs.jsonc`. Apply creates a missing file with mode `0600`. Source updates
+replace the managed contents and preserve the file's current permissions.
+Changing only its permissions does not trigger an update or block removal.
+Removing the declaration deletes the file if its contents still match the
+recorded version.
 Shared host files such as Codex `config.toml` and Pi `settings.json`, along with
 the reserved paths listed above, cannot use whole-document ownership.
 
@@ -1637,15 +1646,14 @@ Run `daem lock`, preview with `daem apply --dry-run`, and apply to finish the
 switch. Make any further changes to the desired values after the switch.
 
 Interrupted narrowing follows the existing state-commit boundary. Before commit,
-if the file still equals the recorded post-apply image, rollback restores the exact
-pre-operation bytes and permissions. Otherwise it restores only selected values,
-preserving edits to released keys and unrelated comments; a third selected value
+if the file still has the recorded post-apply bytes, rollback restores the exact
+pre-operation bytes and keeps the file's current permissions. Otherwise it
+restores only selected values, preserving edits to released keys and unrelated comments; a third selected value
 blocks recovery. After commit, recovery finalizes without replaying host writes.
 
 To switch from key ownership to whole-file ownership, keep the declaration's `id`,
 target, scope and path, and set `ownership` to `document`. Its source must exactly
-match the current host file, including comments and formatting, and the host file
-must already have `0600` permissions. Relock and preview with
+match the current host file, including comments and formatting. Relock and preview with
 `daem apply --dry-run --manage-existing`, then run `daem apply --manage-existing`.
 This records whole-file ownership and retires the declaration's
 key records without rewriting the file or changing its permissions. A missing file,

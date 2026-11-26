@@ -8,20 +8,21 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
-func (operation *Operation) CommitFileAgainst(ctx context.Context, destination mutationnamespace.Destination, content []byte, fileMode os.FileMode, expectedExists bool, expected mutationfs.EntryIdentity) error {
+func (operation *Operation) CommitFileAgainst(ctx context.Context, destination mutationnamespace.Destination, content []byte, fileMode os.FileMode, expectedExists bool, expected mutationfs.EntryIdentity) (mutationfs.EntryIdentity, error) {
 	if !destination.IsRooted() {
-		return errors.New("mutation destination is invalid")
+		return nil, errors.New("mutation destination is invalid")
+	}
+	if expectedExists != (expected != nil) {
+		return nil, errors.New("file publication requires the identity of an existing destination")
 	}
 	capability, err := operation.destinations.Acquire(destination)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if expectedExists {
-		return operation.filesystem.ReplaceRootedFile(ctx, capability, content, fileMode, expected)
-	}
-	return operation.filesystem.CreateRootedFile(ctx, capability, content, fileMode)
+	return operation.filesystem.PublishRootedFile(ctx, capability, content, fileMode, expected)
 }
 
 func (operation *Operation) MutateFile(
@@ -30,38 +31,44 @@ func (operation *Operation) MutateFile(
 	fileMode os.FileMode,
 	allowMissing bool,
 	maximumBytes int64,
-	mutation func(existing []byte, mode os.FileMode, exists bool) (content []byte, keepFile bool, err error),
-) error {
+	mutation func(existing []byte, mode os.FileMode, identity mutationfs.EntryIdentity) (content []byte, keepFile bool, err error),
+) (mutationfs.EntryIdentity, error) {
 	if !destination.IsRooted() {
-		return errors.New("mutation destination is invalid")
+		return nil, errors.New("mutation destination is invalid")
 	}
 	capability, err := operation.destinations.Acquire(destination)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	existing, mode, expected, err := operation.filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
 	exists := err == nil
 	if err != nil && !(allowMissing && errors.Is(err, os.ErrNotExist)) {
 		_ = capability.Close()
-		return err
+		return nil, err
 	}
-	content, keepFile, err := mutation(existing, mode, exists)
+	if exists && expected == nil {
+		return nil, errors.Join(errors.New("existing file has no entry identity"), capability.Close())
+	}
+	if !exists {
+		expected = nil
+	}
+	content, keepFile, err := mutation(existing, mode, expected)
 	if err != nil {
 		_ = capability.Close()
-		return err
+		return nil, err
 	}
 	if !keepFile {
 		if !exists {
 			_ = capability.Close()
-			return nil
+			return nil, nil
 		}
-		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, expected)
-		return err
+		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, expected, artifact.InstalledFileHash(existing))
+		return nil, err
 	}
-	if !exists {
-		return operation.filesystem.CreateRootedFile(ctx, capability, content, fileMode)
+	if exists {
+		fileMode = mode.Perm()
 	}
-	return operation.filesystem.ReplaceRootedFile(ctx, capability, content, fileMode, expected)
+	return operation.filesystem.PublishRootedFile(ctx, capability, content, fileMode, expected)
 }
 
 func (operation *Operation) readFile(ctx context.Context, destination mutationnamespace.Destination, maximumBytes int64) ([]byte, os.FileMode, error) {
@@ -95,7 +102,7 @@ func (operation *Operation) entryExists(ctx context.Context, destination mutatio
 	return true, nil
 }
 
-func (operation *Operation) RemoveAgainst(ctx context.Context, destination mutationnamespace.Destination, expected mutationfs.EntryIdentity) error {
+func (operation *Operation) RemoveAgainst(ctx context.Context, destination mutationnamespace.Destination, expected mutationfs.EntryIdentity, fileHash artifact.ContentHash) error {
 	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
@@ -103,7 +110,7 @@ func (operation *Operation) RemoveAgainst(ctx context.Context, destination mutat
 	if err != nil {
 		return err
 	}
-	_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, expected)
+	_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, expected, fileHash)
 	return err
 }
 
@@ -120,7 +127,7 @@ func (path PreparedPath) Remove(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = precondition.operation.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity)
+	_, err = precondition.operation.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity, precondition.hash)
 	return err
 }
 
@@ -131,6 +138,23 @@ func (path PreparedPath) WriteFile(ctx context.Context, content []byte, fileMode
 	}
 	if !precondition.destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
+	}
+	if precondition.existed && precondition.hash.IsInstalled() {
+		identity, err := precondition.filesystem.CaptureRootedEntryIdentity(ctx, precondition.capability)
+		if err != nil {
+			return err
+		}
+		if !precondition.identity.Equal(identity) {
+			live, mode, current, err := precondition.filesystem.ReadRootedRegularFile(ctx, precondition.capability)
+			if err != nil {
+				return err
+			}
+			if !mutationfs.SameEntryObject(precondition.identity, current) || !precondition.hash.MatchesFile(live) {
+				return fmt.Errorf("managed file %q changed while preparing publication", precondition.destination.Logical())
+			}
+			precondition.identity, precondition.fileMode = current, mode.Perm()
+		}
+		fileMode = precondition.fileMode
 	}
 	capability, err := precondition.takeRootedCapability()
 	if err != nil {

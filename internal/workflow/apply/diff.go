@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -288,8 +287,7 @@ func readBoundFileForDiff(ctx context.Context, root *rootedpath.CapturedRoot, bo
 	defer func() {
 		resultErr = errors.Join(resultErr, capability.Close())
 	}()
-	var mode os.FileMode
-	content, mode, _, err = storagecommit.ReadRootedRegularFileUpTo(
+	content, _, _, err = storagecommit.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
 		maximumBytes,
@@ -300,10 +298,7 @@ func readBoundFileForDiff(ctx context.Context, root *rootedpath.CapturedRoot, bo
 		}
 		return nil, false, err
 	}
-	if observed := artifact.HashFileContentWithExecutable(
-		content,
-		mode.Perm()&0o111 != 0,
-	); observed != expectedHash {
+	if !expectedHash.MatchesFile(content) {
 		return nil, false, fmt.Errorf("content changed after planning")
 	}
 	return content, false, nil
@@ -346,11 +341,7 @@ func readDesiredFileForDiff(
 	if int64(len(bytes)) > maximumBytes {
 		return nil, true, nil
 	}
-	observedHash := artifact.HashFileContentWithExecutable(
-		bytes,
-		decision.DesiredFileMode().Perm()&0o111 != 0,
-	)
-	if observedHash != decision.DesiredHash() {
+	if !decision.DesiredHash().MatchesFile(bytes) {
 		return nil, false, fmt.Errorf("desired content changed after planning")
 	}
 	return bytes, false, nil

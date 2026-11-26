@@ -144,7 +144,7 @@ func NewNative17Capture(ctx context.Context, operationID string, createdAt time.
 		rows = append(rows, byReference[reference])
 	}
 	record := native17JournalRecord{
-		Version: native17Version, Purpose: "host-mutation", Manifest: persistedRootReference(manifest), Roots: rows, DocumentGroups: records,
+		Version: nativeHostCaptureVersion(before, after, records), Purpose: "host-mutation", Manifest: persistedRootReference(manifest), Roots: rows, DocumentGroups: records,
 		nativeRecordBody: nativeRecordBody{
 			OperationID: operationID, Operation: OperationApply, CreatedAt: createdAt.UTC().Format(time.RFC3339),
 			StateAuthority: recoveryStateAuthority{StatefileAuthority: *persistedPathAuthority(owner.StatefileAuthority()), ManifestPath: owner.ManifestPath()},
@@ -152,4 +152,27 @@ func NewNative17Capture(ctx context.Context, operationID string, createdAt time.
 		},
 	}
 	return record.reconstruct(ctx, codec)
+}
+
+func nativeHostCaptureVersion(before, after durable.Snapshot, groups []native17Document) int {
+	// Older readers compare the expected whole image's mode to its state row.
+	// The standard pair is 0600/0600, but historical rows admit other modes.
+	const legacyWholeMode = 0o600
+	hasExistingWhole := false
+	for _, group := range groups {
+		if group.Extent == "whole" && group.Original.Mode != nil {
+			hasExistingWhole = true
+			if group.Original.Mode.FileMode() != legacyWholeMode {
+				return nativeWholeModeVersion
+			}
+		}
+	}
+	if hasExistingWhole {
+		for _, row := range after.ManagedPaths() {
+			if row.FileMode() != legacyWholeMode && aggregate.IsAgentConfigDocumentSubject(row.Subject()) {
+				return nativeWholeModeVersion
+			}
+		}
+	}
+	return nativeCaptureVersion(before, after)
 }

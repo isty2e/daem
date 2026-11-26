@@ -12,6 +12,7 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 	flags := newCommandFlagSet([]string{"recover"}, stderr)
 
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
+	baselineTree := baselineTreeFlag(flags)
 	legacyUserState := flags.Bool("legacy-user-state", false, "recover the default user manifest's former local state")
 	releaseOutputs := flags.Bool("release-output-ownership", false, "release recorded output ownership when the selected state file is missing")
 	dryRun := flags.Bool("dry-run", false, "classify recovery or cleanup evidence without writing")
@@ -38,6 +39,9 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		if *releaseOutputs && *legacyUserState {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --release-output-ownership and --legacy-user-state are mutually exclusive"))
 		}
+		if *releaseOutputs && *baselineTree != "" {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --release-output-ownership and --baseline-tree are mutually exclusive"))
+		}
 		if err := validatePresentationFlags("recover", arguments.output == requestedJSON, *verbose, false); err != nil {
 			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}
@@ -56,7 +60,7 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		}
 
 		prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{
-			ManifestPath: *manifestPath, LegacyUserState: *legacyUserState, ReleaseOutputOwnership: *releaseOutputs,
+			ManifestPath: *manifestPath, LegacyUserState: *legacyUserState, ReleaseOutputOwnership: *releaseOutputs, BaselineTree: *baselineTree,
 		})
 		if err != nil {
 			return response.failure(operationFailure, clipresent.RecoverPlanningDiagnostic(err, clipresent.HumanOptions{Verbose: *verbose}))

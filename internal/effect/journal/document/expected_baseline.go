@@ -40,7 +40,14 @@ func (index SnapshotIndex) WholePath(subject topology.SubjectID) (durable.Manage
 	return row, found
 }
 
-func (indexes SnapshotIndexes) ValidateExpectedBaselines(ctx context.Context, groups []StateGroup, codecs aggregate.CodecCatalog, images []ImageIdentity) error {
+type WholeFileModeBaseline uint8
+
+const (
+	RecordedStateMode WholeFileModeBaseline = iota
+	PreserveExistingMode
+)
+
+func (indexes SnapshotIndexes) ValidateExpectedBaselines(ctx context.Context, groups []StateGroup, codecs aggregate.CodecCatalog, images []ImageIdentity, modeBaseline WholeFileModeBaseline) error {
 	if ctx == nil {
 		return fmt.Errorf("document state context is required")
 	}
@@ -91,7 +98,11 @@ func (indexes SnapshotIndexes) ValidateExpectedBaselines(ctx context.Context, gr
 						continue
 					}
 				}
-				if !file || image.digest != row.ContentHash() || uint32(mode) != uint32(row.FileMode().Perm()) {
+				wantMode := row.FileMode().Perm()
+				if original := comparison.BeforeMode(); modeBaseline == PreserveExistingMode && original != nil {
+					wantMode = original.FileMode()
+				}
+				if !file || image.digest != row.ContentHash() || mode.FileMode() != wantMode {
 					return fmt.Errorf("whole after baseline differs from the actual expected image or mode")
 				}
 			}

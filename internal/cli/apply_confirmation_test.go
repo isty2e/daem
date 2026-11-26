@@ -27,7 +27,7 @@ import (
 
 func TestRunApplyPromptsAndAppliesWhenInteractiveConfirmationAccepted(t *testing.T) {
 	tempDir := t.TempDir()
-	manifestPath, _, instructionHash := writeApplyConfirmationFixture(t, tempDir)
+	manifestPath, _, _ := writeApplyConfirmationFixture(t, tempDir)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -51,7 +51,7 @@ func TestRunApplyPromptsAndAppliesWhenInteractiveConfirmationAccepted(t *testing
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	assertApplyConfirmationStateResource(t, state, "codex", "AGENTS.md", instructionHash)
+	assertApplyConfirmationStateResource(t, state, "codex", "AGENTS.md", string(artifact.InstalledFileHash([]byte("shared instructions\n"))))
 }
 
 func TestRunApplyPromptCancellationDoesNotMutate(t *testing.T) {

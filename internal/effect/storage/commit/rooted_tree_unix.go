@@ -207,7 +207,7 @@ func commitPreparedRootedTreeWithFaults(
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseValidate, err, faults)
 	}
-	if err := prepared.verifyExpectedLocked(); err != nil {
+	if err := prepared.verifyStageObjectLocked(); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseValidate, err, faults)
 	}
 	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {
@@ -234,7 +234,7 @@ func commitPreparedRootedTreeWithFaults(
 	if err := faults.check(ctx, phaseCommitEntry); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
 	}
-	if err := prepared.verifyExpectedLocked(); err != nil {
+	if err := prepared.verifyStageObjectLocked(); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
 	}
 	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {

@@ -3,13 +3,17 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/workflow/migrate"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -47,7 +51,124 @@ func TestManagedSkillSecondApplyIsNoOpAndExternalDeletionReconverges(t *testing.
 	if err != nil {
 		t.Fatalf("load reconverged state: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, installed))
+}
+
+func TestSourceExecutableChangeOnlyAffectsNewSkillFiles(t *testing.T) {
+	root, manifest, statePath, _ := prepareManagedSkillProject(t, []string{"codex"})
+	source := filepath.Join(root, "skills", "oracle", "SKILL.md")
+	installed := filepath.Join(root, ".agents", "skills", "oracle", "SKILL.md")
+	stateBefore, lockBefore := testkit.ReadFile(t, statePath), testkit.ReadFile(t, filepath.Join(root, "daem.lock.toml"))
+	if err := os.Chmod(installed, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifest)
+	if bytes.Equal(lockBefore, testkit.ReadFile(t, filepath.Join(root, "daem.lock.toml"))) {
+		t.Fatal("source execution change was lost in the lockfile")
+	}
+	assertManagedSkillCLI(t, 0, "status", "--manifest", manifest, "--check")
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifest, "--yes")
+	if info, err := os.Stat(installed); err != nil || info.Mode().Perm() != 0o444 {
+		t.Fatalf("existing skill mode: %v, %v", info, err)
+	}
+	if !bytes.Equal(stateBefore, testkit.ReadFile(t, statePath)) {
+		t.Fatal("source chmod rewrote installed state")
+	}
+}
+
+func TestBaselineTreeMigratesRetiredSkillWithoutAdoptingItsHostContents(t *testing.T) {
+	targets := []string{"codex"}
+	root, manifest, statePath, legacy := prepareManagedSkillProject(t, targets)
+	const destination = ".agents/skills/oracle"
+	installed := filepath.Join(root, destination)
+	file := filepath.Join(installed, "SKILL.md")
+	original := filepath.Join(root, "skills", "oracle")
+	testkit.WriteStatefile(t, statePath, testkit.Snapshot(t, testkit.SkillPathState(t, "oracle", targets, "project", destination, legacy)))
+	before := testkit.ReadFile(t, statePath)
+	if err := os.Chmod(file, 0o744); err != nil {
+		t.Fatal(err)
+	}
+	writeManagedSkillManifest(t, root, targets, false)
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifest)
+	migrate := func(code int, tree, mode string) {
+		t.Helper()
+		assertManagedSkillCLI(t, code, "migrate", "metadata", "--manifest", manifest, "--baseline-tree", tree, mode, "--json")
+	}
+	assertManagedSkillCLI(t, 1, "apply", "--manifest", manifest, "--yes", "--json")
+	migrate(1, installed, "--yes")
+	migrate(0, original, "--dry-run")
+	if !bytes.Equal(testkit.ReadFile(t, statePath), before) {
+		t.Fatal("preview or rejected proof changed state")
+	}
+
+	content := testkit.ReadFile(t, file)
+	if err := os.WriteFile(file, []byte("user edits"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	migrate(0, original, "--yes")
+	after := testkit.ReadFile(t, statePath)
+	if bytes.Equal(after, before) {
+		t.Fatal("original tree did not convert legacy state")
+	}
+	migrate(0, original, "--yes")
+	if !bytes.Equal(after, testkit.ReadFile(t, statePath)) {
+		t.Fatal("repeat changed migrated state")
+	}
+	assertManagedSkillCLI(t, 1, "apply", "--manifest", manifest, "--yes", "--json")
+	testkit.AssertFileContent(t, file, "user edits")
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o744 {
+		t.Fatalf("migration changed installed permissions: %v, %v", info, err)
+	}
+	if err := os.WriteFile(file, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifest, "--yes")
+	if _, err := os.Stat(installed); !os.IsNotExist(err) {
+		t.Fatalf("retired skill still present: %v", err)
+	}
+}
+
+func TestBaselineTreeRechecksStateAfterConfirmation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("changes Unix permission bits between approval and execution")
+	}
+	targets := []string{"codex"}
+	root, manifest, path, legacy := prepareManagedSkillProject(t, targets)
+	const destination = ".agents/skills/oracle"
+	testkit.WriteStatefile(t, path, testkit.Snapshot(t, testkit.SkillPathState(t, "oracle", targets, "project", destination, legacy)))
+	input := migrate.MetadataInput{ManifestPath: manifest, BaselineTree: filepath.Join(root, "skills", "oracle")}
+	prepare := func() *migrate.PreparedMetadata {
+		t.Helper()
+		plan, err := migrate.PlanMetadata(t.Context(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(plan.Close)
+		return plan
+	}
+
+	plan := prepare()
+	edited := append(testkit.ReadFile(t, path), '\n')
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plan.Execute(t.Context()); !errors.As(err, new(mutation.StaleSnapshotError)) || !bytes.Equal(edited, testkit.ReadFile(t, path)) {
+		t.Fatalf("conversion did not leave the edited state alone: %v", err)
+	}
+
+	plan = prepare()
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plan.Execute(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 || bytes.Equal(edited, testkit.ReadFile(t, path)) {
+		t.Fatalf("expected converted state with the new permissions: %v, %v", info, err)
+	}
 }
 
 func TestManagedSkillExternalModificationBlocksWithoutMutation(t *testing.T) {
@@ -82,7 +203,7 @@ func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testin
 	}
 	testkit.AssertManagedPathState(
 		t, state, "skill", "oracle", []string{"antigravity-cli", "codex"},
-		"project", ".agents/skills/oracle", skillHash, "directory",
+		"project", ".agents/skills/oracle", testkit.InstalledHash(t, installed), "directory",
 	)
 
 	writeManagedSkillManifest(t, root, []string{"codex"}, true)
@@ -98,7 +219,7 @@ func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testin
 	if err != nil {
 		t.Fatalf("load partially shared state: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, installed))
 
 	writeManagedSkillManifest(t, root, []string{"codex"}, false)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
@@ -145,7 +266,7 @@ func TestManagedSkillDistinctPlacementsRemoveOnlySelectedProjection(t *testing.T
 	if err != nil {
 		t.Fatalf("load state after selected projection removal: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, codexPath))
 	testkit.AssertSkillPathStateMissing(t, state, "oracle", "project", ".claude/skills/oracle")
 }
 
@@ -182,7 +303,7 @@ func TestManagedSkillScopeRelocationAcquiresAndReleasesGlobalOwnership(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "global", "~/.agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "global", "~/.agents/skills/oracle", testkit.InstalledHash(t, globalPath))
 	testkit.AssertOwnershipClaimCount(t, manifestPath, 1)
 
 	writeManagedSkillManifestWithScope(t, root, "project")
@@ -198,7 +319,7 @@ func TestManagedSkillScopeRelocationAcquiresAndReleasesGlobalOwnership(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, projectPath))
 	testkit.AssertOwnershipClaimCount(t, manifestPath, 0)
 	testkit.AssertNoRecoveryArtifacts(t, root)
 }
@@ -218,6 +339,7 @@ func TestManagedSkillAdmittedRootSelectionRelocatesWithinScope(t *testing.T) {
 	if got := testkit.HashDirectory(t, defaultPath); got != skillHash {
 		t.Fatalf("default Skill hash=%q, want %q", got, skillHash)
 	}
+	testkit.WriteStatefile(t, statefilePath, testkit.Snapshot(t, testkit.SkillPathState(t, "oracle", []string{"opencode"}, "project", ".opencode/skills/oracle", skillHash)))
 
 	writeManagedSkillManifestWithPlacement(t, root, ".agents/skills", false)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
@@ -245,6 +367,9 @@ func TestManagedSkillAdmittedRootSelectionRelocatesWithinScope(t *testing.T) {
 	if !bytes.Equal(stateAfterDryRun, stateBefore) {
 		t.Fatal("dry-run changed managed state")
 	}
+	if err := os.Chmod(filepath.Join(defaultPath, "SKILL.md"), 0o744); err != nil {
+		t.Fatal(err)
+	}
 
 	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifestPath, "--yes")
 	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
@@ -257,7 +382,7 @@ func TestManagedSkillAdmittedRootSelectionRelocatesWithinScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".agents/skills/oracle", testkit.InstalledHash(t, alternatePath))
 
 	writeManagedSkillManifestWithPlacement(t, root, "", false)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
@@ -401,7 +526,7 @@ func TestManagedSkillRelocationRequiresAbsentDestinationAndMovesStateAtomically(
 	if err != nil {
 		t.Fatalf("load state after blocked relocation: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, oldPath))
 
 	if err := os.RemoveAll(newPath); err != nil {
 		t.Fatalf("remove relocation conflict: %v", err)
@@ -421,7 +546,7 @@ func TestManagedSkillRelocationRequiresAbsentDestinationAndMovesStateAtomically(
 		t.Fatalf("load relocated state: %v", err)
 	}
 	testkit.AssertSkillPathStateMissing(t, state, "oracle", "project", ".agents/skills/oracle")
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/review", skillHash)
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/review", testkit.InstalledHash(t, newPath))
 	testkit.AssertNoRecoveryArtifacts(t, root)
 }
 

@@ -29,6 +29,12 @@ func ObserveProjectPath(
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
 ) (recovery.PathEvidence, error) {
+	return treeHashLabels{}.observeProject(ctx, journalPath, contentPath, aggregateContract, filesystem, manifestAuthority, codecs, budget)
+}
+
+type treeHashLabels struct{ candidate, collect artifact.ExecutablePaths }
+
+func (labels treeHashLabels) observeProject(ctx context.Context, journalPath, contentPath string, aggregateContract *aggregate.ProjectionContract, filesystem mutationfs.RootedReader, manifestAuthority *journalnamespace.ManifestAuthority, codecs aggregate.CodecCatalog, budget *physicalwork.Budget) (recovery.PathEvidence, error) {
 	base := recovery.PathEvidence{Path: journalPath, ContentPath: contentPath}
 	if manifestAuthority == nil {
 		base.Error = "project root authority is required"
@@ -44,7 +50,7 @@ func ObserveProjectPath(
 		base.Error = fmt.Sprintf("acquire project destination: %v", err)
 		return base, nil
 	}
-	observation, observeErr := observeRootedRecoveryCapability(
+	observation, observeErr := labels.observeRootedRecoveryCapability(
 		ctx,
 		journalPath,
 		contentPath,
@@ -79,6 +85,10 @@ func ObserveGlobalPath(
 	codecs aggregate.CodecCatalog,
 	budget *physicalwork.Budget,
 ) (recovery.PathEvidence, error) {
+	return treeHashLabels{}.observeGlobal(ctx, journalPath, contentPath, aggregateContract, resolvedPath, filesystem, resolver, codecs, budget)
+}
+
+func (labels treeHashLabels) observeGlobal(ctx context.Context, journalPath, contentPath string, aggregateContract *aggregate.ProjectionContract, resolvedPath string, filesystem mutationfs.RootedReader, resolver journalnamespace.CapabilityResolver, codecs aggregate.CodecCatalog, budget *physicalwork.Budget) (recovery.PathEvidence, error) {
 	base := recovery.PathEvidence{Path: journalPath, ContentPath: contentPath}
 	destination, err := output.Parse(journalPath)
 	if err != nil {
@@ -90,7 +100,7 @@ func ObserveGlobalPath(
 		base.Error = err.Error()
 		return base, nil
 	}
-	observation, observeErr := observeRootedRecoveryCapability(
+	observation, observeErr := labels.observeRootedRecoveryCapability(
 		ctx,
 		journalPath,
 		contentPath,
@@ -140,7 +150,7 @@ func acquireGlobalRecoveryCapability(destination output.Destination, path string
 	return capability, nil
 }
 
-func observeRootedRecoveryCapability(
+func (labels treeHashLabels) observeRootedRecoveryCapability(
 	ctx context.Context,
 	journalPath string,
 	contentPath string,
@@ -224,10 +234,8 @@ func observeRootedRecoveryCapability(
 		base.Exists = true
 		base.PathMode = recovery.NewPermissionMode(mode)
 		base.Kind = recovery.PathKindFile
-		base.ContentHash = string(artifact.HashFileContentWithExecutable(
-			content,
-			mode.Perm()&0o111 != 0,
-		))
+		base.Hashes = recoveryContentEvidence(artifact.FileHashes(content, mode.Perm()&0o111 != 0))
+		base.ContentHash = string(base.Hashes.Source)
 		base.Work = work
 		return base, nil
 	case mutationfs.EntryKindDirectory:
@@ -236,7 +244,7 @@ func observeRootedRecoveryCapability(
 			base.Error = "content path requires a regular file"
 			return base, nil
 		}
-		sink := newRootedTreeHashSink(ctx)
+		sink := &rootedTreeHashSink{ctx: ctx, hasher: artifact.NewLegacyTreeEvidenceBuilder(labels.candidate, labels.collect)}
 		limits, maximum, readerCapacity, err := recoveryTreeTraversalLimitsForBudget(
 			budget.RemainingTreeWork(),
 			budget,
@@ -266,13 +274,13 @@ func observeRootedRecoveryCapability(
 		if err := budget.AdmitTreeWithin(work, maximum); err != nil {
 			return recovery.PathEvidence{}, err
 		}
-		contentHash, err := sink.hash()
+		hashes, err := sink.hasher.Hashes()
 		if err != nil {
 			base.Error = fmt.Sprintf("hash project destination: %v", err)
 			return base, nil
 		}
 		base.Kind = recovery.PathKindDirectory
-		base.ContentHash = string(contentHash)
+		base.Hashes, base.ContentHash = recoveryContentEvidence(hashes), string(hashes.Source)
 		base.Work = work
 		return base, nil
 	default:
@@ -348,22 +356,33 @@ func observeRootedRecoveryContentPath(
 	return base
 }
 
+func recoveryContentEvidence(hashes artifact.PathHashes) recovery.ContentEvidence {
+	return recovery.ContentEvidence{Installed: string(hashes.Installed), Source: string(hashes.Source), Alternate: string(hashes.Alternate)}
+}
+
 type rootedTreeHashSink struct {
 	ctx     context.Context
 	hasher  *artifact.DirectoryHashBuilder
 	entries int
 	bytes   int64
+	modes   map[string]fs.FileMode
 }
 
 func newRootedTreeHashSink(ctx context.Context) *rootedTreeHashSink {
-	return &rootedTreeHashSink{ctx: ctx, hasher: artifact.NewDirectoryHashBuilder()}
+	return &rootedTreeHashSink{ctx: ctx, hasher: artifact.NewDirectoryEvidenceBuilder()}
 }
 
-func (*rootedTreeHashSink) VisitRoot(fs.FileMode) error {
+func (sink *rootedTreeHashSink) VisitRoot(mode fs.FileMode) error {
+	if sink.modes != nil {
+		sink.modes["."] = mode.Perm() | fs.ModeDir
+	}
 	return nil
 }
 
-func (sink *rootedTreeHashSink) VisitDirectory(path mutationfs.TreeRelativePath, _ fs.FileMode) error {
+func (sink *rootedTreeHashSink) VisitDirectory(path mutationfs.TreeRelativePath, mode fs.FileMode) error {
+	if sink.modes != nil {
+		sink.modes[path.Path()] = mode.Perm() | fs.ModeDir
+	}
 	sink.entries++
 	return sink.hasher.AddDirectory(path.Path())
 }
@@ -374,6 +393,9 @@ func (sink *rootedTreeHashSink) VisitRegularFile(
 	size int64,
 	content io.Reader,
 ) error {
+	if sink.modes != nil {
+		sink.modes[path.Path()] = mode.Perm()
+	}
 	sink.entries++
 	sink.bytes += size
 	return sink.hasher.AddFile(

@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// KeepFilePermissions requests the ordinary permissions of the expected file
+// on replacement. It is not a creation mode or a value to persist.
+const KeepFilePermissions fs.FileMode = fs.ModeIrregular
+
 // EntryKind classifies the no-follow form represented by EntryIdentity.
 type EntryKind string
 
@@ -25,6 +29,26 @@ const (
 type EntryIdentity interface {
 	Equal(EntryIdentity) bool
 	Kind() EntryKind
+}
+
+// SameEntryObject allows a metadata change on the same object. Callers must
+// separately verify the content on which they base a mutation.
+func SameEntryObject(before, now EntryIdentity) bool {
+	if before == nil || now == nil || before.Kind() != now.Kind() {
+		return false
+	}
+	if before.Equal(now) {
+		return true
+	}
+	type token interface{ ObjectFingerprint() (string, error) }
+	left, l := before.(token)
+	right, r := now.(token)
+	if !l || !r {
+		return false
+	}
+	a, e := left.ObjectFingerprint()
+	b, f := right.ObjectFingerprint()
+	return e == nil && f == nil && a != "" && a == b
 }
 
 // TreeStructureLimits bounds one recursive filesystem tree shape. Entry
@@ -596,6 +620,9 @@ type RootedTreeWriter interface {
 // PreparedRootedTree owns one private stage and its retained-root capability
 // until Commit or Abort consumes it.
 type PreparedRootedTree interface {
+	// PreserveMatchingModes updates the publication modes of staged entries that
+	// also exist at the same relative path and with the same kind in the live tree.
+	PreserveMatchingModes(context.Context, map[string]fs.FileMode) error
 	Commit(ctx context.Context) error
 	CommitWithOutcome(ctx context.Context) (CommitOutcome, error)
 	Abort(ctx context.Context) error

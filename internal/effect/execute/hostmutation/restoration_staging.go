@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 const (
@@ -51,6 +52,7 @@ type hostRollbackEntry struct {
 	stagedWork         workmeasure.ArtifactWork
 	effectMaximumKinds map[string]workmeasure.ArtifactWork
 	effectState        recoveryWholePathState
+	publishedFile      mutationfs.EntryIdentity
 	effectKnown        bool
 	attempted          bool
 }
@@ -68,11 +70,15 @@ type recoveryWholePathState struct {
 	fileMode    os.FileMode
 }
 
-func (state recoveryWholePathState) equal(other recoveryWholePathState) bool {
-	return state.existed == other.existed &&
-		state.kind == other.kind &&
-		state.contentHash == other.contentHash &&
-		state.fileMode.Perm() == other.fileMode.Perm()
+func (state recoveryWholePathState) sameContent(other recoveryWholePathState) bool {
+	return state.existed == other.existed && state.kind == other.kind && state.contentHash == other.contentHash
+}
+
+func (state recoveryWholePathState) fileHash() artifact.ContentHash {
+	if state.kind != recovery.PathKindFile {
+		return ""
+	}
+	return artifact.ContentHash(state.contentHash)
 }
 
 type recoveryGeneralPathReservation struct {
@@ -109,6 +115,11 @@ func reserveRecoveryHostExecution(
 			); err != nil {
 				return err
 			}
+		}
+	} else if len(actions) > 0 && actions[0].action.ContentPath != "" {
+		// Restoring selected values probes the root even when staging found no file.
+		if err := reserveRecoveryObservation(authority.original, recovery.PathKindFile, workmeasure.ArtifactWork{}); err != nil {
+			return err
 		}
 	}
 
@@ -154,6 +165,12 @@ func reserveRecoveryHostExecution(
 	for kind, work := range rollbackKinds {
 		if err := reserveRecoveryObservation(authority.original, kind, work); err != nil {
 			return err
+		}
+		if kind == recovery.PathKindDirectory && baseline.kind == recovery.PathKindDirectory {
+			// Compensation also verifies the live tree just before retiring it.
+			if err := reserveRecoveryObservation(authority.original, kind, work); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -407,7 +424,7 @@ func restoreRollbackGroup(
 	baseline := entries[0]
 	attempted := false
 	for _, entry := range entries {
-		if !entry.stagedState.equal(baseline.stagedState) {
+		if !entry.stagedState.sameContent(baseline.stagedState) {
 			return fmt.Errorf("rollback stage for %q has inconsistent physical baselines", baseline.destination.Logical())
 		}
 		if entry.maximumFileBytes != baseline.maximumFileBytes {
@@ -442,12 +459,13 @@ func restoreRollbackGroup(
 			err,
 		)
 	}
-	if current.equal(baseline.stagedState) {
+	if current.sameContent(baseline.stagedState) {
 		return nil
 	}
 	matchesEffect := false
 	for _, entry := range entries {
-		if entry.attempted && entry.effectKnown && current.equal(entry.effectState) {
+		if entry.attempted && entry.effectKnown && current.sameContent(entry.effectState) &&
+			(current.kind != recovery.PathKindFile || mutationfs.SameEntryObject(entry.publishedFile, identity)) {
 			matchesEffect = true
 			break
 		}
@@ -459,7 +477,7 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.operation.RemoveAgainst(ctx, baseline.destination, identity); err != nil {
+		if err := authority.operation.RemoveAgainst(ctx, baseline.destination, identity, current.fileHash()); err != nil {
 			return fmt.Errorf("rollback remove %q: %w", baseline.destination.Logical(), err)
 		}
 		return nil
@@ -480,11 +498,15 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.operation.CommitFileAgainst(
+		mode := baseline.fileMode
+		if current.kind == recovery.PathKindFile {
+			mode = current.fileMode
+		}
+		if _, err := authority.operation.CommitFileAgainst(
 			ctx,
 			baseline.destination,
 			content,
-			baseline.fileMode,
+			mode,
 			current.existed,
 			identity,
 		); err != nil {
@@ -501,10 +523,10 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.operation.CommitDirectoryAgainst(
+		if err := authority.operation.restoreDirectoryAgainst(
 			ctx,
 			baseline.destination,
-			current.existed,
+			current,
 			identity,
 			func(writer mutationfs.RootedTreeWriter) error {
 				return baseline.backup.CopyDirectory(ctx, writer, baseline.stagedWork)

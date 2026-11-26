@@ -64,14 +64,10 @@ func (store Store) RemoveClaim(
 		return ownership.Registry{}, err
 	}
 
-	var request storagecommit.FileCommit
-	if capability != nil && exists {
-		request, err = storagecommit.NewRootedFileReplacement(capability, content, 0o600, expectedEntry)
-	} else if exists {
-		request, err = storagecommit.NewFileReplacement(store.path, content, 0o600, expectedEntry)
-	} else {
+	if !exists {
 		return ownership.Registry{}, fmt.Errorf("ownership registry claim exists without a registry file")
 	}
+	request, err := store.publication(capability, content, expectedEntry, true)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("prepare ownership registry claim removal: %w", err)
 	}
@@ -109,13 +105,6 @@ func (store Store) loadForUpdate(
 		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 			"read ownership registry: %w",
 			err,
-		)
-	}
-	if snapshot.Mode().Perm()&0o077 != 0 {
-		return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
-			"ownership registry %q permissions %04o expose authority metadata",
-			store.path,
-			snapshot.Mode().Perm(),
 		)
 	}
 	identity, ok := snapshot.Identity().(storagecommit.EntryIdentity)

@@ -28,9 +28,11 @@ scope and route id; a changed request hash replaces the prior diagnostic.
 Mechanical process reasons and post-attempt working-directory authority are
 separate facts. The v8 reader translates the older combined reason.
 
-Normal commands create statefiles in v11, or v13 when recording the selected
-settings file for a new Claude global hook installation. Shared output and
-carrier registries use v5 and v3, respectively.
+When the statefile records an installed-content digest, daem writes v15 with
+the statefile location, or v14 if retaining the unlocated encoding. A single
+file can contain both new digests and older baselines. Without a new digest,
+located files use v11, or v13 when recording the selected Claude global hook
+settings file. Shared output and carrier registries use v5 and v3, respectively.
 These formats retain filesystem lookup locations separately from comparison
 identities. Older binaries cannot read them. Existing usable legacy files can
 retain their encoding when automatic conversion is deferred; different files
@@ -53,15 +55,37 @@ location is saved, run `daem recover` with the original `CLAUDE_CONFIG_DIR`
 (or its original default). Recovery checks the settings location before it
 changes a file; selecting another profile does not redirect the rollback.
 
-The statefile is private authority data. Daem writes and accepts it only as an
-invoking-user-owned regular file with exact mode `0600`; final symlinks,
-special files, replacement during a read, oversized content, and other
-permission modes are rejected.
+Daem creates state files, journals and registries with mode `0600`. Changing the
+permissions on an existing record does not invalidate it or reset its mode on the
+next write. Daem still requires a regular file owned by the invoking user; it
+rejects final symlinks, special files, replacement during a read and oversized
+content. Keep these records where only trusted users can write them.
 
-Exact-mode projections retain last-verified permission bits. Executable-class
-files retain executable class through content identity, not a read/write-bit
-baseline. Neither is a current-mode observation: interrupted-operation recovery
-separately captures the physical mode it must guard and restore.
+If a manifest and lockfile update is interrupted, daem compares each file's
+contents with the recorded before and after versions. Changing only permissions
+does not block recovery. If either file contains an unrecognized edit, daem
+leaves the files and the recovery record in place.
+
+For installed instructions, hook assets, copied skills and whole `agent_config`
+files, daem compares content, not permission bits. Updating a file preserves its current mode,
+even when it is `0444` and the operating system allows replacement through
+the parent directory. Rolling back a tree preserves the current permissions
+of surviving entries and restores the saved modes of entries daem removed.
+Read, traversal and replacement errors from the operating system still apply.
+
+Older baselines include the executable bit. For a file, daem checks the same
+bytes against both possible executable classes. For a skill, daem checks the
+installed tree using its current executable bits. It can also try the bits
+from the verified source, or from the journal backup during recovery. If none
+reproduce the recorded hash, daem leaves the tree in place. With a copy of the
+original tree, use `daem migrate metadata --baseline-tree <dir> --dry-run` to
+preview conversion of the matching state records. For an interrupted apply,
+use `daem recover --baseline-tree <dir> --dry-run` instead.
+
+For shared settings, recovery identifies managed hooks, MCP servers, and keys
+by their values. If the file still exists, rolling those values back leaves
+its current permissions intact. If daem deleted the file, undoing that deletion
+recreates it with the permissions it had before removal.
 
 Externally changed managed outputs report drift rather than being overwritten.
 Unowned existing outputs report `unmanaged_output_exists`; exact adoption must
@@ -261,7 +285,9 @@ settings file cannot satisfy the recorded binding.
 Dry-run reports actions and blockers without changing permissions. Confirmed
 recovery can restrict independently qualified documents even when another is
 blocked, but succeeds only after every selected protection is confirmed cleared.
-It removes newly granted access without restoring rights already removed.
+If access is already within the recorded limit, recovery leaves the file alone.
+For example, it can clear a record made at `0600` after the owner changes the
+file to `0400`, without granting write access again.
 Failed or uncertain qualification leaves unresolved work; an `unknown` result
 does not assert that the old record is still present. Clearing a protection is
 not proof that temporary access never occurred. Permission-only recovery does
@@ -275,12 +301,19 @@ failures, `recover` can clean up, roll back guarded changes, or finish claim
 finalization after host and state commit. Recovery handles one interrupted
 operation or its retained cleanup, not historical snapshots.
 
-Current ordinary journals use format 15, coupled to canonical Snapshot v10
-encoding for recovery fingerprints, not the physical Statefile version. Recover
-an older active journal with
-the daem version that wrote it before upgrading; current recovery does not
-migrate it. Preserve the journal and backups when a version mismatch blocks
-recovery.
+Ordinary journals use format 15 and canonical Snapshot v10 for recovery
+fingerprints, independently of the physical statefile version. If removing
+the last ordinary projection deletes its settings file, daem writes format 18
+(19 for a transaction that also edits native documents). Older readers could
+plan this rollback but fail before recreating the file. They reject the new
+formats instead. Journals that need installed-content evidence use format 20
+(21 when combined with native changes). These journals can keep tree backups
+private and record restoration modes separately from the backup files. Format
+22 records the current permissions of a whole configuration file when they
+differ from its creation mode. On rollback, daem keeps the permissions of a
+surviving file and uses the recorded mode only to recreate a deleted file.
+Use the writing version or a newer compatible version to
+recover, and keep the journal and backups if a version mismatch blocks recovery.
 
 An active Linux journal from a previous boot is refused before recovery effects.
 A clean reboot does not invalidate manifests, lockfiles or a newly planned

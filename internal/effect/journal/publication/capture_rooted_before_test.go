@@ -160,6 +160,7 @@ func TestCaptureGlobalFileFallbackUsesBoundedStableSnapshot(t *testing.T) {
 		0,
 		action,
 		func(output.Destination) (string, error) { return hostPath, nil },
+		&ordinaryCaptureWork{},
 	)
 	if err != nil {
 		t.Fatalf("captureExistingRecoveryBeforePath returned error: %v", err)

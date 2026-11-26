@@ -23,13 +23,13 @@ func recoveryDocumentWholeState(document aggregate.Document, mode os.FileMode) r
 	if !document.Exists() {
 		return recoveryWholePathState{}
 	}
+	return recoveryFileState(document.Content(), mode)
+}
+
+func recoveryFileState(content []byte, mode os.FileMode) recoveryWholePathState {
 	return recoveryWholePathState{
 		existed: true, kind: recovery.PathKindFile,
-		contentHash: string(artifact.HashFileContentWithExecutable(
-			document.Content(),
-			mode.Perm()&0o111 != 0,
-		)),
-		fileMode: mode.Perm(),
+		contentHash: string(artifact.InstalledFileHash(content)), fileMode: mode.Perm(),
 	}
 }
 
@@ -42,17 +42,9 @@ func validateRecoveryWholeFileInput(
 ) error {
 	current := recoveryWholePathState{}
 	if exists {
-		current = recoveryWholePathState{
-			existed: true,
-			kind:    recovery.PathKindFile,
-			contentHash: string(artifact.HashFileContentWithExecutable(
-				content,
-				mode.Perm()&0o111 != 0,
-			)),
-			fileMode: mode.Perm(),
-		}
+		current = recoveryFileState(content, mode)
 	}
-	if !current.equal(expected) {
+	if !current.sameContent(expected) {
 		return fmt.Errorf(
 			"recovery destination %q changed between recovery actions",
 			destination,
@@ -63,7 +55,7 @@ func validateRecoveryWholeFileInput(
 
 func validateRecoveryExpectedAbsent(action RestorationAction, codecs aggregate.CodecCatalog) error {
 	if action.ContentPath != "" {
-		return validateRecoveryExpectedContentPath(action, nil, 0, false, codecs)
+		return validateRecoveryExpectedContentPath(action, nil, false, codecs)
 	}
 	if !action.ExpectedAfter.Equal(recovery.ExpectedPathState{}) {
 		return fmt.Errorf("recovery destination %q differs from expected absent state", action.Destination)
@@ -78,26 +70,20 @@ func validateRecoveryExpectedFile(
 	codecs aggregate.CodecCatalog,
 ) error {
 	if action.ContentPath != "" {
-		return validateRecoveryExpectedContentPath(action, content, mode, true, codecs)
+		return validateRecoveryExpectedContentPath(action, content, true, codecs)
 	}
 	expected := action.ExpectedAfter
 	if !expected.Existed ||
 		expected.PathExisted ||
 		expected.Kind != recovery.PathKindFile ||
 		expected.LinkTarget != "" ||
-		expected.PathMode == nil ||
-		expected.PathMode.FileMode().Perm() != mode.Perm() {
+		expected.PathMode == nil {
 		return fmt.Errorf("recovery file %q differs from expected kind or mode", action.Destination)
 	}
-	contentHash := string(artifact.HashFileContentWithExecutable(
-		content,
-		mode.Perm()&0o111 != 0,
-	))
-	if contentHash != expected.ContentHash {
+	if !artifact.ContentHash(expected.ContentHash).MatchesFile(content) {
 		return fmt.Errorf(
-			"recovery file %q hash %q does not match expected %q",
+			"recovery file %q does not match expected hash %q",
 			action.Destination,
-			contentHash,
 			expected.ContentHash,
 		)
 	}
@@ -126,7 +112,6 @@ func validateRecoveryExpectedDirectory(
 func validateRecoveryExpectedContentPath(
 	action RestorationAction,
 	content []byte,
-	mode os.FileMode,
 	pathExists bool,
 	codecs aggregate.CodecCatalog,
 ) error {
@@ -134,12 +119,8 @@ func validateRecoveryExpectedContentPath(
 	if pathExists != expected.PathExisted {
 		return fmt.Errorf("recovery document presence changed after final planning for %q", action.Destination)
 	}
-	if pathExists {
-		if expected.PathMode == nil || expected.PathMode.FileMode().Perm() != mode.Perm() {
-			return fmt.Errorf("recovery document %q mode changed after final planning", action.Destination)
-		}
-	} else if expected.PathMode != nil {
-		return fmt.Errorf("absent recovery document %q carries an expected mode", action.Destination)
+	if pathExists != (expected.PathMode != nil) {
+		return fmt.Errorf("recovery document %q has inconsistent recorded presence and mode", action.Destination)
 	}
 
 	projection, present, err := recoveryContentPathProjection(action, content, pathExists, codecs)
@@ -266,7 +247,7 @@ func stageRootedRollbackDestinations(
 		if err != nil {
 			return nil, fmt.Errorf("read rooted rollback source %q: %w", destination.Logical(), err)
 		}
-		if !identity.Equal(captured) {
+		if !mutationfs.SameEntryObject(identity, captured) {
 			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.Logical())
 		}
 		work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
@@ -288,11 +269,7 @@ func stageRootedRollbackDestinations(
 		baseline.stagedWork = work
 		baseline.fileMode = mode.Perm()
 		baseline.identity = captured
-		baseline.stagedState = recoveryWholePathState{
-			existed: true, kind: recovery.PathKindFile,
-			contentHash: string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
-			fileMode:    mode.Perm(),
-		}
+		baseline.stagedState = recoveryFileState(content, mode)
 		baseline.backup, err = OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
@@ -332,10 +309,18 @@ func stageRootedRollbackDestinations(
 			return nil, fmt.Errorf("charge rooted rollback directory staging: %w", err)
 		}
 		contentHash := sink.contentHash()
+		hashes, err := sink.hashBuilder.Hashes()
+		if err != nil {
+			return nil, err
+		}
 		for _, action := range actions {
+			observed := contentHash
+			if artifact.ContentHash(action.action.ExpectedAfter.ContentHash).IsInstalled() {
+				observed = hashes.Installed
+			}
 			if err := validateRecoveryExpectedDirectory(
 				action.action,
-				string(contentHash),
+				string(observed),
 				string(artifact.ArtifactKindDirectory),
 			); err != nil {
 				return nil, err
@@ -345,13 +330,13 @@ func stageRootedRollbackDestinations(
 		baseline.stagedWork = work
 		baseline.identity = captured
 		baseline.stagedState = recoveryWholePathState{
-			existed: true, kind: recovery.PathKindDirectory, contentHash: string(contentHash),
+			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hashes.Installed),
 		}
 		baseline.backup, err = OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
 			baseline.kind,
-			baseline.stagedState.contentHash,
+			string(contentHash),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("bind rooted rollback directory %q: %w", destination.Logical(), err)
@@ -442,17 +427,13 @@ func observeRecoveryWholePathState(
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}
-		if !identity.Equal(captured) {
+		if !mutationfs.SameEntryObject(identity, captured) {
 			return recoveryWholePathState{}, nil, fmt.Errorf(
 				"rollback source %q changed while observing",
 				destination.Logical(),
 			)
 		}
-		return recoveryWholePathState{
-			existed: true, kind: recovery.PathKindFile,
-			contentHash: string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
-			fileMode:    mode.Perm(),
-		}, captured, nil
+		return recoveryFileState(content, mode), captured, nil
 	case mutationfs.EntryKindDirectory:
 		sink := NewDirectoryHashSink(ctx)
 		limits, err := recoveryTraversalLimits(maximumWork)
@@ -474,22 +455,22 @@ func observeRecoveryWholePathState(
 				destination.Logical(),
 			)
 		}
-		hash, err := sink.Sum()
+		hashes, err := sink.builder.Hashes()
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}
 		return recoveryWholePathState{
-			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hash),
+			existed: true, kind: recovery.PathKindDirectory, contentHash: string(hashes.Installed),
 		}, captured, nil
 	}
 	return recoveryWholePathState{}, nil, fmt.Errorf("rollback source %q has no admitted state", destination.Logical())
 }
 
-func validateStagedRecoveryDestination(
+func refreshStagedRecoveryDestination(
 	ctx context.Context,
 	authority *Restoration,
 	budget *physicalwork.Budget,
-	entry hostRollbackEntry,
+	entry *hostRollbackEntry,
 ) error {
 	if !entry.existed {
 		capability, err := authority.operation.destinations.Acquire(entry.destination)
@@ -524,18 +505,19 @@ func validateStagedRecoveryDestination(
 			err,
 		)
 	}
-	if !current.equal(entry.stagedState) {
+	if !current.sameContent(entry.stagedState) {
 		return fmt.Errorf(
 			"recovery destination %q changed after rollback staging",
 			entry.destination.Logical(),
 		)
 	}
-	if entry.identity == nil || identity == nil || !entry.identity.Equal(identity) {
+	if !mutationfs.SameEntryObject(entry.identity, identity) {
 		return fmt.Errorf(
 			"recovery destination %q changed entry identity after rollback staging",
 			entry.destination.Logical(),
 		)
 	}
+	entry.identity, entry.fileMode = identity, current.fileMode
 	return nil
 }
 
@@ -601,7 +583,7 @@ func newRollbackTreeBackupSink(
 	return &rollbackTreeBackupSink{
 		ctx:         ctx,
 		root:        root,
-		hashBuilder: artifact.NewDirectoryHashBuilder(),
+		hashBuilder: artifact.NewDirectoryEvidenceBuilder(),
 	}
 }
 

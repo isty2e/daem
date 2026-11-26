@@ -419,7 +419,7 @@ func isAllowedJournalRecoveryImport(importPath string, internalImport string, is
 		}
 	}
 	switch importPath {
-	case "fmt", "io/fs", "path", "slices", "strings":
+	case "fmt", "io/fs", "maps", "path", "slices", "strings":
 		return true
 	default:
 		return false

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/execute/controlwitness"
@@ -20,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -253,7 +255,24 @@ func (authority *Operation) RemoveRootedEntry(
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	contentHash artifact.ContentHash,
 ) (mutationfs.CommitOutcome, error) {
+	return authority.removeRootedEntry(ctx, destination, capability, expected, contentHash, nil)
+}
+
+// RetireTreeForReplacement transfers the last observed permissions to the
+// private replacement before removing the verified source tree.
+func (authority *Operation) RetireTreeForReplacement(ctx context.Context, destination mutationnamespace.Destination, capability rootedpath.CommitCapability, expected mutationfs.EntryIdentity, contentHash artifact.ContentHash, replacement mutationfs.PreparedRootedTree) (mutationfs.CommitOutcome, error) {
+	if expected == nil || expected.Kind() != mutationfs.EntryKindDirectory || !contentHash.IsInstalled() || replacement == nil {
+		if capability != nil {
+			_ = capability.Close()
+		}
+		return uncommittedRemovalFailure(fmt.Errorf("tree replacement requires an existing directory, its installed digest and a prepared tree"))
+	}
+	return authority.removeRootedEntry(ctx, destination, capability, expected, contentHash, replacement)
+}
+
+func (authority *Operation) removeRootedEntry(ctx context.Context, destination mutationnamespace.Destination, capability rootedpath.CommitCapability, expected mutationfs.EntryIdentity, contentHash artifact.ContentHash, replacement mutationfs.PreparedRootedTree) (mutationfs.CommitOutcome, error) {
 	if !destination.IsRooted() {
 		return uncommittedRemovalFailure(fmt.Errorf("mutation destination is invalid"))
 	}
@@ -308,13 +327,22 @@ func (authority *Operation) RemoveRootedEntry(
 		}
 		return uncommittedRemovalFailure(err)
 	}
-	limits, err := authority.beginForwardRemoval(
+	var modes map[string]fs.FileMode
+	if replacement != nil {
+		modes = make(map[string]fs.FileMode)
+	}
+	entry, err := authority.beginForwardRemoval(
 		ctx,
 		removalDestination,
 		capability,
 		expected,
+		contentHash,
 		intent,
+		modes,
 	)
+	if err == nil && replacement != nil {
+		err = replacement.PreserveMatchingModes(ctx, modes)
+	}
 	if err != nil {
 		if capability != nil {
 			_ = capability.Close()
@@ -324,9 +352,9 @@ func (authority *Operation) RemoveRootedEntry(
 	outcome, err := authority.filesystem.RemoveRootedEntryWithResidue(
 		ctx,
 		capability,
-		expected,
+		entry.identity,
 		intent.Namespace().Names(),
-		limits,
+		entry.limits,
 	)
 	if err != nil {
 		return outcome, NewCommitError(outcome, err)

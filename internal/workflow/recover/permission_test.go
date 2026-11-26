@@ -106,7 +106,7 @@ func TestPermissionRecoverContainsSafePeersAndRetriesWithoutRestoringRights(t *t
 	if err := os.Chmod(fixture.Documents[0], 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(fixture.Documents[1], 0o600); err != nil {
+	if err := os.Chmod(fixture.Documents[1], 0o400); err != nil {
 		t.Fatal(err)
 	}
 	retry, err := Plan(t.Context(), PlanInput{ManifestPath: fixture.Paths.ManifestPath})
@@ -117,7 +117,7 @@ func TestPermissionRecoverContainsSafePeersAndRetriesWithoutRestoringRights(t *t
 		t.Fatal(err)
 	}
 	secure, _ = os.Stat(fixture.Documents[1])
-	if secure.Mode().Perm() != 0o600 {
+	if secure.Mode().Perm() != 0o400 {
 		t.Fatal("retry restored removed rights")
 	}
 }

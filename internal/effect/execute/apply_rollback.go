@@ -253,9 +253,9 @@ func settlePreHostApplyFailure(
 		),
 	); rollbackErr != nil {
 		return fmt.Errorf(
-			"%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run",
+			"%w; ownership rollback failed: %w; recovery journal retained; run: daem recover --dry-run",
 			primary,
-			rollbackErr,
+			applyprogram.RollbackFailure{Cause: rollbackErr},
 		)
 	}
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
@@ -317,6 +317,14 @@ func applyRecoveryErrorWithEvents(
 		return errors.Join(primary, settlementErr)
 	}
 	events.Emit(executionevent.RollbackRestoreStarted, executionevent.StageRollbackRestore, nil, nil)
+	failRollback := func(stage string, cause error) error {
+		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, cause)
+		if stage != "" {
+			stage += ": "
+		}
+		return fmt.Errorf("%w; %s%w; recovery journal retained; run: daem recover --dry-run", primary, stage, applyprogram.RollbackFailure{Cause: cause})
+	}
+
 	if err := effectExecution.Observe(
 		settlementPrefix+"/progress-classification",
 		applyprogram.FailureUnavailable,
@@ -327,9 +335,7 @@ func applyRecoveryErrorWithEvents(
 			return nil
 		},
 	); err != nil {
-		recoveryErr := err
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, recoveryErr)
-		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, recoveryErr)
+		return failRollback("", err)
 	}
 
 	recoveryCtx := context.WithoutCancel(ctx)
@@ -344,8 +350,7 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; select guarded rollback entries failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return failRollback("select guarded rollback entries failed", err)
 	}
 	var plan recovery.Plan
 	err = effectExecution.Observe(
@@ -367,8 +372,7 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; load guarded rollback plan failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return failRollback("load guarded rollback plan failed", err)
 	}
 	if err := effectExecution.Observe(
 		settlementPrefix+"/journal-validation",
@@ -380,8 +384,7 @@ func applyRecoveryErrorWithEvents(
 			return nil
 		},
 	); err != nil {
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return failRollback("", err)
 	}
 	var execution *activeRecoveryExecution
 	err = effectExecution.Observe(
@@ -398,12 +401,10 @@ func applyRecoveryErrorWithEvents(
 		},
 	)
 	if err != nil {
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; compile guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return failRollback("compile guarded rollback settlement failed", err)
 	}
 	if err := effectExecution.HandoffGuardedRecovery(); err != nil {
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; handoff guarded rollback settlement failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return failRollback("handoff guarded rollback settlement failed", err)
 	}
 	if err := executeRecoveryPlanEffects(recoveryCtx, plan, paths, RecoveryOptions{
 		reloadPlan: func(
@@ -427,9 +428,7 @@ func applyRecoveryErrorWithEvents(
 		StateCodec:                  stateCodec,
 		Filesystem:                  authority.filesystem,
 	}, execution); err != nil {
-		err = execution.finish(err, nil)
-		events.Emit(executionevent.RollbackRestoreFailed, executionevent.StageRollbackRestore, nil, err)
-		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
+		return failRollback("guarded rollback failed", execution.finish(err, nil))
 	}
 	events.Emit(executionevent.RollbackRestored, executionevent.StageRollbackRestore, nil, nil)
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {

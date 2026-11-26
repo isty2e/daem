@@ -218,6 +218,7 @@ func completeRemovalTransitionStates(
 	expected recovery.ExpectedPathState,
 ) (recovery.BeforePathState, recovery.ExpectedPathState) {
 	before.BackupPath = ""
+	before.TreeModes = ""
 	if action.ContentPath == "" {
 		return before, expected
 	}

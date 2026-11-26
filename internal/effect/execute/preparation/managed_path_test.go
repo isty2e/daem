@@ -99,6 +99,7 @@ func TestManagedPathEffectCorrelatesExactCrossPlacementRelocation(t *testing.T) 
 		desiredHash:      testArtifactHash("new"),
 		contentKind:      previous.ContentKind(),
 		permissionPolicy: previous.PermissionPolicy(),
+		previousLiveHash: previous.ContentHash(),
 		previous:         &previous,
 	}
 	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
@@ -380,7 +381,8 @@ func TestManagedPathEffectRejectsUncorrelatedRecordAndRemoveEvidence(t *testing.
 	base := managedPathEffectFacts{
 		subject: previous.Subject(), scope: previous.Scope(), destination: previous.Destination(),
 		desiredHash: previous.ContentHash(), liveHash: previous.ContentHash(),
-		contentKind: realization.PathProjectionFile, permissionPolicy: realization.PathPermissionsExact,
+		previousLiveHash: previous.ContentHash(),
+		contentKind:      realization.PathProjectionFile, permissionPolicy: realization.PathPermissionsExact,
 		desiredFileMode: 0o700, liveFileMode: 0o700,
 	}
 
@@ -394,7 +396,7 @@ func TestManagedPathEffectRejectsUncorrelatedRecordAndRemoveEvidence(t *testing.
 	recordModeMismatch := base
 	recordModeMismatch.consumerTargets = previous.ConsumerTargets()
 	recordModeMismatch.liveFileMode = 0o755
-	if err := (ManagedPathEffect{record: &managedPathRecordEffect{facts: recordModeMismatch}}).Validate(); err == nil || !strings.Contains(err.Error(), "live mode") {
+	if err := (ManagedPathEffect{record: &managedPathRecordEffect{facts: recordModeMismatch}}).Validate(); err != nil {
 		t.Fatalf("record mode mismatch error = %v", err)
 	}
 
@@ -408,7 +410,7 @@ func TestManagedPathEffectRejectsUncorrelatedRecordAndRemoveEvidence(t *testing.
 	removeModeMismatch := base
 	removeModeMismatch.liveFileMode = 0o755
 	removeModeMismatch.previous = &previous
-	if err := (ManagedPathEffect{remove: &managedPathRemoveEffect{facts: removeModeMismatch}}).Validate(); err == nil || !strings.Contains(err.Error(), "live mode") {
+	if err := (ManagedPathEffect{remove: &managedPathRemoveEffect{facts: removeModeMismatch}}).Validate(); err != nil {
 		t.Fatalf("remove mode mismatch error = %v", err)
 	}
 }

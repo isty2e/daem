@@ -55,6 +55,7 @@ func (transition *recoveryRemovalTransition) UnmarshalJSON(content []byte) error
 // before-state facts. It remains private so wire syntax cannot become recovery
 // policy.
 type recoveryBeforePathDTO struct {
+	TreeModes     recovery.TreeModes       `json:"tree_modes,omitempty"`
 	Existed       bool                     `json:"existed"`
 	PathExisted   bool                     `json:"path_existed,omitempty"`
 	ParentExisted bool                     `json:"parent_existed,omitempty"`
@@ -87,6 +88,7 @@ func (persisted *recoveryBeforePathDTO) UnmarshalJSON(content []byte) error {
 
 func persistedBeforePathState(state recovery.BeforePathState) recoveryBeforePathDTO {
 	return recoveryBeforePathDTO{
+		TreeModes:     state.TreeModes,
 		Existed:       state.Existed,
 		PathExisted:   state.PathExisted,
 		ParentExisted: state.ParentExisted,
@@ -100,6 +102,7 @@ func persistedBeforePathState(state recovery.BeforePathState) recoveryBeforePath
 
 func (persisted recoveryBeforePathDTO) canonical() recovery.BeforePathState {
 	return recovery.BeforePathState{
+		TreeModes:     persisted.TreeModes,
 		Existed:       persisted.Existed,
 		PathExisted:   persisted.PathExisted,
 		ParentExisted: persisted.ParentExisted,

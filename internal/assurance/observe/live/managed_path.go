@@ -17,9 +17,10 @@ import (
 // ManagedPathRequest is one typed observation request derived from a locked
 // realization or managed-state authority record.
 type ManagedPathRequest struct {
-	Subject     topology.SubjectID
-	Destination output.Destination
-	ContentKind realization.PathProjectionContentKind
+	LegacyExecutables artifact.ExecutablePaths
+	Subject           topology.SubjectID
+	Destination       output.Destination
+	ContentKind       realization.PathProjectionContentKind
 }
 
 // ManagedPathEvidence observes every distinct requested subject/address pair.
@@ -110,10 +111,11 @@ func observeManagedPathEvidence(
 	if request.ContentKind == realization.PathProjectionDirectory && !info.IsDir() {
 		return observe.ManagedPathEvidence{}, fmt.Errorf("observe destination %q: expected directory", destination)
 	}
-	contentHash, artifactKind, err := access.HashPath(ctx, hostPath)
+	view, err := access.OpenView(hostPath)
 	if err != nil {
 		return observe.ManagedPathEvidence{}, fmt.Errorf("observe destination %q: %w", destination, err)
 	}
+	artifactKind := view.Kind()
 	if !managedPathArtifactKindMatches(request.ContentKind, artifactKind) {
 		return observe.ManagedPathEvidence{}, fmt.Errorf(
 			"observe destination %q: expected %s",
@@ -125,13 +127,16 @@ func observeManagedPathEvidence(
 	if artifactKind == artifact.ArtifactKindFile {
 		fileMode = info.Mode().Perm()
 	}
-	return observe.NewManagedPathEvidence(
-		request.Subject,
-		destination,
-		true,
-		contentHash,
-		fileMode,
-	)
+	var hashes artifact.PathHashes
+	if request.LegacyExecutables != nil {
+		hashes, err = view.TreeHashes(ctx, request.LegacyExecutables, nil)
+	} else {
+		hashes, err = view.PathHashes(ctx)
+	}
+	if err != nil {
+		return observe.ManagedPathEvidence{}, fmt.Errorf("observe destination %q: %w", destination, err)
+	}
+	return observe.NewObservedPath(request.Subject, destination, hashes, fileMode)
 }
 
 func managedPathArtifactKindMatches(

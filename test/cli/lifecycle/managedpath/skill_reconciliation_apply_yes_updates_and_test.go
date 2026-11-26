@@ -22,6 +22,10 @@ func TestRunApplyYesUpdatesAndDeletesManagedSkillDirectories(t *testing.T) {
 	testkit.WriteFile(t, tempDir, ".agents/skills/removed/SKILL.md", "---\nname: removed\n---\n")
 	activeNewHash := testkit.HashDirectory(t, filepath.Join(tempDir, "skills/active"))
 	activeOldHash := testkit.HashDirectory(t, filepath.Join(tempDir, ".agents/skills/active"))
+	activeFile := filepath.Join(tempDir, ".agents/skills/active/SKILL.md")
+	if err := os.Chmod(activeFile, 0o744); err != nil {
+		t.Fatal(err)
+	}
 	removedHash := testkit.HashDirectory(t, filepath.Join(tempDir, ".agents/skills/removed"))
 
 	testkit.WriteFile(t, tempDir, "daem.toml", `
@@ -50,6 +54,9 @@ targets = ["codex"]
 		t.Fatalf("stdout = %q, want update and delete actions", stdout.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(tempDir, ".agents/skills/active/SKILL.md"), "---\nname: active\ndescription: active\nversion: new\n---\n")
+	if info, err := os.Stat(activeFile); err != nil || info.Mode().Perm() != 0o744 {
+		t.Fatalf("legacy skill after update: %v, error %v", info, err)
+	}
 	if _, err := os.Stat(filepath.Join(tempDir, ".agents/skills/removed")); !os.IsNotExist(err) {
 		t.Fatalf("removed skill directory exists or stat failed: %v", err)
 	}
@@ -58,7 +65,7 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "active", "codex", "project", ".agents/skills/active", activeNewHash)
+	testkit.AssertSkillPathState(t, state, "active", "codex", "project", ".agents/skills/active", testkit.InstalledHash(t, filepath.Join(tempDir, "skills/active")))
 	testkit.AssertSkillPathStateMissing(t, state, "removed", "project", ".agents/skills/removed")
 	testkit.AssertNoRecoveryArtifacts(t, tempDir)
 }

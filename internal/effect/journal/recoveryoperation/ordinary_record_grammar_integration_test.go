@@ -142,7 +142,7 @@ func ordinaryGrammarJournalBytes(t *testing.T) []byte {
 }
 
 func TestZeroRecordedPathFactsRefuseBeforeObservation(t *testing.T) {
-	observations, err := journalqualification.ObservePaths(t.Context(), []journalrecord.PathEntry{{}}, nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
+	observations, err := journalqualification.LegacyTreeLabels(nil).ObservePaths(t.Context(), []journalrecord.PathEntry{{}}, nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
 	if err == nil || observations != nil {
 		t.Fatal("zero path view reached observation or supplied a prefix")
 	}
@@ -177,7 +177,7 @@ func TestRecordedPathObservationKeepsEntryFailureInItsDiagnostic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observations, err := journalqualification.ObservePaths(t.Context(), basis.PlanningEntries(), nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
+	observations, err := journalqualification.LegacyTreeLabels(nil).ObservePaths(t.Context(), basis.PlanningEntries(), nil, nil, nil, nil, aggregate.CodecCatalog{}, nil)
 	if err != nil || len(observations) != 1 || observations[0].Path != "AGENTS.md" || observations[0].Error == "" {
 		t.Fatal("missing project authority did not remain an entry-local observation error", err)
 	}

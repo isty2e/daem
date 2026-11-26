@@ -90,6 +90,8 @@ func TestPermissionRestrictionNeverRestoresRemovedRights(t *testing.T) {
 		{0o600, 0o644, 0o600, true},
 		{0o640, 0o604, 0o600, true},
 		{0o644, 0o600, 0o600, false},
+		{0o600, 0o400, 0o400, false},
+		{0o750, 0o640, 0o640, false},
 		{0o640, 0o640, 0o640, false},
 		{0o400, 0o444, 0o400, true},
 		{0o700, 0o744, 0o700, true},
@@ -105,7 +107,7 @@ func TestPermissionRestrictionNeverRestoresRemovedRights(t *testing.T) {
 		}
 	}
 	document := testPendingProtection(t, binding).Documents()[0]
-	for _, test := range []struct{ uid, gid, mode uint32 }{{502, 20, 0o644}, {501, 21, 0o644}, {501, 20, 0o440}, {501, 20, 0o740}, {501, 20, 0o4640}} {
+	for _, test := range []struct{ uid, gid, mode uint32 }{{502, 20, 0o644}, {501, 21, 0o644}, {501, 20, 0o444}, {501, 20, 0o740}, {501, 20, 0o4640}} {
 		if _, _, err := document.Restriction(test.uid, test.gid, test.mode); err == nil {
 			t.Fatal("unqualified owner or special/owner mode change admitted chmod")
 		}

@@ -3,18 +3,24 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -25,6 +31,139 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
+
+func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing.T) {
+	const privateDir = "private-label-fixture"
+	const raw = "private-kernel-fixture"
+	denial := fmt.Errorf("%s: %w", raw, os.ErrPermission)
+	forward := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `quoted"dir`, "AGENTS.md"), Err: denial}
+	restore := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `back\slash`, "settings.json"), Err: denial}
+	rollback := applyprogram.RollbackFailure{Cause: restore}
+	const rollbackRefused = "rollback failed:"
+	const recoveryIncomplete = "automatic recovery did not complete"
+	stale := mutation.StaleSnapshotError{}
+
+	for _, tc := range []struct {
+		name     string
+		err      error
+		forward  bool
+		recovery string
+		reason   applyworkflow.FailureReason
+		outcome  applyworkflow.FailureOutcome
+	}{
+		{"forward", forward, true, "", applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"restored", applyprogram.NewRollbackError(forward, nil), true, "", applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeRolledBack},
+		{"nested rollback refused", errors.Join(errors.New("state commit failed"), applyprogram.RollbackFailure{Cause: rollback}), false, rollbackRefused, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"native restoration refused", &nativeoperation.SettlementError{Apply: errors.New("stop after publication"), Recovery: errors.Join(restore, rollback)}, false, rollbackRefused, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"both writes refused", errors.Join(forward, rollback), true, rollbackRefused, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"native recovery stale", &nativeoperation.SettlementError{Apply: forward, Recovery: stale}, true, recoveryIncomplete, applyworkflow.FailureReasonStaleSnapshot, applyworkflow.FailureOutcomeIncomplete},
+		{"guarded rollback stale", errors.Join(forward, applyprogram.RollbackFailure{Cause: stale}), true, recoveryIncomplete, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"cancelled", errors.Join(forward, context.Canceled), false, "", applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
+		{"rollback after cancellation", errors.Join(context.Canceled, rollback), false, rollbackRefused, applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := applyworkflow.CommandResult{ExecutionAttempted: true}
+			var human, wire bytes.Buffer
+			printApplyFailure(&human, tc.err, applyFailureExecution, result, false)
+			failure := applyworkflow.ClassifyFailure(tc.err, result)
+			if err := clipresent.PrintApplyResultJSON(&wire, clipresent.ApplyResultJSONInput{ExecutionAttempted: true, Failure: &failure}); err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Errors []struct {
+					Code    applyworkflow.FailureReason
+					Phase   applyworkflow.FailurePhase
+					Outcome applyworkflow.FailureOutcome
+					Message string
+				}
+			}
+			if err := json.Unmarshal(wire.Bytes(), &payload); err != nil || len(payload.Errors) != 1 {
+				t.Fatalf("expected one JSON error, got %s (%v)", &wire, err)
+			}
+			entry := payload.Errors[0]
+			if entry.Code != tc.reason || entry.Phase != applyworkflow.FailurePhaseExecution || entry.Outcome != tc.outcome || strings.Contains(wire.String(), privateDir) || strings.Contains(wire.String(), raw) {
+				t.Fatal("wrong classification or private error evidence in JSON:", &wire)
+			}
+			wantRestoreFile := tc.recovery == rollbackRefused
+			for _, text := range []string{entry.Message, human.String()} {
+				primary, secondary, rollbackReported := strings.Cut(text, rollbackRefused)
+				if strings.Contains(primary, forward.Summary()) != tc.forward || rollbackReported != wantRestoreFile || strings.Contains(secondary, restore.Summary()) != wantRestoreFile || strings.Contains(text, recoveryIncomplete) != (tc.recovery == recoveryIncomplete) {
+					t.Fatalf("wrong cause for forward or rollback failure: %s", text)
+				}
+			}
+			forwardNote := "note: affected file: " + strconv.Quote(forward.Destination)
+			restoreNote := "note: rollback file: " + strconv.Quote(restore.Destination)
+			if strings.Contains(human.String(), forwardNote) != tc.forward || strings.Contains(human.String(), restoreNote) != wantRestoreFile || strings.Contains(human.String(), "daem recover --dry-run") != (tc.recovery != "") || strings.Contains(human.String(), raw) {
+				t.Fatal("wrong file or recovery guidance:", &human)
+			}
+		})
+	}
+}
+
+type refuseEditedNativeConfig struct {
+	storagecommit.Adapter
+	path string
+}
+
+func (store refuseEditedNativeConfig) ReplaceRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode os.FileMode, expected mutationfs.EntryIdentity) error {
+	path, err := capability.Destination().LexicalPath()
+	if err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	if path != store.path {
+		return store.Adapter.ReplaceRootedFile(ctx, capability, content, mode, expected)
+	}
+	// An external edit prevents automatic recovery after the refused replacement.
+	if err := os.WriteFile(path, []byte("unmanaged = true\nmodel = 'external'\n"), mode); err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	return errors.Join(&storagecommit.SELinuxLabelError{Destination: path, Err: os.ErrPermission}, capability.Close())
+}
+
+func TestApplyRollbackGuidancePreservesManifestSelection(t *testing.T) {
+	for _, manifest := range []string{"daem.toml", "selected.toml"} {
+		t.Run(manifest, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(root)
+			t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+			writeApplyConfirmationFile(t, root, manifest, `
+version = 1
+targets = ["codex"]
+[[agent_config]]
+id = "settings"
+scope = "project"
+path = "config.toml"
+source = "./source.toml"
+ownership = "keys"
+`)
+			writeApplyConfirmationFile(t, root, "source.toml", "model = 'managed'\n")
+			writeApplyConfirmationFile(t, root, ".codex/config.toml", "unmanaged = true\n")
+
+			var selector []string
+			if manifest != "daem.toml" {
+				selector = []string{"--manifest", manifest}
+			}
+			if code, _, stderr := runCaptureCLI(t, append([]string{"lock"}, selector...)); code != 0 {
+				t.Fatalf("lock failed: %s", stderr)
+			}
+			_, stderr, code := runCLIEdge(t, append([]string{"apply", "--yes"}, selector...), RunOptions{
+				ApplyExecuteOptions: applyworkflow.ExecuteOptions{NativeFilesystem: refuseEditedNativeConfig{path: filepath.Join(root, ".codex", "config.toml")}},
+			})
+			if code != 1 || !strings.Contains(stderr, "existing SELinux label") {
+				t.Fatalf("apply with selector %v returned %d: %s", selector, code, stderr)
+			}
+			_, hint, found := strings.Cut(stderr, "daem recover --dry-run")
+			hint, _, _ = strings.Cut(hint, "\n")
+			if !found || strings.Contains(hint, "--manifest") != (len(selector) != 0) || strings.Contains(hint, manifest) {
+				t.Errorf("wrong recovery guidance for selector %v: %s", selector, stderr)
+			}
+		})
+	}
+}
 
 func TestNativeProtectionDiagnosticsAreActionableOnlyInPlanning(t *testing.T) {
 	for _, unverified := range []bool{false, true} {

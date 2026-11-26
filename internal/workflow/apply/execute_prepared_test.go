@@ -135,6 +135,38 @@ func TestExecuteWithOptionsRejectsChangedDisclosedPlanBeforeEffects(t *testing.T
 	}
 }
 
+func TestDisclosedInstructionUpdatePreservesLaterChmod(t *testing.T) {
+	root := t.TempDir()
+	paths := isolatedApplyTestPaths(t, root)
+	writeApplyManifestFile(t, paths.ManifestPath)
+	source := filepath.Join(root, "instructions", "AGENTS.md")
+	destination := filepath.Join(root, "AGENTS.md")
+	plan := func(content string) *PreparedWrite {
+		t.Helper()
+		writeApplyFile(t, source, content)
+		writeApplyLockfile(t, paths.LockfilePath, applyInstructionLockfile(t, "project", "local:instructions/AGENTS.md?mode=vendor", hashApplyPath(t, source)))
+		prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: paths.ManifestPath, LockfilePath: paths.LockfilePath})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return prepared
+	}
+	if _, err := ExecuteWithOptions(t.Context(), plan("before\n"), ExecuteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	update := plan("after\n")
+	if err := os.Chmod(destination, 0o744); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteWithOptions(t.Context(), update, ExecuteOptions{PlanWasDisclosed: true}); err != nil {
+		t.Fatal(err)
+	}
+	assertApplyFileContent(t, destination, "after\n")
+	if info, err := os.Stat(destination); err != nil || info.Mode().Perm() != 0o744 {
+		t.Fatalf("updated mode: %v, error %v", info, err)
+	}
+}
+
 func TestExecuteWithOptionsRejectsDeclarationRevisionChangeAfterDisclosure(
 	t *testing.T,
 ) {

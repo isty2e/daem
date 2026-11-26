@@ -16,6 +16,7 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 	flags.Bool("json", false, "emit structured JSON")
 	recoverConversion := flags.Bool("recover", false, "recover interrupted metadata conversion or clean inactive metadata")
 	var references []string
+	baselineTree := baselineTreeFlag(flags)
 	flags.Func("reference", "independently known legacy lookup path; may be repeated", func(path string) error {
 		if path == "" {
 			return fmt.Errorf("reference path is required")
@@ -43,6 +44,9 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 		if *recoverConversion && len(references) != 0 {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("migrate metadata failed: --recover uses its recorded selection; --reference applies to a new conversion"))
 		}
+		if *baselineTree != "" && (*recoverConversion || len(references) != 0) {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("migrate metadata failed: --baseline-tree cannot be combined with --recover or --reference"))
+		}
 		if arguments.output == requestedJSON && !*dryRun && !*yes {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("migrate metadata failed: --json requires --dry-run or --yes"))
 		}
@@ -56,7 +60,7 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 			planMetadata = options.metadataMigrationPlan
 		}
 		prepared, err := planMetadata(options.context, migrate.MetadataInput{
-			ManifestPath: *manifest, Recover: *recoverConversion, References: references,
+			ManifestPath: *manifest, Recover: *recoverConversion, References: references, BaselineTree: *baselineTree,
 		})
 		if err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("migrate metadata failed: "))

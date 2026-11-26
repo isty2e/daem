@@ -202,7 +202,11 @@ func TestApplyConvertsEligibleMetadataBeforeItsExistingReplan(t *testing.T) {
 				t.Fatal(err)
 			}
 			var version struct{ Version int }
-			if err := json.Unmarshal(legacy, &version); err != nil || version.Version != 10 {
+			unlocatedVersion := 10
+			if image.Snapshot().HasInstalledHashes() {
+				unlocatedVersion = 14
+			}
+			if err := json.Unmarshal(legacy, &version); err != nil || version.Version != unlocatedVersion {
 				t.Fatal("fixture did not begin with legacy State", err, version)
 			}
 			identity, err := os.Stat(paths.StatefilePath)
@@ -260,7 +264,7 @@ func TestApplyConvertsEligibleMetadataBeforeItsExistingReplan(t *testing.T) {
 				if _, err := statefile.UnmarshalImage(content); err != nil {
 					t.Fatal("eligible write did not consume a converted State image", err)
 				}
-			} else if err := json.Unmarshal(content, &version); err != nil || version.Version != 10 {
+			} else if err := json.Unmarshal(content, &version); err != nil || version.Version != unlocatedVersion {
 				t.Fatal("deferred conversion did not preserve the usable legacy format", err, version)
 			}
 			if foreignState != "" {

@@ -23,7 +23,9 @@ import (
 type recoveryBackupAuthority struct {
 	root        *rootedpath.CapturedRoot
 	destination rootedpath.Destination
-	identity    artifact.ExactIdentity
+	kind        artifact.ArtifactKind
+	ref         artifact.ResolvedRef
+	hash        artifact.ContentHash
 	work        workmeasure.ArtifactWork
 }
 
@@ -68,25 +70,17 @@ func newRecoveryBackupAuthority(
 	if err := destination.Validate(); err != nil {
 		return recoveryBackupAuthority{}, fmt.Errorf("recovery backup destination: %w", err)
 	}
-	identity, err := artifact.NewExactIdentity(
-		artifact.SourceID("recovery:backup"),
-		artifact.ResolvedRef(reference),
-		artifact.ArtifactKind(kind),
-		artifact.ContentHash(contentHash),
-	)
-	if err != nil {
+	if err := errors.Join(artifact.ResolvedRef(reference).Validate(), artifact.ArtifactKind(kind).Validate(), artifact.ContentHash(contentHash).ValidateManaged()); err != nil {
 		return recoveryBackupAuthority{}, err
 	}
 	return recoveryBackupAuthority{
-		root: root, destination: destination, identity: identity, work: work,
+		root: root, destination: destination, kind: artifact.ArtifactKind(kind), ref: artifact.ResolvedRef(reference), hash: artifact.ContentHash(contentHash), work: work,
 	}, nil
 }
 
 func (authority recoveryBackupAuthority) equal(other recoveryBackupAuthority) bool {
 	return authority.root == other.root && authority.destination.Equal(other.destination) &&
-		authority.identity.Kind() == other.identity.Kind() &&
-		authority.identity.ResolvedRef() == other.identity.ResolvedRef() &&
-		authority.identity.ContentHash() == other.identity.ContentHash() &&
+		authority.kind == other.kind && authority.ref == other.ref && authority.hash == other.hash &&
 		authority.work.Equal(other.work)
 }
 
@@ -117,14 +111,14 @@ func (backup Backup) ReadFile(ctx context.Context) ([]byte, error) {
 	if backup.filesystem == nil || backup.budget == nil {
 		return nil, fmt.Errorf("recovery backup execution authority is unavailable")
 	}
-	if backup.authority.identity.Kind() != artifact.ArtifactKindFile || backup.authority.work.Entries() != 0 {
+	if backup.authority.kind != artifact.ArtifactKindFile || backup.authority.work.Entries() != 0 {
 		return nil, fmt.Errorf("recovery backup is not a bounded regular file")
 	}
 	capability, err := backup.acquire(backup.budget)
 	if err != nil {
 		return nil, err
 	}
-	content, mode, _, readErr := backup.filesystem.ReadRootedRegularFileUpTo(
+	content, _, _, readErr := backup.filesystem.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
 		max(int64(1), backup.authority.work.Bytes()),
@@ -147,26 +141,18 @@ func (backup Backup) ReadFile(ctx context.Context) ([]byte, error) {
 			backup.authority.work.Bytes(),
 		)
 	}
-	hash := artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)
-	if hash != backup.authority.identity.ContentHash() {
-		return nil, fmt.Errorf(
-			"recovery file backup hash %q does not match expected hash %q",
-			hash,
-			backup.authority.identity.ContentHash(),
-		)
+	if !backup.authority.hash.MatchesFile(content) {
+		return nil, fmt.Errorf("recovery file backup does not match expected hash %q", backup.authority.hash)
 	}
 	return append([]byte(nil), content...), nil
 }
 
-func (backup Backup) CopyDirectory(
-	ctx context.Context,
-	writer mutationfs.RootedTreeWriter,
-) error {
+func (backup Backup) restoreDirectory(ctx context.Context, writer mutationfs.RootedTreeWriter, packed recovery.TreeModes) (artifact.ContentHash, error) {
 	if backup.filesystem == nil || backup.budget == nil {
-		return fmt.Errorf("recovery backup execution authority is unavailable")
+		return "", fmt.Errorf("recovery backup execution authority is unavailable")
 	}
-	if backup.authority.identity.Kind() != artifact.ArtifactKindDirectory {
-		return fmt.Errorf("recovery backup is not a directory")
+	if backup.authority.kind != artifact.ArtifactKindDirectory {
+		return "", fmt.Errorf("recovery backup is not a directory")
 	}
 	limits, err := mutationfs.NewTreeTraversalLimits(
 		backup.authority.work.Entries(),
@@ -174,30 +160,36 @@ func (backup Backup) CopyDirectory(
 		backup.authority.work.Bytes(),
 	)
 	if err != nil {
-		return err
+		return "", err
 	}
 	capability, err := backup.acquire(backup.budget)
 	if err != nil {
-		return err
+		return "", err
 	}
 	sink, err := newRecoveryDirectoryRestoreSink(ctx, writer)
 	if err != nil {
-		return errors.Join(err, capability.Close())
+		return "", errors.Join(err, capability.Close())
+	}
+	if packed != "" {
+		sink.beforeModes, err = packed.Unpack()
+		if err != nil || len(sink.beforeModes) != backup.authority.work.Entries()+1 {
+			return "", errors.Join(fmt.Errorf("invalid permission list for backup tree"), err, capability.Close())
+		}
 	}
 	_, snapshotErr := backup.filesystem.SnapshotRootedDirectory(ctx, capability, limits, sink)
 	closeErr := capability.Close()
 	if snapshotErr != nil || closeErr != nil {
-		return errors.Join(snapshotErr, closeErr)
+		return "", errors.Join(snapshotErr, closeErr)
 	}
 	actual, err := sink.work()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := backup.budget.AdmitTree(actual); err != nil {
-		return err
+		return "", err
 	}
 	if !actual.Equal(backup.authority.work) {
-		return fmt.Errorf(
+		return "", fmt.Errorf(
 			"recovery directory backup work changed: got entries=%d bytes=%d, want entries=%d bytes=%d",
 			actual.Entries(),
 			actual.Bytes(),
@@ -205,18 +197,18 @@ func (backup Backup) CopyDirectory(
 			backup.authority.work.Bytes(),
 		)
 	}
-	hash, err := sink.hash()
+	hashes, err := sink.hasher.Hashes()
 	if err != nil {
-		return err
+		return "", err
 	}
-	if hash != backup.authority.identity.ContentHash() {
-		return fmt.Errorf(
+	if !hashes.Matches(backup.authority.hash) {
+		return "", fmt.Errorf(
 			"recovery directory backup hash %q does not match expected hash %q",
-			hash,
-			backup.authority.identity.ContentHash(),
+			hashes.Installed,
+			backup.authority.hash,
 		)
 	}
-	return nil
+	return hashes.Installed, nil
 }
 
 type recoveryBackupPathReservation struct {
@@ -377,11 +369,12 @@ func (set *Backups) For(
 }
 
 type recoveryDirectoryRestoreSink struct {
-	ctx     context.Context
-	stage   artifactstage.Sink
-	hasher  *artifact.DirectoryHashBuilder
-	entries int
-	bytes   int64
+	beforeModes []fs.FileMode
+	ctx         context.Context
+	stage       artifactstage.Sink
+	hasher      *artifact.DirectoryHashBuilder
+	entries     int
+	bytes       int64
 }
 
 func newRecoveryDirectoryRestoreSink(
@@ -393,12 +386,20 @@ func newRecoveryDirectoryRestoreSink(
 		return nil, err
 	}
 	return &recoveryDirectoryRestoreSink{
-		ctx: ctx, stage: stage, hasher: artifact.NewDirectoryHashBuilder(),
+		ctx: ctx, stage: stage, hasher: artifact.NewDirectoryEvidenceBuilder(),
 	}, nil
 }
 
 func (sink *recoveryDirectoryRestoreSink) VisitRoot(mode fs.FileMode) error {
-	return sink.stage.BeginDirectory(".", mode)
+	return sink.stage.BeginDirectory(".", sink.restoreMode(mode))
+}
+
+func (sink *recoveryDirectoryRestoreSink) restoreMode(backed fs.FileMode) fs.FileMode {
+	mode := backed.Perm()
+	if len(sink.beforeModes) != 0 {
+		mode, sink.beforeModes = sink.beforeModes[0], sink.beforeModes[1:]
+	}
+	return mode
 }
 
 func (sink *recoveryDirectoryRestoreSink) VisitDirectory(
@@ -408,7 +409,7 @@ func (sink *recoveryDirectoryRestoreSink) VisitDirectory(
 	if err := sink.hasher.AddDirectory(path.Path()); err != nil {
 		return err
 	}
-	if err := sink.stage.BeginDirectory(path.Path(), mode); err != nil {
+	if err := sink.stage.BeginDirectory(path.Path(), sink.restoreMode(mode)); err != nil {
 		return err
 	}
 	sink.entries++
@@ -421,7 +422,7 @@ func (sink *recoveryDirectoryRestoreSink) VisitRegularFile(
 	size int64,
 	content io.Reader,
 ) error {
-	target, err := sink.stage.OpenFile(path.Path(), mode, size)
+	target, err := sink.stage.OpenFile(path.Path(), sink.restoreMode(mode), size)
 	if err != nil {
 		return err
 	}

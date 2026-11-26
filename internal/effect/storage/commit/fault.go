@@ -14,6 +14,7 @@ const (
 	phaseCreateAncestors    phase = "create_ancestors"
 	phasePublishAncestor    phase = "publish_ancestor"
 	phaseCreateTemporary    phase = "create_temporary"
+	phasePrepareFileAccess  phase = "prepare_file_access"
 	phaseWritePayload       phase = "write_payload"
 	phaseReadPayload        phase = "read_payload"
 	phaseApplyMode          phase = "apply_mode"

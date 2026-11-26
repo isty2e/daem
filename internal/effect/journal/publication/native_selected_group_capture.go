@@ -150,15 +150,8 @@ func prepareSelectedDocumentCandidate(ctx context.Context, namespace journalname
 	expectedMode := mode
 	if !expected.Exists() {
 		expectedMode = nil
-	} else {
-		if expectedMode == nil {
-			expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
-		}
-		for _, participant := range participants {
-			if _, native := aggregate.AgentConfigSyntaxForCodec(participant.Selection().CodecContractID()); !native {
-				expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
-			}
-		}
+	} else if expectedMode == nil {
+		expectedMode = recovery.NewPermissionMode(aggregate.DocumentFileMode)
 	}
 	candidate, err := journaldocument.ReconstructSelected(ctx, journaldocument.ComparisonInput{Before: original, Expected: expected, BeforeMode: mode, ExpectedMode: expectedMode, Limits: completed.Limits()}, participants, arrays)
 	if err != nil {

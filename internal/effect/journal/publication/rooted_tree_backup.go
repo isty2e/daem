@@ -14,6 +14,8 @@ import (
 )
 
 type rootedTreeBackupSink struct {
+	private        bool
+	modes          []fs.FileMode
 	ctx            context.Context
 	work           *ordinaryCaptureWork
 	root           string
@@ -33,7 +35,7 @@ func newRootedTreeBackupSink(ctx context.Context, root string, work *ordinaryCap
 		ctx:    ctx,
 		work:   work,
 		root:   root,
-		hasher: artifact.NewDirectoryHashBuilder(),
+		hasher: artifact.NewDirectoryEvidenceBuilder(),
 	}
 }
 
@@ -50,10 +52,7 @@ func (sink *rootedTreeBackupSink) VisitRoot(mode fs.FileMode) error {
 	if err := os.Mkdir(sink.root, 0o700); err != nil {
 		return err
 	}
-	sink.directoryModes = append(sink.directoryModes, rootedTreeBackupDirectoryMode{
-		path: sink.root,
-		mode: mode.Perm(),
-	})
+	sink.recordDirectoryMode(sink.root, mode)
 	sink.initialized = true
 	return nil
 }
@@ -75,11 +74,16 @@ func (sink *rootedTreeBackupSink) VisitDirectory(
 	if err := os.Mkdir(backupPath, 0o700); err != nil {
 		return err
 	}
-	sink.directoryModes = append(sink.directoryModes, rootedTreeBackupDirectoryMode{
-		path: backupPath,
-		mode: mode.Perm(),
-	})
+	sink.recordDirectoryMode(backupPath, mode)
 	return nil
+}
+
+func (sink *rootedTreeBackupSink) recordDirectoryMode(path string, mode fs.FileMode) {
+	if sink.private {
+		sink.modes = append(sink.modes, mode.Perm())
+	} else {
+		sink.directoryModes = append(sink.directoryModes, rootedTreeBackupDirectoryMode{path: path, mode: mode.Perm()})
+	}
 }
 
 func (sink *rootedTreeBackupSink) VisitRegularFile(
@@ -106,7 +110,9 @@ func (sink *rootedTreeBackupSink) VisitRegularFile(
 		size,
 		io.TeeReader(content, file),
 	)
-	if hashErr == nil {
+	if sink.private {
+		sink.modes = append(sink.modes, mode.Perm())
+	} else if hashErr == nil {
 		hashErr = file.Chmod(mode.Perm())
 	}
 	closeErr := file.Close()

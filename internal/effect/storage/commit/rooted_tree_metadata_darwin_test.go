@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestPreparedTreeCapturesOpaqueDarwinCreationXattrs(t *testing.T) {
+func TestPreparedTreeCapturesDarwinAccessLabel(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		values map[string][]byte
@@ -38,12 +38,8 @@ func TestPreparedTreeCapturesOpaqueDarwinCreationXattrs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("capture readable creation metadata: %v", err)
 			}
-			if len(facts) != len(test.values) || len(reads) != len(test.values) {
-				t.Fatalf("captured facts=%v reads=%v, want every observed attribute", facts, reads)
-			}
-
-			if !slices.IsSorted(reads) {
-				t.Fatalf("capture order is not canonical: %v", reads)
+			if len(facts) != 1 || !slices.Equal(reads, []string{"com.apple.macl"}) {
+				t.Fatalf("captured facts=%v reads=%v, want only the access label", facts, reads)
 			}
 			for _, fact := range facts {
 				value, exists := test.values[fact.name]
@@ -107,41 +103,10 @@ func TestPreparedTreeMACLChangesRemainVisible(t *testing.T) {
 	}
 }
 
-func TestPreparedTreeXattrCaptureRefusesUnknownOrUnreadable(t *testing.T) {
-	readFailure := errors.New("controlled attribute read failure")
-	for _, test := range []struct {
-		name      string
-		names     []string
-		failRead  string
-		wantError error
-	}{
-		{
-			name:  "unknown after admitted value",
-			names: []string{"com.apple.macl", "com.apple.macl.extra"},
-		},
-		{
-			name: "read failure after admitted value", names: []string{"com.apple.provenance", "com.apple.macl"},
-			failRead: "com.apple.provenance", wantError: readFailure,
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var reads []string
-			facts, err := capturePreparedTreeXattrFacts("prepared", test.names, func(name string) ([]byte, error) {
-				reads = append(reads, name)
-				if name == test.failRead {
-					return nil, readFailure
-				}
-				return []byte("observed"), nil
-			})
-			if facts != nil || err == nil {
-				t.Fatalf("failed capture returned usable partial evidence: facts=%v err=%v", facts, err)
-			}
-			if test.wantError != nil && !errors.Is(err, test.wantError) {
-				t.Fatalf("capture error = %v, want original read failure", err)
-			}
-			if test.wantError == nil && (!isUnsupported(err) || slices.Contains(reads, "com.apple.macl.extra")) {
-				t.Fatalf("unknown attribute was not refused before reading: reads=%v err=%v", reads, err)
-			}
-		})
+func TestPreparedTreeRefusesUnreadableDarwinAccessLabel(t *testing.T) {
+	readFailure := errors.New("access label unreadable")
+	facts, err := capturePreparedTreeXattrFacts("prepared", []string{"com.apple.macl"}, func(string) ([]byte, error) { return nil, readFailure })
+	if facts != nil || !errors.Is(err, readFailure) {
+		t.Fatalf("capture returned facts=%v error=%v", facts, err)
 	}
 }

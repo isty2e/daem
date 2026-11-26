@@ -118,11 +118,14 @@ func acquireRootedAdvisoryLock(
 func (lock *rootedAdvisoryLock) openDirectory(name string) error {
 	parent := lock.directories[len(lock.directories)-1]
 	var before unix.Stat_t
+	created := false
 	err := unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW)
 	if errors.Is(err, unix.ENOENT) {
-		if err := unix.Mkdirat(parent.fd, name, 0o700); err != nil && !errors.Is(err, unix.EEXIST) {
+		err = unix.Mkdirat(parent.fd, name, 0o700)
+		if err != nil && !errors.Is(err, unix.EEXIST) {
 			return fmt.Errorf("create rooted cache lock directory %q: %w", name, err)
 		}
+		created = err == nil
 		err = unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW)
 	}
 	if err != nil {
@@ -151,9 +154,11 @@ func (lock *rootedAdvisoryLock) openDirectory(name string) error {
 		_ = unix.Close(fd)
 		return fmt.Errorf("rooted cache lock directory %q changed while opening", name)
 	}
-	if err := unix.Fchmod(fd, 0o700); err != nil {
-		_ = unix.Close(fd)
-		return fmt.Errorf("set rooted cache lock directory %q mode: %w", name, err)
+	if created && fs.FileMode(opened.Mode).Perm() != 0o700 {
+		if err := unix.Fchmod(fd, 0o700); err != nil {
+			_ = unix.Close(fd)
+			return fmt.Errorf("set new cache lock directory %q mode: %w", name, err)
+		}
 	}
 	if err := capabilityValidatesDirectory(lock.capability, fd); err != nil {
 		_ = unix.Close(fd)
@@ -204,7 +209,7 @@ func (lock *rootedAdvisoryLock) openRecord() error {
 				return fmt.Errorf("verify rooted cache lock record mode: %w", err)
 			}
 		}
-		if fs.FileMode(opened.Mode).Perm() != 0o600 {
+		if created && fs.FileMode(opened.Mode).Perm() != 0o600 {
 			return fmt.Errorf(
 				"rooted cache lock record permissions are %04o, want 0600",
 				fs.FileMode(opened.Mode).Perm(),

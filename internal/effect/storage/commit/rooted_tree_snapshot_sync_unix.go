@@ -24,7 +24,7 @@ func syncPreparedTreeSnapshotLocked(
 		ctx,
 		prepared.stageFD,
 		prepared.stagePath,
-		prepared.snapshot.root,
+		&prepared.snapshot.root,
 		0,
 		prepared.anchor.capability.ValidateDirectoryHandle,
 		budget,
@@ -42,7 +42,7 @@ func syncPreparedTreeSnapshotDirectory(
 	ctx context.Context,
 	directoryFD int,
 	directoryPath string,
-	expected preparedTreeSnapshotEntry,
+	expected *preparedTreeSnapshotEntry,
 	depth int,
 	validateMount func(uintptr) error,
 	budget *treeTraversalBudget,
@@ -64,23 +64,17 @@ func syncPreparedTreeSnapshotDirectory(
 	if err := budget.admitEntries(len(names)); err != nil {
 		return atPhase(phaseValidate, err)
 	}
-	if !slices.Equal(names, preparedTreeSnapshotChildNames(expected)) {
+	if !slices.Equal(names, preparedTreeSnapshotChildNames(*expected)) {
 		return atPhase(phaseValidate, fmt.Errorf("prepared tree directory entries changed at %q", directoryPath))
 	}
-	for index, child := range expected.children {
+	for index := range expected.children {
+		child := &expected.children[index]
 		if err := ctx.Err(); err != nil {
 			return atPhase(phaseSyncTreeDirectory, err)
 		}
 		name := names[index]
 		childPath := filepath.Join(directoryPath, name)
-		identity, _, err := observeAnyAt(directoryFD, name, childPath)
-		if err != nil {
-			return atPhase(phaseValidate, err)
-		}
-		if !child.identity.sameEntry(identity) {
-			return atPhase(phaseValidate, fmt.Errorf("prepared tree entry %q identity changed", childPath))
-		}
-		childFD, err := openExpectedAt(directoryFD, name, childPath, child.identity)
+		childFD, err := child.openAt(directoryFD, name, childPath)
 		if err != nil {
 			return atPhase(phaseValidate, err)
 		}
@@ -120,7 +114,7 @@ func syncPreparedTreeSnapshotDirectory(
 			return atPhase(phaseSyncTreeDirectory, closeErr)
 		}
 	}
-	if err := verifyPreparedTreeDirectoryBinding(ctx, directoryFD, directoryPath, expected); err != nil {
+	if err := verifyPreparedTreeDirectoryBinding(ctx, directoryFD, directoryPath, *expected); err != nil {
 		return atPhase(phaseValidate, err)
 	}
 	return atPhase(

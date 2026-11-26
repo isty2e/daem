@@ -13,6 +13,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (operation *Operation) VerifyAggregatePreconditions(
@@ -76,7 +77,7 @@ func (operation *Operation) CommitAggregate(
 	if exists {
 		current = aggregate.ExistingDocument(content)
 	}
-	candidate, err := validateAndRenderAggregate(effect, current, mode, codec)
+	candidate, err := validateAndRenderAggregate(effect, current, codec)
 	if err != nil {
 		_ = capability.Close()
 		return err
@@ -86,7 +87,8 @@ func (operation *Operation) CommitAggregate(
 		destination,
 		capability,
 		identity,
-		exists,
+		current,
+		current.ModeForWrite(mode),
 		candidate,
 	)
 	if err != nil {
@@ -103,31 +105,32 @@ func (operation *Operation) commitRootedAggregateCandidate(
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	identity mutationfs.EntryIdentity,
-	exists bool,
+	current aggregate.Document,
+	writeMode os.FileMode,
 	candidate aggregate.Document,
 ) error {
 	switch {
-	case !candidate.Exists() && !exists:
+	case !candidate.Exists() && !current.Exists():
 		if err := capability.Close(); err != nil {
 			return err
 		}
 		return nil
 	case !candidate.Exists():
-		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, identity)
+		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, identity, artifact.InstalledFileHash(current.Content()))
 		return err
-	case !exists:
+	case !current.Exists():
 		return operation.filesystem.CreateRootedFile(
 			ctx,
 			capability,
 			candidate.Content(),
-			aggregate.DocumentFileMode,
+			writeMode,
 		)
 	default:
 		return operation.filesystem.ReplaceRootedFile(
 			ctx,
 			capability,
 			candidate.Content(),
-			aggregate.DocumentFileMode,
+			writeMode,
 			identity,
 		)
 	}
@@ -136,10 +139,9 @@ func (operation *Operation) commitRootedAggregateCandidate(
 func validateAndRenderAggregate(
 	effect effectpreparation.AggregateEffect,
 	current aggregate.Document,
-	mode os.FileMode,
 	codec aggregate.Codec,
 ) (aggregate.Document, error) {
-	if err := validateAggregateBefore(effect, current, mode, codec); err != nil {
+	if err := validateAggregateBefore(effect, current, codec); err != nil {
 		return aggregate.Document{}, err
 	}
 	rendered, failure := codec.Render(current, effect.CodecPlan())
@@ -155,14 +157,10 @@ func validateAndRenderAggregate(
 func validateAggregateBefore(
 	effect effectpreparation.AggregateEffect,
 	current aggregate.Document,
-	mode os.FileMode,
 	codec aggregate.Codec,
 ) error {
 	if !current.Equal(effect.BeforeDocument()) {
 		return fmt.Errorf("aggregate document changed after planning")
-	}
-	if current.Exists() && mode.Perm() != effect.Evidence().FileMode().Perm() {
-		return fmt.Errorf("aggregate document mode changed after planning")
 	}
 	selection, err := effect.BeforeSnapshot().Selection()
 	if err != nil {
@@ -188,7 +186,7 @@ func (operation *Operation) VerifyAggregateBefore(
 	if !ok {
 		return fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())
 	}
-	current, mode, err := operation.ReadDocument(
+	current, _, err := operation.ReadDocument(
 		ctx,
 		destination,
 		codec.MaximumDocumentBytes(),
@@ -196,7 +194,7 @@ func (operation *Operation) VerifyAggregateBefore(
 	if err != nil {
 		return err
 	}
-	return validateAggregateBefore(effect, current, mode, codec)
+	return validateAggregateBefore(effect, current, codec)
 }
 
 func (operation *Operation) verifyAggregatePostcondition(
@@ -210,7 +208,7 @@ func (operation *Operation) verifyAggregatePostcondition(
 	if !ok {
 		return fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())
 	}
-	current, mode, err := operation.ReadDocument(
+	current, _, err := operation.ReadDocument(
 		ctx,
 		destination,
 		codec.MaximumDocumentBytes(),
@@ -220,9 +218,6 @@ func (operation *Operation) verifyAggregatePostcondition(
 	}
 	if !current.Equal(expectedDocument) {
 		return fmt.Errorf("aggregate document postcondition differs from rendered candidate")
-	}
-	if current.Exists() && mode.Perm() != aggregate.DocumentFileMode {
-		return fmt.Errorf("aggregate document mode = %04o, want %04o", mode.Perm(), aggregate.DocumentFileMode)
 	}
 	selection, err := effect.Rendered().Expected().Selection()
 	if err != nil {

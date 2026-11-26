@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/claimoperation"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
@@ -302,7 +303,7 @@ func TestGlobalOwnershipPreparationRollbackFailureRetainsJournalAndPrimaryError(
 	if !errors.Is(err, primary) {
 		t.Fatalf("ApplyWithOptions error = %v, want primary preparation failure", err)
 	}
-	if !strings.Contains(err.Error(), rollback.Error()) ||
+	if !errors.Is(applyprogram.FailedRollbackCause(err), rollback) ||
 		!strings.Contains(err.Error(), "recovery journal retained") {
 		t.Fatalf("ApplyWithOptions error = %v, want rollback failure and recovery guidance", err)
 	}

@@ -159,9 +159,20 @@ func (budget *revisionCaptureBudget) remainingBytes() int64 {
 }
 
 type revisionTreeBudget struct {
+	installed bool
 	operation *revisionCaptureBudget
 	entries   int
 	bytes     int64
+}
+
+func (budget *revisionTreeBudget) executionLabel(executable bool) string {
+	if budget.installed {
+		return "installed"
+	}
+	if executable {
+		return "executable"
+	}
+	return "not-executable"
 }
 
 func (budget *revisionTreeBudget) remainingEntries() int {

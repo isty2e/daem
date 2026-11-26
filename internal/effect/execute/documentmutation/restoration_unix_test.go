@@ -83,7 +83,6 @@ func TestDocumentRestorationPublicationRejectsStagedDriftAndThirdStates(t *testi
 		mode    fs.FileMode
 	}{
 		{"staged bytes", `{"model":"fast","outside":"new","packages":["npm:b","npm:a"]}`, restorationExpected, 0o644},
-		{"staged mode", restorationExpected, restorationExpected, 0o600},
 		{"third native", `{"model":"third","packages":["npm:b","npm:a"]}`, `{"model":"third","packages":["npm:b","npm:a"]}`, 0o644},
 		{"third Pi", `{"model":"fast","packages":["npm:c","npm:a"]}`, `{"model":"fast","packages":["npm:c","npm:a"]}`, 0o644},
 	} {
@@ -135,6 +134,17 @@ func TestDocumentRestorationPublicationRechecksBeforeWriting(t *testing.T) {
 			}
 			mode := recovery.PermissionMode(0o644)
 			outcome := restoreDocumentDestination(t.Context(), authority, destination, restorationPublicationComparison(t, mode), aggregate.ExistingDocument([]byte(restorationExpected)), &mode)
+			if change == "mode" {
+				if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 || outcome.err != nil || !outcome.commitAttempted {
+					t.Fatalf("late chmod was not preserved: stat=%v publication=%v", err, outcome.err)
+				}
+				actual, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertRestorationPublicationProjection(t, actual, []byte(restorationExpected))
+				return
+			}
 			if outcome.err == nil || outcome.commitAttempted || store.reads != 2 || store.writes != 0 {
 				t.Fatalf("last-read drift reached a mutator: %+v, reads=%d writes=%d", outcome, store.reads, store.writes)
 			}
@@ -235,17 +245,23 @@ func TestDocumentRestorationPublicationPreservesUnreadableRecordedMode(t *testin
 				t.Fatal(err)
 			}
 			outcome := restoreDocumentDestination(t.Context(), authority, destination, comparison, staged, stagedMode)
-			if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0 {
-				t.Fatalf("recorded0000 mode was not restored: stat=%v publication=%v", err, outcome.err)
-			}
 			if outcome.err != nil || !outcome.commitAttempted || store.writes != 1 {
 				t.Fatalf("unreadable-mode restoration did not complete: attempted=%v error=%v writes=%d", outcome.commitAttempted, outcome.err, store.writes)
 			}
-			if _, err := os.ReadFile(path); !errors.Is(err, fs.ErrPermission) {
-				t.Fatalf("fixture did not exercise an unreadable file: %v", err)
+			want := expectedMode.FileMode()
+			if recreate {
+				want = beforeMode.FileMode()
 			}
-			if err := os.Chmod(path, 0o600); err != nil {
-				t.Fatal(err)
+			if info, err := os.Stat(path); err != nil || info.Mode().Perm() != want {
+				t.Fatalf("restored root mode: stat=%v, want %04o", info, want)
+			}
+			if recreate {
+				if _, err := os.ReadFile(path); !errors.Is(err, fs.ErrPermission) {
+					t.Fatalf("recreated root should be unreadable: %v", err)
+				}
+				if err := os.Chmod(path, 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			assertMutationTestFile(t, path, "original content")
 		})
@@ -285,8 +301,8 @@ func TestDocumentRestorationPublicationPreservesWholeMetadataAndRequiresRemovalA
 		t.Fatalf("whole restoration failed: %+v", outcome)
 	}
 	assertMutationTestFile(t, path, "opaque original")
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("whole restoration did not restore exact original mode: %v", err)
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != mode.FileMode() {
+		t.Fatalf("whole restoration changed the current mode: %v", err)
 	}
 	input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
 	input.Expected, input.ExpectedMode = aggregate.ExistingDocument([]byte("opaque original")), &beforeMode

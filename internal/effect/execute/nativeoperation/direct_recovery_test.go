@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/namespace/namespacetest"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
@@ -446,6 +447,7 @@ type nativeDirectRecoveryStore struct {
 	mutationfs.Store
 	host       string
 	hostWrites int
+	refusal    error
 }
 
 func (store *nativeDirectRecoveryStore) ReplaceRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode os.FileMode, expected mutationfs.EntryIdentity) error {
@@ -455,6 +457,47 @@ func (store *nativeDirectRecoveryStore) ReplaceRootedFile(ctx context.Context, c
 	}
 	if path == store.host {
 		store.hostWrites++
+		if store.refusal != nil {
+			return errors.Join(store.refusal, capability.Close())
+		}
 	}
 	return store.Store.ReplaceRootedFile(ctx, capability, content, mode, expected)
+}
+
+func TestNativeApplyRetainsFailedDocumentRestoration(t *testing.T) {
+	input, host, original := nativeOrderApplyInput(t, target.ScopeProject)
+	store := &nativeDirectRecoveryStore{Store: input.Filesystem, host: host}
+	input.Filesystem = store
+	plan, err := PrepareNativeApplyEffectPlan(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := nativeOrderApplyOptions(t)
+	accept := options.AcceptVisibilityChanges
+	primary, refusal := errors.New("stop after publication"), errors.New("refused on restoration")
+	options.AcceptVisibilityChanges = func(ctx context.Context) error {
+		if err := accept(ctx); err != nil {
+			return err
+		}
+		if store.hostWrites != 0 && store.refusal == nil {
+			store.refusal = refusal
+			return primary
+		}
+		return nil
+	}
+
+	_, err = ApplyNativeWithEffectPlan(t.Context(), input, plan, options)
+	var failed *SettlementError
+	if !errors.As(err, &failed) || !errors.Is(failed.Apply, primary) || !errors.Is(applyprogram.FailedRollbackCause(failed.Recovery), refusal) || errors.Is(failed.Apply, refusal) || errors.Is(failed.Recovery, primary) {
+		t.Fatal("expected distinct forward and restoration causes:", err)
+	}
+	if !errors.Is(err, primary) || !errors.Is(err, refusal) || applyprogram.HostChangesRolledBack(err) {
+		t.Fatal("expected publication failure and failed restoration:", err)
+	}
+	if actual, err := os.ReadFile(host); err != nil || bytes.Equal(actual, original) {
+		t.Fatal("expected the published change to remain", err)
+	}
+	if records, err := os.ReadDir(input.Paths.RecoveryDir); err != nil || len(records) != 1 {
+		t.Fatal("expected one retained recovery journal", err)
+	}
 }

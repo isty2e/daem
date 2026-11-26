@@ -11,6 +11,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
@@ -267,7 +268,7 @@ func (store Store) commitRegistry(
 	}
 	var request storagecommit.FileCommit
 	if exists {
-		request, err = storagecommit.NewFileReplacement(store.path, content, 0o600, identity)
+		request, err = storagecommit.NewFileReplacement(store.path, content, mutationfs.KeepFilePermissions, identity)
 	} else {
 		request, err = storagecommit.NewFileCreate(store.path, content, 0o600)
 	}
@@ -298,9 +299,6 @@ func (store Store) loadForCommit(
 			return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, nil
 		}
 		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("read carrier claim registry: %w", err)
-	}
-	if snapshot.Mode().Perm()&0o077 != 0 {
-		return registryDocument{}, storagecommit.EntryIdentity{}, false, fmt.Errorf("carrier claim registry %q permissions %04o expose authority metadata", store.path, snapshot.Mode().Perm())
 	}
 	identity, valid := snapshot.Identity().(storagecommit.EntryIdentity)
 	if !valid {

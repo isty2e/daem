@@ -38,7 +38,7 @@ func FileSetAuthorityPath(stateDir string) (string, error) {
 // CommitFileSet publishes all target after-images under recoverable evidence. The
 // caller must hold the complete target and AuthorityPath mutation lease set.
 func CommitFileSet(ctx context.Context, input FileSetInput) error {
-	return commitWithOperations(ctx, input, operations{writeFile: commitFile})
+	return commitWithOperations(ctx, input, operations{})
 }
 
 // CommitFileSet4 publishes a generation-4 static file set with the existing
@@ -47,7 +47,7 @@ func CommitFileSet4(ctx context.Context, input FileSetInput) error {
 	return commitWithOperationsVersion(
 		ctx,
 		input,
-		operations{writeFile: commitFile},
+		operations{},
 		contractversion.MetadataTransactionReference,
 		false,
 	)
@@ -59,7 +59,7 @@ func CommitFileSet4WithReference(ctx context.Context, input FileSetInput) error 
 	return commitWithOperationsVersion(
 		ctx,
 		input,
-		operations{writeFile: commitFile},
+		operations{},
 		contractversion.MetadataTransactionReference,
 		true,
 	)
@@ -146,9 +146,6 @@ func commitWithOperationsIntentVersion(
 	if err != nil {
 		return err
 	}
-	if ops.writeFile == nil {
-		ops.writeFile = commitFile
-	}
 	if version != contractversion.MetadataTransaction && version != contractversion.MetadataTransactionReference {
 		return fmt.Errorf("unsupported file-set transaction writer version %d", version)
 	}
@@ -196,7 +193,7 @@ func commitWithOperationsIntentVersion(
 		if !target.write {
 			continue
 		}
-		if err := ops.writeFile(ctx, target.path, target.content, fileMode(marker.Targets[index].Before)); err != nil {
+		if err := marker.Targets[index].publish(ctx, target.content, ops); err != nil {
 			return rollbackFailure(ctx, TargetWriteError{Path: target.path, Err: err}, marker, stateDir, activeMarkerPath, ops)
 		}
 		if err := ctx.Err(); err != nil {
@@ -221,7 +218,7 @@ func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string)
 	if err != nil {
 		return err
 	}
-	return recoverWithOperations(ctx, canonical, allowedPaths, operations{writeFile: commitFile})
+	return recoverWithOperations(ctx, canonical, allowedPaths, operations{})
 }
 
 // RecoverFileSet4 recovers a generation-4 transaction for the complete exact
@@ -232,7 +229,7 @@ func RecoverFileSet4(ctx context.Context, stateDir string, exactPaths []string) 
 		ctx,
 		stateDir,
 		exactPaths,
-		operations{writeFile: commitFile},
+		operations{},
 		contractversion.MetadataTransactionReference,
 	)
 }
@@ -371,9 +368,6 @@ func recoverWithOperationsVersion(
 			physicalWorkBudget,
 		)
 	}
-	if ops.writeFile == nil {
-		ops.writeFile = commitFile
-	}
 	var err error
 	var marker transactionMarker
 	marker, err = loadMarker(ctx, markerPath(stateDir))
@@ -434,9 +428,6 @@ func recoverFileSet4WithBudget(
 	}
 	if maximumPhysicalDepth <= 0 || physicalWorkBudget == nil {
 		return fmt.Errorf("generation-4 recovery requires a path depth and shared work budget")
-	}
-	if ops.writeFile == nil {
-		ops.writeFile = commitFile
 	}
 	marker, _, _, err := loadMarker4WithBudget(
 		ctx,
@@ -504,17 +495,11 @@ type targetClassification struct {
 func classifyTargets(ctx context.Context, marker transactionMarker) (targetClassification, error) {
 	result := targetClassification{cleanAfter: true, recoverable: true}
 	for index, target := range marker.Targets {
-		before, err := fileMatchesState(ctx, target.Path, target.Before)
+		current, _, _, err := readPublicationTarget(ctx, target.Path, maximumTargetBytes)
 		if err != nil {
-			return targetClassification{}, fmt.Errorf("inspect target[%d] before-state: %w", index, err)
+			return targetClassification{}, fmt.Errorf("inspect target[%d]: %w", index, err)
 		}
-		after := before
-		if target.Write {
-			after, err = fileMatchesExpected(ctx, target.Path, target.AfterHash, fileMode(target.Before))
-			if err != nil {
-				return targetClassification{}, fmt.Errorf("inspect target[%d] after-state: %w", index, err)
-			}
-		}
+		before, after := target.positions(current.exists, current.hash)
 		result.cleanAfter = result.cleanAfter && after
 		result.recoverable = result.recoverable && (before || after)
 	}
@@ -525,13 +510,13 @@ func restoreTransaction(ctx context.Context, marker transactionMarker, ops opera
 	if err := preflightRestorableBackups(ctx, marker); err != nil {
 		return err
 	}
-	failures := make([]error, 0)
-	for _, target := range marker.Targets {
-		if err := restoreFile(ctx, target.Path, target.Before, ops); err != nil {
-			failures = append(failures, err)
+	return restoreTargets(ctx, marker, ops, func(target targetMarker) ([]byte, error) {
+		content, _, err := readTransactionFile(ctx, target.Before.BackupPath)
+		if err == nil && hashBytes(content) != target.Before.Hash {
+			return nil, fmt.Errorf("backup %q does not match recorded hash", target.Before.BackupPath)
 		}
-	}
-	return errors.Join(failures...)
+		return content, err
+	})
 }
 
 func restoreTransactionWithBudget(
@@ -544,26 +529,8 @@ func restoreTransactionWithBudget(
 	if err := preflightRestorableBackupsWithBudget(ctx, marker, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return err
 	}
-	if ops.writeFile == nil {
-		ops.writeFile = commitFile
-	}
 	var stagedBeforeBytes int64
-	failures := make([]error, 0)
-	for _, target := range marker.Targets {
-		matches, err := fileMatchesState(ctx, target.Path, target.Before)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("inspect %q before restoration: %w", target.Path, err))
-			continue
-		}
-		if matches {
-			continue
-		}
-		if !target.Before.Exists {
-			if err := removeFile(ctx, target.Path); err != nil {
-				failures = append(failures, fmt.Errorf("remove %q: %w", target.Path, err))
-			}
-			continue
-		}
+	return restoreTargets(ctx, marker, ops, func(target targetMarker) ([]byte, error) {
 		content, nextTotal, err := readEvidenceImageWithBudget(
 			ctx,
 			target.Before.BackupPath,
@@ -574,16 +541,11 @@ func restoreTransactionWithBudget(
 			maximumPhysicalDepth,
 			physicalWorkBudget,
 		)
-		if err != nil {
-			failures = append(failures, fmt.Errorf("read backup %q: %w", target.Before.BackupPath, err))
-			continue
+		if err == nil {
+			stagedBeforeBytes = nextTotal
 		}
-		stagedBeforeBytes = nextTotal
-		if err := ops.writeFile(ctx, target.Path, content, fileMode(target.Before)); err != nil {
-			failures = append(failures, fmt.Errorf("restore %q: %w", target.Path, err))
-		}
-	}
-	return errors.Join(failures...)
+		return content, err
+	})
 }
 
 func preflightRestorableBackups(ctx context.Context, marker transactionMarker) error {
@@ -662,61 +624,62 @@ func preflightRestorableBackupsWithBudget(
 	return nil
 }
 
-func restoreFile(ctx context.Context, path string, state fileState, ops operations) error {
-	matches, err := fileMatchesState(ctx, path, state)
-	if err != nil {
-		return fmt.Errorf("inspect %q before restoration: %w", path, err)
+func (target targetMarker) positions(exists bool, hash string) (before, after bool) {
+	before = exists == target.Before.Exists && (!exists || hash == target.Before.Hash)
+	if !target.Write {
+		return before, before
 	}
-	if matches {
-		return nil
-	}
-
-	if !state.Exists {
-		if err := removeFile(ctx, path); err != nil {
-			return fmt.Errorf("remove %q: %w", path, err)
-		}
-		return nil
-	}
-	content, _, err := readTransactionFile(ctx, state.BackupPath)
-	if err != nil {
-		return fmt.Errorf("read backup %q: %w", state.BackupPath, err)
-	}
-	if hash := hashBytes(content); hash != state.Hash {
-		return fmt.Errorf("backup %q hash %q does not match marker hash %q", state.BackupPath, hash, state.Hash)
-	}
-	if err := ops.writeFile(ctx, path, content, fileMode(state)); err != nil {
-		return fmt.Errorf("restore %q: %w", path, err)
-	}
-	return nil
+	return before, exists && hash == target.AfterHash
 }
 
-func fileMode(state fileState) os.FileMode {
-	if state.Exists && state.Mode != 0 {
-		return os.FileMode(state.Mode)
-	}
-	return 0o600
-}
-
-func fileMatchesState(ctx context.Context, path string, state fileState) (bool, error) {
-	if !state.Exists {
-		_, err := os.Lstat(path)
-		if errors.Is(err, os.ErrNotExist) {
-			return true, nil
-		}
-		return false, err
-	}
-	return fileMatchesExpected(ctx, path, state.Hash, fileMode(state))
-}
-
-func fileMatchesExpected(ctx context.Context, path string, hash string, mode os.FileMode) (bool, error) {
-	content, observedMode, err := readTransactionFile(ctx, path)
+func (target targetMarker) publish(ctx context.Context, content []byte, ops operations) error {
+	current, _, identity, err := readPublicationTarget(ctx, target.Path, maximumTargetBytes)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
+		return err
 	}
-	return hashBytes(content) == hash && observedMode.Perm() == mode.Perm(), nil
+	if before, _ := target.positions(current.exists, current.hash); !before {
+		return fmt.Errorf("file-set target %q changed before its write", target.Path)
+	}
+	return ops.commit(ctx, target.Path, current, identity, content)
+}
+
+func (ops operations) commit(ctx context.Context, path string, current PublicationImage, identity storagecommit.EntryIdentity, content []byte) error {
+	if ops.writeFile != nil {
+		mode := os.FileMode(0o600)
+		if current.exists {
+			mode = current.mode
+		}
+		return ops.writeFile(ctx, path, content, mode)
+	}
+	return commitPublicationImage(ctx, path, current, identity, content, 0o600)
+}
+
+func restoreTargets(ctx context.Context, marker transactionMarker, ops operations, readBackup func(targetMarker) ([]byte, error)) error {
+	var failures []error
+	for _, target := range marker.Targets {
+		current, _, identity, err := readPublicationTarget(ctx, target.Path, maximumTargetBytes)
+		if err == nil {
+			before, after := target.positions(current.exists, current.hash)
+			switch {
+			case before:
+				continue
+			case !after:
+				err = fmt.Errorf("target differs from both recorded states")
+			case !target.Before.Exists:
+				err = removeFile(ctx, target.Path, identity)
+			default:
+				var content []byte
+				content, err = readBackup(target)
+				if err == nil {
+					err = ops.commit(ctx, target.Path, current, identity, content)
+				}
+			}
+		}
+		if err != nil {
+			failures = append(failures, fmt.Errorf("restore %q: %w", target.Path, err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func rollbackFailure(

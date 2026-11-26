@@ -122,6 +122,19 @@ type preparedTreeSnapshotEntry struct {
 	children    []preparedTreeSnapshotEntry
 }
 
+// Open the same object even if its ctime changed. The caller verifies the
+// opened entry's access metadata and content before using it.
+func (entry *preparedTreeSnapshotEntry) openAt(parent int, name, path string) (int, error) {
+	identity, _, err := observeAnyAt(parent, name, path)
+	if err != nil {
+		return -1, err
+	}
+	if !entry.identity.sameObject(identity) || identity.kind != entry.expectation.kind {
+		return -1, fmt.Errorf("prepared tree entry %q identity changed", path)
+	}
+	return openExpectedAt(parent, name, path, identity)
+}
+
 type preparedTreeSnapshot struct {
 	root preparedTreeSnapshotEntry
 }
@@ -437,7 +450,7 @@ func verifyPreparedTreeSnapshotLocked(
 		ctx,
 		prepared.stageFD,
 		prepared.stagePath,
-		prepared.snapshot.root,
+		&prepared.snapshot.root,
 		0,
 		prepared.anchor.capability.ValidateDirectoryHandle,
 		budget,
@@ -448,7 +461,7 @@ func verifyPreparedTreeSnapshotDirectory(
 	ctx context.Context,
 	directoryFD int,
 	directoryPath string,
-	expected preparedTreeSnapshotEntry,
+	expected *preparedTreeSnapshotEntry,
 	depth int,
 	validateMount func(uintptr) error,
 	budget *treeTraversalBudget,
@@ -466,21 +479,15 @@ func verifyPreparedTreeSnapshotDirectory(
 	if err := budget.admitEntries(len(names)); err != nil {
 		return err
 	}
-	expectedNames := preparedTreeSnapshotChildNames(expected)
+	expectedNames := preparedTreeSnapshotChildNames(*expected)
 	if !slices.Equal(names, expectedNames) {
 		return fmt.Errorf("prepared tree directory entries changed at %q", directoryPath)
 	}
-	for index, child := range expected.children {
+	for index := range expected.children {
+		child := &expected.children[index]
 		name := names[index]
 		childPath := filepath.Join(directoryPath, name)
-		identity, _, err := observeAnyAt(directoryFD, name, childPath)
-		if err != nil {
-			return err
-		}
-		if !child.identity.sameEntry(identity) {
-			return fmt.Errorf("prepared tree entry %q identity changed", childPath)
-		}
-		childFD, err := openExpectedAt(directoryFD, name, childPath, child.identity)
+		childFD, err := child.openAt(directoryFD, name, childPath)
 		if err != nil {
 			return err
 		}
@@ -509,14 +516,14 @@ func verifyPreparedTreeSnapshotDirectory(
 			return closeErr
 		}
 	}
-	return verifyPreparedTreeDirectoryBinding(ctx, directoryFD, directoryPath, expected)
+	return verifyPreparedTreeDirectoryBinding(ctx, directoryFD, directoryPath, *expected)
 }
 
 func verifyOpenedPreparedTreeEntry(
 	ctx context.Context,
 	fd int,
 	path string,
-	expected preparedTreeSnapshotEntry,
+	expected *preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 ) error {
 	return verifyOpenedPreparedTreeEntryWithContent(ctx, fd, path, expected, budget, true)
@@ -526,7 +533,7 @@ func verifyOpenedPreparedTreeAuthority(
 	ctx context.Context,
 	fd int,
 	path string,
-	expected preparedTreeSnapshotEntry,
+	expected *preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 ) error {
 	return verifyOpenedPreparedTreeEntryWithContent(ctx, fd, path, expected, budget, false)
@@ -536,7 +543,7 @@ func verifyOpenedPreparedTreeEntryWithContent(
 	ctx context.Context,
 	fd int,
 	path string,
-	expected preparedTreeSnapshotEntry,
+	expected *preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 	verifyContent bool,
 ) error {
@@ -544,14 +551,15 @@ func verifyOpenedPreparedTreeEntryWithContent(
 	if err := unix.Fstat(fd, &before); err != nil {
 		return err
 	}
-	if !expected.identity.sameEntry(identityFromStat(path, &before)) ||
+	observed := identityFromStat(path, &before)
+	if !expected.identity.sameObject(observed) || expected.expectation.kind != observed.kind ||
 		!expected.facts.equal(preparedTreeFactsFromStat(&before)) {
 		return fmt.Errorf("prepared tree entry %q changed", path)
 	}
 	if err := validatePreparedTreeStat(path, &before, expected.expectation.kind); err != nil {
 		return err
 	}
-	if expected.expectation.kind == entryKindRegular && verifyContent {
+	if expected.expectation.kind == entryKindRegular && (verifyContent || !expected.identity.sameEntry(observed)) {
 		if err := budget.admitBytes(expected.facts.size); err != nil {
 			return err
 		}
@@ -574,10 +582,11 @@ func verifyOpenedPreparedTreeEntryWithContent(
 	if err := unix.Fstat(fd, &after); err != nil {
 		return err
 	}
-	if !expected.identity.sameEntry(identityFromStat(path, &after)) ||
+	if !observed.sameEntry(identityFromStat(path, &after)) ||
 		!expected.facts.equal(preparedTreeFactsFromStat(&after)) {
 		return fmt.Errorf("prepared tree entry %q changed while validating", path)
 	}
+	expected.identity = observed
 	return nil
 }
 
@@ -678,11 +687,12 @@ func capturePreparedTreeXattrFacts(
 	slices.Sort(names)
 	facts := make([]preparedTreeXattrFact, 0, len(names))
 	for _, name := range names {
-		if !isAllowedPreparedTreeXattr(name) {
-			return nil, unsupported(
-				fmt.Sprintf("prepared tree entry %q contains unsupported extended attribute %q", path, name),
-				nil,
-			)
+		label, err := preparedTreeAccessLabel(name)
+		if err != nil {
+			return nil, fmt.Errorf("prepared tree entry %q: %w", path, err)
+		}
+		if !label {
+			continue
 		}
 		value, err := readValue(name)
 		if err != nil {

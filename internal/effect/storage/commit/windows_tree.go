@@ -563,6 +563,36 @@ func copyWindowsPreparedFile(
 	}
 }
 
+func (prepared *PreparedRootedTree) PreserveMatchingModes(ctx context.Context, live map[string]fs.FileMode) error {
+	prepared.mu.Lock()
+	defer prepared.mu.Unlock()
+	if prepared.state != preparedRootedTreeReady || prepared.stage == nil {
+		return fmt.Errorf("prepared rooted tree is not ready")
+	}
+	// On Windows the stage already has its final ACLs. Verify it before
+	// changing them, just as Commit verifies it before publishing it.
+	current, err := prepared.verifyLocked(ctx)
+	if err != nil || !prepared.expected.sameEntry(current) {
+		return errors.Join(err, fmt.Errorf("prepared tree changed before updating its permissions"))
+	}
+	changed := false
+	for path, entry := range prepared.entries {
+		if mode, ok := live[path]; ok && mode.IsDir() == (entry.kind == entryKindDirectory) && mode.Perm() != entry.mode {
+			entry.mode = mode.Perm()
+			prepared.entries[path] = entry
+			changed = true
+		}
+	}
+	if mode, ok := live["."]; ok && mode.IsDir() && mode.Perm() != prepared.rootMode {
+		prepared.rootMode = mode.Perm()
+		changed = true
+	}
+	if changed {
+		return prepared.finalizeLocked(ctx)
+	}
+	return nil
+}
+
 func (prepared *PreparedRootedTree) finalizeLocked(ctx context.Context) error {
 	if prepared.state != preparedRootedTreeReady || prepared.stage == nil {
 		return fmt.Errorf("prepared rooted tree is not ready")

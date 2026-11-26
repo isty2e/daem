@@ -225,7 +225,7 @@ func TestStoreRejectsWritableDataRootAndCreationAnchor(t *testing.T) {
 	})
 }
 
-func TestStoreRejectsExposedExistingLockRecord(t *testing.T) {
+func TestStorePreservesExistingLockRecordPermissions(t *testing.T) {
 	store := mutationTestStore(t)
 	domain := mutationTestLogicalDomain(t, filepath.Join(t.TempDir(), "resource"), AccessExclusive)
 	normalized, err := store.normalize([]Domain{domain})
@@ -242,9 +242,15 @@ func TestStoreRejectsExposedExistingLockRecord(t *testing.T) {
 	if err := os.Chmod(lockPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Acquire(context.Background(), domain); err == nil ||
-		!strings.Contains(err.Error(), "not private") {
-		t.Fatalf("Acquire error = %v, want exposed lock-record rejection", err)
+	leases, err := store.Acquire(t.Context(), domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := leases.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(lockPath); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatal("locking changed the record permissions", err)
 	}
 }
 

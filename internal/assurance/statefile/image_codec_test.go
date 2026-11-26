@@ -9,9 +9,70 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
+	"github.com/isty2e/daem/internal/desired/entity"
 	pathreferencecodec "github.com/isty2e/daem/internal/encoding/pathreference"
+	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
+
+func TestMixedInstalledTreeBaselinesUseVersionedStateImages(t *testing.T) {
+	legacy := testV9Snapshot(t)
+	hashes, err := artifact.NewDirectoryEvidenceBuilder().Hashes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := testV9ProjectionSubject(t, entity.KindSkill, "second", "skill.project.agents")
+	row, err := durable.NewManagedPathState(subject, []target.Target{target.TargetCodex}, target.ScopeProject, outputtest.Parse(t, ".agents/skills/second"), hashes.Installed, realization.PathProjectionDirectory, realization.PathPermissionsNone, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mixed, err := legacy.WithManagedPaths(append(legacy.ManagedPaths(), row))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := Marshal(mixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := pathauthority.NewReference(legacy.PendingCarrierInstalls()[0].Owner().StatefileAuthority(), filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := NewStateImage(mixed, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	located, err := MarshalImage(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		data               []byte
+		version, downgrade string
+	}{{plain, "14", "10"}, {located, "15", "11"}} {
+		persisted, _, err := DecodePersisted(t.Context(), tc.data)
+		if err != nil || !persisted.Equal(mixed) {
+			t.Fatalf("mixed state did not round trip: %v", err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(tc.data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if string(fields["version"]) != tc.version {
+			t.Fatalf("version = %s, want %s", fields["version"], tc.version)
+		}
+		fields["version"] = json.RawMessage(tc.downgrade)
+		older, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := DecodePersisted(t.Context(), older); err == nil {
+			t.Fatal("old grammar accepted the new installed hash")
+		}
+	}
+}
 
 func TestStateImageWirePreservesFactsAndVersionBarrier(t *testing.T) {
 	complete := testV9Snapshot(t)

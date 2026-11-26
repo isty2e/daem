@@ -12,10 +12,14 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
 	"github.com/isty2e/daem/internal/effect/execute/executionevent"
 	effectpreparation "github.com/isty2e/daem/internal/effect/execute/preparation"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -127,6 +131,51 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 	} else if len(entries) != 0 {
 		t.Fatalf("recovery directory retains %d entries after successful rollback", len(entries))
 	}
+}
+
+type refuseAggregateRestoration struct {
+	mutationfs.Store
+	refusal *storagecommit.SELinuxLabelError
+}
+
+func (store *refuseAggregateRestoration) PublishRootedFile(ctx context.Context, capability rootedpath.CommitCapability, content []byte, mode os.FileMode, expected mutationfs.EntryIdentity) (mutationfs.EntryIdentity, error) {
+	if store.refusal != nil && expected != nil && capability.Destination().Relative().Path() == aggregate.ClaudeProjectMCPConfigPath {
+		return nil, errors.Join(store.refusal, capability.Close())
+	}
+	return store.Store.PublishRootedFile(ctx, capability, content, mode, expected)
+}
+
+func TestApplyRetainsRefusedAggregateRestorationAfterStatefileFailure(t *testing.T) {
+	root := t.TempDir()
+	paths := managedAggregateTestPaths(root, filepath.Join(root, ".daem"))
+	path := filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath)
+	before := aggregate.ExistingDocument([]byte(`{"mcpServers":{}}`))
+	if err := os.WriteFile(path, before.Content(), aggregate.DocumentFileMode); err != nil {
+		t.Fatal(err)
+	}
+	store := &refuseAggregateRestoration{Store: testFilesystem()}
+	primary := errors.New("state commit refused")
+	refusal := &storagecommit.SELinuxLabelError{Destination: path, Err: os.ErrPermission}
+
+	_, err := ApplyWithOptions(t.Context(), ApplyInput{
+		Paths: paths, Resolver: destinationResolver(paths), CurrentState: durable.EmptySnapshot(),
+		AggregateEffects: managedMCPAggregateEffects(t, before, []mcpEffectSpec{{serverID: "alpha", command: "alpha-command"}}),
+		Codecs:           testAggregateCodecs(), StateCodec: testStateCodec(), StatefileCodec: testPhysicalStateCodec(),
+		Filesystem: store, OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+	}, ApplyOptions{commitStatefile: func(context.Context, string, []byte, os.FileMode) error {
+		store.refusal = refusal
+		return &statefileRefusal{primary}
+	}})
+	rollback := applyprogram.FailedRollbackCause(err)
+	if !errors.Is(err, primary) || !errors.Is(rollback, refusal) || errors.Is(rollback, primary) || applyprogram.HostChangesRolledBack(err) {
+		t.Fatalf("expected primary failure and separate unsuccessful restoration: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertJSONMCPString(t, after, "mcpServers", "alpha", "command", "alpha-command")
+	assertActiveRecoveryOperation(t, paths.RecoveryDir)
 }
 
 func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *testing.T) {

@@ -133,7 +133,7 @@ func (record native17JournalRecord) reconstruct(ctx context.Context, codec durab
 	if err := ctx.Err(); err != nil {
 		return Native{}, err
 	}
-	if record.Version != native17Version || record.Purpose != "host-mutation" || record.Operation != OperationApply || !IsSafeOperationID(record.OperationID) {
+	if !boundNativeHostVersion(record.Version) || record.Purpose != "host-mutation" || record.Operation != OperationApply || !IsSafeOperationID(record.OperationID) {
 		return Native{}, fmt.Errorf("native17 requires its closed host-mutation purpose and operation identity")
 	}
 	if record.Roots == nil || record.DocumentGroups == nil || record.Entries == nil || record.ClaimTransitions == nil || record.ProvisionalAcquires == nil || record.RemovalIntents == nil {
@@ -155,6 +155,9 @@ func (record native17JournalRecord) reconstruct(ctx context.Context, codec durab
 	}
 	after, err := codec.Decode(record.StatefileAfter)
 	if err != nil {
+		return Native{}, err
+	}
+	if err := validateInstalledEvidenceVersion(record.Version, before, after, record.Entries); err != nil {
 		return Native{}, err
 	}
 	if _, _, err := EncodeSnapshots(before, after, codec); err != nil {
@@ -451,7 +454,7 @@ func (journal Native) encodeNative17(ctx context.Context, codec durable.Snapshot
 	}
 	body := journal.record.nativeRecordBody
 	body.StatefileBefore, body.StatefileAfter = before, after
-	record := native17JournalRecord{Version: native17Version, Purpose: "host-mutation", nativeRecordBody: body, Manifest: journal.current.Manifest, Roots: journal.current.Roots, DocumentGroups: make([]native17Document, len(journal.record.DocumentGroups))}
+	record := native17JournalRecord{Version: journal.record.Version, Purpose: "host-mutation", nativeRecordBody: body, Manifest: journal.current.Manifest, Roots: journal.current.Roots, DocumentGroups: make([]native17Document, len(journal.record.DocumentGroups))}
 	for index, group := range journal.record.DocumentGroups {
 		record.DocumentGroups[index] = native17Document{nativeDocumentBody: group.nativeDocumentBody, native17DocumentEnvelope: journal.current.Groups[index]}
 	}

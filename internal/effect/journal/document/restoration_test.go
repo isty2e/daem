@@ -208,8 +208,8 @@ func TestDocumentRestorationKeepsWholeAndSelectedExistenceSeparate(t *testing.T)
 	if err != nil || !restored.Document().Equal(input.Before) || !restored.Changed() {
 		t.Fatalf("whole restoration did not recover original bytes: %v", err)
 	}
-	if actual, present := restored.RegularFileMode(); !present || actual != BeforeMode {
-		t.Fatal("whole restoration did not recover original exact mode")
+	if actual, present := restored.RegularFileMode(); !present || actual != expectedMode {
+		t.Fatal("whole restoration did not preserve the current mode")
 	}
 	input.Before, input.BeforeMode = aggregate.AbsentDocument(), nil
 	whole, err = document.NewWholeComparison(t.Context(), input)
@@ -265,10 +265,6 @@ func TestDocumentRestorationRefusesThirdStateWithoutUsableCandidate(t *testing.T
 		if err == nil || candidate.Validate() == nil {
 			t.Fatal("third/later-invalid state returned a usable restoration")
 		}
-	}
-	thirdMode := recovery.PermissionMode(0o640)
-	if candidate, err := comparison.RestoreBefore(t.Context(), aggregate.ExistingDocument([]byte(expected)), &thirdMode); err == nil || candidate.Validate() == nil {
-		t.Fatal("third mode returned a usable restoration")
 	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()

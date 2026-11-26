@@ -180,7 +180,7 @@ func nativeDocumentSubset(source reconcile.AggregateDecision, selected []reconci
 	if err != nil {
 		return reconcile.AggregateDecision{}, err
 	}
-	kind, reason := classifyAggregateDocument(before, true, rendered.Document(), projections)
+	kind, reason := classifyAggregateDocument(before, rendered.Document(), projections)
 	if kind == reconcile.AggregateNoOp || kind == reconcile.AggregateRecord {
 		rendered, err = aggregate.NewRenderedDocument(before, plan, rendered.Expected())
 		if err != nil {

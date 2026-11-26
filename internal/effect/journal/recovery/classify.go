@@ -21,6 +21,7 @@ func Classify(
 	if err := selection.validate(authority); err != nil {
 		return Plan{}, err
 	}
+	authority = authority.WithTreeBaseline(ObservedTreeBaselines(authority.entries, pathEvidence, backupEvidence))
 	entries := make([]Entry, 0, len(selection.indexes))
 	for _, index := range selection.indexes {
 		entries = append(entries, authority.entries[index])
@@ -144,7 +145,11 @@ func AssessEntriesWithRemovalCleanup(entries []Entry, pathEvidence []PathEvidenc
 			continue
 		}
 
-		before := pathMatchesBefore(entry.before, observation)
+		liveBefore := entry.before
+		if entry.liveBeforeHash != "" {
+			liveBefore.ContentHash = entry.liveBeforeHash
+		}
+		before := pathMatchesBefore(liveBefore, observation)
 		after := pathMatchesExpected(entry.expectedAfter, observation)
 		if !before {
 			pathsBefore = false
@@ -182,6 +187,7 @@ func AssessEntriesWithRemovalCleanup(entries []Entry, pathEvidence []PathEvidenc
 			action.Reason = "restore_" + entry.before.Kind
 			action.BackupPath = entry.before.BackupPath
 			action.BackupHash = entry.before.ContentHash
+			action.TreeModes = entry.before.TreeModes
 			action.BackupKind = entry.before.Kind
 			action.BackupWork = backupsByPath[entry.before.BackupPath].Work
 		} else if entry.before.Existed {

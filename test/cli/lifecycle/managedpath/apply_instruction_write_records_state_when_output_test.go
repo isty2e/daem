@@ -57,7 +57,7 @@ source = "instructions/AGENTS.md"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", instructionHash)
+	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", testkit.InstalledHash(t, filepath.Join(tempDir, "AGENTS.md")))
 }
 
 func TestRunApplyWritesGlobalCodexInstructionsUnderHome(t *testing.T) {
@@ -102,5 +102,5 @@ source = "`+filepath.ToSlash(sourcePath)+`"
 	if err != nil {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
-	testkit.AssertStateResourceNamed(t, state, "global", "codex", "global", "~/.codex/AGENTS.md", instructionHash)
+	testkit.AssertStateResourceNamed(t, state, "global", "codex", "global", "~/.codex/AGENTS.md", testkit.InstalledHash(t, sourcePath))
 }

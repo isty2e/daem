@@ -95,10 +95,13 @@ func skillLockObservations(
 					cleanup(),
 				)
 			}
-		} else if err := view.Verify(ctx, identity); err != nil {
-			return nil, fmt.Errorf("skill %q: verify source: %w", resource.ID().Name(), err)
 		}
-		if !identity.Equal(lockedIdentity) {
+		executables := make(artifact.ExecutablePaths)
+		hashes, err := view.TreeHashes(ctx, nil, executables)
+		if err != nil {
+			return nil, releaseObservedSkill(cleanup, fmt.Errorf("skill %q: verify source: %w", resource.ID().Name(), err))
+		}
+		if !identity.Equal(lockedIdentity) || hashes.Source != lockedIdentity.ContentHash() {
 			return nil, releaseObservedSkill(
 				cleanup,
 				fmt.Errorf("skill %q: replayed identity does not match lockfile entry", resource.ID().Name()),
@@ -128,7 +131,7 @@ func skillLockObservations(
 		if err != nil {
 			return nil, err
 		}
-		observations = append(observations, observation)
+		observations = append(observations, observation.WithTreeEvidence(hashes.Installed, executables))
 	}
 
 	return observations, nil

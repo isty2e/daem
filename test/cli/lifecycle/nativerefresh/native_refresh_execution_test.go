@@ -77,21 +77,26 @@ func TestNativePiRefreshRequiresCurrentKeysWithoutApplyingThem(t *testing.T) {
 	}
 }
 
-func TestNativePiRefreshRevalidatesDisclosedPermissionBaseline(t *testing.T) {
-	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "")
+func TestNativePiRefreshProtectsPermissionsAtInvocation(t *testing.T) {
+	fixture := newNativePiRefreshFixture(t, target.ScopeProject, "mode")
 	prepared, err := refreshworkflow.PlanWrite(t.Context(), refreshworkflow.CommandInput{ManifestPath: fixture.Manifest, ExtensionID: "tools"}, refreshworkflow.PlanOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer prepared.Close()
-	if err := os.Chmod(fixture.Settings, 0o666); err != nil {
+	if err := os.Chmod(fixture.Settings, 0o640); err != nil {
 		t.Fatal(err)
 	}
 	result, err := refreshworkflow.Execute(t.Context(), prepared, refreshworkflow.ExecuteOptions{})
-	if err == nil || result.Attempted || result.ResultClass != refreshworkflow.ResultRefused {
-		t.Fatalf("changed permission baseline was reused: %#v %v", result, err)
+	if !result.Attempted || result.ResultClass != refreshworkflow.ResultPartial {
+		t.Fatalf("host expansion was not reported: %#v %v", result, err)
 	}
-	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\n")
+	info, err := os.Stat(fixture.Settings)
+	if err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatal("refresh did not restore the permissions in effect at launch", err)
+	}
+	testkit.AssertFileContent(t, fixture.Calls, "install\ninstall\nrefresh\n")
+	testkit.AssertNoRecoveryArtifacts(t, fixture.Workspace)
 }
 
 func TestNativePiRefreshQualifiesFailuresWithoutRepairOrInstallReplay(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 func TestApplyUsesManifestRootForSubdirectoryManifest(t *testing.T) {
 	tempDir := t.TempDir()
 	projectDir := filepath.Join(tempDir, "project")
-	manifestPath, _, instructionHash := writeSubdirectoryApplyProject(t, projectDir)
+	manifestPath, _, _ := writeSubdirectoryApplyProject(t, projectDir)
 
 	var applyStdout bytes.Buffer
 	var applyStderr bytes.Buffer
@@ -22,7 +22,7 @@ func TestApplyUsesManifestRootForSubdirectoryManifest(t *testing.T) {
 	if applyExitCode != 0 {
 		t.Fatalf("apply exitCode = %d, stderr = %q", applyExitCode, applyStderr.String())
 	}
-	testkit.AssertStateResource(t, mustLoadCLIStatefile(t, filepath.Join(projectDir, ".daem", "state.json")), "codex", "AGENTS.md", instructionHash)
+	testkit.AssertStateResource(t, mustLoadCLIStatefile(t, filepath.Join(projectDir, ".daem", "state.json")), "codex", "AGENTS.md", testkit.InstalledHash(t, filepath.Join(projectDir, "AGENTS.md")))
 	testkit.AssertNoRecoveryArtifacts(t, projectDir)
 }
 

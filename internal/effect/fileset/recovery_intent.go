@@ -38,7 +38,7 @@ func CommitFreshFileSetForIntent(ctx context.Context, input FileSetInput, expect
 	if err != nil {
 		return err
 	}
-	return commitWithOperationsIntentVersion(ctx, input, operations{writeFile: commitFile}, contractversion.MetadataTransaction, false, targets)
+	return commitWithOperationsIntentVersion(ctx, input, operations{}, contractversion.MetadataTransaction, false, targets)
 }
 
 // InspectFileSetRecoveryForIntent previews the existing recovery decision only
@@ -61,7 +61,7 @@ func RecoverFileSetForIntent(ctx context.Context, stateDir string, expected []Re
 	if err != nil {
 		return err
 	}
-	return recoverLoadedFileSet(ctx, canonical, marker, operations{writeFile: commitFile})
+	return recoverLoadedFileSet(ctx, canonical, marker, operations{})
 }
 
 func loadFileSetIntent(ctx context.Context, stateDir string, expected []RecoveryTarget) (string, transactionMarker, error) {

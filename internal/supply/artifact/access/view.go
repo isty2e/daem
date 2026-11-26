@@ -317,6 +317,29 @@ func (view View) Hash(ctx context.Context) (artifact.ContentHash, error) {
 	return walkNative(ctx, view, nil, nil)
 }
 
+// PathHashes observes source and installed content through one retained root.
+func (view View) PathHashes(ctx context.Context) (artifact.PathHashes, error) {
+	return view.pathHashes(ctx, nil)
+}
+
+func (view View) TreeHashes(ctx context.Context, candidate, collect artifact.ExecutablePaths) (artifact.PathHashes, error) {
+	if view.Kind() != artifact.ArtifactKindDirectory {
+		return artifact.PathHashes{}, fmt.Errorf("legacy tree evidence requires a directory")
+	}
+	return view.pathHashes(ctx, artifact.NewLegacyTreeEvidenceBuilder(candidate, collect))
+}
+
+func (view View) pathHashes(ctx context.Context, tree *artifact.DirectoryHashBuilder) (artifact.PathHashes, error) {
+	if err := view.validateOperation(ctx); err != nil {
+		return artifact.PathHashes{}, err
+	}
+	var hashes artifact.PathHashes
+	if _, err := walkNativeHashes(ctx, view, nil, nil, &hashes, tree); err != nil {
+		return artifact.PathHashes{}, err
+	}
+	return hashes, nil
+}
+
 // HashDirectoryRequiringRootFile hashes one directory while proving that name
 // was a regular root entry in the same descriptor-bound traversal. It returns
 // exact completed work even when validation or traversal fails. Missing or
@@ -390,6 +413,17 @@ func (view View) HashDirectoryWithLimits(
 	traversalLimit TraversalLimit,
 	structureLimit TreeStructureLimit,
 ) (artifact.ContentHash, TraversalMeasurement, error) {
+	return view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, nil)
+}
+
+// DirectoryHashesWithLimits derives both digest formats from one bounded walk.
+func (view View) DirectoryHashesWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit) (artifact.PathHashes, TraversalMeasurement, error) {
+	var hashes artifact.PathHashes
+	_, work, err := view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, &hashes)
+	return hashes, work, err
+}
+
+func (view View) hashDirectoryWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit, hashes *artifact.PathHashes) (artifact.ContentHash, TraversalMeasurement, error) {
 	if view.kind != artifact.ArtifactKindDirectory {
 		return "", TraversalMeasurement{}, fmt.Errorf("bounded directory hash requires a directory artifact")
 	}
@@ -403,7 +437,7 @@ func (view View) HashDirectoryWithLimits(
 		return "", TraversalMeasurement{}, err
 	}
 	budget := traversalBudget{limit: traversalLimit, structureLimit: &structureLimit}
-	contentHash, err := walkNative(ctx, view, nil, &budget)
+	contentHash, err := walkNativeHashes(ctx, view, nil, &budget, hashes, nil)
 	if err != nil {
 		return "", TraversalMeasurement{}, err
 	}

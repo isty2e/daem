@@ -13,7 +13,6 @@ import (
 func classifyAggregateProjection(
 	codec aggregate.Codec,
 	projection aggregateProjectionDecision,
-	modeCurrent bool,
 	manageUnmanagedMatches bool,
 	replacement *topologyprojection.AgentConfigKeySelection,
 ) (aggregateProjectionDecision, error) {
@@ -83,30 +82,17 @@ func classifyAggregateProjection(
 				delta.kind, delta.reason = reconcile.AggregateCreate, reconcile.ReasonMissingOutput
 			}
 		case len(previous) == 0 && !hadBefore && hasAfter &&
-			projection.before.Present() && sameProjection && modeCurrent:
-			delta.kind, delta.reason = reconcile.AggregateRecord, reconcile.ReasonManagedExisting
-		case len(previous) == 0 && !hadBefore && hasAfter &&
 			projection.before.Present() && sameProjection:
-			delta.kind, delta.reason = reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
-		case !hadBefore && hasAfter && sameProjection && modeCurrent:
-			delta.kind, delta.reason = reconcile.AggregateCreate, reconcile.ReasonMissingOutput
-		case !hadBefore && hasAfter && sameProjection:
-			delta.kind, delta.reason = reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
+			delta.kind, delta.reason = reconcile.AggregateRecord, reconcile.ReasonManagedExisting
 		case !hadBefore && hasAfter:
 			delta.kind, delta.reason = reconcile.AggregateCreate, reconcile.ReasonMissingOutput
 		case hadBefore && !hasAfter:
 			delta.kind, delta.reason = reconcile.AggregateRemove, reconcile.ReasonRemovedFromManifest
 		case hadBefore && hasAfter && before.Equal(after):
-			if !modeCurrent {
-				delta.kind, delta.reason = reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
-			} else {
-				delta.kind, delta.reason = reconcile.AggregateNoOp, reconcile.ReasonAlreadyCurrent
-			}
+			delta.kind, delta.reason = reconcile.AggregateNoOp, reconcile.ReasonAlreadyCurrent
 		case hadBefore && hasAfter && !before.Equal(after):
-			if sameProjection && modeCurrent {
+			if sameProjection {
 				delta.kind, delta.reason = reconcile.AggregateRecord, reconcile.ReasonStateStale
-			} else if sameProjection {
-				delta.kind, delta.reason = reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
 			} else {
 				delta.kind, delta.reason = reconcile.AggregateReplace, reconcile.ReasonContentChanged
 			}
@@ -116,7 +102,7 @@ func classifyAggregateProjection(
 		deltas = append(deltas, delta)
 	}
 	projection.deltas = deltas
-	projection.kind, projection.reason = classifyProjectionTransition(projection, sameProjection, modeCurrent)
+	projection.kind, projection.reason = classifyProjectionTransition(projection, sameProjection)
 	return projection, nil
 }
 
@@ -148,7 +134,7 @@ func blockUnmanagedAggregateProjection(
 
 func classifyProjectionTransition(
 	projection aggregateProjectionDecision,
-	sameProjection, modeCurrent bool,
+	sameProjection bool,
 ) (reconcile.AggregateDecisionKind, reconcile.ActionReason) {
 	switch {
 	case !projection.before.Present() && projection.expected.Present():
@@ -157,8 +143,6 @@ func classifyProjectionTransition(
 		return reconcile.AggregateRemove, reconcile.ReasonRemovedFromManifest
 	case !sameProjection:
 		return reconcile.AggregateReplace, reconcile.ReasonContentChanged
-	case !modeCurrent && projection.expected.Present():
-		return reconcile.AggregateReplace, reconcile.ReasonFileModeChanged
 	}
 	if aggregateProjectionOwnershipChanged(projection) {
 		return reconcile.AggregateRecord, reconcile.ReasonStateStale

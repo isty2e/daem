@@ -9,6 +9,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (operation *Operation) PublishCaptured(ctx context.Context, document journalpublication.CapturedNativeDocument) (resultErr error) {
@@ -51,8 +52,8 @@ func (operation *Operation) PublishCaptured(ctx context.Context, document journa
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return readErr
 	}
-	original, originalMode := document.Original()
-	if !original.Equal(actual) || actual.Exists() && (originalMode == nil || originalMode.FileMode() != mode.Perm()) {
+	original, _ := document.Original()
+	if !original.Equal(actual) {
 		return fmt.Errorf("native document changed after its journal image was captured")
 	}
 	if err := ctx.Err(); err != nil {
@@ -75,12 +76,12 @@ func (operation *Operation) PublishCaptured(ctx context.Context, document journa
 			return err
 		}
 		open = false
-		_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, identity)
+		_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, identity, artifact.InstalledFileHash(content))
 		return err
 	}
 	open = false
 	if actual.Exists() {
-		return operation.filesystem.ReplaceRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode(), identity)
+		return operation.filesystem.ReplaceRootedFile(ctx, capability, expected.Content(), mode.Perm(), identity)
 	}
 	return operation.filesystem.CreateRootedFile(ctx, capability, expected.Content(), expectedMode.FileMode())
 }

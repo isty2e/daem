@@ -280,7 +280,7 @@ func verifyRepositoryRecordAtDestination(
 	if err != nil {
 		return err
 	}
-	content, mode, _, err := storagecommit.ReadRootedRegularFileUpTo(
+	content, _, _, err := storagecommit.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
 		maximumRepositoryRecordBytes,
@@ -291,12 +291,6 @@ func verifyRepositoryRecordAtDestination(
 	}
 	if err != nil {
 		return fmt.Errorf("read git repository cache authority record: %w", err)
-	}
-	if mode.Perm() != 0o600 {
-		return fmt.Errorf(
-			"git repository cache authority record mode is %04o, want 0600",
-			mode.Perm(),
-		)
 	}
 	record, err := decodeRepositoryCacheRecord(content)
 	if err != nil {

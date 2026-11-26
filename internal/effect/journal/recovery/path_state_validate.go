@@ -8,6 +8,14 @@ import (
 
 // ValidateBefore rejects malformed pre-mutation physical path evidence.
 func ValidateBefore(state BeforePathState, contentPath string) error {
+	if state.TreeModes != "" {
+		if !state.Existed || contentPath != "" || state.Kind != PathKindDirectory || state.BackupPath == "" {
+			return fmt.Errorf("tree permissions require a directory backup")
+		}
+		if _, err := state.TreeModes.Unpack(); err != nil {
+			return err
+		}
+	}
 	const context = "before"
 	if !state.Existed {
 		if state.Kind != "" || state.ContentHash != "" || state.BackupPath != "" || state.LinkTarget != "" {

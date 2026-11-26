@@ -71,26 +71,20 @@ func TestPartialDocumentPhaseIgnoresNativeHistoricalRootAcrossGrammars(t *testin
 	}
 }
 
-func TestPartialDocumentRemovalRetainsForeignRootButNotThirdMetadata(t *testing.T) {
+func TestPartialDocumentRemovalRetainsForeignRootAfterChmod(t *testing.T) {
 	codec := partialNativeCodec(t, configdocument.JSON)
 	selection := partialNativeSelection(t, codec, ".codex/example.data", partialKey(t, "a"))
 	before := partialState(t, true, 0o600, partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"a":true}`))))
 	after := partialState(t, false, 0, partialRead(t, codec, selection, aggregate.AbsentDocument()))
 	foreign := partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"foreign":"keep"}`)))
-	current := partialState(t, true, 0o600, foreign)
+	current := partialState(t, true, 0o640, foreign)
 	match, err := recovery.MatchPartialDocumentStates(before, after, current)
 	if err != nil || !match.MatchesExpected() || match.MatchesBefore() || !match.Recoverable() {
 		t.Fatalf("selected removal did not permit the retained foreign root: %+v, %v", match, err)
 	}
-	thirdMode := partialState(t, true, 0o640, foreign)
-	match, err = recovery.MatchPartialDocumentStates(before, after, thirdMode)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertPartialBlocked(t, match)
 }
 
-func TestPartialHookRemovalRetainsForeignRootButNotThirdMetadataOrValue(t *testing.T) {
+func TestPartialHookRemovalRetainsForeignRootButNotThirdValue(t *testing.T) {
 	codec, selection := partialHookProjection(t)
 	before := partialState(t, true, 0o600, partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true"}]}]}}`))))
 	after := partialState(t, false, 0, partialRead(t, codec, selection, aggregate.AbsentDocument()))
@@ -105,16 +99,11 @@ func TestPartialHookRemovalRetainsForeignRootButNotThirdMetadataOrValue(t *testi
 	}
 
 	thirdValue := partialRead(t, codec, selection, aggregate.ExistingDocument([]byte(`{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"different"}]}]},"foreign":"keep"}`)))
-	for _, third := range []recovery.PartialDocumentState{
-		partialState(t, true, 0o640, foreign),
-		partialState(t, true, 0o600, thirdValue),
-	} {
-		match, err := recovery.MatchPartialDocumentStates(before, after, third)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertPartialBlocked(t, match)
+	match, err = recovery.MatchPartialDocumentStates(before, after, partialState(t, true, 0o640, thirdValue))
+	if err != nil {
+		t.Fatal(err)
 	}
+	assertPartialBlocked(t, match)
 	changed, err := after.ChangedValueFootprints(partialState(t, true, 0o600, thirdValue))
 	if err != nil || len(changed) != 1 || changed[0] != selection.Contracts()[0].Address().Footprint() {
 		t.Fatal("changed Hook value lost its selected footprint", changed, err)

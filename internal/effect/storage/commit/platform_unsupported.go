@@ -172,6 +172,13 @@ func PrepareRootedTreeWithLimits(
 	return nil, newUnsupportedPlatformFailure(path)
 }
 
+func (prepared *PreparedRootedTree) PreserveMatchingModes(_ context.Context, _ map[string]fs.FileMode) error {
+	if prepared == nil {
+		return newUnsupportedPlatformFailure("")
+	}
+	return newUnsupportedPlatformFailure(prepared.destination)
+}
+
 // Commit fails closed for the invalid unsupported-platform value.
 func (prepared *PreparedRootedTree) Commit(_ context.Context) error {
 	path := ""

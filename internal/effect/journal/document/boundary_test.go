@@ -29,14 +29,14 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	mode = 0o644
-	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{identity}); err != nil {
+	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{identity}, RecordedStateMode); err != nil {
 		t.Fatalf("recorded baseline borrowed mutable mode input: %v", err)
 	}
 	wrongDigest, err := NewImageIdentity(true, artifact.HashFileContent([]byte("other")), recovery.NewPermissionMode(row.FileMode()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongMode, err := NewImageIdentity(true, row.ContentHash(), &mode)
+	hostModeImage, err := NewImageIdentity(true, row.ContentHash(), &mode)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,10 +44,24 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, invalid := range [][]ImageIdentity{nil, {{}}, {wrongDigest}, {wrongMode}, {absent}} {
-		if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, invalid); err == nil {
+	for _, invalid := range [][]ImageIdentity{nil, {{}}, {wrongDigest}, {hostModeImage}, {absent}} {
+		if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, invalid, RecordedStateMode); err == nil {
 			t.Fatal("whole baseline accepted missing, zero, absent, changed-content or changed-mode evidence")
 		}
+	}
+	contents := aggregate.ExistingDocument([]byte("host bytes"))
+	groups[0].comparison, err = NewWholeComparison(t.Context(), ComparisonInput{
+		Before: contents, Expected: contents, BeforeMode: &mode, ExpectedMode: &mode,
+		Limits: configdocument.Limits{MaximumBytes: 4096, MaximumDepth: 32},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{hostModeImage}, PreserveExistingMode); err != nil {
+		t.Fatalf("a recorded update must use the original host mode: %v", err)
+	}
+	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{identity}, PreserveExistingMode); err == nil {
+		t.Fatal("a recorded update silently reset the host mode to the creation mode")
 	}
 
 	missing := aggregate.AbsentDocument()
@@ -58,7 +72,7 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	groups[0].comparison = comparison
-	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{absent}); err != nil {
+	if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{absent}, RecordedStateMode); err != nil {
 		t.Fatal("an unchanged whole row lost its observed absence", err)
 	}
 	changed, err := durable.NewManagedPathState(row.Subject(), row.ConsumerTargets(), row.Scope(), row.Destination(),
@@ -75,7 +89,7 @@ func TestRecordedImageIdentityPreservesWholeBaselineChecks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{absent}); err == nil {
+		if err := index.ValidateExpectedBaselines(t.Context(), groups, aggregate.CodecCatalog{}, []ImageIdentity{absent}, RecordedStateMode); err == nil {
 			t.Fatal("absence supplied a new or changed whole baseline")
 		}
 	}

@@ -46,7 +46,7 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 		if !input.Before.Exists() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document mutation requires an existing original")
 		}
-		actual := artifact.HashFileContentWithExecutable(input.Before.Content(), input.BeforeMode.FileMode()&0o111 != 0)
+		actual := artifact.HashFileContent(input.Before.Content())
 		if actual != facts.LiveHash() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document original does not match the observed live identity")
 		}
@@ -72,14 +72,17 @@ func PrepareWholeDocument(ctx context.Context, input WholeDocumentPreparationInp
 		}
 		expected = aggregate.ExistingDocument(file.Bytes())
 		expectedMode = recovery.NewPermissionMode(facts.ExpectedMode())
+		if input.Before.Exists() {
+			expectedMode = input.BeforeMode
+		}
 	case journalrecord.CaptureRecord:
-		if facts.LiveHash() != facts.DesiredHash() || input.BeforeMode.FileMode() != facts.ExpectedMode() {
-			return journaldocument.Comparison{}, fmt.Errorf("whole document record does not match desired identity and mode")
+		if facts.LiveHash() != facts.DesiredHash() {
+			return journaldocument.Comparison{}, fmt.Errorf("whole document record does not match desired content")
 		}
 		expected, expectedMode = input.Before, input.BeforeMode
 	case journalrecord.CaptureRemove:
 		previous, _ := facts.PreviousState()
-		if facts.LiveHash() != previous.ContentHash() || input.BeforeMode.FileMode() != previous.FileMode() {
+		if facts.LiveHash() != previous.ContentHash() {
 			return journaldocument.Comparison{}, fmt.Errorf("whole document removal does not match its previous baseline")
 		}
 	}

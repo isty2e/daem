@@ -31,7 +31,7 @@ func (path PreparedPath) WriteDirectory(
 		if err != nil {
 			return err
 		}
-		return view.CopyVerified(ctx, identity, sink)
+		return view.CopyVerified(ctx, identity, sink.ForInstallation())
 	}, precondition)
 }
 
@@ -43,12 +43,15 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 	if precondition == nil || precondition.consumed || precondition.capability == nil {
 		return fmt.Errorf("managed path rooted precondition is unavailable or consumed")
 	}
+	if precondition.existed && precondition.identity == nil {
+		return fmt.Errorf("existing tree publication destination requires a captured identity")
+	}
 	destination := precondition.destination
-	publicationCapability, err := operation.destinations.Acquire(destination)
+	capability, err := operation.destinations.Acquire(destination)
 	if err != nil {
 		return err
 	}
-	prepared, err := operation.filesystem.PrepareRootedTree(ctx, publicationCapability, populate)
+	prepared, err := operation.filesystem.PrepareRootedTree(ctx, capability, populate)
 	if err != nil {
 		return err
 	}
@@ -70,7 +73,12 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		// no-clobber commit; there is no existing destination to retire.
 		_ = removalCapability.Close()
 	} else {
-		if _, err := operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity); err != nil {
+		if precondition.identity.Kind() == mutationfs.EntryKindDirectory {
+			_, err = operation.removals.RetireTreeForReplacement(ctx, destination, removalCapability, precondition.identity, precondition.hash, prepared)
+		} else {
+			_, err = operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity, precondition.hash)
+		}
+		if err != nil {
 			return err
 		}
 		destinationRetired = true
@@ -83,10 +91,10 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 	return err
 }
 
-func (operation *Operation) CommitDirectoryAgainst(
+func (operation *Operation) restoreDirectoryAgainst(
 	ctx context.Context,
 	destination mutationnamespace.Destination,
-	expectedExists bool,
+	state recoveryWholePathState,
 	expected mutationfs.EntryIdentity,
 	populate func(mutationfs.RootedTreeWriter) error,
 ) error {
@@ -99,7 +107,8 @@ func (operation *Operation) CommitDirectoryAgainst(
 	}
 	precondition := &managedPathPrecondition{
 		destination: destination,
-		existed:     expectedExists,
+		existed:     state.existed,
+		hash:        artifact.ContentHash(state.contentHash),
 		identity:    expected,
 		capability:  capability,
 		filesystem:  operation.filesystem,

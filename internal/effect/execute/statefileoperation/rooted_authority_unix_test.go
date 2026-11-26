@@ -47,6 +47,16 @@ func TestRootedControlFileCommitSupportsExternalAuthority(t *testing.T) {
 		t.Fatalf("commitRootedControlFile returned error: %v", err)
 	}
 	assertHostFileContent(t, statePath, "state\n")
+	if err := os.Chmod(statePath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := commitRootedControlFile(t.Context(), storagecommit.Adapter{}, authority, []byte("updated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertHostFileContent(t, statePath, "updated\n")
+	if info, err := os.Stat(statePath); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("state replacement did not retain 0644: %v, %v", info, err)
+	}
 }
 
 func TestRootedControlFileCommitCreatesMissingExternalStateParents(t *testing.T) {

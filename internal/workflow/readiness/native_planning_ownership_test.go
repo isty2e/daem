@@ -108,17 +108,12 @@ func TestNativeWholeProducerUsesActualBeforeWithoutHostMutation(t *testing.T) {
 }
 
 func TestNativeWholeProducerRefusesForcedAdoptionAndLaterBlockers(t *testing.T) {
-	for _, fault := range []string{"no consent", "different bytes", "mode mismatch", "missing file", "foreign later", "reserved later"} {
+	for _, fault := range []string{"no consent", "different bytes", "missing file", "foreign later", "reserved later"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newNativePlanningFixture(t, target.ScopeGlobal, "extension-settings/test.json")
 			switch fault {
 			case "different bytes":
 				requireNativePreparationFile(t, fixture.hostPath, []byte("{ \"released\":9, \"a\":1 }"))
-				fixture.observe(t)
-			case "mode mismatch":
-				if err := os.Chmod(fixture.hostPath, 0o644); err != nil {
-					t.Fatal(err)
-				}
 				fixture.observe(t)
 			case "missing file":
 				if err := os.Remove(fixture.hostPath); err != nil {

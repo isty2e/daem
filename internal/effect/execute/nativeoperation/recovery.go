@@ -214,7 +214,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 				current, mode := document.Current()
 				outcome := documentmutation.New(authority.destinations, authority.filesystem, authority.removals, authority.physicalWorkBudget).PublishRestoration(ctx, destination, document.Comparison().MaximumDocumentBytes(), current, mode, document.Restoration())
 				if outcome.Err() != nil {
-					return outcome.Err()
+					return nativeRestoreFailure{applyprogram.RollbackFailure{Cause: outcome.Err()}}
 				}
 				return afterEffect()
 			}})
@@ -236,7 +236,10 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 				}
 				return semanticGuard(ctx)
 			}, options.AcceptVisibilityChanges)
-			return ordinary.execute(ctx, authority, operation, store, semanticGuard, gate)
+			if err := ordinary.execute(ctx, authority, operation, store, semanticGuard, gate); err != nil {
+				return nativeRestoreFailure{applyprogram.RollbackFailure{Cause: err}}
+			}
+			return nil
 		}})
 		steps = append(steps, nativeRecoveryStep{name: nativeRecoveryOrdinaryCleanupReference, kind: operationplan.EffectStepCleanup, run: func() error {
 			return ordinary.restoration.Cleanup(context.WithoutCancel(ctx))
@@ -253,6 +256,9 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 		switch {
 		case assessment.RequiresRollback(), assessment.CleanBefore():
 			err = registrysettlement.Converge(ctx, operation, assessment, store, assessment.RollbackClaims(), emptyBindings)
+			if err != nil {
+				return nativeRestoreFailure{applyprogram.RollbackFailure{Cause: err}}
+			}
 		case assessment.RequiresFinalization(), assessment.CleanAfter():
 			err = registrysettlement.Converge(ctx, operation, assessment, store, assessment.FinalizeClaims(), assessment.FinalizeBindings())
 		default:
@@ -285,6 +291,12 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	}})
 	return runNativeRecoverySteps(steps, prepared)
 }
+
+// Explicit recover treats a restore failure as its own cause; automatic apply
+// settlement also needs to distinguish it from the triggering apply failure.
+type nativeRestoreFailure struct{ applyprogram.RollbackFailure }
+
+func (failure nativeRestoreFailure) Unwrap() error { return failure.Cause }
 
 type nativeRecoveryStep struct {
 	name string

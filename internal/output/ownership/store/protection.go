@@ -123,16 +123,7 @@ func (store Store) TransitionProtection(ctx context.Context, owner stateauthorit
 			return ownership.Registry{}, fmt.Errorf("admit ownership protection publication: %w", err)
 		}
 	}
-	var request storagecommit.FileCommit
-	if capability != nil && exists {
-		request, err = storagecommit.NewRootedFileReplacement(capability, content, 0o600, expectedEntry)
-	} else if capability != nil {
-		request, err = storagecommit.NewRootedFileCreate(capability, content, 0o600)
-	} else if exists {
-		request, err = storagecommit.NewFileReplacement(store.path, content, 0o600, expectedEntry)
-	} else {
-		request, err = storagecommit.NewFileCreate(store.path, content, 0o600)
-	}
+	request, err := store.publication(capability, content, expectedEntry, exists)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("prepare ownership protection transition: %w", err)
 	}
@@ -154,7 +145,6 @@ func (store Store) loadRecordedForUpdate(ctx context.Context) (registryDocument,
 	}
 	var (
 		content    []byte
-		mode       fs.FileMode
 		identity   storagecommit.EntryIdentity
 		capability rootedpath.CommitCapability
 		err        error
@@ -165,9 +155,9 @@ func (store Store) loadRecordedForUpdate(ctx context.Context) (registryDocument,
 			return registryDocument{}, storagecommit.EntryIdentity{}, false, nil, err
 		}
 		if _, accountsPayload := store.physicalWorkBudget.(mutation.PhysicalObservationBudget); accountsPayload {
-			content, mode, identity, err = storagecommit.ReadRootedRegularFileWithWorkBudget(ctx, capability, maximumOwnershipRegistryBytes)
+			content, _, identity, err = storagecommit.ReadRootedRegularFileWithWorkBudget(ctx, capability, maximumOwnershipRegistryBytes)
 		} else {
-			content, mode, identity, err = storagecommit.ReadRootedRegularFileUpTo(ctx, capability, maximumOwnershipRegistryBytes)
+			content, _, identity, err = storagecommit.ReadRootedRegularFileUpTo(ctx, capability, maximumOwnershipRegistryBytes)
 		}
 	} else {
 		snapshot, readErr := storagecommit.ReadRegularFileSnapshotUpTo(ctx, store.path, maximumOwnershipRegistryBytes)
@@ -178,15 +168,12 @@ func (store Store) loadRecordedForUpdate(ctx context.Context) (registryDocument,
 			if !valid {
 				err = fmt.Errorf("ownership protection snapshot has unsupported entry identity %T", snapshot.Identity())
 			} else {
-				content, mode = snapshot.Content(), snapshot.Mode()
+				content = snapshot.Content()
 			}
 		}
 	}
 	if errors.Is(err, fs.ErrNotExist) {
 		return emptyLocatedRegistryDocument(), storagecommit.EntryIdentity{}, false, capability, nil
-	}
-	if err == nil && mode.Perm()&0o077 != 0 {
-		err = fmt.Errorf("ownership registry %q permissions %04o expose authority metadata", store.path, mode.Perm())
 	}
 	var document registryDocument
 	if err == nil {

@@ -20,6 +20,7 @@ type Entry struct {
 	contentPath       string
 	contentKind       realization.PathProjectionContentKind
 	before            BeforePathState
+	liveBeforeHash    string
 	expectedAfter     ExpectedPathState
 	aggregateContract *aggregate.ProjectionContract
 }

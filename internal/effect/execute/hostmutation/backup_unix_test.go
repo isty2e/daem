@@ -68,7 +68,7 @@ func TestRecoveryBackupCopiesEmptyDirectoryWithExactZeroWork(t *testing.T) {
 	backup := boundRecoveryBackupForTest(t, root, "empty", string(kind), string(hash), work, 1)
 	writer := &recordingRecoveryTreeWriter{}
 
-	if err := backup.CopyDirectory(t.Context(), writer); err != nil {
+	if _, err := backup.restoreDirectory(t.Context(), writer, ""); err != nil {
 		t.Fatalf("copy empty recovery directory: %v", err)
 	}
 	if writer.rootMode.Perm() != 0o750 || writer.entries != 0 {
@@ -170,12 +170,12 @@ func TestRecoveryBackupRejectsDirectoryGrowthBeyondExactWork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := backup.CopyDirectory(t.Context(), &recordingRecoveryTreeWriter{}); err == nil {
+	if _, err := backup.restoreDirectory(t.Context(), &recordingRecoveryTreeWriter{}, ""); err == nil {
 		t.Fatal("recovery directory growth was accepted")
 	}
 }
 
-func TestRecoveryBackupRejectsExecutableModeDrift(t *testing.T) {
+func TestLegacyFileBackupVerifiesBytesIndependentlyOfMode(t *testing.T) {
 	root := t.TempDir()
 	content := []byte("content")
 	path := filepath.Join(root, "file")
@@ -199,8 +199,8 @@ func TestRecoveryBackupRejectsExecutableModeDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := backup.ReadFile(t.Context()); err == nil {
-		t.Fatal("recovery file executable-mode drift was accepted")
+	if got, err := backup.ReadFile(t.Context()); err != nil || string(got) != string(content) {
+		t.Fatalf("read backup after chmod: got %q, error %v", got, err)
 	}
 }
 

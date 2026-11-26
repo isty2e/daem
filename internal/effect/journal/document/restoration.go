@@ -48,12 +48,8 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 	if err != nil {
 		return Restoration{}, err
 	}
-	currentRoot, err := recovery.NewPartialDocumentState(current.Exists(), mode, nil)
-	if err != nil {
-		return Restoration{}, err
-	}
-	if !currentRoot.SameRootMetadata(comparison.beforeState) && !currentRoot.SameRootMetadata(comparison.expectedState) {
-		return Restoration{}, fmt.Errorf("document root differs from both recorded states")
+	if !comparison.admitsPresence(current) {
+		return Restoration{}, fmt.Errorf("document presence differs from both recorded states")
 	}
 	if match.MatchesBefore() {
 		return NewRestoration(current, mode, current, mode)
@@ -62,8 +58,7 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 		if !match.Recoverable() {
 			return Restoration{}, fmt.Errorf("whole document differs from both recorded states")
 		}
-		BeforeMode := comparison.BeforeMode()
-		return NewRestoration(current, mode, comparison.before, BeforeMode)
+		return comparison.RestoreOriginal(current, mode)
 	}
 
 	candidate := current
@@ -113,7 +108,7 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 			return Restoration{}, fmt.Errorf("restored document lost an original native array")
 		}
 	}
-	candidateMode, err := comparison.selectedRestorationMode(candidate, current, mode)
+	candidateMode, err := comparison.restorationMode(candidate, current, mode)
 	if err != nil {
 		return Restoration{}, err
 	}
@@ -121,8 +116,8 @@ func (comparison Comparison) RestoreBefore(ctx context.Context, current aggregat
 	if err != nil {
 		return Restoration{}, err
 	}
-	if !restoration.root.SameRootMetadata(comparison.beforeState) && !restoration.root.SameRootMetadata(comparison.expectedState) {
-		return Restoration{}, fmt.Errorf("restored root is outside the recorded metadata envelope")
+	if !comparison.admitsPresence(candidate) {
+		return Restoration{}, fmt.Errorf("restored document presence differs from both recorded states")
 	}
 	// A codec can retain a foreign parent absent from its original baseline.
 	// Only an exact no-op can recognize that retry without waiving interference.
@@ -157,12 +152,29 @@ func (comparison Comparison) BeforeMode() *recovery.PermissionMode {
 	return &mode
 }
 
-func (comparison Comparison) selectedRestorationMode(candidate, current aggregate.Document, mode *recovery.PermissionMode) (*recovery.PermissionMode, error) {
+func (comparison Comparison) admitsPresence(document aggregate.Document) bool {
+	return document.Exists() == comparison.before.Exists() || document.Exists() == comparison.expected.Exists()
+}
+
+// RestoreOriginal binds the recorded bytes to the surviving file's mode, or
+// to the original mode when recreating a deleted file.
+func (comparison Comparison) RestoreOriginal(current aggregate.Document, mode *recovery.PermissionMode) (Restoration, error) {
+	if err := comparison.Validate(); err != nil {
+		return Restoration{}, err
+	}
+	if !current.Equal(comparison.expected) {
+		return Restoration{}, fmt.Errorf("document differs from the recorded expected image")
+	}
+	candidateMode, err := comparison.restorationMode(comparison.before, current, mode)
+	if err != nil {
+		return Restoration{}, err
+	}
+	return NewRestoration(current, mode, comparison.before, candidateMode)
+}
+
+func (comparison Comparison) restorationMode(candidate, current aggregate.Document, mode *recovery.PermissionMode) (*recovery.PermissionMode, error) {
 	if !candidate.Exists() {
 		return nil, nil
-	}
-	if comparison.before.Exists() && comparison.expected.Exists() && !comparison.beforeState.SameRootMetadata(comparison.expectedState) {
-		return comparison.BeforeMode(), nil
 	}
 	if current.Exists() {
 		return mode, nil

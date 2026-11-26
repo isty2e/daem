@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (authority *Operation) PublishRestoration(
@@ -64,7 +65,7 @@ func (authority *Operation) PublishRestoration(
 	if err != nil {
 		return restorationOutcome{err: err}
 	}
-	if !current.Equal(staged) || !currentRoot.SameRootMetadata(stagedRoot) {
+	if !current.Equal(staged) || restored.ChangesMode() && !currentRoot.SameRootMetadata(stagedRoot) {
 		return restorationOutcome{err: fmt.Errorf("document changed after recovery staging")}
 	}
 
@@ -80,7 +81,7 @@ func (authority *Operation) PublishRestoration(
 	if err != nil {
 		return restorationOutcome{err: err}
 	}
-	if !fresh.Equal(current) || !freshRoot.SameRootMetadata(currentRoot) || current.Exists() && (identity == nil || freshIdentity == nil || !identity.Equal(freshIdentity)) {
+	if !fresh.Equal(current) || restored.ChangesMode() && !freshRoot.SameRootMetadata(currentRoot) || current.Exists() && !mutationfs.SameEntryObject(identity, freshIdentity) {
 		return restorationOutcome{err: fmt.Errorf("document changed while preparing recovery publication")}
 	}
 
@@ -92,10 +93,13 @@ func (authority *Operation) PublishRestoration(
 	open = false
 	switch {
 	case !candidate.Exists():
-		_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, freshIdentity)
+		_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, freshIdentity, artifact.InstalledFileHash(fresh.Content()))
 	case !fresh.Exists():
 		err = authority.filesystem.CreateRootedFile(ctx, capability, candidate.Content(), os.FileMode(fileMode))
 	default:
+		if !restored.ChangesMode() {
+			fileMode = *freshMode
+		}
 		err = authority.filesystem.ReplaceRootedFile(ctx, capability, candidate.Content(), os.FileMode(fileMode), freshIdentity)
 	}
 	if err != nil {

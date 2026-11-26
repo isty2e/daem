@@ -66,12 +66,6 @@ func TestAdvisoryLockerRejectsUnsafeRecordShapes(t *testing.T) {
 		create          func(string) error
 	}{
 		{name: "directory", create: func(path string) error { return os.Mkdir(path, 0o700) }},
-		{name: "permissive regular file", create: func(path string) error {
-			if err := os.WriteFile(path, nil, 0o600); err != nil {
-				return err
-			}
-			return os.Chmod(path, 0o644)
-		}},
 		{name: "symlink", skipUnavailable: true, create: func(path string) error {
 			target := filepath.Join(filepath.Dir(path), "target")
 			if err := os.WriteFile(target, nil, 0o600); err != nil {

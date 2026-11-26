@@ -192,6 +192,7 @@ func buildManagedPathDecisions(
 			copy := state
 			facts.Previous = &copy
 		}
+		lockedHash := facts.DesiredHash
 		if requireFreshSupply {
 			lockObservation, observed := lockEvidence[supply.SubjectID()]
 			if !observed {
@@ -202,13 +203,28 @@ func buildManagedPathDecisions(
 				decisions = append(decisions, newManagedPathBlocked(facts, reconcile.ReasonStaleLock, "exact-Supply lock observation is stale"))
 				continue
 			}
+			if hash := lockObservation.InstalledHash(); hash != "" {
+				facts.DesiredHash = hash
+			}
 		}
 		current, observed := evidence[managedPathEvidenceKey{subject: facts.Subject, destination: facts.Destination}]
 		if !observed {
 			decisions = append(decisions, newManagedPathBlocked(facts, reconcile.ReasonMissingLiveObservation, "fresh path evidence is required"))
 			continue
 		}
+		if !requireFreshSupply && hasState && state.ContentHash().IsInstalled() {
+			// Inventory describes occupancy against recorded ownership, without reopening Supply.
+			facts.DesiredHash = state.ContentHash()
+		}
 		facts.LiveHash = current.ContentHash()
+		if facts.DesiredHash.IsInstalled() {
+			facts.LiveHash = current.InstalledHash()
+		} else if current.Matches(facts.DesiredHash) {
+			facts.LiveHash = facts.DesiredHash
+		}
+		if requireFreshSupply {
+			current = current.WithVerifiedSource(lockedHash, facts.DesiredHash)
+		}
 		if facts.ContentKind == realization.PathProjectionFile {
 			facts.LiveFileMode = current.FileMode()
 		}
@@ -301,6 +317,13 @@ func buildManagedPathDecisions(
 			continue
 		}
 		facts.LiveHash = current.ContentHash()
+		if current.Matches(state.ContentHash()) {
+			facts.LiveHash = state.ContentHash()
+			facts.PreviousObservation = current
+			if realization.IsInstalledContentSubject(subject) && current.InstalledHash() != "" {
+				facts.LiveHash, facts.DesiredHash = current.InstalledHash(), current.InstalledHash()
+			}
+		}
 		if facts.ContentKind == realization.PathProjectionFile {
 			facts.LiveFileMode = current.FileMode()
 		}
@@ -313,10 +336,8 @@ func buildManagedPathDecisions(
 			decision = newManagedPathDecision(facts, reconcile.ManagedPathRetireAbsent, retirementReason, "")
 		case !current.Exists():
 			decision = newManagedPathBlocked(facts, reconcile.ReasonMissingOutput, "managed output is missing")
-		case current.ContentHash() != state.ContentHash():
-			decision = newManagedPathBlocked(facts, reconcile.ReasonDriftedOutput, "managed output content differs from statefile baseline")
-		case !state.PermissionPolicy().AcceptsMode(state.FileMode(), current.FileMode()):
-			decision = newManagedPathBlocked(facts, reconcile.ReasonDriftedOutput, "managed output file mode differs from statefile baseline")
+		case !current.Matches(state.ContentHash()):
+			decision = newManagedPathBlocked(facts, reconcile.ReasonDriftedOutput, baselineMismatch(state))
 		case len(remaining) != 0:
 			decision = newManagedPathRecord(facts, reconcile.ReasonStateStale, "selected consumer removed from shared ownership")
 		default:
@@ -336,4 +357,11 @@ func buildManagedPathDecisions(
 		return compareManagedPathDecisions(decisions[left], decisions[right]) < 0
 	})
 	return canonicalManagedPathDecisions(decisions)
+}
+
+func baselineMismatch(state durable.ManagedPathState) string {
+	if state.ContentKind() == realization.PathProjectionDirectory && !state.ContentHash().IsInstalled() {
+		return fmt.Sprintf("cannot verify the previous skill tree against legacy baseline %s; run daem migrate metadata --baseline-tree <original-directory> --dry-run", state.ContentHash())
+	}
+	return "managed output content differs from statefile baseline"
 }

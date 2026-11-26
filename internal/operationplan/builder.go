@@ -52,7 +52,7 @@ func NewBuilder(policy RevisionPolicy, declarationPaths []string, declarationFil
 
 // AddLogical records a logical path fact and exclusive-or-shared domain step.
 func (builder *Builder) AddLogical(path string, access mutation.AccessMode, effect mutation.PathEffect) error {
-	return builder.addPathFact(FactLogical, path, access, effect, "", "", "", 0, "", true)
+	return builder.addPathFact(FactLogical, path, access, effect, "", "", "", 0, "", pathDomain)
 }
 
 // AddLogicalPair records directory-entry and referent logical facts.
@@ -70,7 +70,7 @@ func (builder *Builder) AddOwnershipRegistry(path string, access mutation.Access
 		return fmt.Errorf("ownership Registry requires its scoped semantic identity")
 	}
 	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-		if err := builder.addPathFact(FactOwnershipRegistry, path, access, effect, "", "", "", 0, identity, true); err != nil {
+		if err := builder.addPathFact(FactOwnershipRegistry, path, access, effect, "", "", "", 0, identity, pathDomain); err != nil {
 			return err
 		}
 	}
@@ -87,7 +87,7 @@ func (builder *Builder) AddMissingStateRegistryRead(path string) error {
 // exclusive physical observation that must not become a protection scope.
 func (builder *Builder) AddDocumentWritePair(path, targetName, scope string) error {
 	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
-		if err := builder.addPathFact(FactDocumentWrite, path, mutation.AccessExclusive, effect, targetName, scope, "", 0, "", true); err != nil {
+		if err := builder.addPathFact(FactDocumentWrite, path, mutation.AccessExclusive, effect, targetName, scope, "", 0, "", pathDomain); err != nil {
 			return err
 		}
 	}
@@ -102,7 +102,7 @@ func (builder *Builder) AddPhysical(
 	targetName string,
 	scope string,
 ) error {
-	return builder.addPathFact(FactPhysical, path, access, effect, targetName, scope, "", 0, "", true)
+	return builder.addPathFact(FactPhysical, path, access, effect, targetName, scope, "", 0, "", pathDomain)
 }
 
 // AddPhysicalPair records directory-entry and referent physical facts.
@@ -161,7 +161,7 @@ func (builder *Builder) AddFingerprintOnly(
 	if kind.producesDomain() {
 		return fmt.Errorf("operationplan: fingerprint-only fact %d produces a domain", kind)
 	}
-	return builder.addPathFact(kind, path, access, effect, "", "", "", 0, identity, false)
+	return builder.addPathFact(kind, path, access, effect, "", "", "", 0, identity, factOnly)
 }
 
 // AddRemovalContinuation records a logical exclusive domain and continuation fact.
@@ -176,7 +176,7 @@ func (builder *Builder) AddRemovalContinuation(path string, effect mutation.Path
 		"",
 		0,
 		"",
-		true,
+		pathDomain,
 	)
 }
 
@@ -199,6 +199,27 @@ func (builder *Builder) AddRevision(request mutation.RevisionRequest) {
 	builder.revisions = append(builder.revisions, request)
 }
 
+type pathEvidenceRole uint8
+
+const (
+	factOnly pathEvidenceRole = iota
+	pathDomain
+	installedPathDomain
+)
+
+func (builder *Builder) AddInstalledPathPair(path, targetName, scope string, write bool) error {
+	kind := FactPhysical
+	if write {
+		kind = FactDocumentWrite
+	}
+	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
+		if err := builder.addPathFact(kind, path, mutation.AccessExclusive, effect, targetName, scope, "", 0, "", installedPathDomain); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (builder *Builder) addPathFact(
 	kind FactKind,
 	path string,
@@ -209,7 +230,7 @@ func (builder *Builder) addPathFact(
 	family string,
 	containment mutation.RouteContainment,
 	identity string,
-	withDomain bool,
+	role pathEvidenceRole,
 ) error {
 	if err := kind.validate(); err != nil {
 		return err
@@ -226,7 +247,7 @@ func (builder *Builder) addPathFact(
 		identity:    identity,
 	}
 	builder.facts = append(builder.facts, fact)
-	if !withDomain {
+	if role == factOnly {
 		return nil
 	}
 	switch kind {
@@ -244,10 +265,16 @@ func (builder *Builder) addPathFact(
 	if kind == FactOwnershipRegistry {
 		return nil
 	}
-	return builder.maybeAddRevision(path, effect)
+	return builder.maybeAddRevision(path, effect, role)
 }
 
-func (builder *Builder) maybeAddRevision(path string, effect mutation.PathEffect) error {
+func (builder *Builder) maybeAddRevision(path string, effect mutation.PathEffect, role pathEvidenceRole) error {
+	if role == installedPathDomain {
+		if builder.policy != RevisionsOff {
+			builder.AddRevision(mutation.NewInstalledContentRevisionRequest(path, effect))
+		}
+		return nil
+	}
 	switch builder.policy {
 	case RevisionsOff:
 		return nil
@@ -278,7 +305,7 @@ func (builder *Builder) maybeAddRevision(path string, effect mutation.PathEffect
 }
 
 func revisionMapKey(request mutation.RevisionRequest) string {
-	return strconv.Itoa(int(request.Effect)) + ":" + request.Path
+	return strconv.FormatBool(request.IsInstalledContent()) + ":" + strconv.Itoa(int(request.Effect)) + ":" + request.Path
 }
 
 func sortedRevisionRequests(requests []mutation.RevisionRequest) []mutation.RevisionRequest {
@@ -287,7 +314,10 @@ func sortedRevisionRequests(requests []mutation.RevisionRequest) []mutation.Revi
 		if out[i].Effect != out[j].Effect {
 			return out[i].Effect < out[j].Effect
 		}
-		return out[i].Path < out[j].Path
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return !out[i].IsInstalledContent() && out[j].IsInstalledContent()
 	})
 	return out
 }

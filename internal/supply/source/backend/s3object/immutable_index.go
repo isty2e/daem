@@ -206,12 +206,6 @@ func (index immutableLookupIndex) read(
 	if err != nil || !found {
 		return immutableLookupRecord{}, false, err
 	}
-	if verifiedFile.Mode().Perm() != 0o600 {
-		return immutableLookupRecord{}, false, fmt.Errorf(
-			"immutable S3 lookup record mode is %04o, want 0600",
-			verifiedFile.Mode().Perm(),
-		)
-	}
 	content := verifiedFile.Content()
 	record, err := decodeImmutableLookupRecord(content)
 	if err != nil {
