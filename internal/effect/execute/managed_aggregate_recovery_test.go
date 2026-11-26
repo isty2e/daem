@@ -166,7 +166,8 @@ func TestApplyRetainsRefusedAggregateRestorationAfterStatefileFailure(t *testing
 		store.refusal = refusal
 		return &statefileRefusal{primary}
 	}})
-	if !errors.Is(err, primary) || !errors.Is(applyprogram.FailedRollbackCause(err), refusal) || applyprogram.HostChangesRolledBack(err) {
+	rollback := applyprogram.FailedRollbackCause(err)
+	if !errors.Is(err, primary) || !errors.Is(rollback, refusal) || errors.Is(rollback, primary) || applyprogram.HostChangesRolledBack(err) {
 		t.Fatalf("expected primary failure and separate unsuccessful restoration: %v", err)
 	}
 	after, err := os.ReadFile(path)

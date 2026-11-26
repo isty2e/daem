@@ -487,7 +487,11 @@ func TestNativeApplyRetainsFailedDocumentRestoration(t *testing.T) {
 	}
 
 	_, err = ApplyNativeWithEffectPlan(t.Context(), input, plan, options)
-	if !errors.Is(err, primary) || !errors.Is(err, refusal) || !errors.Is(applyprogram.FailedRollbackCause(err), refusal) || applyprogram.HostChangesRolledBack(err) {
+	var failed *SettlementError
+	if !errors.As(err, &failed) || !errors.Is(failed.Apply, primary) || !errors.Is(applyprogram.FailedRollbackCause(failed.Recovery), refusal) || errors.Is(failed.Apply, refusal) || errors.Is(failed.Recovery, primary) {
+		t.Fatal("expected distinct forward and restoration causes:", err)
+	}
+	if !errors.Is(err, primary) || !errors.Is(err, refusal) || applyprogram.HostChangesRolledBack(err) {
 		t.Fatal("expected publication failure and failed restoration:", err)
 	}
 	if actual, err := os.ReadFile(host); err != nil || bytes.Equal(actual, original) {

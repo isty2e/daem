@@ -527,6 +527,8 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 			}
 			if path := failure.RollbackSELinuxLabelDestination(); path != "" {
 				diagnostic = diagnostic.WithGuidance(clipresent.FilePathNote("rollback file", path))
+			}
+			if failure.SELinuxRecoveryIncomplete() {
 				command := "run daem recover --dry-run"
 				if explicitManifest {
 					command += " with the same --manifest argument"

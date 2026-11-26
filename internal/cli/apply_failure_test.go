@@ -16,8 +16,10 @@ import (
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute/applyprogram"
+	"github.com/isty2e/daem/internal/effect/execute/nativeoperation"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	journalnamespace "github.com/isty2e/daem/internal/effect/journal/namespace"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -36,21 +38,27 @@ func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing
 	forward := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `quoted"dir`, "AGENTS.md"), Err: denial}
 	restore := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `back\slash`, "settings.json"), Err: denial}
 	rollback := applyprogram.RollbackFailure{Cause: restore}
+	const rollbackRefused = "rollback failed:"
+	const recoveryIncomplete = "automatic recovery did not complete"
+	stale := mutation.StaleSnapshotError{}
 
 	for _, tc := range []struct {
-		name              string
-		err               error
-		forward, rollback bool
-		reason            applyworkflow.FailureReason
-		outcome           applyworkflow.FailureOutcome
+		name     string
+		err      error
+		forward  bool
+		recovery string
+		reason   applyworkflow.FailureReason
+		outcome  applyworkflow.FailureOutcome
 	}{
-		{"forward", forward, true, false, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
-		{"restored", applyprogram.NewRollbackError(forward, nil), true, false, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeRolledBack},
-		{"rollback refused", errors.Join(errors.New("state commit failed"), rollback), false, true, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
-		{"restore cause also unwrapped", errors.Join(restore, rollback), false, true, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
-		{"both writes refused", errors.Join(forward, rollback), true, true, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
-		{"cancelled", errors.Join(forward, context.Canceled), false, false, applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
-		{"rollback after cancellation", errors.Join(context.Canceled, rollback), false, true, applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
+		{"forward", forward, true, "", applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"restored", applyprogram.NewRollbackError(forward, nil), true, "", applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeRolledBack},
+		{"nested rollback refused", errors.Join(errors.New("state commit failed"), applyprogram.RollbackFailure{Cause: rollback}), false, rollbackRefused, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"native restoration refused", &nativeoperation.SettlementError{Apply: errors.New("stop after publication"), Recovery: errors.Join(restore, rollback)}, false, rollbackRefused, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"both writes refused", errors.Join(forward, rollback), true, rollbackRefused, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"native recovery stale", &nativeoperation.SettlementError{Apply: forward, Recovery: stale}, true, recoveryIncomplete, applyworkflow.FailureReasonStaleSnapshot, applyworkflow.FailureOutcomeIncomplete},
+		{"guarded rollback stale", errors.Join(forward, applyprogram.RollbackFailure{Cause: stale}), true, recoveryIncomplete, applyworkflow.FailureReasonApplyIncomplete, applyworkflow.FailureOutcomeIncomplete},
+		{"cancelled", errors.Join(forward, context.Canceled), false, "", applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
+		{"rollback after cancellation", errors.Join(context.Canceled, rollback), false, rollbackRefused, applyworkflow.FailureReasonCancelled, applyworkflow.FailureOutcomeIncomplete},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := applyworkflow.CommandResult{ExecutionAttempted: true}
@@ -75,15 +83,16 @@ func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing
 			if entry.Code != tc.reason || entry.Phase != applyworkflow.FailurePhaseExecution || entry.Outcome != tc.outcome || strings.Contains(wire.String(), privateDir) || strings.Contains(wire.String(), raw) {
 				t.Fatal("wrong classification or private error evidence in JSON:", &wire)
 			}
+			wantRestoreFile := tc.recovery == rollbackRefused
 			for _, text := range []string{entry.Message, human.String()} {
-				primary, secondary, rollbackReported := strings.Cut(text, "rollback failed:")
-				if strings.Contains(primary, forward.Summary()) != tc.forward || rollbackReported != tc.rollback || strings.Contains(secondary, restore.Summary()) != tc.rollback {
+				primary, secondary, rollbackReported := strings.Cut(text, rollbackRefused)
+				if strings.Contains(primary, forward.Summary()) != tc.forward || rollbackReported != wantRestoreFile || strings.Contains(secondary, restore.Summary()) != wantRestoreFile || strings.Contains(text, recoveryIncomplete) != (tc.recovery == recoveryIncomplete) {
 					t.Fatalf("wrong cause for forward or rollback failure: %s", text)
 				}
 			}
 			forwardNote := "note: affected file: " + strconv.Quote(forward.Destination)
 			restoreNote := "note: rollback file: " + strconv.Quote(restore.Destination)
-			if strings.Contains(human.String(), forwardNote) != tc.forward || strings.Contains(human.String(), restoreNote) != tc.rollback || strings.Contains(human.String(), "daem recover --dry-run") != tc.rollback || strings.Contains(human.String(), raw) {
+			if strings.Contains(human.String(), forwardNote) != tc.forward || strings.Contains(human.String(), restoreNote) != wantRestoreFile || strings.Contains(human.String(), "daem recover --dry-run") != (tc.recovery != "") || strings.Contains(human.String(), raw) {
 				t.Fatal("wrong file or recovery guidance:", &human)
 			}
 		})

@@ -19,14 +19,26 @@ import (
 	"github.com/isty2e/daem/internal/operationplan"
 )
 
+// SettlementError keeps the original apply failure distinct from the failed
+// recovery attempt. Both causes participate in ordinary error classification.
+type SettlementError struct {
+	Apply    error
+	Recovery error
+}
+
+func (failure *SettlementError) Error() string {
+	return errors.Join(failure.Apply, failure.Recovery).Error()
+}
+func (failure *SettlementError) Unwrap() []error { return []error{failure.Apply, failure.Recovery} }
+
 func settleNativeApplyFailure(ctx context.Context, primary error, input NativeApplyInput, options execute.ApplyOptions, authority *operation, store ownershipmutation.RegistryStore, captured journalpublication.CapturedNativeJournal, retiring *journal.NativeJournalRetirement, execution *applyprogram.Execution, result *ApplyResult) (resultErr error) {
 	prefix, err := execution.BeginFailureSettlement(applyprogram.SettlementGuardedRecovery)
 	if err != nil {
-		return errors.Join(primary, err)
+		return &SettlementError{Apply: primary, Recovery: err}
 	}
 	recoveryCtx := context.WithoutCancel(ctx)
 	refuse := func(err error) error {
-		return errors.Join(primary, fmt.Errorf("automatic native settlement did not complete; preserve recovery evidence and run daem recover --dry-run: %w", err))
+		return &SettlementError{Apply: primary, Recovery: fmt.Errorf("automatic native settlement did not complete; preserve recovery evidence and run daem recover --dry-run: %w", err)}
 	}
 	if err := execution.Observe(prefix+"/progress-classification", applyprogram.FailureUnavailable, func() error {
 		if err := captured.Validate(); err != nil {

@@ -111,19 +111,20 @@ const (
 
 // Failure is a path-neutral public projection of an internal apply error.
 type Failure struct {
-	reason                 FailureReason
-	phase                  FailurePhase
-	outcome                FailureOutcome
-	barrier                recoverygate.State
-	backendTransition      *readiness.MCPBackendTransitionError
-	nativeSupport          nativeSupportReason
-	documentAdmission      *nativeoperation.DocumentAdmissionError
-	selinuxLabel           *storagecommit.SELinuxLabelError
-	rollbackLabel          *storagecommit.SELinuxLabelError
-	staleAgentConfigSource entity.ID
-	missingState           *ownershipobserve.MissingStateRefusal
-	cleanupAttempted       bool
-	cleanupRecordsCleared  bool
+	reason                    FailureReason
+	phase                     FailurePhase
+	outcome                   FailureOutcome
+	barrier                   recoverygate.State
+	backendTransition         *readiness.MCPBackendTransitionError
+	nativeSupport             nativeSupportReason
+	documentAdmission         *nativeoperation.DocumentAdmissionError
+	selinuxLabel              *storagecommit.SELinuxLabelError
+	rollbackLabel             *storagecommit.SELinuxLabelError
+	selinuxRecoveryIncomplete bool
+	staleAgentConfigSource    entity.ID
+	missingState              *ownershipobserve.MissingStateRefusal
+	cleanupAttempted          bool
+	cleanupRecordsCleared     bool
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -147,20 +148,7 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 	if phase == FailurePhasePreflight && failure.reason != FailureReasonCancelled {
 		errors.As(err, &failure.missingState)
 	}
-	if failure.reason == FailureReasonApplyIncomplete || failure.reason == FailureReasonApplyRefused {
-		errors.As(err, &failure.selinuxLabel)
-	}
-	if phase == FailurePhaseExecution {
-		for cause := applyprogram.FailedRollbackCause(err); cause != nil; cause = applyprogram.FailedRollbackCause(cause) {
-			if errors.As(cause, &failure.rollbackLabel) {
-				break
-			}
-		}
-		// Native recovery also unwraps this error for standalone recover.
-		if failure.selinuxLabel == failure.rollbackLabel {
-			failure.selinuxLabel = nil
-		}
-	}
+	failure.observeSELinuxRefusals(err)
 	failure.cleanupRecordsCleared = len(result.RecoveryCleanup) != 0
 	for _, step := range result.RecoveryCleanup {
 		if step.Outcome != "" && step.Outcome != workspacecleanup.NotAttempted {
@@ -186,6 +174,29 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		}
 	}
 	return failure
+}
+
+func (failure *Failure) observeSELinuxRefusals(err error) {
+	applyCause, applyReason := err, failure.reason
+	var settlement *nativeoperation.SettlementError
+	var rollback error
+	if failure.phase == FailurePhaseExecution {
+		recoveryCause := err
+		if errors.As(err, &settlement) {
+			applyCause, recoveryCause = settlement.Apply, settlement.Recovery
+			applyReason = classifyFailureReason(applyCause, true)
+		}
+		rollback = applyprogram.FailedRollbackCause(recoveryCause)
+		for cause := rollback; cause != nil; cause = applyprogram.FailedRollbackCause(cause) {
+			if errors.As(cause, &failure.rollbackLabel) {
+				break
+			}
+		}
+	}
+	if applyReason == FailureReasonApplyIncomplete || applyReason == FailureReasonApplyRefused {
+		errors.As(applyCause, &failure.selinuxLabel)
+	}
+	failure.selinuxRecoveryIncomplete = failure.rollbackLabel != nil || (failure.selinuxLabel != nil && (settlement != nil || rollback != nil))
 }
 
 func classifyFailureReason(err error, executionAttempted bool) FailureReason {
@@ -365,12 +376,16 @@ func (failure Failure) RollbackSELinuxLabelDestination() string {
 	return failure.rollbackLabel.Destination
 }
 
+func (failure Failure) SELinuxRecoveryIncomplete() bool { return failure.selinuxRecoveryIncomplete }
+
 func (failure Failure) withOutcomeFacts(detail string) string {
 	if failure.selinuxLabel != nil {
 		detail += "; " + failure.selinuxLabel.Summary()
 	}
 	if failure.rollbackLabel != nil {
 		detail += "; rollback failed: " + failure.rollbackLabel.Summary()
+	} else if failure.selinuxRecoveryIncomplete {
+		detail += "; automatic recovery did not complete"
 	}
 	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
 		detail += "; journal recovery authority could not be classified"
