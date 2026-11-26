@@ -63,7 +63,7 @@ func decodePersisted(ctx context.Context, content []byte) (durable.Snapshot, pat
 		return durable.Snapshot{}, pathauthority.Reference{}, err
 	}
 	switch version {
-	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion, hookPlacementSnapshotVersion, locatedHookPlacementVersion, installedSnapshotVersion, locatedInstalledVersion:
+	case snapshotVersion, previousSnapshotVersion, legacySnapshotVersion, locatedSnapshotVersion, hookPlacementSnapshotVersion, locatedHookPlacementVersion, installedSnapshotVersion, locatedInstalledVersion, treeMembersSnapshotVersion, locatedTreeMembersVersion:
 		codec, err := currentSnapshotCodec(ctx)
 		if err != nil {
 			return durable.Snapshot{}, pathauthority.Reference{}, err
@@ -91,7 +91,7 @@ func statefileDocumentVersion(content []byte) (int, error) {
 
 func decodeSupported(content []byte, version int, codec snapshotCodec) (durable.Snapshot, error) {
 	switch version {
-	case snapshotVersion, hookPlacementSnapshotVersion, installedSnapshotVersion:
+	case snapshotVersion, hookPlacementSnapshotVersion, installedSnapshotVersion, treeMembersSnapshotVersion:
 		return decodeSnapshotDocument[managedAggregateV10DTO](content, version, codec)
 	case previousSnapshotVersion, legacySnapshotVersion:
 		codec.nativeDocuments = false

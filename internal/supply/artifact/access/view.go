@@ -452,11 +452,16 @@ func (view View) HashDirectoryWithLimits(
 	return view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, nil, nil)
 }
 
-// DirectoryHashesWithLimits derives both digest formats from one bounded walk.
-func (view View) DirectoryHashesWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit) (artifact.PathHashes, TraversalMeasurement, error) {
+// TreeInventoryWithLimits derives the digests and relative paths from one bounded walk.
+func (view View) TreeInventoryWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit) (artifact.TreeInventory, TraversalMeasurement, error) {
+	b := artifact.NewTreeInventoryBuilder(nil)
 	var hashes artifact.PathHashes
-	_, work, err := view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, &hashes, nil)
-	return hashes, work, err
+	_, work, err := view.hashDirectoryWithLimits(ctx, traversalLimit, structureLimit, &hashes, b)
+	if err != nil {
+		return artifact.TreeInventory{}, work, err
+	}
+	inventory, err := b.Inventory()
+	return inventory, work, err
 }
 
 func (view View) hashDirectoryWithLimits(ctx context.Context, traversalLimit TraversalLimit, structureLimit TreeStructureLimit, hashes *artifact.PathHashes, builder *artifact.DirectoryHashBuilder) (artifact.ContentHash, TraversalMeasurement, error) {

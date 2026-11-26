@@ -20,6 +20,7 @@ type ManagedPathState struct {
 	scope            target.Scope
 	destination      output.Destination
 	contentHash      artifact.ContentHash
+	members          artifact.TreeMembers
 	contentKind      realization.PathProjectionContentKind
 	permissionPolicy realization.PathPermissionPolicy
 	fileMode         os.FileMode
@@ -116,6 +117,25 @@ func (state ManagedPathState) Destination() output.Destination { return state.de
 // ContentHash returns the last applied content hash.
 func (state ManagedPathState) ContentHash() artifact.ContentHash { return state.contentHash }
 
+func (state ManagedPathState) TreeMembers() artifact.TreeMembers { return state.members }
+
+func (state ManagedPathState) WithTreeMembers(members artifact.TreeMembers) (ManagedPathState, error) {
+	if members.Known() && (state.contentKind != realization.PathProjectionDirectory || !state.contentHash.IsInstalled()) {
+		return ManagedPathState{}, fmt.Errorf("installed tree members require an installed directory baseline")
+	}
+	state.members = members
+	return state, nil
+}
+
+func (snapshot Snapshot) HasTreeMembers() bool {
+	for _, row := range snapshot.ManagedPaths() {
+		if row.members.Known() {
+			return true
+		}
+	}
+	return false
+}
+
 func (snapshot Snapshot) HasInstalledHashes() bool {
 	for _, row := range snapshot.ManagedPaths() {
 		if row.ContentHash().IsInstalled() {
@@ -140,12 +160,12 @@ func (state ManagedPathState) FileMode() os.FileMode { return state.fileMode }
 
 // WithVerifiedTreeBaseline upgrades only directory rows whose recorded digest
 // was reproduced. The verifier does not adopt the current host contents.
-func (snapshot Snapshot) WithVerifiedTreeBaseline(hashes artifact.PathHashes) (Snapshot, error) {
-	if err := hashes.Source.Validate(); err != nil {
+func (snapshot Snapshot) WithVerifiedTreeBaseline(tree artifact.TreeInventory) (Snapshot, error) {
+	if err := tree.Source.Validate(); err != nil {
 		return Snapshot{}, err
 	}
-	if !hashes.Installed.IsInstalled() || hashes.Installed.ValidateManaged() != nil {
-		return Snapshot{}, fmt.Errorf("verified tree requires an installed digest")
+	if !tree.Members.Known() || !tree.Installed.IsInstalled() || tree.Installed.ValidateManaged() != nil {
+		return Snapshot{}, fmt.Errorf("verified tree requires an inventory and installed digest")
 	}
 	paths := snapshot.ManagedPaths()
 	matched := false
@@ -154,13 +174,14 @@ func (snapshot Snapshot) WithVerifiedTreeBaseline(hashes artifact.PathHashes) (S
 			continue
 		}
 		switch path.contentHash {
-		case hashes.Source, hashes.Installed:
-			paths[i].contentHash = hashes.Installed
+		case tree.Source, tree.Installed:
+			paths[i].contentHash = tree.Installed
+			paths[i].members = tree.Members
 			matched = true
 		}
 	}
 	if !matched {
-		return Snapshot{}, fmt.Errorf("baseline tree %s does not match a recorded skill in this statefile", hashes.Source)
+		return Snapshot{}, fmt.Errorf("baseline tree %s does not match a recorded skill in this statefile", tree.Source)
 	}
 	return snapshot.WithManagedPaths(paths)
 }
@@ -171,6 +192,7 @@ func (state ManagedPathState) Equal(other ManagedPathState) bool {
 		state.scope != other.scope ||
 		state.destination != other.destination ||
 		state.contentHash != other.contentHash ||
+		!state.members.Equal(other.members) ||
 		state.contentKind != other.contentKind ||
 		state.permissionPolicy != other.permissionPolicy ||
 		state.fileMode != other.fileMode ||

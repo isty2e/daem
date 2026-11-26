@@ -17,11 +17,13 @@ const (
 	locatedHookPlacementVersion  = 13
 	installedSnapshotVersion     = 14
 	locatedInstalledVersion      = 15
+	treeMembersSnapshotVersion   = 16
+	locatedTreeMembersVersion    = 17
 	stateImageFactSchemaVersion  = snapshotVersion
 )
 
 func isLocatedSnapshot(version int) bool {
-	return version == locatedSnapshotVersion || version == locatedHookPlacementVersion || version == locatedInstalledVersion
+	return version == locatedSnapshotVersion || version == locatedHookPlacementVersion || version == locatedInstalledVersion || version == locatedTreeMembersVersion
 }
 
 type stateImageRecord struct {
@@ -50,7 +52,9 @@ func marshalImage(image StateImage, codec snapshotCodec) ([]byte, error) {
 		return nil, err
 	}
 	version := locatedSnapshotVersion
-	if image.Snapshot().HasInstalledHashes() {
+	if image.Snapshot().HasTreeMembers() {
+		version = locatedTreeMembersVersion
+	} else if image.Snapshot().HasInstalledHashes() {
 		version = locatedInstalledVersion
 	} else if image.Snapshot().ClaudeHookSettings().Path() != "" {
 		version = locatedHookPlacementVersion
@@ -85,7 +89,9 @@ func unmarshalImage(content []byte, codec snapshotCodec) (StateImage, error) {
 		return StateImage{}, fmt.Errorf("statefile reference: %w", err)
 	}
 	factsVersion := stateImageFactSchemaVersion
-	if record.Version == locatedInstalledVersion {
+	if record.Version == locatedTreeMembersVersion {
+		factsVersion = treeMembersSnapshotVersion
+	} else if record.Version == locatedInstalledVersion {
 		factsVersion = installedSnapshotVersion
 	} else if record.Version == locatedHookPlacementVersion {
 		factsVersion = hookPlacementSnapshotVersion
