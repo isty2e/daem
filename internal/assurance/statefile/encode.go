@@ -16,6 +16,9 @@ import (
 )
 
 func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
+	if snapshot.HasTreeMembers() {
+		return persistedSnapshotAtVersion(snapshot, treeMembersSnapshotVersion)
+	}
 	if snapshot.HasInstalledHashes() {
 		return persistedSnapshotAtVersion(snapshot, installedSnapshotVersion)
 	}
@@ -58,6 +61,7 @@ func persistedSnapshotAtVersion(snapshot durable.Snapshot, version int) snapshot
 			Scope:            string(state.Scope()),
 			Destination:      state.Destination().String(),
 			ContentHash:      string(state.ContentHash()),
+			TreeMembers:      state.TreeMembers().Entries(),
 			ContentKind:      string(state.ContentKind()),
 			PermissionPolicy: string(state.PermissionPolicy()),
 			FileMode:         fileMode,

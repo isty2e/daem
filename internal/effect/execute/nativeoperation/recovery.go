@@ -147,7 +147,7 @@ func executeNativeRecoveryOperation(ctx context.Context, operation *journal.Nati
 	if err := beforeEffect(); err != nil {
 		return err
 	}
-	hostActions, err := hostmutation.RestorationActionsFor(plan.OrdinaryRollbackActions())
+	hostActions, err := hostmutation.RestorationActionsFor(plan.OrdinaryRollbackActions(), plan.StatefileBefore())
 	if err != nil {
 		return err
 	}
@@ -367,7 +367,8 @@ func compileNativeRecoverySchedule(operation *journal.NativeRecoveryOperation) (
 			}
 		}
 	}
-	hostActions, err := hostmutation.RestorationActionsFor(operation.Plan().OrdinaryRollbackActions())
+	plan := operation.Plan()
+	hostActions, err := hostmutation.RestorationActionsFor(plan.OrdinaryRollbackActions(), plan.StatefileBefore())
 	if err != nil {
 		return operationplan.EffectStructure{}, err
 	}

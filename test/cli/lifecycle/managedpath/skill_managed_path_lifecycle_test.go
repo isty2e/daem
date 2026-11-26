@@ -105,6 +105,7 @@ func TestBaselineTreeMigratesRetiredSkillWithoutAdoptingItsHostContents(t *testi
 	}
 
 	content := testkit.ReadFile(t, file)
+	testkit.WriteFile(t, installed, "cache/data", "local cache\n")
 	if err := os.WriteFile(file, []byte("user edits"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestManagedSkillExternalModificationBlocksWithoutMutation(t *testing.T) {
 }
 
 func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testing.T) {
-	root, manifestPath, statefilePath, skillHash := prepareManagedSkillProject(t, []string{"codex", "antigravity-cli"})
+	root, manifestPath, statefilePath, _ := prepareManagedSkillProject(t, []string{"codex", "antigravity-cli"})
 	installed := filepath.Join(root, ".agents", "skills", "oracle")
 	state, err := statefile.Load(t.Context(), statefilePath)
 	if err != nil {
@@ -207,6 +208,9 @@ func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testin
 	)
 
 	writeManagedSkillManifest(t, root, []string{"codex"}, true)
+	baseline := testkit.InstalledHash(t, installed)
+	testkit.WriteFile(t, installed, "scratch/cache", "keep until last removal\n")
+	skillHash := testkit.HashDirectory(t, installed)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
 	stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--target", "antigravity-cli", "--yes")
 	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
@@ -219,7 +223,7 @@ func TestSharedManagedSkillPathRetainsRemainingConsumerThenDeletesLast(t *testin
 	if err != nil {
 		t.Fatalf("load partially shared state: %v", err)
 	}
-	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", testkit.InstalledHash(t, installed))
+	testkit.AssertSkillPathState(t, state, "oracle", "codex", "project", ".agents/skills/oracle", baseline)
 
 	writeManagedSkillManifest(t, root, []string{"codex"}, false)
 	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
@@ -531,6 +535,7 @@ func TestManagedSkillRelocationRequiresAbsentDestinationAndMovesStateAtomically(
 	if err := os.RemoveAll(newPath); err != nil {
 		t.Fatalf("remove relocation conflict: %v", err)
 	}
+	testkit.WriteFile(t, oldPath, "cache/data", "old placement only\n")
 	stdout, stderr, exitCode = runManagedSkillCLI("apply", "--manifest", manifestPath, "--yes")
 	if exitCode != 0 || stderr != "" || !strings.Contains(stdout, "applied: 1 action") {
 		t.Fatalf("relocation exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
@@ -718,12 +723,13 @@ source = { path = "skills", mode = "vendor" }`
 	testkit.WriteFile(t, root, "daem.toml", content)
 }
 
-func assertManagedSkillCLI(t *testing.T, wantExit int, args ...string) {
+func assertManagedSkillCLI(t *testing.T, wantExit int, args ...string) string {
 	t.Helper()
 	stdout, stderr, exitCode := runManagedSkillCLI(args...)
 	if exitCode != wantExit || stderr != "" {
 		t.Fatalf("daem %v exit=%d stdout=%q stderr=%q", args, exitCode, stdout, stderr)
 	}
+	return stdout
 }
 
 func runManagedSkillCLI(args ...string) (string, string, int) {

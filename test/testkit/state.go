@@ -377,7 +377,7 @@ func managedPathState(
 	// CLI fixtures may use a semantic seed; malformed persistence tests mutate
 	// encoded bytes instead of bypassing the canonical state constructor.
 	canonicalHash := artifact.ContentHash(contentHash)
-	if canonicalHash.Validate() != nil {
+	if canonicalHash.ValidateManaged() != nil {
 		canonicalHash = artifact.HashFileContent([]byte(contentHash))
 	}
 	id, err := entity.New(kind, name)

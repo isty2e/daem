@@ -33,6 +33,7 @@ type managedPathDTO struct {
 	Scope            string     `json:"scope"`
 	Destination      string     `json:"destination"`
 	ContentHash      string     `json:"content_hash"`
+	TreeMembers      []string   `json:"tree_members,omitzero"`
 	ContentKind      string     `json:"content_kind"`
 	PermissionPolicy string     `json:"permission_policy"`
 	FileMode         *uint32    `json:"file_mode,omitempty"`

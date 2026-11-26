@@ -18,6 +18,9 @@ import (
 // realization or managed-state authority record.
 type ManagedPathRequest struct {
 	LegacyExecutables artifact.ExecutablePaths
+	Members           artifact.TreeMembers
+	MembershipOnly    bool
+	VerifiedRelease   artifact.PathHashes
 	Subject           topology.SubjectID
 	Destination       output.Destination
 	ContentKind       realization.PathProjectionContentKind
@@ -126,6 +129,14 @@ func observeManagedPathEvidence(
 	fileMode := os.FileMode(0)
 	if artifactKind == artifact.ArtifactKindFile {
 		fileMode = info.Mode().Perm()
+	}
+	if request.Members.Known() {
+		whole, selected, err := view.ObserveTreeMembers(ctx, request.Members, request.MembershipOnly)
+		if err != nil {
+			return observe.ManagedPathEvidence{}, fmt.Errorf("observe destination %q: %w", destination, err)
+		}
+		evidence, err := observe.NewObservedTree(request.Subject, destination, whole, selected, request.Members)
+		return evidence.WithVerifiedSource(request.VerifiedRelease.Source, request.VerifiedRelease.Installed), err
 	}
 	var hashes artifact.PathHashes
 	if request.LegacyExecutables != nil {

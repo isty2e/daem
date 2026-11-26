@@ -51,8 +51,9 @@ func planJSONManagedPathAction(decision reconcile.ManagedPathDecision) planJSONA
 		Subject: planJSONSubjectFor(decision.Subject()), Targets: targetStrings(decision.ConsumerTargets()),
 		Scope: string(decision.Scope()), Destination: decision.Destination().String(),
 		PlacementMode: string(decision.PlacementMode()), ContentKind: string(decision.ContentKind()),
-		PermissionPolicy: string(decision.PermissionPolicy()),
-		DesiredHash:      string(decision.DesiredHash()), LiveHash: string(decision.LiveHash()), Detail: decision.Detail(),
+		PermissionPolicy:         string(decision.PermissionPolicy()),
+		RemovesAdditionalEntries: decision.RemovesAdditionalEntries(),
+		DesiredHash:              string(decision.DesiredHash()), LiveHash: string(decision.LiveHash()), Detail: decision.Detail(),
 		ResourceID: resourceID, Resource: resourceValue,
 	}
 	if decision.ContentKind() == realization.PathProjectionFile && decision.PermissionPolicy() != realization.PathPermissionsNone &&

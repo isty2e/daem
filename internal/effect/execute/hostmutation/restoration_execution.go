@@ -16,10 +16,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
 
 type RestorationAction struct {
+	survivingMembers    artifact.TreeMembers
 	TreeModes           recovery.TreeModes
 	Kind                recovery.ActionKind
 	Scope               target.Scope
@@ -318,6 +320,7 @@ func executeRecoveryHostActionPlan(
 					destination,
 					staged[index].stagedState,
 					staged[index].identity,
+					action.survivingMembers,
 					func(writer mutationfs.RootedTreeWriter) error {
 						hash, err := backup.restoreDirectory(ctx, writer, action.TreeModes)
 						if err == nil {

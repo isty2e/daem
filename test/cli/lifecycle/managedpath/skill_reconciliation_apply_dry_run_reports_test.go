@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -215,6 +216,17 @@ source = { path = "skills/oracle", mode = "vendor" }
 targets = ["codex"]
 `)
 	testkit.WriteLockfile(t, lockfilePath, testkit.ExactSupplyLockfile(t, testkit.ExactSupplyFixture{Kind: testkit.ExactSupplySkill, Name: "oracle", SourceID: "local:skills/oracle?mode=vendor", ContentHash: skillHash}))
+
+	const local = ".agents/skills/oracle/local"
+	extra := filepath.Join(tempDir, local)
+	testkit.WriteFile(t, tempDir, local, "only copy\n")
+	if code, _, _ := testkit.RunCapturedCLI("apply", "--manage-existing", "--yes", "--manifest", manifestPath); code == 0 {
+		t.Fatal("adopted a directory with an additional file")
+	}
+	testkit.AssertFileContent(t, extra, "only copy\n")
+	if err := os.Remove(extra); err != nil {
+		t.Fatal(err)
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

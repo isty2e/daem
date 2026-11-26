@@ -74,7 +74,7 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		_ = removalCapability.Close()
 	} else {
 		if precondition.identity.Kind() == mutationfs.EntryKindDirectory {
-			_, err = operation.removals.RetireTreeForReplacement(ctx, destination, removalCapability, precondition.identity, precondition.hash, prepared)
+			_, err = operation.removals.RetireTreeForReplacement(ctx, destination, removalCapability, precondition.identity, precondition.hash, prepared, precondition.previousMembers)
 		} else {
 			_, err = operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity, precondition.hash)
 		}
@@ -96,6 +96,7 @@ func (operation *Operation) restoreDirectoryAgainst(
 	destination mutationnamespace.Destination,
 	state recoveryWholePathState,
 	expected mutationfs.EntryIdentity,
+	survivingMembers artifact.TreeMembers,
 	populate func(mutationfs.RootedTreeWriter) error,
 ) error {
 	if !destination.IsRooted() {
@@ -106,12 +107,13 @@ func (operation *Operation) restoreDirectoryAgainst(
 		return err
 	}
 	precondition := &managedPathPrecondition{
-		destination: destination,
-		existed:     state.existed,
-		hash:        artifact.ContentHash(state.contentHash),
-		identity:    expected,
-		capability:  capability,
-		filesystem:  operation.filesystem,
+		previousMembers: survivingMembers,
+		destination:     destination,
+		existed:         state.existed,
+		hash:            artifact.ContentHash(state.contentHash),
+		identity:        expected,
+		capability:      capability,
+		filesystem:      operation.filesystem,
 	}
 	defer precondition.close()
 	return operation.commitRootedDirectoryWithPrecondition(

@@ -139,7 +139,27 @@ func hashNativeDirectoryEntries(
 	sink TreeSink,
 	budget *traversalBudget,
 ) error {
-	names, err := readNativeDirectoryNamesWithinBudget(ctx, directoryFD, relativeRoot, budget)
+	readSelected := func() ([]string, error) {
+		var names []string
+		err := visitNativeDirectoryNames(directoryFD, func(name string) (bool, error) {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			if !builder.SkipEntry(path.Join(relativeRoot, name)) {
+				names = append(names, name)
+			}
+			return false, nil
+		})
+		slices.Sort(names)
+		return names, err
+	}
+	var names []string
+	var err error
+	if builder.SkipsAdditionalEntries() {
+		names, err = readSelected()
+	} else {
+		names, err = readNativeDirectoryNamesWithinBudget(ctx, directoryFD, relativeRoot, budget)
+	}
 	if err != nil {
 		return err
 	}
@@ -238,6 +258,16 @@ func hashNativeDirectoryEntries(
 		if closeErr != nil {
 			return closeErr
 		}
+	}
+	if builder.SkipsAdditionalEntries() {
+		current, err := readSelected()
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(current, names) {
+			return fmt.Errorf("artifact access directory members changed while open")
+		}
+		return nil
 	}
 	return verifyNativeDirectoryNames(ctx, directoryFD, names)
 }

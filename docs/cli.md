@@ -360,10 +360,10 @@ it to start another write.
 | `add`, `remove`, `import`, `unmanage extension`, `unmanage agent-config` | Manifest authoring | `7` |
 | `lock`, `outdated` | Lock comparison | `6` |
 | `list resources` | Resource inventory | `4` |
-| `list outputs` | Output inventory | `7` |
+| `list outputs` | Output inventory | `8` |
 | `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `21` |
-| confirmed `apply` | Apply result | `27` |
+| `status`, `apply --dry-run` | Reconciliation plan | `22` |
+| confirmed `apply` | Apply result | `28` |
 | `replace agent-config` | Selected-key replacement | `2` |
 | `import agent-config` | Selected physical-value capture or its terminal recovery | `3` |
 | `recover` | Recovery plan/result | `11` |
@@ -504,6 +504,17 @@ For global Claude Code hooks, plan v21 and apply result v27 add `resolved_path`
 to action rows. It names the absolute settings file daem selected. `destination`
 and `projection.config_path` keep the portable spelling `~/.claude/settings.json`.
 Output inventory v7 makes the same distinction between `resolved_path` and `path`.
+
+Plan v22 and apply result v28 set `removes_additional_entries: true` on actions
+that replace or remove a copied skill directory, whether or not extra files are
+present. For an unchanged skill, `live_hash` identifies the verified shipped
+contents. Before a replacement or removal, daem checks the whole old directory,
+including files it did not ship.
+
+In output inventory v8, a managed skill's recorded `hash` covers its shipped
+contents. An ownership-blocked row can likewise report the verified shipped
+contents without reading files outside that set. Unmanaged directories are
+still checked as a whole.
 
 Consumers must first distinguish `result_type: "cli_error"` from the expected
 ordinary command envelope, inspect that family's `schema_version`, and reject
@@ -1781,6 +1792,10 @@ the new formats; see [metadata migration](#migrate-metadata). An apply invocatio
 that first clears recovery records skips this separate conversion and can use
 existing readable metadata formats for its normal work.
 
+When a plan replaces or removes a [copied skill](manifest.md#skills), it warns
+that files added to the installation directory will also be removed. An
+unchanged skill directory is left alone.
+
 Human plans keep a resource's own configuration transition separate from a
 blocked shared document. An unchanged server can therefore have a blocked
 command prerequisite because another entry conflicts in the same document.
@@ -2258,12 +2273,12 @@ the plan again before publication. The disclosed State and target lists describe
 the whole checked transaction scope, not just files to rewrite. Already-converted
 files can be unchanged, and absent files remain absent.
 
-Use `--baseline-tree <dir>` instead if a previous installation recorded a skill
-digest that included executable bits. Daem reads the supplied directory and
-converts only matching skill records in the selected statefile. This also works
-after removing the skill declaration. An unrelated directory is refused;
-neither the supplied copy nor the installed files are changed. For an interrupted
-apply, supply the directory to `recover` instead.
+Use `--baseline-tree <dir>` if daem cannot verify an older copied skill whose
+statefile records a digest but no file list. Supply a copy of the previously
+installed release. Daem checks its digest, then records the shipped paths for
+matching skills, even if their declarations have been removed. Neither the
+supplied copy nor the installed files change. For an interrupted apply, supply
+the directory to `recover` instead.
 
 Some legacy identities lack a provable access location. `--reference` supplies a
 lookup path that you assert belonged to a recorded identity; repeat the option

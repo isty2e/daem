@@ -18,7 +18,7 @@ func reconcileManagedPathDesired(
 	evidence map[managedPathEvidenceKey]observe.ManagedPathEvidence,
 	manageUnmanagedMatches bool,
 ) managedPathDecision {
-	matchesBaseline := hasState && current.Matches(state.ContentHash())
+	matchesBaseline := hasState && current.MatchesBaseline(state.ContentHash())
 	if !hasState {
 		if !current.Exists() {
 			return newManagedPathCreate(input, reconcile.ReasonMissingOutput)
@@ -38,7 +38,7 @@ func reconcileManagedPathDesired(
 			return newManagedPathBlocked(input, reconcile.ReasonMissingLiveObservation, "fresh evidence for the previous managed destination is required")
 		}
 		retirePrevious := !previousEvidence.Exists() && aggregate.IsAgentConfigDocumentSubject(input.Subject)
-		if !retirePrevious && !previousEvidence.Matches(state.ContentHash()) {
+		if !retirePrevious && !previousEvidence.MatchesBaseline(state.ContentHash()) {
 			return newManagedPathBlocked(input, reconcile.ReasonDriftedOutput, baselineMismatch(state))
 		}
 		if current.Exists() {
@@ -62,10 +62,17 @@ func reconcileManagedPathDesired(
 			"current path kind cannot satisfy the desired placement mode",
 		)
 	}
-	if !matchesBaseline && !current.Matches(input.DesiredHash) {
+	matchesDesired := current.Matches(input.DesiredHash)
+	if current.VerifiedMembers(state.ContentHash()).Known() {
+		input.PreviousObservation = current
+		// An extra can already contain the bytes of a newly shipped file.
+		// Compare releases so that its previous permissions are not adopted.
+		matchesDesired = current.InstalledBaseline(state.ContentHash()) == input.DesiredHash
+	}
+	if !matchesBaseline && !matchesDesired {
 		return newManagedPathBlocked(input, reconcile.ReasonDriftedOutput, baselineMismatch(state))
 	}
-	if !current.Matches(input.DesiredHash) {
+	if !matchesDesired {
 		return newManagedPathReplace(input, reconcile.ReasonContentChanged, "")
 	}
 	if !matchesBaseline ||
@@ -73,6 +80,11 @@ func reconcileManagedPathDesired(
 		(state.PermissionPolicy() == realization.PathPermissionsExact && state.FileMode() != input.DesiredFileMode) ||
 		!sameManagedPathConsumers(state.ConsumerTargets(), input.ConsumerTargets) {
 		return newManagedPathRecord(input, reconcile.ReasonStateStale, "")
+	}
+	if current.VerifiedMembers(state.ContentHash()).Known() {
+		// A no-op depends on the shipped contents, not the presence of unrelated entries.
+		input.LiveHash = input.DesiredHash
+		input.PreviousObservation = observe.ManagedPathEvidence{}
 	}
 	return newManagedPathNoOp(input, reconcile.ReasonAlreadyCurrent)
 }

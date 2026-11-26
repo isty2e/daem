@@ -671,7 +671,7 @@ func requireSameActiveJournal(
 }
 
 func recoveryHostActionsForPlan(plan recovery.Plan) ([]hostmutation.RestorationAction, error) {
-	return hostmutation.RestorationActionsFor(plan.Actions())
+	return hostmutation.RestorationActionsFor(plan.Actions(), plan.StatefileBefore())
 }
 
 func executeRecoveryRollbackEffects(

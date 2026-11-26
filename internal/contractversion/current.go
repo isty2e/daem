@@ -33,10 +33,10 @@ const (
 	AgentConfigReplacementJSON = 2
 	LockComparisonJSON         = 6
 	ResourceInventoryJSON      = 4
-	OutputInventoryJSON        = 7
+	OutputInventoryJSON        = 8
 	PathInventoryJSON          = 2
-	ReconciliationPlanJSON     = 21
-	ApplyResultJSON            = 27
+	ReconciliationPlanJSON     = 22
+	ApplyResultJSON            = 28
 	RecoveryJSON               = 11
 	StateMigrationJSON         = 1
 	MetadataMigrationJSON      = 1

@@ -33,7 +33,8 @@ import (
 
 func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec snapshotCodec) (durable.Snapshot, error) {
 	var hookSettings durable.ClaudeHookSettings
-	installed := version == installedSnapshotVersion
+	withMembers := version == treeMembersSnapshotVersion
+	installed := version == installedSnapshotVersion || withMembers
 	if installed {
 		version = snapshotVersion
 		if len(persisted.ClaudeHookSettings) != 0 {
@@ -88,6 +89,9 @@ func (persisted snapshotDocumentDTO[Aggregate]) canonical(version int, codec sna
 		}
 	}
 	for index, row := range persisted.ManagedPaths {
+		if row.TreeMembers != nil && !withMembers {
+			return durable.Snapshot{}, fmt.Errorf("statefile v%d cannot carry installed tree members", persisted.Version)
+		}
 		if !installed && artifact.ContentHash(row.ContentHash).IsInstalled() {
 			return durable.Snapshot{}, fmt.Errorf("statefile v%d cannot carry an installed content hash", persisted.Version)
 		}
@@ -177,7 +181,7 @@ func (persisted managedPathDTO) canonical() (durable.ManagedPathState, error) {
 	if err != nil {
 		return durable.ManagedPathState{}, err
 	}
-	return durable.NewManagedPathState(
+	state, err := durable.NewManagedPathState(
 		subject,
 		consumerTargets,
 		scope,
@@ -187,6 +191,14 @@ func (persisted managedPathDTO) canonical() (durable.ManagedPathState, error) {
 		realization.PathPermissionPolicy(persisted.PermissionPolicy),
 		fileMode,
 	)
+	if err != nil {
+		return durable.ManagedPathState{}, err
+	}
+	members, err := artifact.NewTreeMembers(persisted.TreeMembers)
+	if err != nil {
+		return durable.ManagedPathState{}, err
+	}
+	return state.WithTreeMembers(members)
 }
 
 func (persisted legacyManagedAggregateDTO) canonical() (durable.ManagedAggregateState, error) {

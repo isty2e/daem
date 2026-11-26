@@ -48,24 +48,25 @@ type ApplyResult struct {
 			ContentPath string   `json:"content_path"`
 			KeyPath     []string `json:"key_path"`
 		} `json:"projection"`
-		Target           string   `json:"target"`
-		Targets          []string `json:"targets"`
-		Scope            string   `json:"scope"`
-		Destination      string   `json:"destination"`
-		ResolvedPath     string   `json:"resolved_path"`
-		ContentPath      string   `json:"content_path"`
-		KeyPath          []string `json:"key_path"`
-		PlacementMode    string   `json:"placement_mode"`
-		ContentKind      string   `json:"content_kind"`
-		PermissionPolicy string   `json:"permission_policy"`
-		DesiredFileMode  uint32   `json:"desired_file_mode"`
-		LiveFileMode     uint32   `json:"live_file_mode"`
-		DesiredHash      string   `json:"desired_hash"`
-		LiveHash         string   `json:"live_hash"`
-		StateHash        string   `json:"state_hash"`
-		Detail           string   `json:"detail"`
-		Safety           string   `json:"safety"`
-		PreviousState    *struct {
+		Target                   string   `json:"target"`
+		Targets                  []string `json:"targets"`
+		Scope                    string   `json:"scope"`
+		Destination              string   `json:"destination"`
+		ResolvedPath             string   `json:"resolved_path"`
+		ContentPath              string   `json:"content_path"`
+		KeyPath                  []string `json:"key_path"`
+		PlacementMode            string   `json:"placement_mode"`
+		ContentKind              string   `json:"content_kind"`
+		PermissionPolicy         string   `json:"permission_policy"`
+		RemovesAdditionalEntries bool     `json:"removes_additional_entries"`
+		DesiredFileMode          uint32   `json:"desired_file_mode"`
+		LiveFileMode             uint32   `json:"live_file_mode"`
+		DesiredHash              string   `json:"desired_hash"`
+		LiveHash                 string   `json:"live_hash"`
+		StateHash                string   `json:"state_hash"`
+		Detail                   string   `json:"detail"`
+		Safety                   string   `json:"safety"`
+		PreviousState            *struct {
 			Subject *struct {
 				Kind      string `json:"kind"`
 				Namespace string `json:"namespace"`

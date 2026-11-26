@@ -206,6 +206,7 @@ func buildManagedPathDecisions(
 			if hash := lockObservation.InstalledHash(); hash != "" {
 				facts.DesiredHash = hash
 			}
+			facts.DesiredMembers = lockObservation.TreeMembers()
 		}
 		current, observed := evidence[managedPathEvidenceKey{subject: facts.Subject, destination: facts.Destination}]
 		if !observed {
@@ -298,6 +299,7 @@ func buildManagedPathDecisions(
 			Scope:            state.Scope(),
 			Destination:      state.Destination(),
 			DesiredHash:      state.ContentHash(),
+			DesiredMembers:   state.TreeMembers(),
 			ContentKind:      state.ContentKind(),
 			PermissionPolicy: state.PermissionPolicy(),
 			DesiredFileMode:  state.FileMode(),
@@ -317,11 +319,15 @@ func buildManagedPathDecisions(
 			continue
 		}
 		facts.LiveHash = current.ContentHash()
-		if current.Matches(state.ContentHash()) {
+		if current.MatchesBaseline(state.ContentHash()) {
 			facts.LiveHash = state.ContentHash()
 			facts.PreviousObservation = current
 			if realization.IsInstalledContentSubject(subject) && current.InstalledHash() != "" {
-				facts.LiveHash, facts.DesiredHash = current.InstalledHash(), current.InstalledHash()
+				facts.LiveHash = current.InstalledHash()
+				if !state.ContentHash().IsInstalled() {
+					facts.DesiredHash = current.InstalledBaseline(state.ContentHash())
+					facts.DesiredMembers = current.VerifiedMembers(state.ContentHash())
+				}
 			}
 		}
 		if facts.ContentKind == realization.PathProjectionFile {
@@ -336,7 +342,7 @@ func buildManagedPathDecisions(
 			decision = newManagedPathDecision(facts, reconcile.ManagedPathRetireAbsent, retirementReason, "")
 		case !current.Exists():
 			decision = newManagedPathBlocked(facts, reconcile.ReasonMissingOutput, "managed output is missing")
-		case !current.Matches(state.ContentHash()):
+		case !current.MatchesBaseline(state.ContentHash()):
 			decision = newManagedPathBlocked(facts, reconcile.ReasonDriftedOutput, baselineMismatch(state))
 		case len(remaining) != 0:
 			decision = newManagedPathRecord(facts, reconcile.ReasonStateStale, "selected consumer removed from shared ownership")
@@ -362,6 +368,9 @@ func buildManagedPathDecisions(
 func baselineMismatch(state durable.ManagedPathState) string {
 	if state.ContentKind() == realization.PathProjectionDirectory && !state.ContentHash().IsInstalled() {
 		return fmt.Sprintf("cannot verify the previous skill tree against legacy baseline %s; run daem migrate metadata --baseline-tree <original-directory> --dry-run", state.ContentHash())
+	}
+	if state.ContentKind() == realization.PathProjectionDirectory && !state.TreeMembers().Known() {
+		return "cannot verify the previous skill contents from the recorded digest; run daem migrate metadata --baseline-tree <original-directory> --dry-run"
 	}
 	return "managed output content differs from statefile baseline"
 }
