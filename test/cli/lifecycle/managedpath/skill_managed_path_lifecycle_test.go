@@ -3,13 +3,17 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/workflow/migrate"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -124,6 +128,46 @@ func TestBaselineTreeMigratesRetiredSkillWithoutAdoptingItsHostContents(t *testi
 	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifest, "--yes")
 	if _, err := os.Stat(installed); !os.IsNotExist(err) {
 		t.Fatalf("retired skill still present: %v", err)
+	}
+}
+
+func TestBaselineTreeRechecksStateAfterConfirmation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("changes Unix permission bits between approval and execution")
+	}
+	targets := []string{"codex"}
+	root, manifest, path, legacy := prepareManagedSkillProject(t, targets)
+	const destination = ".agents/skills/oracle"
+	testkit.WriteStatefile(t, path, testkit.Snapshot(t, testkit.SkillPathState(t, "oracle", targets, "project", destination, legacy)))
+	input := migrate.MetadataInput{ManifestPath: manifest, BaselineTree: filepath.Join(root, "skills", "oracle")}
+	prepare := func() *migrate.PreparedMetadata {
+		t.Helper()
+		plan, err := migrate.PlanMetadata(t.Context(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(plan.Close)
+		return plan
+	}
+
+	plan := prepare()
+	edited := append(testkit.ReadFile(t, path), '\n')
+	if err := os.WriteFile(path, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plan.Execute(t.Context()); !errors.As(err, new(mutation.StaleSnapshotError)) || !bytes.Equal(edited, testkit.ReadFile(t, path)) {
+		t.Fatalf("conversion did not leave the edited state alone: %v", err)
+	}
+
+	plan = prepare()
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plan.Execute(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 || bytes.Equal(edited, testkit.ReadFile(t, path)) {
+		t.Fatalf("expected converted state with the new permissions: %v, %v", info, err)
 	}
 }
 

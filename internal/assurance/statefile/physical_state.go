@@ -21,8 +21,6 @@ type PhysicalState struct {
 	snapshot durable.Snapshot
 	codec    PhysicalCodec
 	missing  MissingState
-	identity mutationfs.EntryIdentity
-	mode     fs.FileMode
 }
 
 type physicalStateMissingError struct{ cause error }
@@ -35,23 +33,25 @@ func (state PhysicalState) Snapshot() durable.Snapshot { return state.snapshot }
 
 func (state PhysicalState) Codec() PhysicalCodec { return state.codec }
 
-// ExistingFile identifies the exact physical file from which the facts were decoded.
-func (state PhysicalState) ExistingFile() (mutationfs.EntryIdentity, fs.FileMode, bool) {
-	return state.identity, state.mode, state.identity != nil
-}
-
 func (state PhysicalState) Missing() (MissingState, bool) {
 	return state.missing, state.missing.Path() != ""
 }
 
 // LoadPhysical reads State without projecting away its physical reference.
 func LoadPhysical(ctx context.Context, path string) (PhysicalState, error) {
+	state, _, err := LoadPhysicalFile(ctx, path)
+	return state, err
+}
+
+// LoadPhysicalFile returns the decoded state and the same bounded file read,
+// so an approved migration can recheck the original bytes before replacing it.
+func LoadPhysicalFile(ctx context.Context, path string) (PhysicalState, mutationfs.RegularFileSnapshot, error) {
 	if ctx == nil {
-		return PhysicalState{}, fmt.Errorf("statefile context is required")
+		return PhysicalState{}, mutationfs.RegularFileSnapshot{}, fmt.Errorf("statefile context is required")
 	}
 	codec, err := currentSnapshotCodec(ctx)
 	if err != nil {
-		return PhysicalState{}, err
+		return PhysicalState{}, mutationfs.RegularFileSnapshot{}, err
 	}
 	return loadPhysical(ctx, path, PhysicalCodec{codec: codec}, nil)
 }
@@ -76,7 +76,7 @@ func LoadOptionalPhysicalWithOptions(ctx context.Context, path string, options R
 	if ctx == nil || options.Codec.IsZero() || options.PhysicalPathBudget == nil {
 		return PhysicalState{}, fmt.Errorf("statefile context, selected codec and path budget are required")
 	}
-	state, err := loadPhysical(ctx, path, options.Codec, options.PhysicalPathBudget)
+	state, _, err := loadPhysical(ctx, path, options.Codec, options.PhysicalPathBudget)
 	var missing *physicalStateMissingError
 	if errors.As(err, &missing) {
 		if err := ctx.Err(); err != nil {
@@ -106,22 +106,29 @@ func selectMissingPhysicalState(ctx context.Context, path string, codec Physical
 	return PhysicalState{snapshot: durable.EmptySnapshot(), codec: codec, missing: missing}, nil
 }
 
-func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, error) {
+func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, mutationfs.RegularFileSnapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return PhysicalState{}, err
+		return PhysicalState{}, mutationfs.RegularFileSnapshot{}, err
 	}
 	canonical, err := canonicalPhysicalPath(path, budget)
 	if err != nil {
-		return PhysicalState{}, fmt.Errorf("canonicalize selected statefile: %w", err)
+		return PhysicalState{}, mutationfs.RegularFileSnapshot{}, fmt.Errorf("canonicalize selected statefile: %w", err)
 	}
 	loaded, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonical, maximumStatefileBytes)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return PhysicalState{}, &physicalStateMissingError{cause: err}
+			err = &physicalStateMissingError{cause: err}
 		}
-		return PhysicalState{}, err
+		return PhysicalState{}, mutationfs.RegularFileSnapshot{}, err
 	}
-	content := loaded.Content()
+	state, err := decodePhysical(ctx, canonical, loaded.Content(), codec, budget)
+	if err != nil {
+		return PhysicalState{}, mutationfs.RegularFileSnapshot{}, err
+	}
+	return state, loaded, nil
+}
+
+func decodePhysical(ctx context.Context, path string, content []byte, codec PhysicalCodec, budget rootedpath.PhysicalTraversalBudget) (PhysicalState, error) {
 	version, err := statefileDocumentVersion(content)
 	if err != nil {
 		return PhysicalState{}, fmt.Errorf("decode statefile %q: %w", path, err)
@@ -153,7 +160,7 @@ func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget 
 	if err != nil {
 		return PhysicalState{}, fmt.Errorf("decode statefile %q: %w", path, err)
 	}
-	observed, err := observePhysicalReference(canonical, budget)
+	observed, err := observePhysicalReference(path, budget)
 	if err != nil {
 		return PhysicalState{}, fmt.Errorf("observe statefile %q: %w", path, err)
 	}
@@ -171,7 +178,7 @@ func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget 
 		return PhysicalState{}, err
 	}
 	codec.selection = selection
-	return PhysicalState{snapshot: snapshot, codec: codec, identity: loaded.Identity(), mode: loaded.Mode().Perm()}, nil
+	return PhysicalState{snapshot: snapshot, codec: codec}, nil
 }
 
 func canonicalPhysicalPath(path string, budget rootedpath.PhysicalTraversalBudget) (string, error) {

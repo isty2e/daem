@@ -1,14 +1,16 @@
 package migrate
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"fmt"
+	"io/fs"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/metadataconversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -29,7 +31,7 @@ func planTreeBaseline(ctx context.Context, paths daempaths.Paths, tree string, b
 	if err != nil {
 		return nil, err
 	}
-	before, err := statefile.LoadPhysical(ctx, path)
+	before, selected, err := statefile.LoadPhysicalFile(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -49,10 +51,7 @@ func planTreeBaseline(ctx context.Context, paths daempaths.Paths, tree string, b
 	if err != nil {
 		return nil, err
 	}
-	identity, mode, present := before.ExistingFile()
-	if !present {
-		return nil, fmt.Errorf("tree baseline migration requires an existing statefile")
-	}
+	identity, original := selected.Identity(), selected.Content()
 	domains := authority.Domains()
 	for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: mutation.AccessExclusive, Effect: effect})
@@ -82,7 +81,17 @@ func planTreeBaseline(ctx context.Context, paths daempaths.Paths, tree string, b
 		if !matches {
 			return mutation.StaleSnapshotError{}
 		}
-		return (storagecommit.Adapter{}).ReplaceFile(ctx, path, encoded, mode, identity)
+		current, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, path, int64(len(original)))
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, storagecommit.ErrRegularFileReadLimitExceeded) {
+			return mutation.StaleSnapshotError{}
+		}
+		if err != nil {
+			return err
+		}
+		if !mutationfs.SameEntryObject(identity, current.Identity()) || !bytes.Equal(original, current.Content()) {
+			return mutation.StaleSnapshotError{}
+		}
+		return (storagecommit.Adapter{}).ReplaceFile(ctx, path, encoded, current.Mode(), current.Identity())
 	}
 	return &PreparedMetadata{execution: execute, disclosure: disclosure}, nil
 }
