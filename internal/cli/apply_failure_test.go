@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -27,7 +28,8 @@ import (
 )
 
 func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	const privateDir = "private-label-fixture"
+	path := filepath.Join(privateDir, `quoted"dir`, "AGENTS.md")
 	cause := fmt.Errorf("replace: %w", &storagecommit.SELinuxLabelError{Destination: path, Err: os.ErrPermission})
 	result := applyworkflow.CommandResult{ExecutionAttempted: true}
 	var human, wire bytes.Buffer
@@ -36,13 +38,25 @@ func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing
 	if err := clipresent.PrintApplyResultJSON(&wire, clipresent.ApplyResultJSONInput{ExecutionAttempted: true, Failure: &failure}); err != nil {
 		t.Fatal(err)
 	}
-	for _, output := range []string{human.String(), wire.String()} {
-		if !strings.Contains(output, "existing SELinux label: permission denied") {
-			t.Fatal("missing cause:", output)
+	var payload struct {
+		Errors []struct {
+			Code    applyworkflow.FailureReason
+			Phase   applyworkflow.FailurePhase
+			Outcome applyworkflow.FailureOutcome
+			Message string
 		}
 	}
-	if !strings.Contains(human.String(), path) || strings.Contains(wire.String(), path) || failure.Reason() != applyworkflow.FailureReasonApplyIncomplete {
-		t.Fatal("wrong destination disclosure or failure code:", human.String(), wire.String())
+	if err := json.Unmarshal(wire.Bytes(), &payload); err != nil || len(payload.Errors) != 1 {
+		t.Fatalf("expected one JSON error, got %s (%v)", &wire, err)
+	}
+	const denial = "existing SELinux label: permission denied"
+	fileNote := clipresent.NoteGuidance("affected file: " + clipresent.Quote(path)).HumanText()
+	if !strings.Contains(human.String(), denial) || !strings.Contains(human.String(), fileNote) {
+		t.Fatal("missing cause or quoted destination:", &human)
+	}
+	entry := payload.Errors[0]
+	if entry.Code != applyworkflow.FailureReasonApplyIncomplete || entry.Phase != applyworkflow.FailurePhaseExecution || entry.Outcome != applyworkflow.FailureOutcomeIncomplete || !strings.Contains(entry.Message, denial) || strings.Contains(wire.String(), privateDir) {
+		t.Fatalf("wrong failure code or destination disclosure: %+v", entry)
 	}
 	if cancelled := applyworkflow.ClassifyFailure(errors.Join(cause, context.Canceled), result); cancelled.Reason() != applyworkflow.FailureReasonCancelled || cancelled.SELinuxLabelDestination() != "" {
 		t.Fatal("label failure displaced cancellation:", cancelled.Detail())
