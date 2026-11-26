@@ -334,6 +334,7 @@ func TestForwardRemovalReacquiresCapabilityAgainstExecutionBudget(t *testing.T) 
 		destination,
 		capability,
 		expected,
+		"",
 	)
 	cause := errors.Unwrap(err)
 	if err == nil || cause == nil || !strings.Contains(cause.Error(), "path-component work exceeds operation limit") {
@@ -341,6 +342,61 @@ func TestForwardRemovalReacquiresCapabilityAgainstExecutionBudget(t *testing.T) 
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("candidate changed after pre-effect budget rejection: %v", err)
+	}
+}
+
+func TestForwardFileRemovalRevalidatesTheSelectedBytesAndObject(t *testing.T) {
+	content := []byte("original")
+	for _, change := range []string{"chmod", "in-place edit", "replacement", "different admitted bytes"} {
+		t.Run(change, func(t *testing.T) {
+			root := newProjectRootForMutationTest(t)
+			file := filepath.Join(root, "config")
+			if err := os.WriteFile(file, content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			authority, destination := projectMutationDestinationForTest(t, root, "config")
+			bindTestFileRemovalIntent(t, authority, destination, content)
+			if err := authority.PrepareForward(t.Context(), nil); err != nil {
+				t.Fatal(err)
+			}
+			capability, err := authority.destinations.Acquire(destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected, err := authority.filesystem.CaptureRootedEntryIdentity(t.Context(), capability)
+			if err != nil {
+				_ = capability.Close()
+				t.Fatal(err)
+			}
+			selected := artifact.InstalledFileHash(content)
+			want := string(content)
+			switch change {
+			case "chmod":
+				err = os.Chmod(file, 0o744)
+			case "in-place edit":
+				want = "modified"
+				err = os.WriteFile(file, []byte(want), 0o600)
+			case "replacement":
+				if err = os.WriteFile(file+".new", content, 0o600); err == nil {
+					err = os.Rename(file+".new", file)
+				}
+			case "different admitted bytes":
+				selected = artifact.InstalledFileHash([]byte("previous"))
+			}
+			if err != nil {
+				_ = capability.Close()
+				t.Fatal(err)
+			}
+			_, err = authority.RemoveRootedEntry(t.Context(), destination, capability, expected, selected)
+			remaining, readErr := os.ReadFile(file)
+			if change == "chmod" {
+				if err != nil || !errors.Is(readErr, os.ErrNotExist) {
+					t.Fatalf("chmod prevented removal: remove=%v, read=%v", err, readErr)
+				}
+			} else if err == nil || readErr != nil || string(remaining) != want {
+				t.Fatalf("removed or modified an unverified file: remove=%v, contents=%q, read=%v", err, remaining, readErr)
+			}
+		})
 	}
 }
 

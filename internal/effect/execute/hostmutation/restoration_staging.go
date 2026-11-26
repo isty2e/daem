@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 const (
@@ -68,11 +69,15 @@ type recoveryWholePathState struct {
 	fileMode    os.FileMode
 }
 
-func (state recoveryWholePathState) equal(other recoveryWholePathState) bool {
-	return state.existed == other.existed &&
-		state.kind == other.kind &&
-		state.contentHash == other.contentHash &&
-		state.fileMode.Perm() == other.fileMode.Perm()
+func (state recoveryWholePathState) sameContent(other recoveryWholePathState) bool {
+	return state.existed == other.existed && state.kind == other.kind && state.contentHash == other.contentHash
+}
+
+func (state recoveryWholePathState) fileHash() artifact.ContentHash {
+	if state.kind != recovery.PathKindFile {
+		return ""
+	}
+	return artifact.ContentHash(state.contentHash)
 }
 
 type recoveryGeneralPathReservation struct {
@@ -418,7 +423,7 @@ func restoreRollbackGroup(
 	baseline := entries[0]
 	attempted := false
 	for _, entry := range entries {
-		if !entry.stagedState.equal(baseline.stagedState) {
+		if !entry.stagedState.sameContent(baseline.stagedState) {
 			return fmt.Errorf("rollback stage for %q has inconsistent physical baselines", baseline.destination.Logical())
 		}
 		if entry.maximumFileBytes != baseline.maximumFileBytes {
@@ -453,12 +458,12 @@ func restoreRollbackGroup(
 			err,
 		)
 	}
-	if current.equal(baseline.stagedState) {
+	if current.sameContent(baseline.stagedState) {
 		return nil
 	}
 	matchesEffect := false
 	for _, entry := range entries {
-		if entry.attempted && entry.effectKnown && current.equal(entry.effectState) {
+		if entry.attempted && entry.effectKnown && current.sameContent(entry.effectState) {
 			matchesEffect = true
 			break
 		}
@@ -470,7 +475,7 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.operation.RemoveAgainst(ctx, baseline.destination, identity); err != nil {
+		if err := authority.operation.RemoveAgainst(ctx, baseline.destination, identity, current.fileHash()); err != nil {
 			return fmt.Errorf("rollback remove %q: %w", baseline.destination.Logical(), err)
 		}
 		return nil
@@ -491,11 +496,15 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
+		mode := baseline.fileMode
+		if current.kind == recovery.PathKindFile {
+			mode = current.fileMode
+		}
 		if err := authority.operation.CommitFileAgainst(
 			ctx,
 			baseline.destination,
 			content,
-			baseline.fileMode,
+			mode,
 			current.existed,
 			identity,
 		); err != nil {

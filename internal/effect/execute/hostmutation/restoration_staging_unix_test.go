@@ -117,9 +117,7 @@ func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
 	writeRestorationTestFile(t, destination, before)
 	entry := &restoration.rollback.entries[0]
 	entry.attempted, entry.effectKnown = true, true
-	entry.effectState = recoveryWholePathState{
-		existed: true, kind: recovery.PathKindFile, contentHash: string(artifact.HashFileContent(before)), fileMode: 0o600,
-	}
+	entry.effectState = recoveryFileState(before, 0o600)
 	if err := os.WriteFile(entry.backupPath, []byte(strings.Repeat("x", len(after))), 0o600); err != nil {
 		t.Fatal(err)
 	}

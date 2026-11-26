@@ -23,13 +23,13 @@ func recoveryDocumentWholeState(document aggregate.Document, mode os.FileMode) r
 	if !document.Exists() {
 		return recoveryWholePathState{}
 	}
+	return recoveryFileState(document.Content(), mode)
+}
+
+func recoveryFileState(content []byte, mode os.FileMode) recoveryWholePathState {
 	return recoveryWholePathState{
 		existed: true, kind: recovery.PathKindFile,
-		contentHash: string(artifact.HashFileContentWithExecutable(
-			document.Content(),
-			mode.Perm()&0o111 != 0,
-		)),
-		fileMode: mode.Perm(),
+		contentHash: string(artifact.InstalledFileHash(content)), fileMode: mode.Perm(),
 	}
 }
 
@@ -42,17 +42,9 @@ func validateRecoveryWholeFileInput(
 ) error {
 	current := recoveryWholePathState{}
 	if exists {
-		current = recoveryWholePathState{
-			existed: true,
-			kind:    recovery.PathKindFile,
-			contentHash: string(artifact.HashFileContentWithExecutable(
-				content,
-				mode.Perm()&0o111 != 0,
-			)),
-			fileMode: mode.Perm(),
-		}
+		current = recoveryFileState(content, mode)
 	}
-	if !current.equal(expected) {
+	if !current.sameContent(expected) {
 		return fmt.Errorf(
 			"recovery destination %q changed between recovery actions",
 			destination,
@@ -255,7 +247,7 @@ func stageRootedRollbackDestinations(
 		if err != nil {
 			return nil, fmt.Errorf("read rooted rollback source %q: %w", destination.Logical(), err)
 		}
-		if !identity.Equal(captured) {
+		if !mutationfs.SameEntryObject(identity, captured) {
 			return nil, fmt.Errorf("rooted rollback source %q changed while staging", destination.Logical())
 		}
 		work, err := workmeasure.NewArtifactWork(0, int64(len(content)))
@@ -277,11 +269,7 @@ func stageRootedRollbackDestinations(
 		baseline.stagedWork = work
 		baseline.fileMode = mode.Perm()
 		baseline.identity = captured
-		baseline.stagedState = recoveryWholePathState{
-			existed: true, kind: recovery.PathKindFile,
-			contentHash: string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
-			fileMode:    mode.Perm(),
-		}
+		baseline.stagedState = recoveryFileState(content, mode)
 		baseline.backup, err = OpenRollbackBackup(
 			backupPath,
 			filepath.Base(backupPath),
@@ -439,17 +427,13 @@ func observeRecoveryWholePathState(
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}
-		if !identity.Equal(captured) {
+		if !mutationfs.SameEntryObject(identity, captured) {
 			return recoveryWholePathState{}, nil, fmt.Errorf(
 				"rollback source %q changed while observing",
 				destination.Logical(),
 			)
 		}
-		return recoveryWholePathState{
-			existed: true, kind: recovery.PathKindFile,
-			contentHash: string(artifact.HashFileContentWithExecutable(content, mode.Perm()&0o111 != 0)),
-			fileMode:    mode.Perm(),
-		}, captured, nil
+		return recoveryFileState(content, mode), captured, nil
 	case mutationfs.EntryKindDirectory:
 		sink := NewDirectoryHashSink(ctx)
 		limits, err := recoveryTraversalLimits(maximumWork)
@@ -482,11 +466,11 @@ func observeRecoveryWholePathState(
 	return recoveryWholePathState{}, nil, fmt.Errorf("rollback source %q has no admitted state", destination.Logical())
 }
 
-func validateStagedRecoveryDestination(
+func refreshStagedRecoveryDestination(
 	ctx context.Context,
 	authority *Restoration,
 	budget *physicalwork.Budget,
-	entry hostRollbackEntry,
+	entry *hostRollbackEntry,
 ) error {
 	if !entry.existed {
 		capability, err := authority.operation.destinations.Acquire(entry.destination)
@@ -521,18 +505,19 @@ func validateStagedRecoveryDestination(
 			err,
 		)
 	}
-	if !current.equal(entry.stagedState) {
+	if !current.sameContent(entry.stagedState) {
 		return fmt.Errorf(
 			"recovery destination %q changed after rollback staging",
 			entry.destination.Logical(),
 		)
 	}
-	if entry.identity == nil || identity == nil || !entry.identity.Equal(identity) {
+	if !mutationfs.SameEntryObject(entry.identity, identity) {
 		return fmt.Errorf(
 			"recovery destination %q changed entry identity after rollback staging",
 			entry.destination.Logical(),
 		)
 	}
+	entry.identity, entry.fileMode = identity, current.fileMode
 	return nil
 }
 

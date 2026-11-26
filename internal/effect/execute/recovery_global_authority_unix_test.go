@@ -488,6 +488,23 @@ func TestRecoveryRejectsDirectFileChangeAfterFinalReloadWithoutOverwritingIt(t *
 	}
 }
 
+func TestRecoveryUsesFileModeChangedAfterRollbackStaging(t *testing.T) {
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
+	fixture := newGlobalFileRecoveryFixture(t, destination, true)
+	err := executeRecoveryPlanWithOptionsForTest(t.Context(), fixture.plan, fixture.paths, RecoveryOptions{
+		Resolver: destinationResolver(fixture.paths), OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+		StateCodec: testStateCodec(), StateReader: testStateReader(fixture.paths.StatefilePath), Filesystem: testFilesystem(),
+		beforeHostAction: func(int) error { return os.Chmod(fixture.admittedPath, 0o544) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRecoveryTestContent(t, fixture.admittedPath, fixture.before)
+	if info, err := os.Stat(fixture.admittedPath); err != nil || info.Mode().Perm() != 0o544 {
+		t.Fatalf("recovery changed the user's mode: %v, %v", info, err)
+	}
+}
+
 func TestRecoveryRejectsDirectFileChangeAfterRollbackStaging(t *testing.T) {
 	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
@@ -578,60 +595,78 @@ func TestRecoveryDirectFileCommitRejectsStagedEntryDrift(t *testing.T) {
 	assertRecoveryTestContent(t, fixture.admittedPath, external)
 }
 
-func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *testing.T) {
-	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
-	fixture := newGlobalFileRecoveryFixture(t, destination, true)
-	authority, err := newRecoveryMutationAuthority(
-		fixture.paths,
-		fixture.plan,
-		destinationResolver(fixture.paths),
-		testFilesystem(),
-		nil,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = authority.close() })
-	hostAction := recoveryHostActionFromJournalAction(fixture.plan.Actions()[0])
-	prepareRecoveryBackupsForTest(
-		t,
-		context.Background(),
-		authority,
-		fixture.plan,
-		[]hostmutation.RestorationAction{hostAction},
-	)
-	rollback, err := authority.hostMutation().StageRestoration(
-		context.Background(),
-		authority.physicalWorkBudget, authority.control, authority.hostBackups(),
-		[]hostmutation.RestorationAction{hostAction},
-		testAggregateCodecs(),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = rollback.Cleanup(context.Background()) })
-	beginUnclassifiedRecoveryExecutionForTest(t, authority)
-	if _, err := rollback.PrepareExecution(); err != nil {
-		t.Fatal(err)
-	}
-	if err := rollback.Execute(
-		context.Background(),
-		authority.generalExecutionWorkBudget,
-		nil,
-		nil,
-		applyprogram.VisibilityGate{},
-	); err != nil {
-		t.Fatal(err)
-	}
-	assertRecoveryTestContent(t, fixture.admittedPath, fixture.before)
+func TestRecoveryRollbackRechecksFileAfterCommittedRecoveryEffect(t *testing.T) {
+	for _, edit := range []string{"permissions only", "permissions and content"} {
+		t.Run(edit, func(t *testing.T) {
+			destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
+			fixture := newGlobalFileRecoveryFixture(t, destination, true)
+			authority, err := newRecoveryMutationAuthority(
+				fixture.paths,
+				fixture.plan,
+				destinationResolver(fixture.paths),
+				testFilesystem(),
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = authority.close() })
+			hostAction := recoveryHostActionFromJournalAction(fixture.plan.Actions()[0])
+			prepareRecoveryBackupsForTest(
+				t,
+				context.Background(),
+				authority,
+				fixture.plan,
+				[]hostmutation.RestorationAction{hostAction},
+			)
+			rollback, err := authority.hostMutation().StageRestoration(
+				context.Background(),
+				authority.physicalWorkBudget, authority.control, authority.hostBackups(),
+				[]hostmutation.RestorationAction{hostAction},
+				testAggregateCodecs(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = rollback.Cleanup(context.Background()) })
+			beginUnclassifiedRecoveryExecutionForTest(t, authority)
+			if _, err := rollback.PrepareExecution(); err != nil {
+				t.Fatal(err)
+			}
+			if err := rollback.Execute(
+				context.Background(),
+				authority.generalExecutionWorkBudget,
+				nil,
+				nil,
+				applyprogram.VisibilityGate{},
+			); err != nil {
+				t.Fatal(err)
+			}
+			assertRecoveryTestContent(t, fixture.admittedPath, fixture.before)
 
-	external := []byte("external after recovery effect\n")
-	writeRecoveryTestFile(t, fixture.admittedPath, external)
-	err = rollback.Restore(context.Background(), authority.generalExecutionWorkBudget, applyprogram.VisibilityGate{})
-	if err == nil || !strings.Contains(err.Error(), "changed outside the recovery attempt") {
-		t.Fatalf("rollback.restore error = %v, want external-change refusal", err)
+			if edit == "permissions and content" {
+				writeRecoveryTestFile(t, fixture.admittedPath, []byte("external after recovery effect\n"))
+			}
+			if err := os.Chmod(fixture.admittedPath, 0o544); err != nil {
+				t.Fatal(err)
+			}
+			err = rollback.Restore(context.Background(), authority.generalExecutionWorkBudget, applyprogram.VisibilityGate{})
+			if edit == "permissions and content" {
+				if err == nil {
+					t.Fatal("rollback overwrote a file changed outside the recovery attempt")
+				}
+				assertRecoveryTestContent(t, fixture.admittedPath, []byte("external after recovery effect\n"))
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
+			}
+			if info, err := os.Stat(fixture.admittedPath); err != nil || info.Mode().Perm() != 0o544 {
+				t.Fatalf("file after rollback: %v, %v; want user mode 0544", info, err)
+			}
+		})
 	}
-	assertRecoveryTestContent(t, fixture.admittedPath, external)
 }
 
 func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {

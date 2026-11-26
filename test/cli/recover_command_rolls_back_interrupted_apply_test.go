@@ -209,6 +209,50 @@ func TestLegacySkillRecoveryRechecksContentAfterConfirmation(t *testing.T) {
 	}
 }
 
+func TestRecoverBaselineTreeProvesLegacySkillWithoutWritingReference(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "daem.toml")
+	reference := filepath.Join(root, "desired", "oracle")
+	live := filepath.Join(root, ".agents", "skills", "oracle")
+	tool := filepath.Join(live, "tool")
+	testkit.WriteFile(t, live, "tool", "before\n")
+	testkit.WriteFile(t, reference, "tool", "after\n")
+	if err := os.Chmod(filepath.Join(reference, "tool"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths, before, _, _, referenceHash := captureCLIRecoverySkillUpdateJournal(t, manifest)
+	testkit.WriteStatefile(t, paths.StatefilePath, before)
+	if err := testkit.ReplaceDirectoryAtomic(reference, live); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tool, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	recoverWith := func(tree, flag string, wantCode int) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := testkit.RunVerboseCLI([]string{"recover", "--manifest", manifest, "--baseline-tree", tree, flag}, &stdout, &stderr)
+		if code != wantCode {
+			t.Fatalf("recover with %s %s: got %d, want %d; stdout: %s; stderr: %s", tree, flag, code, wantCode, &stdout, &stderr)
+		}
+	}
+	recoverWith(live, "--yes", 1)
+	testkit.AssertFileContent(t, tool, "after\n")
+	recoverWith(reference, "--dry-run", 0)
+	testkit.AssertFileContent(t, tool, "after\n")
+	recoverWith(reference, "--yes", 0)
+
+	testkit.AssertFileContent(t, tool, "before\n")
+	if info, err := os.Stat(tool); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("restored tool: %v, %v; want mode 0640", info, err)
+	}
+	if got := testkit.HashDirectory(t, reference); got != referenceHash {
+		t.Fatalf("recover changed the reference tree: %s, want %s", got, referenceHash)
+	}
+	testkit.AssertNoRecoveryArtifacts(t, root)
+}
+
 func TestRunRecoverCleansUnstartedApplyJournal(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")

@@ -16,7 +16,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -236,7 +235,7 @@ func executeRecoveryHostActionPlan(
 		destination := plan.resolvedDestinations[index]
 		// An existing tree is revalidated after its replacement has been prepared.
 		if !(action.Kind == recovery.ActionKindRestoreWrite && action.BackupKind == recovery.PathKindDirectory && staged[index].kind == recovery.PathKindDirectory) {
-			if err := validateStagedRecoveryDestination(ctx, authority, budget, staged[index]); err != nil {
+			if err := refreshStagedRecoveryDestination(ctx, authority, budget, &staged[index]); err != nil {
 				return fmt.Errorf("validate recovery host action %d baseline: %w", index, err)
 			}
 		}
@@ -286,10 +285,7 @@ func executeRecoveryHostActionPlan(
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
 				staged[index].attempted = true
-				staged[index].effectState = recoveryWholePathState{
-					existed: true, kind: recovery.PathKindFile,
-					contentHash: string(artifact.HashFileContentWithExecutable(content, fileMode.Perm()&0o111 != 0)), fileMode: fileMode.Perm(),
-				}
+				staged[index].effectState = recoveryFileState(content, fileMode)
 				staged[index].effectKnown = true
 				if err := authority.operation.CommitFileAgainst(
 					ctx,
@@ -351,7 +347,7 @@ func executeRecoveryHostActionPlan(
 			staged[index].attempted = true
 			staged[index].effectState = recoveryWholePathState{}
 			staged[index].effectKnown = true
-			if err := authority.operation.RemoveAgainst(ctx, destination, staged[index].identity); err != nil {
+			if err := authority.operation.RemoveAgainst(ctx, destination, staged[index].identity, staged[index].stagedState.fileHash()); err != nil {
 				return fmt.Errorf("delete restored path %q: %w", action.Destination, err)
 			}
 		}
@@ -403,7 +399,7 @@ func executeRecoveryAggregateActionGroup(
 			}
 		}
 		action := actions[index]
-		if !staged[index].stagedState.equal(baselineWholeState) ||
+		if !staged[index].stagedState.sameContent(baselineWholeState) ||
 			staged[index].existed != staged[firstIndex].existed {
 			return recoveryWholePathState{}, fmt.Errorf(
 				"aggregate recovery group for %q has inconsistent whole-document preconditions",
@@ -548,6 +544,7 @@ func executeRecoveryAggregateActionGroup(
 			var currentMode *recovery.PermissionMode
 			if exists {
 				currentMode = recovery.NewPermissionMode(mode)
+				fileMode = mode.Perm()
 			}
 			rendered, effects, err := recovery.RestoreProjectionDocument(current, currentMode, baseline, recovery.NewPermissionMode(fileMode), codecs)
 			if err != nil {
@@ -597,7 +594,7 @@ func executeRecoveryAggregateActionGroup(
 			err,
 		)
 	}
-	current, mode, err := authority.operation.ReadDocument(
+	current, _, err := authority.operation.ReadDocument(
 		ctx,
 		group.destination,
 		max(int64(1), expectedWork.Bytes()),
@@ -612,13 +609,6 @@ func executeRecoveryAggregateActionGroup(
 	}
 	if !current.Equal(expected.Document()) {
 		return effectState, fmt.Errorf("aggregate recovery document postcondition failed")
-	}
-	if current.Exists() && mode.Perm() != fileMode.Perm() {
-		return effectState, fmt.Errorf(
-			"aggregate recovery mode = %04o, want %04o",
-			mode.Perm(),
-			fileMode.Perm(),
-		)
 	}
 	postSnapshot, failure := codec.Read(current, selection)
 	if failure != nil {

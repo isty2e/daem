@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (authority *Operation) PublishRestoration(
@@ -92,7 +93,7 @@ func (authority *Operation) PublishRestoration(
 	open = false
 	switch {
 	case !candidate.Exists():
-		_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, freshIdentity)
+		_, err = authority.removals.RemoveRootedEntry(ctx, destination, capability, freshIdentity, artifact.InstalledFileHash(fresh.Content()))
 	case !fresh.Exists():
 		err = authority.filesystem.CreateRootedFile(ctx, capability, candidate.Content(), os.FileMode(fileMode))
 	default:

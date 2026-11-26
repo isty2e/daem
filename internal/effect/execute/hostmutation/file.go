@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (operation *Operation) CommitFileAgainst(ctx context.Context, destination mutationnamespace.Destination, content []byte, fileMode os.FileMode, expectedExists bool, expected mutationfs.EntryIdentity) error {
@@ -55,13 +56,13 @@ func (operation *Operation) MutateFile(
 			_ = capability.Close()
 			return nil
 		}
-		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, expected)
+		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, expected, artifact.InstalledFileHash(existing))
 		return err
 	}
 	if !exists {
 		return operation.filesystem.CreateRootedFile(ctx, capability, content, fileMode)
 	}
-	return operation.filesystem.ReplaceRootedFile(ctx, capability, content, fileMode, expected)
+	return operation.filesystem.ReplaceRootedFile(ctx, capability, content, mode.Perm(), expected)
 }
 
 func (operation *Operation) readFile(ctx context.Context, destination mutationnamespace.Destination, maximumBytes int64) ([]byte, os.FileMode, error) {
@@ -95,7 +96,7 @@ func (operation *Operation) entryExists(ctx context.Context, destination mutatio
 	return true, nil
 }
 
-func (operation *Operation) RemoveAgainst(ctx context.Context, destination mutationnamespace.Destination, expected mutationfs.EntryIdentity) error {
+func (operation *Operation) RemoveAgainst(ctx context.Context, destination mutationnamespace.Destination, expected mutationfs.EntryIdentity, fileHash artifact.ContentHash) error {
 	if !destination.IsRooted() {
 		return errors.New("mutation destination is invalid")
 	}
@@ -103,7 +104,7 @@ func (operation *Operation) RemoveAgainst(ctx context.Context, destination mutat
 	if err != nil {
 		return err
 	}
-	_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, expected)
+	_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, expected, fileHash)
 	return err
 }
 
@@ -123,7 +124,11 @@ func (path PreparedPath) Remove(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = precondition.operation.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity)
+	var fileHash artifact.ContentHash
+	if precondition.identity.Kind() == mutationfs.EntryKindFile {
+		fileHash = precondition.hash
+	}
+	_, err = precondition.operation.removals.RemoveRootedEntry(ctx, destination, capability, precondition.identity, fileHash)
 	return err
 }
 

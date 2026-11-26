@@ -89,7 +89,7 @@ func ObserveRootedRemovalEntry(
 		if workErr := budget.AdmitTreeWithin(work, maximumWork); workErr != nil {
 			return recovery.RemovalResidueEntryObservation{}, observed, workmeasure.ArtifactWork{}, workErr
 		}
-		if !identity.Equal(observed) {
+		if !mutationfs.SameEntryObject(identity, observed) {
 			observation, observationErr := recovery.NewRemovalResidueEntryObservation(
 				recovery.RemovalResidueEntryUnavailable,
 				"", "", nil, "", "residue identity changed while reading",

@@ -20,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -253,6 +254,7 @@ func (authority *Operation) RemoveRootedEntry(
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	fileHash artifact.ContentHash,
 ) (mutationfs.CommitOutcome, error) {
 	if !destination.IsRooted() {
 		return uncommittedRemovalFailure(fmt.Errorf("mutation destination is invalid"))
@@ -308,11 +310,12 @@ func (authority *Operation) RemoveRootedEntry(
 		}
 		return uncommittedRemovalFailure(err)
 	}
-	limits, err := authority.beginForwardRemoval(
+	entry, err := authority.beginForwardRemoval(
 		ctx,
 		removalDestination,
 		capability,
 		expected,
+		fileHash,
 		intent,
 	)
 	if err != nil {
@@ -324,9 +327,9 @@ func (authority *Operation) RemoveRootedEntry(
 	outcome, err := authority.filesystem.RemoveRootedEntryWithResidue(
 		ctx,
 		capability,
-		expected,
+		entry.identity,
 		intent.Namespace().Names(),
-		limits,
+		entry.limits,
 	)
 	if err != nil {
 		return outcome, NewCommitError(outcome, err)

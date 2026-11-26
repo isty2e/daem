@@ -608,6 +608,10 @@ func (observation RemovalResidueEntryObservation) WithContentHashes(hashes Conte
 	return observation
 }
 
+func (observation RemovalResidueEntryObservation) MatchesFileContent(hash string) bool {
+	return observation.kind == PathKindFile && observation.hashes.Matches(hash)
+}
+
 // Equal compares the complete immutable obligation/result value.
 func (obligation RemovalCleanupObligation) Equal(other RemovalCleanupObligation) bool {
 	return obligation.intent.equal(other.intent) &&

@@ -149,7 +149,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 		t.Fatalf("substitute final symlink: %v", err)
 	}
 
-	err = authority.hostMutation().RemoveAgainst(context.Background(), destination, expected)
+	err = authority.hostMutation().RemoveAgainst(context.Background(), destination, expected, "")
 	if err == nil || !strings.Contains(err.Error(), "rooted removal commit outcome uncommitted") {
 		t.Fatalf("removeDestinationAgainst error = %v, want uncommitted identity-change rejection", err)
 	}

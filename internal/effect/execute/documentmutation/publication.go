@@ -9,6 +9,7 @@ import (
 	journalpublication "github.com/isty2e/daem/internal/effect/journal/publication"
 	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (operation *Operation) PublishCaptured(ctx context.Context, document journalpublication.CapturedNativeDocument) (resultErr error) {
@@ -75,7 +76,7 @@ func (operation *Operation) PublishCaptured(ctx context.Context, document journa
 			return err
 		}
 		open = false
-		_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, identity)
+		_, err = operation.removals.RemoveRootedEntry(ctx, destination, capability, identity, artifact.InstalledFileHash(content))
 		return err
 	}
 	open = false

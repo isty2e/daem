@@ -13,6 +13,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func (operation *Operation) VerifyAggregatePreconditions(
@@ -86,7 +87,7 @@ func (operation *Operation) CommitAggregate(
 		destination,
 		capability,
 		identity,
-		exists,
+		current,
 		current.ModeForWrite(mode),
 		candidate,
 	)
@@ -104,20 +105,20 @@ func (operation *Operation) commitRootedAggregateCandidate(
 	destination mutationnamespace.Destination,
 	capability rootedpath.CommitCapability,
 	identity mutationfs.EntryIdentity,
-	exists bool,
+	current aggregate.Document,
 	writeMode os.FileMode,
 	candidate aggregate.Document,
 ) error {
 	switch {
-	case !candidate.Exists() && !exists:
+	case !candidate.Exists() && !current.Exists():
 		if err := capability.Close(); err != nil {
 			return err
 		}
 		return nil
 	case !candidate.Exists():
-		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, identity)
+		_, err := operation.removals.RemoveRootedEntry(ctx, destination, capability, identity, artifact.InstalledFileHash(current.Content()))
 		return err
-	case !exists:
+	case !current.Exists():
 		return operation.filesystem.CreateRootedFile(
 			ctx,
 			capability,

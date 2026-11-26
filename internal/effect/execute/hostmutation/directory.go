@@ -84,7 +84,7 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		// no-clobber commit; there is no existing destination to retire.
 		_ = removalCapability.Close()
 	} else {
-		if _, err := operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity); err != nil {
+		if _, err := operation.removals.RemoveRootedEntry(ctx, destination, removalCapability, precondition.identity, ""); err != nil {
 			return err
 		}
 		destinationRetired = true
