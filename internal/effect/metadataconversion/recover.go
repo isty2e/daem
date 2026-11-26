@@ -119,13 +119,13 @@ func (recovery Recovery) Execute(ctx context.Context) (returnErr error) {
 }
 
 func beforeSources(root, revision string, budget fileset.PhysicalWorkBudget) sourceReader {
-	return func(ctx context.Context, path string, kind sourceKind) (sourceEntry, error) {
+	return func(ctx context.Context, path string) (sourceEntry, error) {
 		view, err := fileset.ReadPublicationBeforeEvidence5(ctx, root, path, revision, mutationfs.MaximumPhysicalPathDepth, budget)
 		if err != nil {
 			return sourceEntry{}, err
 		}
 		entry := sourceEntry{image: view.Image(), content: view.Content()}
-		if err := validateSourceEntry(kind, entry); err != nil {
+		if err := validateSourceEntry(entry); err != nil {
 			return sourceEntry{}, err
 		}
 		return entry, nil

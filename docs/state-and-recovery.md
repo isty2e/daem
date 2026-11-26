@@ -55,10 +55,16 @@ location is saved, run `daem recover` with the original `CLAUDE_CONFIG_DIR`
 (or its original default). Recovery checks the settings location before it
 changes a file; selecting another profile does not redirect the rollback.
 
-The statefile is private authority data. Daem writes and accepts it only as an
-invoking-user-owned regular file with exact mode `0600`; final symlinks,
-special files, replacement during a read, oversized content, and other
-permission modes are rejected.
+Daem creates state files, journals and registries with mode `0600`. Changing the
+permissions on an existing record does not invalidate it or reset its mode on the
+next write. Daem still requires a regular file owned by the invoking user; it
+rejects final symlinks, special files, replacement during a read and oversized
+content. Keep these records where only trusted users can write them.
+
+If a manifest and lockfile update is interrupted, daem compares each file's
+contents with the recorded before and after versions. Changing only permissions
+does not block recovery. If either file contains an unrecognized edit, daem
+leaves the files and the recovery record in place.
 
 For installed instructions, hook assets, copied skills and whole `agent_config`
 files, daem compares content, not permission bits. Updating a file preserves its current mode,

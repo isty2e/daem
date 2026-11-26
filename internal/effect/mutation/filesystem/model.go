@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// KeepFilePermissions requests the ordinary permissions of the expected file
+// on replacement. It is not a creation mode or a value to persist.
+const KeepFilePermissions fs.FileMode = fs.ModeIrregular
+
 // EntryKind classifies the no-follow form represented by EntryIdentity.
 type EntryKind string
 

@@ -182,14 +182,6 @@ func decodeRecoveryJournalSnapshot(
 		snapshot.Identity().Kind() != mutationfs.EntryKindFile {
 		return recoveryJournal{}, fmt.Errorf("recovery journal snapshot is uninitialized")
 	}
-	if mode := snapshot.Mode().Perm(); mode != Mode {
-		return recoveryJournal{}, fmt.Errorf(
-			"recovery journal %q permissions are %04o, want %04o",
-			path,
-			mode,
-			Mode,
-		)
-	}
 	content := snapshot.Content()
 	version, err := jsonstrict.ValidateVersionedObject(
 		content,

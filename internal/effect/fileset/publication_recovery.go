@@ -140,7 +140,7 @@ func confirmPublicationTarget(ctx context.Context, path string, expected Publica
 	if err != nil {
 		return err
 	}
-	if !current.Equal(expected) {
+	if !current.sameContent(expected) {
 		return fmt.Errorf("terminal publication image changed")
 	}
 	if expected.exists {
@@ -160,10 +160,10 @@ func (plan *publicationPlan) restoreTarget(ctx context.Context, index int) error
 	if err != nil {
 		return err
 	}
-	if current.Equal(target.before) {
+	if current.sameContent(target.before) {
 		return nil
 	}
-	if !current.Equal(target.after) {
+	if !current.sameContent(target.after) {
 		return fmt.Errorf("publication target %q changed before restoration", target.path)
 	}
 	if target.before.exists {

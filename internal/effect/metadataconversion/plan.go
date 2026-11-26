@@ -91,7 +91,7 @@ func compilePlan(ctx context.Context, input compilerInput, read sourceReader, re
 	if err != nil {
 		return Plan{}, err
 	}
-	outputs, err := read(ctx, outputPath, ownershipSource)
+	outputs, err := read(ctx, outputPath)
 	if err != nil {
 		return Plan{}, fmt.Errorf("ownership registry %q: %w", outputPath, err)
 	}
@@ -99,7 +99,7 @@ func compilePlan(ctx context.Context, input compilerInput, read sourceReader, re
 	if err != nil {
 		return Plan{}, err
 	}
-	carriers, err := read(ctx, carrierPath, carrierSource)
+	carriers, err := read(ctx, carrierPath)
 	if err != nil {
 		return Plan{}, fmt.Errorf("carrier registry %q: %w", carrierPath, err)
 	}
@@ -257,7 +257,7 @@ func (compiler *planCompiler) addSelected(ctx context.Context, path string) erro
 		compiler.required = append(compiler.required, reference.Identity())
 		return nil
 	}
-	entry, err := compiler.read(ctx, path, stateSource)
+	entry, err := compiler.read(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -275,7 +275,7 @@ func (compiler *planCompiler) addSelected(ctx context.Context, path string) erro
 }
 
 func (compiler *planCompiler) addState(ctx context.Context, path string, reference pathauthority.Reference, contexts []daempaths.Paths) error {
-	entry, err := compiler.read(ctx, path, stateSource)
+	entry, err := compiler.read(ctx, path)
 	if err != nil {
 		return err
 	}

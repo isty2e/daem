@@ -5,11 +5,10 @@ package record
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestLoadRecoveryJournalRejectsPermissiveMode(t *testing.T) {
+func TestLoadRecoveryJournalAfterChmod(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +26,7 @@ func TestLoadRecoveryJournalRejectsPermissiveMode(t *testing.T) {
 	}
 
 	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
-	if err == nil || !strings.Contains(err.Error(), "permissions are 0644, want 0600") {
-		t.Fatalf("loadRecoveryJournal error = %v, want private-mode rejection", err)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

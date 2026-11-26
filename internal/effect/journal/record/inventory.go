@@ -139,8 +139,8 @@ func DecodeNativeSnapshot(ctx context.Context, snapshot mutationfs.RegularFileSn
 	if err := ctx.Err(); err != nil {
 		return Loaded{}, err
 	}
-	if snapshot.Identity() == nil || snapshot.Identity().Kind() != mutationfs.EntryKindFile || snapshot.Mode().Perm() != Mode {
-		return Loaded{}, fmt.Errorf("native inventory journal %q requires a private regular-file snapshot", path)
+	if snapshot.Identity() == nil || snapshot.Identity().Kind() != mutationfs.EntryKindFile {
+		return Loaded{}, fmt.Errorf("native inventory journal %q requires a regular-file snapshot", path)
 	}
 	content := snapshot.Content()
 	if int64(len(content)) > MaximumBytes {

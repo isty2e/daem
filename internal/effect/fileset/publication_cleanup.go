@@ -322,7 +322,7 @@ func publicationGarbageShape(snapshot mutationfs.DirectorySnapshot) bool {
 		return false
 	}
 	for _, entry := range snapshot.Entries() {
-		if entry.Kind() != mutationfs.EntryKindFile || !entry.OwnedByInvoker() || entry.Mode() != transactionEvidenceMode {
+		if entry.Kind() != mutationfs.EntryKindFile || !entry.OwnedByInvoker() || (entry.Name() != transactionMarkerFile && entry.Mode() != transactionEvidenceMode) {
 			return false
 		}
 		if entry.Name() == transactionMarkerFile || entry.Name() == publicationIntentFile {

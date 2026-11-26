@@ -158,7 +158,7 @@ func TestResolveRepairsCorruptImmutableLookupRecord(t *testing.T) {
 	}
 }
 
-func TestResolveRepairsWrongModeImmutableLookupRecord(t *testing.T) {
+func TestResolveReusesImmutableLookupAfterChmod(t *testing.T) {
 	client := &fakeS3Client{body: []byte("trusted\n"), versionID: "v1"}
 	resolver, err := newResolverWithClient(t.TempDir(), client)
 	if err != nil {
@@ -180,20 +180,20 @@ func TestResolveRepairsWrongModeImmutableLookupRecord(t *testing.T) {
 	}
 
 	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
-		t.Fatalf("fallback Resolve returned error: %v", err)
+		t.Fatalf("Resolve after chmod: %v", err)
 	}
 	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
-		t.Fatalf("post-repair Resolve returned error: %v", err)
+		t.Fatal(err)
 	}
 	info, err := os.Stat(recordPath)
 	if err != nil {
 		t.Fatalf("Stat repaired record returned error: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("repaired record mode = %04o, want 0600", info.Mode().Perm())
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("record mode = %04o, want 0644", info.Mode().Perm())
 	}
-	if calls := client.callCount(); calls != 2 {
-		t.Fatalf("GetObject calls = %d, want initial fetch plus mode-repair fallback", calls)
+	if calls := client.callCount(); calls != 1 {
+		t.Fatalf("GetObject calls = %d, want only the initial fetch", calls)
 	}
 }
 

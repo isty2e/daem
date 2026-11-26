@@ -26,6 +26,9 @@ func TestFinalizeCommittedPairPreservesSettledTargets(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir, manifest, lockfile, marker := setupFinalizationPair(t, test.retain, test.create)
 			publishFinalizationImages(t, marker, 2)
+			if err := os.Chmod(manifest, 0o644); err != nil {
+				t.Fatal(err)
+			}
 			manifestInfo := statFinalizationPath(t, manifest)
 			lockInfo := statFinalizationPath(t, lockfile)
 

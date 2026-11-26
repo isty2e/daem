@@ -175,16 +175,6 @@ func ensurePrivateDirectory(path string) error {
 	if info.Mode().Perm()&0o022 != 0 {
 		return fmt.Errorf("mutation lease directory %q is group/world-writable with mode %04o", path, info.Mode().Perm())
 	}
-	if err := os.Chmod(path, 0o700); err != nil {
-		return fmt.Errorf("secure mutation lease directory %q: %w", path, err)
-	}
-	secured, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("verify secured mutation lease directory %q: %w", path, err)
-	}
-	if !os.SameFile(info, secured) || secured.Mode().Perm() != 0o700 {
-		return fmt.Errorf("mutation lease directory %q changed while securing it", path)
-	}
 	return nil
 }
 
@@ -201,9 +191,6 @@ func validateLockRecord(path string) error {
 	}
 	if err := validateLeaseEntryOwner(path, info); err != nil {
 		return err
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("mutation lock record permissions %04o are not private", info.Mode().Perm())
 	}
 	return nil
 }
@@ -274,16 +261,6 @@ func secureAcquiredLockRecord(path string, lockFile *flock.Flock) error {
 	}
 	if pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(lockedInfo, pathInfo) {
 		return fmt.Errorf("mutation lock record changed while acquiring it")
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("set private lock record mode: %w", err)
-	}
-	securedInfo, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("verify secured mutation lock record: %w", err)
-	}
-	if !os.SameFile(lockedInfo, securedInfo) || securedInfo.Mode().Perm() != 0o600 {
-		return fmt.Errorf("mutation lock record changed while securing it")
 	}
 	return nil
 }

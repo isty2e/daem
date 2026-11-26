@@ -490,7 +490,6 @@ func loadRetirementControl(
 		if child.Name() != retirement.RecordFileName ||
 			child.Kind() != mutationfs.EntryKindFile ||
 			!child.OwnedByInvoker() ||
-			child.Mode() != retirement.RecordMode ||
 			child.Size() > retirement.MaximumRecordBytes {
 			continue
 		}
@@ -631,7 +630,6 @@ func loadJournalDirectoryEvidence(
 	}
 	if journalEntry.Kind() != mutationfs.EntryKindFile ||
 		!journalEntry.OwnedByInvoker() ||
-		journalEntry.Mode() != journalrecord.Mode ||
 		journalEntry.Size() > journalrecord.MaximumBytes {
 		return journalDirectoryEvidence{}, fmt.Errorf(
 			"recovery journal %q has invalid file metadata",

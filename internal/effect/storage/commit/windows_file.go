@@ -56,14 +56,12 @@ func commitWindowsFileWithFaultsAndParent(
 	if request.policy != filePolicyMustBeAbsent && request.policy != filePolicyReplaceExpected {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, fmt.Errorf("file commit policy is invalid"))
 	}
-	if err := validateWindowsCanonicalFileMode(request.mode); err != nil {
-		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, windowsUnsupportedCause(err))
+	if !request.keepPermissions {
+		if err := validateWindowsCanonicalFileMode(request.mode); err != nil {
+			return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, windowsUnsupportedCause(err))
+		}
 	}
-	canonical, err := buildWindowsCanonicalSecurity(request.mode)
-	if err != nil {
-		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, windowsUnsupportedCause(err))
-	}
-
+	var err error
 	if capability == nil {
 		capability, err = acquireWindowsPathCapability(request.path)
 		if err != nil {
@@ -100,6 +98,16 @@ func commitWindowsFileWithFaultsAndParent(
 	}
 	if err != nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseRevalidateEntry, request.path, windowsUnsupportedCause(err))
+	}
+	if request.keepPermissions {
+		request.mode = existing.mode
+		if err := validateWindowsCanonicalFileMode(request.mode); err != nil {
+			return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, windowsUnsupportedCause(err))
+		}
+	}
+	canonical, err := buildWindowsCanonicalSecurity(request.mode)
+	if err != nil {
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, windowsUnsupportedCause(err))
 	}
 	if err := faults.check(ctx, phaseCreateTemporary); err != nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCreateTemporary, request.path, err)

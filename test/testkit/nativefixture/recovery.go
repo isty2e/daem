@@ -511,10 +511,18 @@ func (store *nativeRecoveryStore) ReplaceRootedFile(ctx context.Context, capabil
 	if store.boundary == "before-state" && path == store.state && store.acceptsStatePublication(content) {
 		os.Exit(RecoveryExit)
 	}
+	wantMode := mode
+	if mode == mutationfs.KeepFilePermissions {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return errors.Join(err, capability.Close())
+		}
+		wantMode = info.Mode().Perm()
+	}
 	if err := store.Adapter.ReplaceRootedFile(ctx, capability, content, mode, expected); err != nil {
 		return err
 	}
-	return store.afterPublication(path, content, mode)
+	return store.afterPublication(path, content, wantMode)
 }
 
 func RecoveryReceipt(path string) string {

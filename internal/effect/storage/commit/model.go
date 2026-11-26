@@ -130,14 +130,15 @@ const (
 
 // FileCommit is a valid file publication request.
 type FileCommit struct {
-	path           string
-	payload        []byte
-	mode           fs.FileMode
-	policy         filePolicy
-	expected       EntryIdentity
-	expectedParent EntryIdentity
-	capability     rootedpath.CommitCapability
-	published      *EntryIdentity
+	path            string
+	payload         []byte
+	mode            fs.FileMode
+	keepPermissions bool
+	policy          filePolicy
+	expected        EntryIdentity
+	expectedParent  EntryIdentity
+	capability      rootedpath.CommitCapability
+	published       *EntryIdentity
 }
 
 func (request FileCommit) notePublication(staged EntryIdentity) {
@@ -194,6 +195,10 @@ func NewFileReplacement(
 	if err := validateCommitPath(path); err != nil {
 		return FileCommit{}, err
 	}
+	keep := mode == mutationfs.KeepFilePermissions
+	if keep {
+		mode = 0
+	}
 	if err := validateFileMode(mode); err != nil {
 		return FileCommit{}, err
 	}
@@ -201,11 +206,12 @@ func NewFileReplacement(
 		return FileCommit{}, err
 	}
 	return FileCommit{
-		path:     path,
-		payload:  append([]byte(nil), payload...),
-		mode:     mode,
-		policy:   filePolicyReplaceExpected,
-		expected: expected,
+		path:            path,
+		payload:         append([]byte(nil), payload...),
+		mode:            mode,
+		policy:          filePolicyReplaceExpected,
+		keepPermissions: keep,
+		expected:        expected,
 	}, nil
 }
 

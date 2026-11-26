@@ -308,7 +308,7 @@ func TestRegistryCodecRejectsUnknownCorruptDuplicateAndProjectClaims(t *testing.
 	}
 }
 
-func TestStoreRejectsAuthorityExposingPermissions(t *testing.T) {
+func TestStoreReadsRegistryWithGroupReadPermission(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "claims.json")
 	if err := os.WriteFile(path, []byte(`{"version":2,"claims":[]}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -317,8 +317,7 @@ func TestStoreRejectsAuthorityExposingPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Load(t.Context()); err == nil ||
-		!strings.Contains(err.Error(), "permissions") {
+	if _, err := store.Load(t.Context()); err != nil {
 		t.Fatalf("Load error = %v", err)
 	}
 }

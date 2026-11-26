@@ -281,7 +281,6 @@ type rootedEntryVerificationSink struct {
 	spec    EntrySpec
 
 	record        []byte
-	recordMode    fs.FileMode
 	recordPresent bool
 	recordFailure error
 }
@@ -423,7 +422,6 @@ func (sink *rootedEntryVerificationSink) VisitRegularFile(
 		sink.recordFailure = fmt.Errorf("completion record appears more than once")
 	}
 	sink.recordPresent = true
-	sink.recordMode = mode.Perm()
 	limited := io.LimitReader(content, maximumCompletionBytes+1)
 	record, err := io.ReadAll(limited)
 	if err != nil {
@@ -451,12 +449,6 @@ func (sink *rootedEntryVerificationSink) result() (
 	}
 	if sink.recordFailure != nil {
 		return false, "", "", sink.recordFailure
-	}
-	if sink.recordMode != 0o600 {
-		return false, "", "", fmt.Errorf(
-			"completion record mode is %04o, want 0600",
-			sink.recordMode,
-		)
 	}
 	record, err := decodeCompletionRecord(sink.record)
 	if err != nil {

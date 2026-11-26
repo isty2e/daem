@@ -29,6 +29,7 @@ type CommittedPair struct {
 	stateDir, replacedPath, companionPath string
 	inventory                             mutationfs.DirectorySnapshot
 	targets                               [2]string
+	hashes                                [2]string
 	identities                            [2]storagecommit.EntryIdentity
 }
 
@@ -36,7 +37,7 @@ func (pair *CommittedPair) SameEvidence(other *CommittedPair) bool {
 	return pair != nil && other != nil && pair.stateDir == other.stateDir &&
 		pair.replacedPath == other.replacedPath && pair.companionPath == other.companionPath &&
 		pair.inventory.Equal(other.inventory) && pair.targets == other.targets &&
-		pair.identities[0].Equal(other.identities[0]) && pair.identities[1].Equal(other.identities[1])
+		pair.hashes == other.hashes && pair.identities[0].SameObject(other.identities[0]) && pair.identities[1].SameObject(other.identities[1])
 }
 
 // ReadReplacedImage returns bytes from the exact manifest after-image bound
@@ -50,12 +51,16 @@ func (pair *CommittedPair) ReadReplacedImage(ctx context.Context) ([]byte, error
 		if err != nil {
 			return nil, err
 		}
-		if !pair.identities[index].Equal(snapshot.Identity()) {
+		if !pair.matchesImage(index, snapshot) {
 			return nil, mutation.StaleSnapshotError{}
 		}
 		return snapshot.Content(), nil
 	}
 	return nil, fmt.Errorf("file-set pair has no replaced image")
+}
+
+func (pair *CommittedPair) matchesImage(index int, snapshot mutationfs.RegularFileSnapshot) bool {
+	return mutationfs.SameEntryObject(pair.identities[index], snapshot.Identity()) && hashBytes(snapshot.Content()) == pair.hashes[index]
 }
 
 // ObserveCommittedPair verifies an exact file set without syncing or removing
@@ -150,6 +155,12 @@ func observePair(ctx context.Context, stateDir, replacedPath, companionPath stri
 	}
 	observation.proof.inventory = inventory
 	observation.proof.targets = [2]string{marker.Targets[0].Path, marker.Targets[1].Path}
+	for index, target := range marker.Targets {
+		observation.proof.hashes[index] = target.Before.Hash
+		if target.Write {
+			observation.proof.hashes[index] = target.AfterHash
+		}
+	}
 	observation.proof.identities = identities
 	keep = true
 	return observation, nil
@@ -181,7 +192,7 @@ func (pair *CommittedPair) retire(ctx context.Context, revalidate func(context.C
 		return false, fmt.Errorf("file-set evidence directory identity is unavailable")
 	}
 	for index, path := range pair.targets {
-		if err := confirm(ctx, path, pair.identities[index]); err != nil {
+		if err := confirm(ctx, path, observation.proof.identities[index]); err != nil {
 			return false, fmt.Errorf("confirm settled file-set target: %w", err)
 		}
 	}
@@ -197,8 +208,14 @@ func (pair *CommittedPair) retire(ctx context.Context, revalidate func(context.C
 		if err != nil {
 			return false, err
 		}
-		if !pair.identities[index].Equal(current) {
-			return false, mutation.StaleSnapshotError{}
+		if !observation.proof.identities[index].Equal(current) {
+			snapshot, err := observeFinalizationFile(ctx, path, maximumTargetBytes, observation.budget)
+			if err != nil {
+				return false, err
+			}
+			if !pair.matchesImage(index, snapshot) {
+				return false, mutation.StaleSnapshotError{}
+			}
 		}
 	}
 	current, err := observation.inventory(ctx)
@@ -234,7 +251,7 @@ func readPairFinalizationEvidence(ctx context.Context, stateDir string, inventor
 	}
 	readEvidence := func(path string, maximumBytes int64) ([]byte, error) {
 		entry, known := entries[filepath.Base(path)]
-		if !known || entry.Kind() != mutationfs.EntryKindFile || !entry.OwnedByInvoker() || entry.Mode() != transactionEvidenceMode {
+		if !known || entry.Kind() != mutationfs.EntryKindFile || !entry.OwnedByInvoker() || (entry.Name() != transactionMarkerFile && entry.Mode() != transactionEvidenceMode) {
 			return nil, fmt.Errorf("missing or unrecognized file-set evidence entry")
 		}
 		snapshot, err := observeFinalizationFile(ctx, path, maximumBytes, budget)
@@ -317,12 +334,7 @@ func committedPairIdentities(ctx context.Context, marker transactionMarker, budg
 		if err != nil {
 			return identities, err
 		}
-		hash, mode := hashBytes(snapshot.Content()), snapshot.Mode()
-		before := target.Before.Exists && hash == target.Before.Hash && mode == fileMode(target.Before)
-		after := before
-		if target.Write {
-			after = hash == target.AfterHash && mode == fileMode(target.Before)
-		}
+		before, after := target.positions(true, hashBytes(snapshot.Content()))
 		if !after && !before {
 			return identities, fmt.Errorf("%w: a file differs from both recorded states", ErrInterruptedFileSetTransaction)
 		}

@@ -39,6 +39,11 @@ func (image PublicationImage) Mode() fs.FileMode { return image.mode }
 
 func (image PublicationImage) Equal(other PublicationImage) bool { return image == other }
 
+func (image PublicationImage) sameContent(other PublicationImage) bool {
+	image.mode = other.mode
+	return image == other
+}
+
 func (image PublicationImage) Validate() error {
 	if !image.initialized {
 		return fmt.Errorf("publication image is not initialized")
@@ -184,6 +189,16 @@ func (intent PublicationIntent) Targets() []PublicationTarget { return slices.Cl
 func (intent PublicationIntent) Equal(other PublicationIntent) bool {
 	return intent.Validate() == nil && other.Validate() == nil &&
 		bytes.Equal(intent.selection, other.selection) && slices.Equal(intent.targets, other.targets)
+}
+
+// SamePublication compares what would be written, independent of ordinary
+// permissions on surviving files. Creation modes still affect the result.
+func (intent PublicationIntent) SamePublication(other PublicationIntent) bool {
+	return intent.Validate() == nil && other.Validate() == nil && bytes.Equal(intent.selection, other.selection) &&
+		slices.EqualFunc(intent.targets, other.targets, func(a, b PublicationTarget) bool {
+			return a.path == b.path && a.before.sameContent(b.before) && a.after.sameContent(b.after) &&
+				(a.before.exists || a.after.mode == b.after.mode)
+		})
 }
 
 func (intent PublicationIntent) Validate() error {

@@ -408,23 +408,13 @@ func readRetirementRecord(
 	if err != nil {
 		return nil, nil, err
 	}
-	content, mode, identity, err := filesystem.ReadRootedRegularFileUpTo(
+	content, _, identity, err := filesystem.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
 		retirement.MaximumRecordBytes,
 	)
 	if err != nil {
 		return nil, nil, errors.Join(err, capability.Close())
-	}
-	if mode != retirement.RecordMode {
-		return nil, nil, errors.Join(
-			fmt.Errorf(
-				"journal retirement record mode is %04o, want %04o",
-				mode.Perm(),
-				retirement.RecordMode,
-			),
-			capability.Close(),
-		)
 	}
 	observed, err := retirement.Decode(content)
 	if err != nil {

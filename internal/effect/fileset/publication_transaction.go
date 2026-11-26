@@ -110,7 +110,7 @@ func (plan *publicationPlan) publishEvidence(ctx context.Context, body, header [
 			if err != nil {
 				return err
 			}
-			if !image.Equal(target.before) {
+			if !image.sameContent(target.before) {
 				return fmt.Errorf("%w: Before image changed for %q", ErrRecoveryIntentMismatch, target.path)
 			}
 			if target.before.exists {
@@ -147,7 +147,7 @@ func (plan *publicationPlan) publishTarget(ctx context.Context, index int, mater
 	if err != nil {
 		return err
 	}
-	if !current.Equal(target.before) {
+	if !current.sameContent(target.before) {
 		return fmt.Errorf("publication target %q changed before its write", target.path)
 	}
 	before, err := plan.readBackup(ctx, index)
@@ -198,7 +198,7 @@ func commitPublicationImage(ctx context.Context, path string, current Publicatio
 	var request storagecommit.FileCommit
 	var err error
 	if current.exists {
-		request, err = storagecommit.NewFileReplacement(path, content, mode, identity)
+		request, err = storagecommit.NewFileReplacement(path, content, current.mode, identity)
 	} else {
 		request, err = storagecommit.NewFileCreate(path, content, mode)
 	}

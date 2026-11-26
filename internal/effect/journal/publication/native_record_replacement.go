@@ -51,10 +51,10 @@ func (captured CapturedNativeJournal) replaceRecord(ctx context.Context, candida
 		workErr = captured.budget.AdmitTree(work)
 	}
 	err = errors.Join(err, workErr)
-	if err != nil || mode.Perm() != journalrecord.Mode || journalrecord.Fingerprint(bytes) != captured.capture.RecordFingerprint {
+	if err != nil || journalrecord.Fingerprint(bytes) != captured.capture.RecordFingerprint {
 		return CapturedNativeJournal{}, errors.Join(fmt.Errorf("native promotion journal revision changed"), err, capability.Close())
 	}
-	outcome, parent, err := options.Filesystem.ReplaceRootedFileAndRefreshParent(ctx, capability, content, journalrecord.Mode, identity, captured.active.Identity())
+	outcome, parent, err := options.Filesystem.ReplaceRootedFileAndRefreshParent(ctx, capability, content, mode.Perm(), identity, captured.active.Identity())
 	if err != nil {
 		return CapturedNativeJournal{}, &NativeJournalPublicationError{directory: captured.capture.Directory, outcome: outcome, cause: err}
 	}

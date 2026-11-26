@@ -183,11 +183,11 @@ func openOrCreateLeaseNamespaceDirectory(
 	path string,
 	boundary rootedpath.DirectoryMountBoundary,
 ) (*os.File, error) {
-	child, _, err := openOrCreateLeaseDirectory(parent, name, path)
+	child, created, err := openOrCreateLeaseDirectory(parent, name, path)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateLeaseDirectoryMetadata(path, child, true); err != nil {
+	if err := validateLeaseDirectoryMetadata(path, child, created); err != nil {
 		_ = child.Close()
 		return nil, err
 	}
@@ -337,13 +337,17 @@ func openLeaseRecord(root *os.File, name string, path string) (*unixLeaseRecord,
 		} else if before.Mode&unix.S_IFMT != unix.S_IFREG {
 			return nil, fmt.Errorf("mutation lock record %q has unsupported file mode", path)
 		}
+		flags := unix.O_RDWR | unix.O_CLOEXEC | unix.O_NOFOLLOW
+		if !existed {
+			flags |= unix.O_CREAT | unix.O_EXCL
+		}
 		fd, err = unix.Openat(
 			int(root.Fd()),
 			name,
-			unix.O_RDWR|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+			flags,
 			0o600,
 		)
-		if !errors.Is(err, unix.ENOENT) || attempt == 2 {
+		if (!errors.Is(err, unix.ENOENT) && !errors.Is(err, unix.EEXIST)) || attempt == 2 {
 			break
 		}
 		runtime.Gosched()
@@ -380,22 +384,11 @@ func openLeaseRecord(root *os.File, name string, path string) (*unixLeaseRecord,
 		_ = file.Close()
 		return nil, err
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		_ = file.Close()
-		return nil, fmt.Errorf("mutation lock record permissions %04o are not private", info.Mode().Perm())
-	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("set private mutation lock record mode: %w", err)
-	}
-	secured, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("verify private mutation lock record mode: %w", err)
-	}
-	if secured.Mode().Perm() != 0o600 {
-		_ = file.Close()
-		return nil, fmt.Errorf("mutation lock record %q did not retain private mode", path)
+	if !existed && info.Mode().Perm() != 0o600 {
+		if err := file.Chmod(0o600); err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("set new mutation lock record mode: %w", err)
+		}
 	}
 	return &unixLeaseRecord{file: file}, nil
 }

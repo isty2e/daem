@@ -95,16 +95,7 @@ func (store Store) convergeRegistry(ctx context.Context, claims ownership.ClaimC
 		return ownership.Registry{}, err
 	}
 
-	var request storagecommit.FileCommit
-	if capability != nil && exists {
-		request, err = storagecommit.NewRootedFileReplacement(capability, content, 0o600, expectedEntry)
-	} else if capability != nil {
-		request, err = storagecommit.NewRootedFileCreate(capability, content, 0o600)
-	} else if exists {
-		request, err = storagecommit.NewFileReplacement(store.path, content, 0o600, expectedEntry)
-	} else {
-		request, err = storagecommit.NewFileCreate(store.path, content, 0o600)
-	}
+	request, err := store.publication(capability, content, expectedEntry, exists)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("prepare ownership registry convergence: %w", err)
 	}

@@ -15,44 +15,28 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestLoadRequiresPrivateIdentityStableRegularFile(t *testing.T) {
+const statefileMode = os.FileMode(0o600)
+
+func TestLoadRequiresOwnedIdentityStableRegularFile(t *testing.T) {
 	content, err := Marshal(durable.EmptySnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("private regular file", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "state.json")
-		writeStatefileFixture(t, path, content, statefileMode)
+	for _, mode := range []os.FileMode{0o400, 0o600, 0o644} {
+		t.Run(mode.String(), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.json")
+			writeStatefileFixture(t, path, content, mode)
 
-		snapshot, err := Load(t.Context(), path)
-		if err != nil {
-			t.Fatalf("Load returned error: %v", err)
-		}
-		if !snapshot.Equal(durable.EmptySnapshot()) {
-			t.Fatal("Load returned non-empty state")
-		}
-	})
-
-	t.Run("permissive mode", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "state.json")
-		writeStatefileFixture(t, path, content, 0o644)
-
-		_, err := Load(t.Context(), path)
-		if err == nil || !strings.Contains(err.Error(), "permissions are 0644, want 0600") {
-			t.Fatalf("Load error = %v, want private-mode rejection", err)
-		}
-	})
-
-	t.Run("noncanonical private mode", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "state.json")
-		writeStatefileFixture(t, path, content, 0o400)
-
-		_, err := Load(t.Context(), path)
-		if err == nil || !strings.Contains(err.Error(), "permissions are 0400, want 0600") {
-			t.Fatalf("Load error = %v, want exact private-mode rejection", err)
-		}
-	})
+			snapshot, err := Load(t.Context(), path)
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			if !snapshot.Equal(durable.EmptySnapshot()) {
+				t.Fatal("Load returned non-empty state")
+			}
+		})
+	}
 
 	t.Run("directory", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "state.json")

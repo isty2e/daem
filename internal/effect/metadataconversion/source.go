@@ -27,7 +27,6 @@ const maximumMetadataBytes int64 = 16 << 20
 type sourceKind string
 
 const (
-	stateSource     sourceKind = "state"
 	ownershipSource sourceKind = "ownership"
 	carrierSource   sourceKind = "carrier"
 )
@@ -37,10 +36,10 @@ type sourceEntry struct {
 	content []byte
 }
 
-type sourceReader func(context.Context, string, sourceKind) (sourceEntry, error)
+type sourceReader func(context.Context, string) (sourceEntry, error)
 
 func liveSources(budget fileset.PhysicalWorkBudget) sourceReader {
-	return func(ctx context.Context, path string, kind sourceKind) (sourceEntry, error) {
+	return func(ctx context.Context, path string) (sourceEntry, error) {
 		depth, err := metadataPathDepth(path)
 		if err != nil {
 			return sourceEntry{}, err
@@ -85,11 +84,11 @@ func liveSources(budget fileset.PhysicalWorkBudget) sourceReader {
 			return sourceEntry{}, err
 		}
 		entry := sourceEntry{image: image, content: content}
-		return entry, validateSourceEntry(kind, entry)
+		return entry, validateSourceEntry(entry)
 	}
 }
 
-func validateSourceEntry(kind sourceKind, entry sourceEntry) error {
+func validateSourceEntry(entry sourceEntry) error {
 	if err := entry.image.Validate(); err != nil {
 		return err
 	}
@@ -101,12 +100,6 @@ func validateSourceEntry(kind sourceKind, entry sourceEntry) error {
 	}
 	if entry.image.Size() > maximumMetadataBytes {
 		return fmt.Errorf("metadata exceeds %d bytes", maximumMetadataBytes)
-	}
-	if kind == stateSource && entry.image.Mode() != 0o600 {
-		return fmt.Errorf("statefile permissions must be 0600")
-	}
-	if entry.image.Mode()&0o077 != 0 {
-		return fmt.Errorf("metadata permissions expose authority metadata")
 	}
 	actual, err := fileset.NewPublicationImage(entry.content, entry.image.Mode())
 	if err != nil {

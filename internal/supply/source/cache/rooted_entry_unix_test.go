@@ -97,7 +97,7 @@ func TestVerifyDirectoryRootedRejectsMalformedCompletionRecords(t *testing.T) {
 	}
 }
 
-func TestVerifyDirectoryRootedRejectsCompletionRecordBoundsAndMode(t *testing.T) {
+func TestVerifyDirectoryRootedAdmitsReadableBoundedCompletionRecord(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		mutate func(string) error
@@ -131,6 +131,12 @@ func TestVerifyDirectoryRootedRejectsCompletionRecordBoundsAndMode(t *testing.T)
 			}
 
 			valid, err := VerifyDirectoryRooted(t.Context(), root, relativeRoot, spec)
+			if test.name == "mode" {
+				if !valid || err != nil {
+					t.Fatalf("completion record rejected after chmod: %v", err)
+				}
+				return
+			}
 			if valid || !errors.Is(err, ErrInvalidEntry) {
 				t.Fatalf("VerifyDirectoryRooted = %t, %v, want invalid entry", valid, err)
 			}

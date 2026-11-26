@@ -97,5 +97,5 @@ func commitRootedControlFile(ctx context.Context, filesystem mutationfs.RootedSt
 		_ = capability.Close()
 		return err
 	}
-	return filesystem.ReplaceRootedFile(ctx, capability, content, mode, expected)
+	return filesystem.ReplaceRootedFile(ctx, capability, content, mutationfs.KeepFilePermissions, expected)
 }

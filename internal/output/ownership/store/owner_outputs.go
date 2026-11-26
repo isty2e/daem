@@ -49,5 +49,5 @@ func (store Store) ReleaseOwnerOutputs(
 	}
 	commitCapability := capability
 	capability = nil
-	return writer.ReplaceRootedFileWithOutcome(ctx, commitCapability, content, 0o600, identity)
+	return writer.ReplaceRootedFileWithOutcome(ctx, commitCapability, content, mutationfs.KeepFilePermissions, identity)
 }

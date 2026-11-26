@@ -416,14 +416,6 @@ func readMarkerContent(ctx context.Context, canonicalPath string) ([]byte, error
 		}
 		return nil, err
 	}
-	if mode := snapshot.Mode().Perm(); mode != transactionEvidenceMode {
-		return nil, fmt.Errorf(
-			"file-set transaction marker %q permissions are %04o, want %04o",
-			canonicalPath,
-			mode,
-			transactionEvidenceMode,
-		)
-	}
 	return snapshot.Content(), nil
 }
 

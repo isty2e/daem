@@ -106,6 +106,8 @@ func compileTarget(ctx context.Context, path string, entry sourceEntry, material
 	}
 	mode := entry.image.Mode()
 	if !bytes.Equal(after, entry.content) {
+		// Keep the generation-5 writer's creation mode in the intent so old
+		// Before evidence reconstructs the same record. Live files keep their mode.
 		mode = 0o600
 	}
 	image, err := fileset.NewPublicationImage(after, mode)

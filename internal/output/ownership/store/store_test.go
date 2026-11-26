@@ -278,7 +278,7 @@ func TestStoreRemoveClaimKeepsUnrelatedAuthorityValidationStrict(t *testing.T) {
 	}
 }
 
-func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
+func TestStoreValidatesRegistryContent(t *testing.T) {
 	root := canonicalTestRoot(t)
 	path := filepath.Join(root, "claims.json")
 	registryStore := mustStore(t, path)
@@ -334,8 +334,8 @@ func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatalf("expose registry mode: %v", err)
 	}
-	if _, err := registryStore.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "permissions") {
-		t.Fatalf("Store.Load exposed mode error = %v", err)
+	if _, err := registryStore.Load(context.Background()); err != nil {
+		t.Fatalf("read valid registry after chmod: %v", err)
 	}
 }
 

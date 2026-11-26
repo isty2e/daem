@@ -215,6 +215,9 @@ func commitFileWithFaultsAndParentRefresh(
 		)
 	}
 
+	if request.keepPermissions {
+		request.mode = fs.FileMode(request.expected.mode).Perm()
+	}
 	if err := faults.check(ctx, phaseCreateTemporary); err != nil {
 		return failFileBeforeVisibility(request.path, phaseCreateTemporary, err, anchor, "", EntryIdentity{}, faults)
 	}

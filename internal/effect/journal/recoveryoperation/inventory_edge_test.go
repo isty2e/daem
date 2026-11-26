@@ -203,15 +203,6 @@ func TestRecoveryRootInventoryBlocksJournalPayloadViolations(t *testing.T) {
 			want: "invalid file metadata",
 		},
 		{
-			name: "wrong mode",
-			mutate: func(t *testing.T, result journalpublication.CaptureResult) {
-				if err := os.Chmod(result.JournalPath, 0o640); err != nil {
-					t.Fatalf("change recovery journal mode: %v", err)
-				}
-			},
-			want: "invalid file metadata",
-		},
-		{
 			name: "operation id drift",
 			mutate: func(t *testing.T, result journalpublication.CaptureResult) {
 				content, err := os.ReadFile(result.JournalPath)
@@ -289,15 +280,6 @@ func TestRecoveryRootInventoryBlocksControlRecordViolations(t *testing.T) {
 				}
 			},
 			want: "exceeds",
-		},
-		{
-			name: "wrong record mode",
-			mutate: func(t *testing.T, control string) {
-				if err := os.Chmod(filepath.Join(control, retirement.RecordFileName), 0o640); err != nil {
-					t.Fatalf("change retirement record mode: %v", err)
-				}
-			},
-			want: "permissions",
 		},
 		{
 			name: "record symlink",

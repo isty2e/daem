@@ -68,7 +68,7 @@ func TestBoundedProtectionReaderRetainsArtifactAndBudgetRefusals(t *testing.T) {
 	if err := os.Chmod(store.Path(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if rows, err := ReadPendingProtectionsBounded(t.Context(), store.Path(), physicalwork.MaximumPhysicalPathDepth, &documentSettlementCountingBudget{}); err == nil || rows != nil {
-		t.Fatal("exposed authority artifact returned usable records")
+	if rows, err := ReadPendingProtectionsBounded(t.Context(), store.Path(), physicalwork.MaximumPhysicalPathDepth, &documentSettlementCountingBudget{}); err != nil || len(rows) != 1 || !rows[0].Equal(protection) {
+		t.Fatal("permission change obscured pending protection", err)
 	}
 }

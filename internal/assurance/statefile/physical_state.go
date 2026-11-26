@@ -121,9 +121,6 @@ func loadPhysical(ctx context.Context, path string, codec PhysicalCodec, budget 
 		}
 		return PhysicalState{}, err
 	}
-	if loaded.Mode().Perm() != statefileMode {
-		return PhysicalState{}, fmt.Errorf("statefile %q permissions are %04o, want %04o", path, loaded.Mode().Perm(), statefileMode)
-	}
 	content := loaded.Content()
 	version, err := statefileDocumentVersion(content)
 	if err != nil {

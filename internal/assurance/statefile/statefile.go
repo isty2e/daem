@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
@@ -18,7 +17,6 @@ import (
 const (
 	maximumStatefileBytes     int64 = 16 << 20
 	maximumStatefileJSONDepth       = 64
-	statefileMode                   = os.FileMode(0o600)
 )
 
 // Load reads current state or one exact empty retired statefile into canonical durable state.
@@ -170,14 +168,6 @@ func readStatefile(ctx context.Context, path string) ([]byte, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumStatefileBytes)
 	if err != nil {
 		return nil, err
-	}
-	if mode := snapshot.Mode().Perm(); mode != statefileMode {
-		return nil, fmt.Errorf(
-			"statefile %q permissions are %04o, want %04o",
-			path,
-			mode,
-			statefileMode,
-		)
 	}
 	return snapshot.Content(), nil
 }

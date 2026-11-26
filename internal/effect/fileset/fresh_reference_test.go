@@ -72,6 +72,9 @@ func TestReferenceSourcePublishesBeforeManifestAndReturnedFailureRestoresBoth(t 
 	}, operations{writeFile: func(ctx context.Context, path string, content []byte, mode os.FileMode) error {
 		writes = append(writes, path)
 		if path == manifest && string(content) == "manifest-after" {
+			if err := os.Chmod(source, 0o644); err != nil {
+				t.Fatal(err)
+			}
 			return failure
 		}
 		return commitFile(ctx, path, content, mode)
@@ -84,7 +87,7 @@ func TestReferenceSourcePublishesBeforeManifestAndReturnedFailureRestoresBoth(t 
 	}
 	assertContent(t, source, "source-before")
 	assertContent(t, manifest, "manifest-before")
-	for path, mode := range map[string]os.FileMode{source: 0o640, manifest: 0o644} {
+	for path, mode := range map[string]os.FileMode{source: 0o644, manifest: 0o644} {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != mode {
 			t.Fatal("rollback changed file permissions", path, err)

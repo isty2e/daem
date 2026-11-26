@@ -41,7 +41,7 @@ func ValidateControl(evidence ControlEvidence) (Control, error) {
 		switch {
 		case child.name == RecordFileName:
 			recordCount++
-			if err := validatePrivateRecordFile(child, "retirement record"); err != nil {
+			if err := validateRecordFile(child, "retirement record"); err != nil {
 				return Control{}, err
 			}
 			if child.size != int64(len(evidence.RecordContent)) {
@@ -53,7 +53,7 @@ func ValidateControl(evidence ControlEvidence) (Control, error) {
 			}
 		case strings.HasPrefix(child.name, temporaryRecordPrefix) &&
 			len(child.name) > len(temporaryRecordPrefix):
-			if err := validatePrivateRecordFile(child, "retirement record temporary"); err != nil {
+			if err := validateRecordFile(child, "retirement record temporary"); err != nil {
 				return Control{}, err
 			}
 		default:

@@ -137,19 +137,6 @@ func TestValidateControlRejectsMalformedTree(t *testing.T) {
 			content: content,
 		},
 		{
-			name:      "record wrong mode",
-			directory: validDirectory,
-			children: []EntryEvidence{mustEntry(
-				t,
-				RecordFileName,
-				EntryRegular,
-				0o644,
-				true,
-				int64(len(content)),
-			)},
-			content: content,
-		},
-		{
 			name:      "record wrong owner",
 			directory: validDirectory,
 			children: []EntryEvidence{mustEntry(

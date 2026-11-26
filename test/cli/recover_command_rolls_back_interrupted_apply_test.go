@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,6 +19,15 @@ func TestRunRecoverRollsBackInterruptedApplyAndRemovesJournal(t *testing.T) {
 	paths, currentState, nextState, oldHash, newHash := captureCLIRecoveryUpdateJournal(t, manifestPath)
 	testkit.WriteStatefile(t, paths.StatefilePath, currentState)
 	testkit.WriteFile(t, tempDir, "AGENTS.md", "new instructions\n")
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(paths.StatefilePath, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journalPath := filepath.Join(paths.RecoveryDir, "20260621T120000.000000000Z-apply", "journal.json")
+		if err := os.Chmod(journalPath, 0o400); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	var dryRunStdout bytes.Buffer
 	var dryRunStderr bytes.Buffer
@@ -49,6 +59,11 @@ func TestRunRecoverRollsBackInterruptedApplyAndRemovesJournal(t *testing.T) {
 		t.Fatalf("statefile.Load returned error: %v", err)
 	}
 	testkit.AssertStateResource(t, state, "codex", "AGENTS.md", oldHash)
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(paths.StatefilePath); err != nil || info.Mode().Perm() != 0o644 {
+			t.Fatalf("recovery reset the state permissions: %v, %v", info, err)
+		}
+	}
 	testkit.AssertNoRecoveryArtifacts(t, tempDir)
 	if singleCLIManagedPath(t, state).ContentHash() == singleCLIManagedPath(t, nextState).ContentHash() ||
 		newHash == oldHash {
