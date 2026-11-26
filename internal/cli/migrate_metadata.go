@@ -44,6 +44,9 @@ func prepareMigrateMetadataInvocation(args []string, stdout, stderr io.Writer, o
 		if *recoverConversion && len(references) != 0 {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("migrate metadata failed: --recover uses its recorded selection; --reference applies to a new conversion"))
 		}
+		if *baselineTree != "" && (*recoverConversion || len(references) != 0) {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("migrate metadata failed: --baseline-tree cannot be combined with --recover or --reference"))
+		}
 		if arguments.output == requestedJSON && !*dryRun && !*yes {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("migrate metadata failed: --json requires --dry-run or --yes"))
 		}

@@ -39,6 +39,9 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		if *releaseOutputs && *legacyUserState {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --release-output-ownership and --legacy-user-state are mutually exclusive"))
 		}
+		if *releaseOutputs && *baselineTree != "" {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --release-output-ownership and --baseline-tree are mutually exclusive"))
+		}
 		if err := validatePresentationFlags("recover", arguments.output == requestedJSON, *verbose, false); err != nil {
 			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}

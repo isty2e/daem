@@ -320,9 +320,9 @@ flags.
 | `lock` | `--dry-run`, `--json`, `--manifest`, `--verbose` |
 | `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
-| `recover` | `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--release-output-ownership`, `--verbose`, `--yes` |
+| `recover` | `--baseline-tree`, `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--release-output-ownership`, `--verbose`, `--yes` |
 | `migrate state` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--yes` |
-| `migrate metadata` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--reference`, `--yes` |
+| `migrate metadata` | `--baseline-tree`, `--dry-run`, `--json`, `--manifest`, `--recover`, `--reference`, `--yes` |
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
@@ -2016,7 +2016,7 @@ cancellation, signal or exit facts.
 ## `recover`
 
 ```bash
-daem recover [--manifest <path>] [--legacy-user-state|--release-output-ownership] [--baseline-tree <dir>] [--dry-run|--yes] [--json|--verbose]
+daem recover [--manifest <path>] [[--legacy-user-state] [--baseline-tree <dir>]|--release-output-ownership] [--dry-run|--yes] [--json|--verbose]
 ```
 
 Recovery classifies an interrupted apply, finishes retained journal cleanup,
