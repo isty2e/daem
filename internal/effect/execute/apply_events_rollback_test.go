@@ -424,6 +424,10 @@ func TestApplyWithOptionsRefusesRollbackOverTouchedPathDrift(t *testing.T) {
 		executionevent.RollbackRestoreFailed,
 	})
 	assertNoEventKind(t, events, executionevent.JournalCleaned)
+	blocked := events[len(events)-1].Err
+	if blocked == nil || !errors.Is(applyprogram.FailedRollbackCause(err), blocked) || errors.Is(err, blocked) {
+		t.Fatalf("guarded rollback refusal was not reported separately from the apply failure: %v", err)
+	}
 	entries, readDirErr := os.ReadDir(fixture.paths.RecoveryDir)
 	if readDirErr != nil || len(entries) != 1 {
 		t.Fatalf("recovery entries = %#v, error = %v, want retained journal", entries, readDirErr)
