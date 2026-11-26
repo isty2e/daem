@@ -337,13 +337,8 @@ func prepareApplyInvocation(args []string, stdout io.Writer, stderr io.Writer, o
 			if presentErr := clipresent.PrintHostRouteAttemptsWithOptions(stderr, result.HostRouteAttempts, humanOptions); presentErr != nil {
 				printApplyFailure(stderr, presentErr, applyFailureDiagnostics, result, *verbose)
 			}
-			printApplyFailure(
-				stderr,
-				err,
-				applyFailureExecution,
-				result,
-				*verbose,
-			)
+			diagnostic := applyFailureDiagnostic(*manifestPath, err, applyFailureExecution, result, *verbose)
+			fmt.Fprintln(stderr, diagnostic.WithPrefix("apply failed: ").HumanText())
 			if clipresent.PrintReconciliationFailureGuidance(stderr, result.Reconciliation, result.ManifestPath, result.AgentConfigDeclarations) {
 				printReconciliationInspectionHint(stderr, result.ManifestPath, *manifestPath, targetValues, *verbose)
 			}
@@ -528,13 +523,15 @@ func applyFailurePrimary(stage applyFailureStage, err error, result applyworkflo
 		diagnostic := clipresent.NewFailureDiagnostic(failure.PrimaryDetail())
 		if stage == applyFailureExecution {
 			if path := failure.SELinuxLabelDestination(); path != "" {
-				diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("affected file: " + clipresent.Quote(path)))
+				diagnostic = diagnostic.WithGuidance(clipresent.FilePathNote("affected file", path))
 			}
 			if path := failure.RollbackSELinuxLabelDestination(); path != "" {
-				diagnostic = diagnostic.WithGuidance(
-					clipresent.NoteGuidance("rollback file: "+clipresent.Quote(path)),
-					clipresent.InstructionGuidance("run daem recover --dry-run with the same manifest to inspect the retained journal"),
-				)
+				diagnostic = diagnostic.WithGuidance(clipresent.FilePathNote("rollback file", path))
+				command := "run daem recover --dry-run"
+				if explicitManifest {
+					command += " with the same --manifest argument"
+				}
+				diagnostic = diagnostic.WithGuidance(clipresent.InstructionGuidance(command + " to inspect the recovery journal"))
 			}
 		}
 		return diagnostic, failure.Reason()

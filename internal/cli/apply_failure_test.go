@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing
 	const raw = "private-kernel-fixture"
 	denial := fmt.Errorf("%s: %w", raw, os.ErrPermission)
 	forward := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `quoted"dir`, "AGENTS.md"), Err: denial}
-	restore := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `quoted"dir`, "settings.json"), Err: denial}
+	restore := &storagecommit.SELinuxLabelError{Destination: filepath.Join(privateDir, `back\slash`, "settings.json"), Err: denial}
 	rollback := applyprogram.RollbackFailure{Cause: restore}
 
 	for _, tc := range []struct {
@@ -80,12 +81,23 @@ func TestApplyReportsSELinuxRefusalWithoutDisclosingDestinationInJSON(t *testing
 					t.Fatalf("wrong cause for forward or rollback failure: %s", text)
 				}
 			}
-			forwardNote := clipresent.NoteGuidance("affected file: " + clipresent.Quote(forward.Destination)).HumanText()
-			restoreNote := clipresent.NoteGuidance("rollback file: " + clipresent.Quote(restore.Destination)).HumanText()
+			forwardNote := "note: affected file: " + strconv.Quote(forward.Destination)
+			restoreNote := "note: rollback file: " + strconv.Quote(restore.Destination)
 			if strings.Contains(human.String(), forwardNote) != tc.forward || strings.Contains(human.String(), restoreNote) != tc.rollback || strings.Contains(human.String(), "daem recover --dry-run") != tc.rollback || strings.Contains(human.String(), raw) {
 				t.Fatal("wrong file or recovery guidance:", &human)
 			}
 		})
+	}
+}
+
+func TestApplyRollbackGuidancePreservesManifestSelection(t *testing.T) {
+	err := applyprogram.RollbackFailure{Cause: &storagecommit.SELinuxLabelError{Destination: "settings.json", Err: os.ErrPermission}}
+	for _, requested := range []string{"", "other/daem.toml"} {
+		diagnostic := applyFailureDiagnostic(requested, err, applyFailureExecution, applyworkflow.CommandResult{ExecutionAttempted: true}, false)
+		text := diagnostic.HumanText()
+		if !strings.Contains(text, "daem recover --dry-run") || strings.Contains(text, "--manifest") != (requested != "") || strings.Contains(text, "other/daem.toml") {
+			t.Errorf("recovery guidance for selection %q: %s", requested, text)
+		}
 	}
 }
 
