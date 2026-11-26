@@ -168,7 +168,7 @@ func (facts AssessmentFacts) SameObservedAuthority(other AssessmentFacts, scope 
 func (document DocumentAssessment) sameObservedAuthority(other DocumentAssessment) bool {
 	protection, preserveMode := document.approvalProtection()
 	candidate, otherPreservesMode := other.approvalProtection()
-	if document.whole != other.whole || !document.current.Equal(other.current) || protection != candidate || preserveMode != otherPreservesMode {
+	if !document.current.Equal(other.current) || protection != candidate || preserveMode != otherPreservesMode {
 		return false
 	}
 	if document.identity == nil || other.identity == nil {
@@ -180,13 +180,13 @@ func (document DocumentAssessment) sameObservedAuthority(other DocumentAssessmen
 	return document.identity.Equal(other.identity)
 }
 
-// A whole-document restoration preserves the surviving file's permissions.
-// Reuse its approval across chmod only when ownership can be verified separately.
+// If the approved effect preserves permissions, recheck ownership separately
+// so a chmod does not invalidate an otherwise unchanged document operation.
 func (document DocumentAssessment) approvalProtection() (string, bool) {
 	if document.mode == nil {
 		return "absent", false
 	}
-	if document.whole && !document.restoration.ChangesMode() {
+	if !document.restoration.ChangesMode() {
 		if owned, ok := document.identity.(interface{ OwnershipFingerprint() (string, error) }); ok {
 			if fingerprint, err := owned.OwnershipFingerprint(); err == nil && fingerprint != "" {
 				return fingerprint, true

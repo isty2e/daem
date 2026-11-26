@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
@@ -82,8 +83,18 @@ func TestClaudeGlobalHookRecoveryUsesTheOriginalProfile(t *testing.T) {
 				testkit.AssertFileContent(t, destination, string(partial))
 				t.Setenv("CLAUDE_CONFIG_DIR", profile)
 			}
-			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", manifest, "--yes")
-			nativefixture.RequireSharedMode(t, destination, 0o740)
+			plan, err := recoverworkflow.Plan(t.Context(), recoverworkflow.PlanInput{ManifestPath: manifest})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer plan.Close()
+			if err := os.Chmod(destination, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := recoverworkflow.Execute(t.Context(), plan, recoverworkflow.ExecuteOptions{}); err != nil {
+				t.Fatalf("recovery refused the same settings file after chmod: %v", err)
+			}
+			nativefixture.RequireSharedMode(t, destination, 0o640)
 			if tc.boundary == "ordinary-after-state" {
 				testkit.AssertFileContent(t, destination, string(partial))
 			} else {
