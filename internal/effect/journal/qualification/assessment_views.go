@@ -162,17 +162,38 @@ func (facts AssessmentFacts) SameObservedAuthority(other AssessmentFacts, scope 
 	if same, err := scope.Matches(facts.registry, other.registry); err != nil || !same {
 		return false
 	}
-	for index, stage := range facts.stages {
-		candidate := other.stages[index]
-		if !stage.current.Equal(candidate.current) || !sameRecoveryMode(stage.mode, candidate.mode) || (stage.identity == nil) != (candidate.identity == nil) || stage.identity != nil && !stage.identity.Equal(candidate.identity) {
-			return false
-		}
-	}
-	return true
+	return slices.EqualFunc(facts.stages, other.stages, DocumentAssessment.sameObservedAuthority)
 }
 
-func sameRecoveryMode(left, right *recovery.PermissionMode) bool {
-	return left == nil && right == nil || left != nil && right != nil && *left == *right
+func (document DocumentAssessment) sameObservedAuthority(other DocumentAssessment) bool {
+	protection, preserveMode := document.approvalProtection()
+	candidate, otherPreservesMode := other.approvalProtection()
+	if document.whole != other.whole || !document.current.Equal(other.current) || protection != candidate || preserveMode != otherPreservesMode {
+		return false
+	}
+	if document.identity == nil || other.identity == nil {
+		return document.identity == nil && other.identity == nil
+	}
+	if preserveMode {
+		return mutationfs.SameEntryObject(document.identity, other.identity)
+	}
+	return document.identity.Equal(other.identity)
+}
+
+// A whole-document restoration preserves the surviving file's permissions.
+// Reuse its approval across chmod only when ownership can be verified separately.
+func (document DocumentAssessment) approvalProtection() (string, bool) {
+	if document.mode == nil {
+		return "absent", false
+	}
+	if document.whole && !document.restoration.ChangesMode() {
+		if owned, ok := document.identity.(interface{ OwnershipFingerprint() (string, error) }); ok {
+			if fingerprint, err := owned.OwnershipFingerprint(); err == nil && fingerprint != "" {
+				return fingerprint, true
+			}
+		}
+	}
+	return fmt.Sprintf("%04o", *document.mode), false
 }
 
 func (facts AssessmentFacts) ObservationFingerprint() string {
@@ -180,12 +201,9 @@ func (facts AssessmentFacts) ObservationFingerprint() string {
 	fmt.Fprintf(hash, "%s\x00", facts.disposition)
 	fmt.Fprintf(hash, "%d\x00%t\x00%v\x00%v\x00%v\x00", facts.demand.count, facts.demand.afterOnly, facts.demand.live, facts.demand.retired, facts.demand.afterSources)
 	for _, stage := range facts.stages {
-		mode := "absent"
-		if stage.mode != nil {
-			mode = fmt.Sprintf("%04o", *stage.mode)
-		}
+		protection, _ := stage.approvalProtection()
 		content := sha256.Sum256(stage.current.Content())
-		fmt.Fprintf(hash, "%t\x00%s\x00%x\x00", stage.current.Exists(), mode, content)
+		fmt.Fprintf(hash, "%t\x00%s\x00%x\x00", stage.current.Exists(), protection, content)
 	}
 	fmt.Fprintf(hash, "%s\x00", facts.ordinary.observationFingerprint())
 	return hex.EncodeToString(hash.Sum(nil))

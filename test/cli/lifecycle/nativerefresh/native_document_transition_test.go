@@ -25,6 +25,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
@@ -519,23 +520,49 @@ func TestWholeDocumentUpdateRecoveryPreservesUserPermissions(t *testing.T) {
 			if info, err := os.Stat(f.Destination); err != nil || info.Mode().Perm() != initial {
 				t.Fatalf("update changed the live permissions: %v, %v", info, err)
 			}
-			if err := os.WriteFile(f.Destination, []byte("# user edit\n"), initial); err != nil {
-				t.Fatal(err)
+
+			recoverAfterPreview := func(change func()) error {
+				t.Helper()
+				plan, err := recoverworkflow.Plan(t.Context(), recoverworkflow.PlanInput{ManifestPath: f.Manifest})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer plan.Close()
+				change()
+				_, err = recoverworkflow.Execute(t.Context(), plan, recoverworkflow.ExecuteOptions{})
+				return err
 			}
-			code, _, _ = testkit.RunCapturedCLI("recover", "--manifest", f.Manifest, "--yes")
-			if code == 0 {
-				t.Fatal("recovery accepted third-party bytes")
+			if err := recoverAfterPreview(func() {
+				if err := os.WriteFile(f.Destination, []byte("# user edit\n"), initial); err != nil {
+					t.Fatal(err)
+				}
+			}); err == nil {
+				t.Fatal("recovery accepted bytes edited after preview")
 			}
 			testkit.AssertFileContent(t, f.Destination, "# user edit\n")
 			if err := os.WriteFile(f.Destination, []byte(f.changed), initial); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Chmod(f.Destination, 0o444); err != nil {
-				t.Fatal(err)
+			if err := recoverAfterPreview(func() {
+				replacement := f.Destination + ".replacement"
+				if err := os.WriteFile(replacement, []byte(f.changed), initial); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(replacement, f.Destination); err != nil {
+					t.Fatal(err)
+				}
+			}); err == nil {
+				t.Fatal("recovery accepted a different file with identical bytes after preview")
 			}
 			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
 			testkit.AssertFileContent(t, f.Destination, f.changed)
-			nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+			if err := recoverAfterPreview(func() {
+				if err := os.Chmod(f.Destination, 0o444); err != nil {
+					t.Fatal(err)
+				}
+			}); err != nil {
+				t.Fatalf("recovery refused a permission-only change after preview: %v", err)
+			}
 			testkit.AssertFileContent(t, f.Destination, f.original)
 			if info, err := os.Stat(f.Destination); err != nil || info.Mode().Perm() != 0o444 {
 				t.Fatalf("rollback lost current permissions: %v, %v", info, err)

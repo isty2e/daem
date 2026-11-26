@@ -53,6 +53,7 @@ type DocumentAssessment struct {
 	mode        *recovery.PermissionMode
 	identity    mutationfs.EntryIdentity
 	restoration journaldocument.Restoration
+	whole       bool
 	expected    bool
 }
 
@@ -230,13 +231,15 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		if err != nil {
 			return Assessment{}, fmt.Errorf("observe native document[%d]: %w", index, err)
 		}
+		stage := DocumentAssessment{current: current, mode: mode, identity: identity, whole: group.Comparison().WholeDocument()}
 		recordIndex, _ := qualified.RecordIndex(index)
 		if demand.afterOnly && slices.Contains(demand.retired, recordIndex) {
 			expected, err := afterIndexes.After().MatchCommittedAfter(ctx, group, current, mode, options.Documents.Codecs)
 			if err != nil {
 				return Assessment{}, err
 			}
-			stages = append(stages, DocumentAssessment{current: current, mode: mode, identity: identity, expected: expected})
+			stage.expected = expected
+			stages = append(stages, stage)
 			allBefore, allExpected = false, allExpected && expected
 			continue
 		}
@@ -261,7 +264,8 @@ func AssessNativeDocuments(journal journalrecord.Native, ctx context.Context, op
 		}
 		allBefore = allBefore && !restoration.Changed()
 		allExpected = allExpected && match.MatchesExpected()
-		stages = append(stages, DocumentAssessment{current: current, mode: mode, identity: identity, restoration: restoration, expected: match.MatchesExpected()})
+		stage.restoration, stage.expected = restoration, match.MatchesExpected()
+		stages = append(stages, stage)
 	}
 
 	result := Assessment{
