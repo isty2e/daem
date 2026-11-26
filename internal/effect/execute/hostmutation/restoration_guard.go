@@ -339,7 +339,6 @@ func stageRootedRollbackDestinations(
 			}
 		}
 		baseline.kind = recovery.PathKindDirectory
-		baseline.treeModes = sink.modes
 		baseline.stagedWork = work
 		baseline.identity = captured
 		baseline.stagedState = recoveryWholePathState{
@@ -576,7 +575,6 @@ func recoveryStageMaximumFileBytes(
 }
 
 type rollbackTreeBackupSink struct {
-	modes          map[string]fs.FileMode
 	ctx            context.Context
 	root           string
 	hashBuilder    *artifact.DirectoryHashBuilder
@@ -600,7 +598,7 @@ func newRollbackTreeBackupSink(
 	return &rollbackTreeBackupSink{
 		ctx:         ctx,
 		root:        root,
-		hashBuilder: artifact.NewDirectoryEvidenceBuilder(), modes: make(map[string]fs.FileMode),
+		hashBuilder: artifact.NewDirectoryEvidenceBuilder(),
 	}
 }
 
@@ -611,7 +609,6 @@ func (sink *rollbackTreeBackupSink) VisitRoot(mode fs.FileMode) error {
 	if err := os.Mkdir(sink.root, 0o700); err != nil {
 		return err
 	}
-	sink.modes["."] = mode.Perm() | fs.ModeDir
 	sink.directoryModes = append(sink.directoryModes, rollbackTreeDirectoryMode{
 		path: sink.root,
 		mode: mode.Perm(),
@@ -634,7 +631,6 @@ func (sink *rollbackTreeBackupSink) VisitDirectory(
 	if err := sink.hashBuilder.AddDirectory(path.Path()); err != nil {
 		return err
 	}
-	sink.modes[path.Path()] = mode.Perm() | fs.ModeDir
 	sink.entries++
 	sink.directoryModes = append(sink.directoryModes, rollbackTreeDirectoryMode{
 		path: backupPath,
@@ -657,7 +653,6 @@ func (sink *rollbackTreeBackupSink) VisitRegularFile(
 	}
 	sink.entries++
 	sink.bytes += size
-	sink.modes[path.Path()] = mode.Perm()
 	backupPath := filepath.Join(sink.root, filepath.FromSlash(path.Path()))
 	file, err := os.OpenFile(backupPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {

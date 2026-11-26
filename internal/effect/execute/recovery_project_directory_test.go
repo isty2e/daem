@@ -14,6 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/qualification"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 
 	journalrecord "github.com/isty2e/daem/internal/effect/journal/record"
@@ -27,11 +29,25 @@ import (
 )
 
 func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
-	t.Run("labels from verified backup", func(t *testing.T) { restoreLegacyProjectTree(t, false) })
-	t.Run("reference for changed source labels", func(t *testing.T) { restoreLegacyProjectTree(t, true) })
+	t.Run("labels from verified backup", func(t *testing.T) { restoreLegacyProjectTree(t, false, false) })
+	t.Run("chmod after staging with reference for changed labels", func(t *testing.T) { restoreLegacyProjectTree(t, true, false) })
+	t.Run("late content edit is retained", func(t *testing.T) { restoreLegacyProjectTree(t, false, true) })
 }
 
-func restoreLegacyProjectTree(t *testing.T, supplyReference bool) {
+type afterPreparedRestore struct {
+	mutationfs.Store
+	afterPrepare func()
+}
+
+func (s afterPreparedRestore) PrepareRootedTree(ctx context.Context, capability rootedpath.CommitCapability, populate func(mutationfs.RootedTreeWriter) error) (mutationfs.PreparedRootedTree, error) {
+	prepared, err := s.Store.PrepareRootedTree(ctx, capability, populate)
+	if err == nil {
+		s.afterPrepare()
+	}
+	return prepared, err
+}
+
+func restoreLegacyProjectTree(t *testing.T, supplyReference, editDuringRestore bool) {
 	t.Helper()
 	base := t.TempDir()
 	projectRoot := filepath.Join(base, "project")
@@ -236,12 +252,44 @@ func restoreLegacyProjectTree(t *testing.T, supplyReference bool) {
 	}
 	options := testRecoveryOptions(paths)
 	options.TreeBaseline = load.TreeBaseline
-	if err := executeRecoveryPlanWithOptionsForTest(
+	file := filepath.Join(hostPath, "SKILL.md")
+	wantMode := os.FileMode(0o640)
+	if supplyReference || editDuringRestore {
+		wantMode = 0o644
+		options.Filesystem = afterPreparedRestore{options.Filesystem, func() {
+			if err := os.Chmod(file, wantMode); err != nil {
+				t.Fatal(err)
+			}
+			if editDuringRestore {
+				if err := os.WriteFile(file, []byte("user edit\n"), wantMode); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}}
+	}
+	err = executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		paths,
 		options,
-	); err != nil {
+	)
+	assertRecoveryTestMode(t, file, wantMode)
+	if editDuringRestore {
+		if err == nil {
+			t.Fatal("recovery accepted a concurrent edit")
+		}
+		assertRecoveryTestContent(t, file, []byte("user edit\n"))
+		assertRecoveryTestContent(t, filepath.Join(hostPath, "nested", "after.txt"), []byte("after nested\n"))
+		if err := os.WriteFile(file, []byte("after skill\n"), wantMode); err != nil {
+			t.Fatal(err)
+		}
+		retry, loadErr := journal.LoadActivePlanWithOptions(t.Context(), paths.JournalPaths(), load)
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		err = executeRecoveryPlanWithOptionsForTest(t.Context(), retry, paths, testRecoveryOptions(paths))
+	}
+	if err != nil {
 		t.Fatalf("ExecuteRecoveryPlan returned error: %v", err)
 	}
 	assertRecoveryTestContent(t, filepath.Join(hostPath, "SKILL.md"), []byte("before skill\n"))
@@ -250,6 +298,5 @@ func restoreLegacyProjectTree(t *testing.T, supplyReference bool) {
 		t.Fatalf("after-only path stat error = %v, want absence", err)
 	}
 	assertRecoveryTestMode(t, hostPath, 0o500)
-	assertRecoveryTestMode(t, filepath.Join(hostPath, "SKILL.md"), 0o640)
 	assertRecoveryTestMode(t, filepath.Join(hostPath, "nested"), 0o500)
 }

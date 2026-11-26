@@ -46,7 +46,6 @@ type hostRollbackEntry struct {
 	backupPath         string
 	backup             RollbackBackup
 	fileMode           os.FileMode
-	treeModes          map[string]os.FileMode
 	identity           mutationfs.EntryIdentity
 	stagedState        recoveryWholePathState
 	stagedWork         workmeasure.ArtifactWork
@@ -160,6 +159,12 @@ func reserveRecoveryHostExecution(
 	for kind, work := range rollbackKinds {
 		if err := reserveRecoveryObservation(authority.original, kind, work); err != nil {
 			return err
+		}
+		if kind == recovery.PathKindDirectory && baseline.kind == recovery.PathKindDirectory {
+			// Compensation also verifies the live tree just before retiring it.
+			if err := reserveRecoveryObservation(authority.original, kind, work); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -507,11 +512,12 @@ func restoreRollbackGroup(
 		if err := authority.control.Validate(ctx); err != nil {
 			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
-		if err := authority.operation.CommitDirectoryAgainst(
+		if err := authority.operation.restoreDirectoryAgainst(
 			ctx,
 			baseline.destination,
-			current.existed,
+			current,
 			identity,
+			maximumKinds[current.kind], budget,
 			func(writer mutationfs.RootedTreeWriter) error {
 				return baseline.backup.CopyDirectory(ctx, writer, baseline.stagedWork)
 			},

@@ -68,7 +68,7 @@ func TestRecoveryBackupCopiesEmptyDirectoryWithExactZeroWork(t *testing.T) {
 	backup := boundRecoveryBackupForTest(t, root, "empty", string(kind), string(hash), work, 1)
 	writer := &recordingRecoveryTreeWriter{}
 
-	if err := backup.CopyDirectory(t.Context(), writer); err != nil {
+	if _, err := backup.restoreDirectory(t.Context(), writer, ""); err != nil {
 		t.Fatalf("copy empty recovery directory: %v", err)
 	}
 	if writer.rootMode.Perm() != 0o750 || writer.entries != 0 {
@@ -170,7 +170,7 @@ func TestRecoveryBackupRejectsDirectoryGrowthBeyondExactWork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := backup.CopyDirectory(t.Context(), &recordingRecoveryTreeWriter{}); err == nil {
+	if _, err := backup.restoreDirectory(t.Context(), &recordingRecoveryTreeWriter{}, ""); err == nil {
 		t.Fatal("recovery directory growth was accepted")
 	}
 }

@@ -25,6 +25,7 @@ type managedPathPrecondition struct {
 	identity    mutationfs.EntryIdentity
 	fileMode    os.FileMode
 	treeModes   map[string]fs.FileMode
+	treeLimits  mutationfs.TreeTraversalLimits
 	capability  rootedpath.CommitCapability
 	filesystem  mutationfs.RootedStore
 	consumed    bool
@@ -171,7 +172,7 @@ func (operation *Operation) captureRootedManagedPathPrecondition(
 	}
 	return managedPathPrecondition{
 		destination: destination, existed: true, hash: hashes.Installed, identity: identity,
-		treeModes:  sink.modes,
+		treeModes: sink.modes, treeLimits: managedTreeTraversalLimits(),
 		capability: capability, filesystem: operation.filesystem,
 	}, nil
 }
@@ -184,7 +185,7 @@ func (p *managedPathPrecondition) refreshTree(ctx context.Context) (bool, error)
 	}
 	sink := NewDirectoryHashSink(ctx)
 	sink.modes = make(map[string]fs.FileMode)
-	identity, err := p.filesystem.SnapshotRootedDirectory(ctx, p.capability, managedTreeTraversalLimits(), sink)
+	identity, err := p.filesystem.SnapshotRootedDirectory(ctx, p.capability, p.treeLimits, sink)
 	if err != nil {
 		return false, err
 	}

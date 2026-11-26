@@ -147,15 +147,7 @@ func (backup Backup) ReadFile(ctx context.Context) ([]byte, error) {
 	return append([]byte(nil), content...), nil
 }
 
-func (backup Backup) CopyDirectory(
-	ctx context.Context,
-	writer mutationfs.RootedTreeWriter,
-) error {
-	_, err := backup.restoreDirectory(ctx, writer, "", nil)
-	return err
-}
-
-func (backup Backup) restoreDirectory(ctx context.Context, writer mutationfs.RootedTreeWriter, packed recovery.TreeModes, live map[string]fs.FileMode) (artifact.ContentHash, error) {
+func (backup Backup) restoreDirectory(ctx context.Context, writer mutationfs.RootedTreeWriter, packed recovery.TreeModes) (artifact.ContentHash, error) {
 	if backup.filesystem == nil || backup.budget == nil {
 		return "", fmt.Errorf("recovery backup execution authority is unavailable")
 	}
@@ -178,7 +170,6 @@ func (backup Backup) restoreDirectory(ctx context.Context, writer mutationfs.Roo
 	if err != nil {
 		return "", errors.Join(err, capability.Close())
 	}
-	sink.live = live
 	if packed != "" {
 		sink.beforeModes, err = packed.Unpack()
 		if err != nil || len(sink.beforeModes) != backup.authority.work.Entries()+1 {
@@ -379,7 +370,6 @@ func (set *Backups) For(
 
 type recoveryDirectoryRestoreSink struct {
 	beforeModes []fs.FileMode
-	live        map[string]fs.FileMode
 	ctx         context.Context
 	stage       artifactstage.Sink
 	hasher      *artifact.DirectoryHashBuilder
@@ -401,16 +391,13 @@ func newRecoveryDirectoryRestoreSink(
 }
 
 func (sink *recoveryDirectoryRestoreSink) VisitRoot(mode fs.FileMode) error {
-	return sink.stage.BeginDirectory(".", sink.restoreMode(".", mode.Perm()|fs.ModeDir))
+	return sink.stage.BeginDirectory(".", sink.restoreMode(mode))
 }
 
-func (sink *recoveryDirectoryRestoreSink) restoreMode(path string, backed fs.FileMode) fs.FileMode {
+func (sink *recoveryDirectoryRestoreSink) restoreMode(backed fs.FileMode) fs.FileMode {
 	mode := backed.Perm()
 	if len(sink.beforeModes) != 0 {
 		mode, sink.beforeModes = sink.beforeModes[0], sink.beforeModes[1:]
-	}
-	if current, ok := sink.live[path]; ok && current.IsDir() == backed.IsDir() {
-		return current.Perm()
 	}
 	return mode
 }
@@ -422,7 +409,7 @@ func (sink *recoveryDirectoryRestoreSink) VisitDirectory(
 	if err := sink.hasher.AddDirectory(path.Path()); err != nil {
 		return err
 	}
-	if err := sink.stage.BeginDirectory(path.Path(), sink.restoreMode(path.Path(), mode.Perm()|fs.ModeDir)); err != nil {
+	if err := sink.stage.BeginDirectory(path.Path(), sink.restoreMode(mode)); err != nil {
 		return err
 	}
 	sink.entries++
@@ -435,7 +422,7 @@ func (sink *recoveryDirectoryRestoreSink) VisitRegularFile(
 	size int64,
 	content io.Reader,
 ) error {
-	target, err := sink.stage.OpenFile(path.Path(), sink.restoreMode(path.Path(), mode.Perm()), size)
+	target, err := sink.stage.OpenFile(path.Path(), sink.restoreMode(mode), size)
 	if err != nil {
 		return err
 	}

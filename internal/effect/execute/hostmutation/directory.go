@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 
 	"github.com/isty2e/daem/internal/effect/execute/mutationnamespace"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
+	"github.com/isty2e/daem/internal/effect/physicalwork"
+	"github.com/isty2e/daem/internal/effect/workmeasure"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -44,29 +48,13 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 		return fmt.Errorf("managed path rooted precondition is unavailable or consumed")
 	}
 	destination := precondition.destination
-	var prepared mutationfs.PreparedRootedTree
-	for attempt := 0; ; attempt++ {
-		capability, err := operation.destinations.Acquire(destination)
-		if err != nil {
-			return err
-		}
-		prepared, err = operation.filesystem.PrepareRootedTree(ctx, capability, populate)
-		if err != nil {
-			return err
-		}
-		changed, err := precondition.refreshTree(ctx)
-		if err == nil && !changed {
-			break
-		}
-		if abortErr := prepared.Abort(context.Background()); abortErr != nil {
-			return mutationfs.MarkEffectIndeterminate(errors.Join(err, abortErr))
-		}
-		if err != nil {
-			return err
-		}
-		if attempt != 0 {
-			return fmt.Errorf("managed tree %q is changing during publication", destination.Logical())
-		}
+	capability, err := operation.destinations.Acquire(destination)
+	if err != nil {
+		return err
+	}
+	prepared, err := operation.filesystem.PrepareRootedTree(ctx, capability, populate)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if abortErr := prepared.Abort(context.Background()); abortErr != nil {
@@ -75,6 +63,16 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 			)
 		}
 	}()
+
+	changed, err := precondition.refreshTree(ctx)
+	if err != nil {
+		return err
+	}
+	if changed {
+		if err := prepared.PreserveMatchingModes(ctx, precondition.treeModes); err != nil {
+			return err
+		}
+	}
 
 	destinationRetired := false
 	removalCapability, err := precondition.takeRootedCapability()
@@ -99,11 +97,13 @@ func (operation *Operation) commitRootedDirectoryWithPrecondition(
 	return err
 }
 
-func (operation *Operation) CommitDirectoryAgainst(
+func (operation *Operation) restoreDirectoryAgainst(
 	ctx context.Context,
 	destination mutationnamespace.Destination,
-	expectedExists bool,
+	state recoveryWholePathState,
 	expected mutationfs.EntryIdentity,
+	work workmeasure.ArtifactWork,
+	budget *physicalwork.Budget,
 	populate func(mutationfs.RootedTreeWriter) error,
 ) error {
 	if !destination.IsRooted() {
@@ -115,12 +115,23 @@ func (operation *Operation) CommitDirectoryAgainst(
 	}
 	precondition := &managedPathPrecondition{
 		destination: destination,
-		existed:     expectedExists,
+		existed:     state.existed,
 		identity:    expected,
 		capability:  capability,
 		filesystem:  operation.filesystem,
 	}
 	defer precondition.close()
+	if state.existed && state.kind == recovery.PathKindDirectory {
+		if err := admitRecoveryObservation(budget, state.kind, work); err != nil {
+			return err
+		}
+		precondition.treeLimits, err = recoveryTraversalLimits(work)
+		if err != nil {
+			return err
+		}
+		precondition.hash = artifact.ContentHash(state.contentHash)
+		precondition.treeModes = make(map[string]fs.FileMode)
+	}
 	return operation.commitRootedDirectoryWithPrecondition(
 		ctx,
 		populate,

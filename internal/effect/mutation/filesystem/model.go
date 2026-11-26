@@ -596,6 +596,9 @@ type RootedTreeWriter interface {
 // PreparedRootedTree owns one private stage and its retained-root capability
 // until Commit or Abort consumes it.
 type PreparedRootedTree interface {
+	// PreserveMatchingModes updates the publication modes of staged entries that
+	// also exist at the same relative path and with the same kind in the live tree.
+	PreserveMatchingModes(context.Context, map[string]fs.FileMode) error
 	Commit(ctx context.Context) error
 	CommitWithOutcome(ctx context.Context) (CommitOutcome, error)
 	Abort(ctx context.Context) error

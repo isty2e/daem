@@ -234,12 +234,11 @@ func executeRecoveryHostActionPlan(
 		}
 
 		destination := plan.resolvedDestinations[index]
-		if err := validateStagedRecoveryDestination(ctx, authority, budget, staged[index]); err != nil {
-			return fmt.Errorf(
-				"validate recovery host action %d baseline: %w",
-				index,
-				err,
-			)
+		// An existing tree is revalidated after its replacement has been prepared.
+		if !(action.Kind == recovery.ActionKindRestoreWrite && action.BackupKind == recovery.PathKindDirectory && staged[index].kind == recovery.PathKindDirectory) {
+			if err := validateStagedRecoveryDestination(ctx, authority, budget, staged[index]); err != nil {
+				return fmt.Errorf("validate recovery host action %d baseline: %w", index, err)
+			}
 		}
 		switch action.Kind {
 		case recovery.ActionKindRestoreWrite:
@@ -316,13 +315,14 @@ func executeRecoveryHostActionPlan(
 					return fmt.Errorf("validate recovery host action %d semantics: %w", index, err)
 				}
 				staged[index].attempted = true
-				if err := authority.operation.CommitDirectoryAgainst(
+				if err := authority.operation.restoreDirectoryAgainst(
 					ctx,
 					destination,
-					staged[index].existed,
+					staged[index].stagedState,
 					staged[index].identity,
+					staged[index].stagedWork, budget,
 					func(writer mutationfs.RootedTreeWriter) error {
-						hash, err := backup.restoreDirectory(ctx, writer, action.TreeModes, staged[index].treeModes)
+						hash, err := backup.restoreDirectory(ctx, writer, action.TreeModes)
 						if err == nil {
 							staged[index].effectState = recoveryWholePathState{existed: true, kind: recovery.PathKindDirectory, contentHash: string(hash)}
 							staged[index].effectKnown = true
