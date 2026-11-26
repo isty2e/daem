@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	journalinventory "github.com/isty2e/daem/internal/effect/journal/inventory"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -20,6 +21,8 @@ func (plan NativeRecoveryPlan) OrdinaryRollbackActions() []recovery.Action {
 	}
 	return plan.assessment.OrdinaryActions()
 }
+
+func (plan NativeRecoveryPlan) StatefileBefore() durable.Snapshot { return plan.journal.Before() }
 
 func (plan NativeRecoveryPlan) OrdinaryProvisionalAcquires() ([]ownership.ProvisionalAcquireIntent, error) {
 	return plan.journal.ProvisionalAcquires()

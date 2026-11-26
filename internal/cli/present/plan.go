@@ -76,30 +76,31 @@ type planJSONLockfile struct {
 }
 
 type planJSONAction struct {
-	Kind             string                 `json:"kind"`
-	Reason           string                 `json:"reason"`
-	Subject          *planJSONSubject       `json:"subject,omitempty"`
-	ResourceID       string                 `json:"resource_id,omitempty"`
-	Resource         *planJSONResource      `json:"resource,omitempty"`
-	Projection       *planJSONProjection    `json:"projection,omitempty"`
-	Target           string                 `json:"target,omitempty"`
-	Targets          []string               `json:"targets,omitempty"`
-	Scope            string                 `json:"scope"`
-	Destination      string                 `json:"destination"`
-	ResolvedPath     string                 `json:"resolved_path,omitempty"`
-	ContentPath      string                 `json:"content_path,omitempty"`
-	KeyPath          []string               `json:"key_path,omitempty"`
-	PlacementMode    string                 `json:"placement_mode"`
-	ContentKind      string                 `json:"content_kind,omitempty"`
-	PermissionPolicy string                 `json:"permission_policy,omitempty"`
-	DesiredFileMode  *uint32                `json:"desired_file_mode,omitempty"`
-	LiveFileMode     *uint32                `json:"live_file_mode,omitempty"`
-	DesiredHash      string                 `json:"desired_hash"`
-	LiveHash         string                 `json:"live_hash"`
-	StateHash        string                 `json:"state_hash"`
-	Detail           string                 `json:"detail"`
-	Safety           string                 `json:"safety"`
-	PreviousState    *planJSONPreviousState `json:"previous_state,omitempty"`
+	Kind                     string                 `json:"kind"`
+	Reason                   string                 `json:"reason"`
+	Subject                  *planJSONSubject       `json:"subject,omitempty"`
+	ResourceID               string                 `json:"resource_id,omitempty"`
+	Resource                 *planJSONResource      `json:"resource,omitempty"`
+	Projection               *planJSONProjection    `json:"projection,omitempty"`
+	Target                   string                 `json:"target,omitempty"`
+	Targets                  []string               `json:"targets,omitempty"`
+	Scope                    string                 `json:"scope"`
+	Destination              string                 `json:"destination"`
+	ResolvedPath             string                 `json:"resolved_path,omitempty"`
+	ContentPath              string                 `json:"content_path,omitempty"`
+	KeyPath                  []string               `json:"key_path,omitempty"`
+	PlacementMode            string                 `json:"placement_mode"`
+	ContentKind              string                 `json:"content_kind,omitempty"`
+	PermissionPolicy         string                 `json:"permission_policy,omitempty"`
+	RemovesAdditionalEntries bool                   `json:"removes_additional_entries,omitempty"`
+	DesiredFileMode          *uint32                `json:"desired_file_mode,omitempty"`
+	LiveFileMode             *uint32                `json:"live_file_mode,omitempty"`
+	DesiredHash              string                 `json:"desired_hash"`
+	LiveHash                 string                 `json:"live_hash"`
+	StateHash                string                 `json:"state_hash"`
+	Detail                   string                 `json:"detail"`
+	Safety                   string                 `json:"safety"`
+	PreviousState            *planJSONPreviousState `json:"previous_state,omitempty"`
 }
 
 type planJSONResource struct {

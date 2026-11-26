@@ -40,6 +40,7 @@ type hostRollback struct {
 }
 
 type hostRollbackEntry struct {
+	survivingMembers   artifact.TreeMembers
 	destination        mutationnamespace.Destination
 	existed            bool
 	kind               string
@@ -528,6 +529,7 @@ func restoreRollbackGroup(
 			baseline.destination,
 			current,
 			identity,
+			baseline.survivingMembers,
 			func(writer mutationfs.RootedTreeWriter) error {
 				return baseline.backup.CopyDirectory(ctx, writer, baseline.stagedWork)
 			},

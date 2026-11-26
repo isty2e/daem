@@ -21,7 +21,7 @@ func (operation *Operation) ApplyManagedPathStep(ctx context.Context, step Manag
 		if err != nil {
 			return EffectNotStarted, err
 		}
-		if err := operation.verifyInstalledPath(ctx, destination, true, effect.DesiredHash(), effect.ContentKind()); err != nil {
+		if err := operation.verifyInstalledPath(ctx, destination, true, effect.LiveHash(), effect.ContentKind()); err != nil {
 			return EffectNotStarted, err
 		}
 		return EffectExpectedAfter, nil
@@ -125,6 +125,7 @@ func commitManagedPathDestination(ctx context.Context, effect effectpreparation.
 		if !ok {
 			return fmt.Errorf("managed directory effect for %q has a non-directory payload", effect.Destination())
 		}
+		precondition.state.previousMembers = effect.PreviousMembers()
 		return precondition.WriteDirectory(ctx, directory.Identity(), directory.View())
 	default:
 		return fmt.Errorf("managed path content kind %q is unsupported", effect.ContentKind())

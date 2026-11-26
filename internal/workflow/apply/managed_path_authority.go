@@ -24,12 +24,13 @@ type managedPathFingerprintFacts struct {
 }
 
 type managedPathPreviousFingerprintFacts struct {
-	Subject     topology.SubjectID
-	Consumers   []string
-	Scope       string
-	Destination string
-	ContentHash string
-	ContentKind realization.PathProjectionContentKind
+	ObservedTreeHash string `json:",omitempty"`
+	Subject          topology.SubjectID
+	Consumers        []string
+	Scope            string
+	Destination      string
+	ContentHash      string
+	ContentKind      realization.PathProjectionContentKind
 }
 
 func managedPathFingerprintRows(decisions []reconcile.ManagedPathDecision) []managedPathFingerprintFacts {
@@ -48,6 +49,9 @@ func managedPathFingerprintRows(decisions []reconcile.ManagedPathDecision) []man
 				Subject: previous.Subject(), Consumers: targetValues(previous.ConsumerTargets()),
 				Scope: string(previous.Scope()), Destination: previous.Destination().String(),
 				ContentHash: string(previous.ContentHash()), ContentKind: previous.ContentKind(),
+			}
+			if decision.PreviousLiveHash() != previous.ContentHash() {
+				row.Previous.ObservedTreeHash = string(decision.PreviousLiveHash())
 			}
 		}
 		rows = append(rows, row)

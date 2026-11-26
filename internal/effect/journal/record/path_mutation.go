@@ -561,6 +561,9 @@ func expectedPathStateFromMutation(action pathMutation) (recovery.ExpectedPathSt
 }
 
 func expectedPathContentHash(action pathMutation) artifact.ContentHash {
+	if action.Kind == CaptureRecord && action.ContentKind == realization.PathProjectionDirectory {
+		return action.LivePathHash
+	}
 	return action.DesiredHash
 }
 

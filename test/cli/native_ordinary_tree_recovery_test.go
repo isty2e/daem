@@ -72,6 +72,12 @@ func TestSkillRecoveryPreservesSurvivingModesAndRestoresRemovedEntryMode(t *test
 	workspace := filepath.Dir(fixture.Manifest)
 	detail := filepath.Join(skill, "references", "detail.txt")
 	source := filepath.Join(workspace, "skills", "sample")
+	extra := filepath.Join(skill, "references", "tool")
+	testkit.WriteFile(t, skill, "references/tool", "local tool\n")
+	if err := os.Chmod(extra, 0o711); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, skill, "cache/data", "cached bytes\n")
 	if err := os.Chmod(detail, 0o745); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +114,22 @@ func TestSkillRecoveryPreservesSurvivingModesAndRestoresRemovedEntryMode(t *test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(skill, "references"), 0o700) })
+	if err := os.Rename(source, source+".unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, skill, "after-publication", "keep\n")
+	if code, _, _ := nativefixture.InvokeRecoveryCommand(t, fixture, "none", "recover", "--yes"); code == 0 {
+		t.Fatal("recovery overwrote a tree changed after publication")
+	}
+	late := filepath.Join(skill, "after-publication")
+	testkit.AssertFileContent(t, late, "keep\n")
+	if err := os.Remove(late); err != nil {
+		t.Fatal(err)
+	}
 	nativefixture.RunRecoveryCommand(t, fixture, "none", "recover", "--yes", "--verbose")
+	checkMode(extra, 0o711)
+	testkit.AssertFileContent(t, extra, "local tool\n")
+	testkit.AssertFileContent(t, filepath.Join(skill, "cache", "data"), "cached bytes\n")
 	checkMode(file, 0o744)
 	checkMode(filepath.Join(skill, "references"), 0o500)
 	checkMode(detail, 0o745)

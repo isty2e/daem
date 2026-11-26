@@ -7,6 +7,7 @@ func (effect ManagedPathEffect) Equal(other ManagedPathEffect) bool {
 	if effect.Kind() != other.Kind() || effect.RetiresAbsentPrevious() != other.RetiresAbsentPrevious() ||
 		a.subject != b.subject || !slices.Equal(a.consumerTargets, b.consumerTargets) ||
 		a.scope != b.scope || a.destination != b.destination || a.desiredHash != b.desiredHash || a.liveHash != b.liveHash ||
+		a.previousLiveHash != b.previousLiveHash || !a.previousMembers.Equal(b.previousMembers) || !a.desiredMembers.Equal(b.desiredMembers) ||
 		a.contentKind != b.contentKind || a.permissionPolicy != b.permissionPolicy ||
 		a.desiredFileMode != b.desiredFileMode || a.liveFileMode != b.liveFileMode {
 		return false

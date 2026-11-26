@@ -206,7 +206,7 @@ func printManagedPathRows(output io.Writer, decisions []reconcile.ManagedPathDec
 		fmt.Fprintf(
 			output,
 			"  %s %s=%s %s=%s scope=%s\n",
-			managedPathLabel(decision),
+			managedPathDescription(decision),
 			identityLabel,
 			Quote(identityValue),
 			targetLabel,
@@ -246,6 +246,9 @@ func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.Managed
 		if safety, ok := managedPathSafetyState(decision); ok {
 			fmt.Fprintf(output, " safety=%s", safety)
 		}
+		if decision.RemovesAdditionalEntries() {
+			fmt.Fprintf(output, " note=%s", Quote(skillTreeRemovalNotice))
+		}
 		if decision.PermissionPolicy() != "" {
 			fmt.Fprintf(output, " permission_policy=%s", decision.PermissionPolicy())
 			if decision.PermissionPolicy() != "none" && decision.Kind() != reconcile.ManagedPathRetireAbsent {
@@ -283,6 +286,16 @@ func managedPathTargetLabel(decision reconcile.ManagedPathDecision) (string, str
 		return "target", values[0]
 	}
 	return "targets", strings.Join(values, ",")
+}
+
+const skillTreeRemovalNotice = "files not shipped with the skill are removed with the old installation"
+
+func managedPathDescription(decision reconcile.ManagedPathDecision) string {
+	label := managedPathLabel(decision)
+	if decision.RemovesAdditionalEntries() {
+		return label + "; " + skillTreeRemovalNotice
+	}
+	return label
 }
 
 func managedPathLabel(decision reconcile.ManagedPathDecision) string {

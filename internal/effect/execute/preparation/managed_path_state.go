@@ -30,6 +30,10 @@ func AfterManagedPaths(snapshot durable.Snapshot, effects []ManagedPathEffect) (
 		if err != nil {
 			return durable.Snapshot{}, fmt.Errorf("managed path effect[%d] state: %w", index, err)
 		}
+		state, err = state.WithTreeMembers(effect.facts().desiredMembers)
+		if err != nil {
+			return durable.Snapshot{}, err
+		}
 		replacements[effect.Subject()] = state
 		delete(removals, effect.Subject())
 	}

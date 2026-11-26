@@ -359,6 +359,7 @@ func rollbackEntriesForStageActions(
 	for index, action := range actions {
 		entry := baseline
 		entry.destination = action.destination
+		entry.survivingMembers = action.action.survivingMembers
 		entries[index] = entry
 	}
 	return entries

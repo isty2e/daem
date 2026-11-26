@@ -257,22 +257,22 @@ func (authority *Operation) RemoveRootedEntry(
 	expected mutationfs.EntryIdentity,
 	contentHash artifact.ContentHash,
 ) (mutationfs.CommitOutcome, error) {
-	return authority.removeRootedEntry(ctx, destination, capability, expected, contentHash, nil)
+	return authority.removeRootedEntry(ctx, destination, capability, expected, contentHash, nil, artifact.TreeMembers{})
 }
 
 // RetireTreeForReplacement transfers the last observed permissions to the
 // private replacement before removing the verified source tree.
-func (authority *Operation) RetireTreeForReplacement(ctx context.Context, destination mutationnamespace.Destination, capability rootedpath.CommitCapability, expected mutationfs.EntryIdentity, contentHash artifact.ContentHash, replacement mutationfs.PreparedRootedTree) (mutationfs.CommitOutcome, error) {
+func (authority *Operation) RetireTreeForReplacement(ctx context.Context, destination mutationnamespace.Destination, capability rootedpath.CommitCapability, expected mutationfs.EntryIdentity, contentHash artifact.ContentHash, replacement mutationfs.PreparedRootedTree, members artifact.TreeMembers) (mutationfs.CommitOutcome, error) {
 	if expected == nil || expected.Kind() != mutationfs.EntryKindDirectory || !contentHash.IsInstalled() || replacement == nil {
 		if capability != nil {
 			_ = capability.Close()
 		}
 		return uncommittedRemovalFailure(fmt.Errorf("tree replacement requires an existing directory, its installed digest and a prepared tree"))
 	}
-	return authority.removeRootedEntry(ctx, destination, capability, expected, contentHash, replacement)
+	return authority.removeRootedEntry(ctx, destination, capability, expected, contentHash, replacement, members)
 }
 
-func (authority *Operation) removeRootedEntry(ctx context.Context, destination mutationnamespace.Destination, capability rootedpath.CommitCapability, expected mutationfs.EntryIdentity, contentHash artifact.ContentHash, replacement mutationfs.PreparedRootedTree) (mutationfs.CommitOutcome, error) {
+func (authority *Operation) removeRootedEntry(ctx context.Context, destination mutationnamespace.Destination, capability rootedpath.CommitCapability, expected mutationfs.EntryIdentity, contentHash artifact.ContentHash, replacement mutationfs.PreparedRootedTree, members artifact.TreeMembers) (mutationfs.CommitOutcome, error) {
 	if !destination.IsRooted() {
 		return uncommittedRemovalFailure(fmt.Errorf("mutation destination is invalid"))
 	}
@@ -341,6 +341,13 @@ func (authority *Operation) removeRootedEntry(ctx context.Context, destination m
 		modes,
 	)
 	if err == nil && replacement != nil {
+		if members.Known() {
+			for name := range modes {
+				if name != "." && !members.Includes(name) {
+					delete(modes, name)
+				}
+			}
+		}
 		err = replacement.PreserveMatchingModes(ctx, modes)
 	}
 	if err != nil {

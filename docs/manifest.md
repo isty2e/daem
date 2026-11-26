@@ -330,10 +330,10 @@ segments in archives are rejected independently of these budgets.
 Skills are declared with `[[skill]]`. When copying a skill, daem creates new
 regular files with mode `0600`, or `0700` if the locked source file is
 executable. New directories use the source directory's permissions. Updates
-preserve the permissions of files and directories that remain at the same
-relative path with the same kind. Changing only an existing
-source file's executable bit changes its lock hash, but does not chmod the
-installed file.
+preserve permissions for entries shipped at the same relative path and with
+the same kind in both releases. A newly shipped file gets its installation
+mode even if a local file already used that name. Changing only a source
+file's executable bit changes its lock hash but does not chmod the installed file.
 
 ```toml
 [[skill]]
@@ -464,7 +464,14 @@ direct child per name, each locked separately. Divergent same-name imports
 remain individual `[[skill]]` entries with explicit ids.
 
 `daem` copies the full skill directory to the direct child named by manifest
-`skill.name`. The lockfile uses `skill.id` when present and otherwise
+`skill.name`. Once installed, a skill is up to date if the files and directories
+it shipped are still present and their contents match. A cache or other extra
+file does not trigger an update. When daem replaces, moves, or removes the
+installation, it removes the old directory **including those extra files**.
+Keep anything you need across updates outside the installed skill directory.
+The same rules apply to each child of a skill group.
+
+The lockfile uses `skill.id` when present and otherwise
 `skill.name` as the resource id. Frontmatter keys that are specific to one
 target, such as Claude Code tool-permission fields, are not lock-blocking for
 other targets, but `doctor` reports that they may be ignored by targets whose

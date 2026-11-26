@@ -30,6 +30,8 @@ const (
 )
 
 type managedPathEffectFacts struct {
+	desiredMembers   artifact.TreeMembers
+	previousMembers  artifact.TreeMembers
 	subject          topology.SubjectID
 	consumerTargets  []target.Target
 	scope            target.Scope
@@ -97,6 +99,8 @@ func ManagedPathEffects(decisions []reconcile.ManagedPathDecision) ([]ManagedPat
 			)
 		}
 		facts := managedPathEffectFacts{
+			desiredMembers:   decision.DesiredMembers(),
+			previousMembers:  decision.PreviousMembers(),
 			subject:          decision.Subject(),
 			consumerTargets:  decision.ConsumerTargets(),
 			scope:            decision.Scope(),
@@ -257,7 +261,7 @@ func (effect ManagedPathEffect) Validate() error {
 		if err := facts.liveHash.ValidateManaged(); err != nil {
 			return fmt.Errorf("record effect live hash: %w", err)
 		}
-		if facts.liveHash != facts.desiredHash {
+		if facts.liveHash != facts.desiredHash && !(facts.previous != nil && facts.previousMembers.Known() && facts.previousLiveHash == facts.liveHash) {
 			return fmt.Errorf("record effect live hash does not match desired hash")
 		}
 	}
@@ -314,6 +318,10 @@ func (effect ManagedPathEffect) Scope() target.Scope             { return effect
 func (effect ManagedPathEffect) Destination() output.Destination { return effect.facts().destination }
 
 func (effect ManagedPathEffect) DesiredHash() artifact.ContentHash { return effect.facts().desiredHash }
+
+func (effect ManagedPathEffect) PreviousMembers() artifact.TreeMembers {
+	return effect.facts().previousMembers
+}
 
 func (effect ManagedPathEffect) LiveHash() artifact.ContentHash { return effect.facts().liveHash }
 

@@ -17,31 +17,26 @@ import (
 )
 
 type managedPathPrecondition struct {
-	operation   *Operation
-	destination mutationnamespace.Destination
-	existed     bool
-	hash        artifact.ContentHash
-	identity    mutationfs.EntryIdentity
-	fileMode    os.FileMode
-	capability  rootedpath.CommitCapability
-	filesystem  mutationfs.RootedStore
-	consumed    bool
+	previousMembers artifact.TreeMembers
+	operation       *Operation
+	destination     mutationnamespace.Destination
+	existed         bool
+	hash            artifact.ContentHash
+	identity        mutationfs.EntryIdentity
+	fileMode        os.FileMode
+	capability      rootedpath.CommitCapability
+	filesystem      mutationfs.RootedStore
+	consumed        bool
 }
 
 // PreparedPath copies share one retained capability's consumption and Close.
 type PreparedPath struct{ state *managedPathPrecondition }
 
-const (
-	maximumManagedTreeEntries = 100_000
-	maximumManagedTreeDepth   = 64
-	maximumManagedTreeBytes   = 4 << 30
-)
-
 func managedTreeTraversalLimits() mutationfs.TreeTraversalLimits {
 	limits, err := mutationfs.NewTreeTraversalLimits(
-		maximumManagedTreeEntries,
-		maximumManagedTreeDepth,
-		maximumManagedTreeBytes,
+		artifact.MaximumInstalledTreeEntries,
+		artifact.MaximumInstalledTreeDepth,
+		artifact.MaximumInstalledTreeBytes,
 	)
 	if err != nil {
 		panic(err)

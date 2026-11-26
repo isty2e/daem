@@ -682,6 +682,12 @@ recorded baseline. First preserve the local edits and inspect `daem status
 does **not** produce content diffs. Compare reviewed copies outside daem; a
 recorded hash is not a backup.
 
+For a copied skill, changing or removing a shipped file is drift even if the
+next release no longer ships that file. Adding a cache or a note is not drift;
+it stays in place until daem replaces or removes the skill directory. Move
+anything you want to keep outside that directory before applying. For older
+installs without a recorded file list, see [skill baselines](state-and-recovery.md).
+
 Choose the intended direction before changing files:
 
 - **Keep an intentional edit at the same destination:** update the original

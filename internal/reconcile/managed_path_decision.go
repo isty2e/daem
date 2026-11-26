@@ -80,6 +80,8 @@ func (kind ManagedPathDecisionKind) actionKind() ActionKind {
 }
 
 type managedPathDecisionFacts struct {
+	desiredMembers   artifact.TreeMembers
+	previousMembers  artifact.TreeMembers
 	subject          topology.SubjectID
 	consumerTargets  []target.Target
 	scope            target.Scope
@@ -101,6 +103,7 @@ type managedPathDecisionFacts struct {
 // decision. Callers may assemble it incrementally; only successful construction
 // admits a canonical decision.
 type ManagedPathDecisionInput struct {
+	DesiredMembers        artifact.TreeMembers
 	Kind                  ManagedPathDecisionKind
 	Subject               topology.SubjectID
 	ConsumerTargets       []target.Target
@@ -148,20 +151,33 @@ type ManagedPathDecision struct {
 func NewManagedPathDecision(input ManagedPathDecisionInput) (ManagedPathDecision, error) {
 	previous := input.Previous
 	var previousLiveHash artifact.ContentHash
+	var previousMembers artifact.TreeMembers
 	if previous != nil {
 		copy := *previous
 		previous = &copy
 		previousLiveHash = previous.ContentHash()
+		previousMembers = previous.TreeMembers()
 	}
 	if observed := input.PreviousObservation; observed.Exists() {
-		if previous == nil || observed.Subject() != previous.Subject() || observed.Destination() != previous.Destination() || !observed.Matches(previous.ContentHash()) {
+		if previous == nil || observed.Subject() != previous.Subject() || observed.Destination() != previous.Destination() || !observed.MatchesBaseline(previous.ContentHash()) {
 			return ManagedPathDecision{}, fmt.Errorf("previous path observation does not prove the recorded destination and content")
 		}
 		if realization.IsInstalledContentSubject(previous.Subject()) && observed.InstalledHash() != "" {
 			previousLiveHash = observed.InstalledHash()
 		}
+		if members := observed.VerifiedMembers(previous.ContentHash()); members.Known() {
+			previousMembers = members
+		}
+	}
+	if input.Kind == ManagedPathRecord && input.ContentKind == realization.PathProjectionDirectory && input.LiveHash != input.DesiredHash {
+		observed := input.PreviousObservation
+		if previous == nil || !observed.VerifiedMembers(previous.ContentHash()).Known() || observed.InstalledBaseline(previous.ContentHash()) != input.DesiredHash || observed.InstalledHash() != input.LiveHash {
+			return ManagedPathDecision{}, fmt.Errorf("recording a partial tree requires matching installed and whole-tree observations")
+		}
 	}
 	facts := managedPathDecisionFacts{
+		desiredMembers:   input.DesiredMembers,
+		previousMembers:  previousMembers,
 		subject:          input.Subject,
 		consumerTargets:  append([]target.Target(nil), input.ConsumerTargets...),
 		scope:            input.Scope,
@@ -297,6 +313,14 @@ func (decision ManagedPathDecision) PreviousLiveHash() artifact.ContentHash {
 	return decision.facts().previousLiveHash
 }
 
+func (decision ManagedPathDecision) DesiredMembers() artifact.TreeMembers {
+	return decision.facts().desiredMembers
+}
+
+func (decision ManagedPathDecision) PreviousMembers() artifact.TreeMembers {
+	return decision.facts().previousMembers
+}
+
 func (decision ManagedPathDecision) ContentKind() realization.PathProjectionContentKind {
 	return decision.facts().contentKind
 }
@@ -317,7 +341,12 @@ func (decision ManagedPathDecision) LiveFileMode() os.FileMode {
 	return decision.facts().liveFileMode
 }
 func (decision ManagedPathDecision) Reason() ActionReason { return decision.facts().reason }
-func (decision ManagedPathDecision) Detail() string       { return decision.facts().detail }
+func (decision ManagedPathDecision) RemovesAdditionalEntries() bool {
+	return decision.ContentKind() == realization.PathProjectionDirectory &&
+		(decision.Kind() == ManagedPathRemove || (decision.Kind() == ManagedPathReplace && decision.PlacementMode() == realization.PathProjectionCopy))
+}
+
+func (decision ManagedPathDecision) Detail() string { return decision.facts().detail }
 
 func (decision ManagedPathDecision) RetiresAbsentPrevious() bool {
 	return decision.replace != nil && decision.replace.retiresAbsentPrevious

@@ -22,26 +22,40 @@ type managedPathPlanningInputs struct {
 	states    []durable.ManagedPathState
 }
 
-func (inputs managedPathPlanningInputs) withLegacyTreeEvidence(locked lock.File, observations []observe.ExactSupplyObservation) {
-	bySupply := make(map[topology.SubjectID]artifact.ExecutablePaths)
+func (inputs *managedPathPlanningInputs) attachVerifiedTreeEvidence(locked lock.File, observations []observe.ExactSupplyObservation) {
+	bySupply := make(map[topology.SubjectID]observe.ExactSupplyObservation)
 	for _, observed := range observations {
-		if classes := observed.ExecutablePaths(); classes != nil {
-			bySupply[observed.Subject()] = classes
-		}
+		bySupply[observed.Subject()] = observed
 	}
-	legacy := make(map[topology.SubjectID]artifact.ExecutablePaths)
+	states := make(map[topology.SubjectID]durable.ManagedPathState)
 	for _, state := range inputs.states {
-		if state.ContentKind() != realization.PathProjectionDirectory || state.ContentHash().IsInstalled() {
+		states[state.Subject()] = state
+	}
+	for i := range inputs.requests {
+		request := &inputs.requests[i]
+		state, ok := states[request.Subject]
+		if !ok || request.ContentKind != realization.PathProjectionDirectory || request.Destination != state.Destination() {
 			continue
 		}
-		if entityID, ok := topologyprojection.EntityID(state.Subject()); ok {
-			if supply, ok := locked.Locked.ExactSupplySubject(entityID); ok {
-				legacy[state.Subject()] = bySupply[supply.SubjectID()]
-			}
+		id, _ := topologyprojection.EntityID(state.Subject())
+		contract, found := locked.Locked.ExactSupplySubject(id)
+		if !found {
+			request.MembershipOnly = false
+			continue
 		}
-	}
-	for index, request := range inputs.requests {
-		inputs.requests[index].LegacyExecutables = legacy[request.Subject]
+		supply := bySupply[contract.SubjectID()]
+		if !state.ContentHash().IsInstalled() {
+			request.LegacyExecutables = supply.ExecutablePaths()
+			if identity, ok := contract.ExactSupply(); ok && identity.ContentHash() == state.ContentHash() && supply.TreeMembers().Known() {
+				request.Members = supply.TreeMembers()
+				request.VerifiedRelease = artifact.PathHashes{Source: identity.ContentHash(), Installed: supply.InstalledHash()}
+			}
+			continue
+		}
+		if !request.Members.Known() {
+			request.Members = supply.TreeMembers()
+		}
+		request.MembershipOnly = request.MembershipOnly && supply.InstalledHash() == state.ContentHash()
 	}
 }
 
@@ -73,9 +87,15 @@ func buildManagedPathPlanningInputs(
 		if !selectedManagedPathConsumers(state.ConsumerTargets(), selection) {
 			continue
 		}
-		inputs.requests = append(inputs.requests, liveobserve.ManagedPathRequest{
-			Subject: state.Subject(), Destination: state.Destination(), ContentKind: state.ContentKind(),
-		})
+		request := liveobserve.ManagedPathRequest{Subject: state.Subject(), Destination: state.Destination(), ContentKind: state.ContentKind(), Members: state.TreeMembers()}
+		if contract, found := locked.Locked.Subject(state.Subject()); found {
+			if desired, ok := contract.Realization(); ok {
+				if projection, ok := desired.ManagedPathProjection(); ok {
+					request.MembershipOnly = projection.Destination() == state.Destination() && projection.Scope() == state.Scope() && slices.Equal(projection.ConsumerTargets(), state.ConsumerTargets())
+				}
+			}
+		}
+		inputs.requests = append(inputs.requests, request)
 		inputs.ownership = append(inputs.ownership, ownershipobserve.ManagedPathInput{
 			Scope: state.Scope(), Destination: state.Destination(), ConsumerTargets: state.ConsumerTargets(),
 		})

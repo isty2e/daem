@@ -28,8 +28,9 @@ scope and route id; a changed request hash replaces the prior diagnostic.
 Mechanical process reasons and post-attempt working-directory authority are
 separate facts. The v8 reader translates the older combined reason.
 
-When the statefile records an installed-content digest, daem writes v15 with
-the statefile location, or v14 if retaining the unlocated encoding. A single
+When the statefile lists the paths shipped with a copied skill, daem writes v17
+with the statefile location, or v16 without it. For installed-content digests
+without a path list, the corresponding versions are v15 and v14. A single
 file can contain both new digests and older baselines. Without a new digest,
 located files use v11, or v13 when recording the selected Claude global hook
 settings file. Shared output and carrier registries use v5 and v3, respectively.
@@ -69,8 +70,10 @@ leaves the files and the recovery record in place.
 For installed instructions, hook assets, copied skills and whole `agent_config`
 files, daem compares content, not permission bits. Updating a file preserves its current mode,
 even when it is `0444` and the operating system allows replacement through
-the parent directory. Rolling back a tree preserves the current permissions
-of surviving entries and restores the saved modes of entries daem removed.
+the parent directory. Rolling back a copied skill keeps the current permissions
+of entries shipped in both versions at the same path and with the same kind.
+Files removed by the update, including local files replaced by newly shipped
+ones, regain the modes saved before the update.
 Read, traversal and replacement errors from the operating system still apply.
 
 Older baselines include the executable bit. For a file, daem checks the same
@@ -87,7 +90,22 @@ by their values. If the file still exists, rolling those values back leaves
 its current permissions intact. If daem deleted the file, undoing that deletion
 recreates it with the permissions it had before removal.
 
-Externally changed managed outputs report drift rather than being overwritten.
+For a [copied skill](manifest.md#skills), an extra file is not drift. `status
+--check` verifies the shipped paths and contents; it does not check which code
+the host might load. An update or removal must still be able to back up and
+verify the whole directory. Recovery restores the files removed by an
+interrupted update, including extra files. After a successful update, the
+journal is not a backup of the old installation.
+
+For an older skill record without a path list, daem can verify the whole tree
+or check the installed bytes at the paths in the locked release against the
+recorded digest. If neither matches, daem will not replace the directory. The
+original release can supply the missing evidence with `migrate metadata
+--baseline-tree`. A read-only check or no-op apply does not rewrite the old
+record. When daem records a new installation or converts a verified baseline,
+it saves the shipped paths for later checks, including removal without a source.
+
+Changes to managed contents report drift rather than being overwritten.
 Unowned existing outputs report `unmanaged_output_exists`; exact adoption must
 also match required file metadata for mode-sensitive outputs.
 

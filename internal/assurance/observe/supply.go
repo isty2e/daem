@@ -14,6 +14,7 @@ type ExactSupplyObservation struct {
 	stale       bool
 	installed   artifact.ContentHash
 	executables artifact.ExecutablePaths
+	members     artifact.TreeMembers
 }
 
 // NewExactSupplyObservation constructs one subject-keyed Supply observation.
@@ -44,14 +45,19 @@ func (observation ExactSupplyObservation) InstalledHash() artifact.ContentHash {
 	return observation.installed
 }
 
-func (observation ExactSupplyObservation) WithTreeEvidence(hash artifact.ContentHash, paths artifact.ExecutablePaths) ExactSupplyObservation {
+func (observation ExactSupplyObservation) WithTreeEvidence(hash artifact.ContentHash, paths artifact.ExecutablePaths, members artifact.TreeMembers) ExactSupplyObservation {
 	observation = observation.WithInstalledHash(hash)
 	if !observation.stale {
 		observation.executables = paths
+		observation.members = members
 	}
 	return observation
 }
 
 func (observation ExactSupplyObservation) ExecutablePaths() artifact.ExecutablePaths {
 	return observation.executables
+}
+
+func (observation ExactSupplyObservation) TreeMembers() artifact.TreeMembers {
+	return observation.members
 }

@@ -164,7 +164,7 @@ func printManagedResourcePlan(output io.Writer, decision reconcile.ManagedPathDe
 	if options.Verbose {
 		printVerboseManagedPathRows(output, []reconcile.ManagedPathDecision{decision})
 	} else {
-		fmt.Fprintln(output, managedPathLabel(decision))
+		fmt.Fprintln(output, managedPathDescription(decision))
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
 		}
