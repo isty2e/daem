@@ -35,7 +35,8 @@ model {
     hostRelation = domainObject 'Host-relation subject' 'Declaration-local host relation under a carrier namespace.' {
       description '''
         Extension lowering emits a `host_relation` subject for each declaration, then links the structural carrier to
-        it with `consumed_by`. This identifies the relation daem wants to manage. The host may expose differently
+        it with `consumed_by`. `desired.Environment` already rejects two declarations with the same CarrierKey;
+        the lower-level graph can share the carrier vertex. The host may expose differently
         named or scoped occurrences, or several candidates, so the graph itself cannot prove correlation.
       '''
       link ../../internal/topology/extension/lower.go 'Relation identity and consumed_by edge'
@@ -179,7 +180,7 @@ model {
   daem.owners.topology.mcpProjection .domainRelation daem.owners.realization.executablePlan 'May have admitted executable actuation'
   daem.owners.desired.extension .domainRelation daem.owners.topology.hostRelation 'Emits one named relation subject'
   daem.owners.desired.extension .domainRelation daem.owners.topology.carrier 'Selects a structural carrier by CarrierKey'
-  daem.owners.topology.carrier .domainRelation daem.owners.topology.hostRelation 'consumed_by: one or more declared relations in extension lowering'
+  daem.owners.topology.carrier .domainRelation daem.owners.topology.hostRelation 'consumed_by: each relation linked by extension lowering'
   daem.owners.topology.hostRelation .domainRelation daem.owners.realization.delegatedRelation 'Locks expected host and managed-instance keys'
   daem.owners.realization.realizationForm .domainRelation daem.owners.realization.delegatedRelation 'Delegated relation variant'
   daem.owners.realization.operationContract .domainRelation daem.owners.realization.routeRequest 'Names actuation for an admitted host route'

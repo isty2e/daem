@@ -4,14 +4,15 @@ model {
       description '''
         `agentconfig.Config` selects an optional syntax and either `keys` or `document` ownership. Omission chooses
         keys. The profile qualifies the combination and selects the destination and grammar. Both modes lock the exact
-        file source. Key mode adds one projection for each atomic value; an empty top-level object adds none. A nested
-        empty object, array, or scalar (including JSON null) is atomic. Document mode adds one dedicated whole-path
-        projection. Treating a root selector as “own the file” would give key mode different authority.
+        source, the selected placement, and a file-use facet with executable intent disabled. Key mode adds one locked
+        projection for each atomic value; an empty top-level object adds none. A nested empty object, array, or scalar
+        (including JSON null) is atomic. Document mode adds one dedicated whole-path row.
       '''
       link ../../internal/desired/agentconfig/model.go 'Config and the two ownership modes'
       link ../../internal/realization/profile/configuration/placement.go 'Qualified placement and grammar'
       link ../../internal/realization/lock/build/native_documents.go 'Source row and projection construction'
       link ../../internal/realization/lock/build/native_keys_test.go 'Empty root and atomic leaves'
+      link ../../internal/realization/lock/native_document_admission.go 'Lock-level whole and ancestor-key conflicts'
     }
   }
 
@@ -39,9 +40,9 @@ model {
     aggregateContribution = domainObject 'Managed contribution' 'Canonical value under one projection contract.' {
       description '''
         `aggregate.ManagedContribution` binds a canonical projection value to the static contract.
-        `SubjectContribution` pairs it with a `SubjectID`. An agent_config key ID incorporates its decoded key path,
-        target and scope alongside the authored entity, not the current value. A changed desired value at that key
-        can therefore be compared with the previous contribution for the same subject.
+        `SubjectContribution` pairs it with a `topology.SubjectID`. An agent_config key projection's SubjectID
+        incorporates its decoded key path, target and scope alongside the authored entity, not the current value.
+        A changed desired value at that key can be compared with the previous contribution for the same subject.
       '''
       link ../../internal/realization/aggregate/managed_contribution.go 'Static facts plus canonical content'
       link ../../internal/topology/projection/agent_config_key.go 'Exact native key subject identity'
@@ -113,10 +114,7 @@ model {
   }
 
   daem.owners.desired.agentConfig .domainRelation daem.owners.supply.declaredSource 'Selects one exact-file input'
-  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.lockedSubject 'Always supplies a resource row'
-  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.pathProjection 'Document mode: one whole path'
-  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.aggregateContribution 'Key mode: one per atomic value, possibly none'
-  daem.owners.desired.hook .domainRelation daem.owners.realization.aggregateContribution 'Uses a selected hook projection contract'
+  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.lockedSubject 'Source row, plus one whole path or zero or more key rows'
   daem.owners.realization.realizationForm .domainRelation daem.owners.realization.aggregateContribution 'Managed aggregate variant'
   daem.owners.realization.aggregateContribution .domainRelation daem.owners.realization.projectionContract 'Pairs canonical content with static rules'
   daem.owners.realization.projectionContract .domainRelation daem.owners.realization.documentAddress 'Places the projection in one logical document'
@@ -134,13 +132,13 @@ views 'Domain model' {
     title 'Native documents, ownership modes, and key identity'
     order 4
     description '''
-      Both ownership modes of `agent_config` have an exact source. Key mode is a set of atomic leaf contributions;
-      document mode is whole-file ownership. The footprint describes what is selected, and the address describes
-      where. Physical equivalence is separately qualified, so two logical aliases cannot bypass overlap checks.
+      Both ownership modes have an exact source. The lock rejects conflicting whole and key selections at the
+      same scope and destination, including overlapping key subtrees. That check works on portable addresses;
+      journal placement and Registry checks separately qualify physical aliases at execution and recovery.
     '''
     link ../../internal/realization/lock/build/native_documents_test.go 'Exact source and dedicated document identity'
     include daem.owners.desired.agentConfig, daem.owners.supply.declaredSource, daem.owners.realization.lockedSubject,
-      daem.owners.realization.pathProjection, daem.owners.realization.aggregateContribution,
+      daem.owners.realization.realizationForm, daem.owners.realization.pathProjection, daem.owners.realization.aggregateContribution,
       daem.owners.realization.projectionContract, daem.owners.realization.documentAddress,
       daem.owners.outputIdentity.footprint, daem.owners.assurance.physicalPath
     exclude * -> * where kind is not domainRelation
@@ -152,15 +150,16 @@ views 'Domain model' {
     description '''
       Codex MCP entries and native keys are separate contributions even when they occupy one physical `config.toml`.
       Shared-set cardinality is about subjects within one projection. Composition is about disjoint regions of one
-      file, possibly read by different codecs. The candidate is checked against every participant before it is used
-      by the write route; a dedicated whole-file claim would overlap these key footprints.
+      file, possibly read by different codecs. The caller qualifies physical placement, then composes and checks the
+      candidate against each participant. See **Output ownership, document bindings, and permission fences** for
+      the distinct question of whether the whole path or any key can be claimed.
     '''
     link ../../internal/realization/aggregate/compose/document_test.go 'Mixed Codex composition'
     link ../../internal/effect/journal/record/document_variants_test.go 'Recovery preserves foreign MCP values'
-    include daem.owners.realization.aggregateContribution, daem.owners.realization.contributionSet,
+    include daem.owners.desired.agentConfig, daem.owners.topology.mcpProjection, daem.owners.realization.lockedSubject,
+      daem.owners.realization.realizationForm, daem.owners.realization.aggregateContribution, daem.owners.realization.contributionSet,
       daem.owners.realization.projectionContract, daem.owners.realization.documentAddress,
-      daem.owners.assurance.physicalPath, daem.owners.realization.documentObservation,
-      daem.owners.realization.documentCandidate
+      daem.owners.effect.physicalPlacement, daem.owners.realization.documentObservation, daem.owners.realization.documentCandidate
     exclude * -> * where kind is not domainRelation
   }
 }

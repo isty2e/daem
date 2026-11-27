@@ -2,9 +2,10 @@ model {
   extend daem.owners.desired {
     environment = domainObject 'Desired environment' 'Normalized declarations, targets, and defaults.' {
       description '''
-        `desired.Environment` is the canonical authored aggregate. It validates its family members, duplicate authored IDs,
-        conflicting destination selections, and cross-declaration hook asset references. It does not resolve source bytes,
-        build an installed baseline, or grant output ownership.
+        `desired.Environment` is the canonical authored aggregate. It validates each family and rejects duplicate authored
+        IDs, explicit skill destination collisions, duplicate extension carrier selections, and invalid hook asset references.
+        Collisions involving expanded skill members or native document leaf keys are checked during lock assembly and
+        admission, after those subjects exist. Desired does not resolve source bytes or grant output ownership.
       '''
       link ../../internal/desired/environment.go 'Environment and cross-declaration validation'
       link ../../internal/declaration/toml_decode.go 'TOML normalization boundary'
@@ -37,6 +38,17 @@ model {
       link ../../internal/realization/lock/build/skills.go 'Resource and path rows for each skill'
       link ../../internal/realization/lock/build/skill_projection_test.go 'One projection for a shared placement'
     }
+    instructions = domainObject 'Instructions' 'One exact file source with target-specific rendering.' {
+      description '''
+        `instructions.Instructions` owns its resource ID, source, scope, and a nonempty target set. Each target may
+        request a render path and mode. The host profile interprets the path and supplies placement defaults. Lock
+        retains one exact-file row and the rendered path projections. One projection can cover several targets
+        that select the same admitted placement and mode. A rendering is separate from the supplied bytes.
+      '''
+      link ../../internal/desired/instructions/model.go 'Rendering and target selection'
+      link ../../internal/realization/lock/build/instructions.go 'File resource plus path projections'
+      link ../../internal/realization/lock/refine/instructions.go 'Host placement and shared consumers'
+    }
     hook = domainObject 'Hook' 'Targeted command contribution, optionally consumes assets.' {
       description '''
         `hook.Hook` owns event, command, target and override intent. A supported command hook lowers to native contributions
@@ -50,7 +62,8 @@ model {
       description '''
         Every admitted `hookasset.HookAsset` contributes an exact-file Supply row. Only a referenced asset gets a managed
         path projection for its scope, shared by the hooks that consume it. An unreferenced asset can therefore be locked
-        without a host path to install. File use and optional materialization express executable intent separately from source identity.
+        without a host path to install. Exact-file use and materialization are computed in both cases. A deterministic
+        transform is recorded only when the requested executable intent changes the file identity.
       '''
       link ../../internal/desired/hookasset/model.go 'Asset declaration'
       link ../../internal/topology/hook/lower.go 'Consumer graph'
@@ -116,8 +129,9 @@ model {
       description '''
         `lock.DerivationContract` records how exact Supply participates in replay. A transform names input and expected
         output identities and the recipe or algorithm identity. For skill repair, the locked artifact is the repaired
-        output and the stored recipe still names the original input. File materialization can instead keep the locked
-        source identity and derive the projected output, such as changing a hook asset's executable bit.
+        output and the stored recipe still names the original input. File materialization for instructions, hook assets,
+        and native documents keeps the exact source identity on the file-use row. It records a transform rather than
+        direct resolution when the materialized identity differs, for example when a hook asset gains the executable bit.
       '''
       link ../../internal/realization/lock/derivation.go 'Derivation variants and supply equality'
       link ../../internal/realization/lock/build/skill_repair.go 'Original and repaired skill identity'
@@ -193,6 +207,9 @@ model {
   daem.owners.desired.skillSet .domainRelation daem.owners.desired.skill 'Expands a successful selection into individual skills'
   daem.owners.desired.skill .domainRelation daem.owners.supply.declaredSource 'Selects a source directory'
   daem.owners.desired.skill .domainRelation daem.owners.realization.lockedSubject 'One Supply row plus a row per selected placement'
+  daem.owners.desired.instructions .domainRelation daem.owners.supply.declaredSource 'Selects a file input'
+  daem.owners.desired.instructions .domainRelation daem.owners.realization.lockedSubject 'One file-use row plus selected rendering projections'
+  daem.owners.desired.hook .domainRelation daem.owners.realization.lockedSubject 'Locks contributed values, not command artifacts'
   daem.owners.desired.hookAsset .domainRelation daem.owners.supply.declaredSource 'Selects an exact file source'
   daem.owners.desired.hookAsset .domainRelation daem.owners.realization.lockedSubject 'One exact file row even without a consumer'
   daem.owners.desired.hookAsset .domainRelation daem.owners.realization.pathProjection 'One scoped path when referenced'
@@ -230,16 +247,16 @@ views 'Domain model' {
   }
 
   view domainSourceBacked {
-    title 'Source-backed skills and hook assets'
+    title 'Source-backed skills, instructions, and hook assets'
     order 3
     description '''
-      A shared skill placement has one locked projection for multiple consumer targets. Compare an asset with no
-      hook references: it can have an exact Supply row without an installed projection. Neither distinction is
-      expressible as “one declaration equals one installed file.”
+      A shared skill or instruction placement can have one locked projection for multiple consumer targets.
+      An asset with no hook references has an exact Supply row but no installed projection. Follow the locked
+      subject to see which parts identify exact content and which parts select a destination.
     '''
     link ../../internal/realization/lock/build/skill_projection_test.go 'Shared skill placement witness'
     link ../../internal/realization/lock/build/hook_assets_test.go 'Exact-file use and asset materialization witnesses'
-    include daem.owners.desired.skillSet, daem.owners.desired.skill, daem.owners.desired.hook,
+    include daem.owners.desired.skillSet, daem.owners.desired.skill, daem.owners.desired.instructions, daem.owners.desired.hook,
       daem.owners.desired.hookAsset, daem.owners.supply.declaredSource, daem.owners.supply.exactArtifact,
       daem.owners.realization.lockedSubject, daem.owners.realization.realizationForm, daem.owners.realization.pathProjection,
       daem.surface.surfaceKey
