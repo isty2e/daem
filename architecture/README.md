@@ -16,6 +16,7 @@ Open **Domain model overview**, then choose the view for the identity or boundar
 | --- | --- |
 | Why one declaration can produce several lock rows, or be locked without any installed file | **Declarations, identities, and exact supply**; **Source-backed skills, instructions, and hook assets** |
 | How two codecs can update disjoint parts of the same Codex `config.toml`, and why that differs from whole-file ownership | **Native documents, ownership modes, and key identity**; **Disjoint projections in a shared settings file** |
+| How the same declaration can narrow ownership to keys or widen it to the whole document | **Changing the scope of native document ownership** |
 | What a Pi MCP binding locks, or what proves that a host package is present and managed | **MCP bindings, provider contributions, and launch identity**; **Extension carriers, host correlation, and claims**; **Declared precedence and observed host sequences** |
 | Why a binding or protection record can exist without a claim, and why a copied skill with extra files can still be up to date | **Output ownership, document bindings, and permission fences**; **Installed baselines and reconciliation decisions** |
 | How recovery can finish a claim after State is committed without repeating a host write | **Effect authority, journals, and recovery evidence** |

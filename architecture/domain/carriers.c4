@@ -25,43 +25,55 @@ model {
   extend daem.owners.topology {
     carrier = domainObject 'Structural carrier' 'One subject per canonical CarrierKey.' {
       description '''
-        `extensiontopology.Carrier` names the source and host scope independently of the declaration consuming it.
-        Lowering reuses a carrier vertex for equal identities; each named declaration still has its own host-relation
-        subject. Sharing a vertex says nothing about current installation, observed version, or delete authority.
+        `extensiontopology.Carrier` names the source and host scope independently of the consuming declaration.
+        An admitted environment permits only one extension declaration per CarrierKey, even though the lowering
+        helper can reuse a carrier vertex. Shared ownership decisions arise from different State owners' claims.
+        Distinct Pi Git CarrierKeys can still address the same checkout when repository and scope match. That
+        overlap is conflict evidence, not equality of the locked source or managed relation.
       '''
       link ../../internal/topology/extension/carrier.go 'Carrier subject construction'
-      link ../../internal/topology/extension/lower.go 'Deduplicated carriers and distinct relations'
+      link ../../internal/desired/environment.go 'One declaration per CarrierKey'
+      link ../../internal/assurance/durable/carrier/carrier_occupancy.go 'Consumers across State owners'
+      link ../../internal/assurance/durable/carrier/pin_transition.go 'Pi Git repository and checkout conflicts'
     }
     hostRelation = domainObject 'Host-relation subject' 'Declaration-local host relation under a carrier namespace.' {
       description '''
         Extension lowering emits a `host_relation` subject for each declaration, then links the structural carrier to
-        it with `consumed_by`. `desired.Environment` already rejects two declarations with the same CarrierKey;
-        the lower-level graph can share the carrier vertex. The host may expose differently
-        named or scoped occurrences, or several candidates, so the graph itself cannot prove correlation.
+        it with `consumed_by`. The subject ID is declaration-local and carries no State owner. Durable facts
+        distinguish identical subject IDs across owners with the owner-relation fact key. Host-visible names
+        and occurrence matches are checked separately.
       '''
       link ../../internal/topology/extension/lower.go 'Relation identity and consumed_by edge'
       link ../../internal/realization/lock/refine/extension.go 'Lock the exact relation contract'
+      link ../../internal/assurance/durable/carrier/carrier_fact.go 'Owner identity added to durable facts'
     }
     mcpProjection = domainObject 'MCP binding projection' 'One subject per server name, target, and scope.' {
       description '''
         MCP lowering names one projection per binding. It adds an executable dependency and any environment-name
         references. The lock stores a managed aggregate contribution for the binding; these dependencies do not add
-        artifact rows. Provider-mediated bindings also retain an exact contribution foreign key. Pi Native selects
-        its native layer and carries no Adapter provider contribution.
+        artifact rows. Pi Native and Adapter use the same structural identity and physical MCP destination for
+        the same name and scope, but different codecs. Native has no provider foreign key. Lock refuses mixed
+        Pi backends or Native alongside a declared Adapter; the backend selection does not convert existing entries.
       '''
       link ../../internal/topology/mcp/lower.go 'Projection, launcher, credentials and provider edges'
       link ../../internal/realization/lock/mcp_contract.go 'Binding replay and provider validation'
+      link ../../internal/realization/profile/pi_mcp_contract.go 'One backend per admitted Pi context'
+      link ../../internal/realization/aggregate/mcp_projection_contract.go 'Different codecs on the same destinations'
       link ../../internal/realization/lock/build/mcp_subjects_test.go 'No source tasks and exact provider foreign keys'
     }
     providerContribution = domainObject 'Carrier contribution reference' 'Exact provider subject + capability kind and key.' {
       description '''
-        `extensiontopology.ContributionReference` is a structural foreign key. A contribution has exactly one
-        `provided_by` carrier; `bound_to` identifies the consuming MCP projection. Reusing the same provider for
-        another binding does not collapse their projection IDs. The foreign key does not record installation,
-        provider version, activation, or readiness.
+        `extensiontopology.ContributionReference` is a structural foreign key to a capability of exactly one carrier.
+        An admitted declared Pi Adapter package offers one `mcp-client/default` contribution. Every bound projection
+        records its own reference to the selected contribution; one contribution can bind several projections.
+        Project bindings prefer a project provider, then fall back to global. Global bindings need a global provider.
+        Missing or ambiguous candidates in the selected scope fail admission. Installation, version and activation
+        must be established separately from this reference.
       '''
       link ../../internal/topology/extension/contribution.go 'Provider-scoped identity'
       link ../../internal/topology/mcp/lower.go 'Provided-by and binding edges'
+      link ../../internal/realization/profile/pi_mcp_provider_profile.go 'Declared package and contribution contract'
+      link ../../internal/realization/profile/mcp_provider_selection.go 'Scoped candidate selection'
     }
     executableDependency = domainObject 'Executable dependency' 'Executable subject, not an exact binary artifact.' {
       description 'The structural launcher dependency identifies an executable. Exact invocation arguments and environment bindings remain in the binding or executable plan, not in the executable subject.'
@@ -135,37 +147,44 @@ model {
     carrierClaim = domainObject 'Managed carrier claim' 'Owner + exact carrier/relation + request + provenance.' {
       description '''
         `ManagedCarrierClaim` binds one State authority to `ManagedCarrierIdentity` (carrier, host-relation subject,
-        expected keys), the exact install request, and observed acquisition provenance. Its fact key is the State
-        authority key plus the relation subject; other values can contradict at that key. Project claims are in
-        State; global claims are in a separate carrier Registry. Other daem-known consuming relations can bar removal
-        of a shared carrier. The claim is neither passive current evidence nor a reservation of a file or key.
+        expected keys), the exact install request, and provenance. An observed install or explicit adoption of an
+        exact existing relation can establish a claim; adoption runs no installer. An observed pin transition
+        updates the existing claim's provenance. The fact key is the State authority key plus relation subject. Project claims are in State;
+        global claims are in a separate carrier Registry. Other daem-known consumers can bar removal. Admission
+        does not establish that there are no consumers outside that inventory. The claim does not reserve a file or key.
       '''
       link ../../internal/assurance/durable/carrier/managed_carrier.go 'Exact managed carrier identity'
       link ../../internal/assurance/durable/carrier/managed_carrier_claim.go 'Claim creation from observed transitions'
       link ../../internal/assurance/durable/carrier/carrier_fact.go 'Owner-relation fact key'
       link ../../internal/assurance/durable/carrier/claim_store.go 'State vs global carrier Registry'
+      link ../../internal/workflow/apply/carrier_adoption.go 'Explicit state-only adoption'
       link ../../internal/reconcile/carrierabsence/action.go 'Known consumers and removal admission'
     }
     pendingCarrier = domainObject 'Pending carrier transition' 'Install/removal progress or an unverified Pi pin change.' {
       description '''
         `PendingCarrierInstall` preserves the owner, exact identity and request from an admitted absent-before
-        boundary. `PendingCarrierRemoval` preserves authority and the removal evidence needed to finish, not proof
-        of successful removal. A pending Pi pin target on a claim keeps the old ownership until fresh evidence
-        proves the new relation and the metadata converges. A process result alone cannot settle these facts.
+        boundary. `PendingCarrierRemoval` retains evidence needed to finish, not proof of successful removal.
+        Both live in the owner's State. A global install commits its claim in the carrier Registry before removing
+        the matching pending record. A pending Pi pin target on a claim preserves old ownership while the new pin
+        is unverified. Completion needs a fresh exact observation. Pin changes keep the same subject and scope;
+        another recorded consumer of the same checkout blocks reservation. Eligibility considers claims from
+        the selected project and the global Registry.
       '''
       link ../../internal/assurance/durable/carrier/managed_carrier.go 'Pending install'
       link ../../internal/assurance/durable/carrier/pending_carrier_removal.go 'Pending removal and postconditions'
       link ../../internal/assurance/durable/carrier/pin_transition.go 'Pending Pi pin identity and completion'
+      link ../../internal/assurance/durable/snapshot_carrier.go 'Global claim before pending-install retirement'
       link ../../internal/workflow/apply/pin_transition_retry_test.go 'An uncertain attempt does not retire the old claim'
     }
-    attemptHistory = domainObject 'Attempt history' 'Bounded recorded outcomes, independently of current readiness.' {
+    attemptHistory = domainObject 'Recorded attempt' 'Latest recorded outcome per attempt key, not current evidence.' {
       description '''
-        `HostRouteAttempt` associates an operation, exact route/request hash, observation/postcondition summaries,
-        and bounded process outcome with its subject. `DelegateAttempt` covers delegated executable invocations.
-        A past exit code, an unverified completion, and fresh passive evidence are different facts. Retained attempts
-        do not grant permission to retry or to conclude that a carrier currently exists.
+        State retains one replaceable row per attempt key. A delegate key is its projection, target and scope;
+        a host-route key adds operation and route ID to its relation, target and scope. The plan identity or request
+        hash correlates a stored result, but is not part of the replacement key. An exit code, unverified completion,
+        and fresh passive evidence are different facts. Attempts do not grant retry authority or prove current presence.
       '''
       link ../../internal/assurance/durable/attempt 'Host route and delegate histories'
+      link ../../internal/assurance/durable/attempt/attempt_key.go 'Replaceable history keys'
       link ../../internal/workflow/apply/carrier_execute_attempt_test.go 'Retained and stale attempt outcomes'
     }
   }
@@ -174,13 +193,13 @@ model {
   daem.owners.topology.mcpProjection .domainRelation daem.owners.topology.executableDependency 'launches_via: exactly one launcher'
   daem.owners.topology.mcpProjection .domainRelation daem.owners.topology.credentialReference 'depends_on: zero or more named sources'
   daem.owners.topology.providerContribution .domainRelation daem.owners.topology.carrier 'provided_by: exactly one provider'
-  daem.owners.topology.providerContribution .domainRelation daem.owners.topology.mcpProjection 'bound_to: selected provider-mediated projection'
+  daem.owners.topology.providerContribution .domainRelation daem.owners.topology.mcpProjection 'bound_to: one or more projections selecting this provider'
   daem.owners.topology.mcpProjection .domainRelation daem.owners.realization.aggregateContribution 'Locks its canonical binding value'
   daem.owners.topology.providerContribution .domainRelation daem.owners.realization.lockedSubject 'Carries the exact foreign key, not an extra row'
   daem.owners.topology.mcpProjection .domainRelation daem.owners.realization.executablePlan 'May have admitted executable actuation'
   daem.owners.desired.extension .domainRelation daem.owners.topology.hostRelation 'Emits one named relation subject'
   daem.owners.desired.extension .domainRelation daem.owners.topology.carrier 'Selects a structural carrier by CarrierKey'
-  daem.owners.topology.carrier .domainRelation daem.owners.topology.hostRelation 'consumed_by: each relation linked by extension lowering'
+  daem.owners.topology.carrier .domainRelation daem.owners.topology.hostRelation 'consumed_by: one declaration per carrier in an admitted environment'
   daem.owners.topology.hostRelation .domainRelation daem.owners.realization.delegatedRelation 'Locks expected host and managed-instance keys'
   daem.owners.realization.realizationForm .domainRelation daem.owners.realization.delegatedRelation 'Delegated relation variant'
   daem.owners.realization.operationContract .domainRelation daem.owners.realization.routeRequest 'Names actuation for an admitted host route'
@@ -191,6 +210,7 @@ model {
   daem.owners.assurance.pendingCarrier .domainRelation daem.owners.assurance.carrierClaim 'Fresh postconditions can establish, retire, or advance a claim'
   daem.owners.assurance.pendingCarrier .domainRelation daem.owners.assurance.relationInventory 'Completion needs qualified current evidence'
   daem.owners.assurance.attemptHistory .domainRelation daem.owners.realization.routeRequest 'Correlates an attempt with the route and request hash'
+  daem.owners.assurance.attemptHistory .domainRelation daem.owners.realization.executablePlan 'Matches a delegate attempt by plan identity'
   daem.owners.realization.lockSnapshot .domainRelation daem.owners.realization.relationOrder 'Keeps ordered members separately from subject rows'
   daem.owners.realization.relationOrder .domainRelation daem.owners.topology.hostRelation 'Members pair relation subjects with host load IDs'
   daem.owners.assurance.sequenceObservation .domainRelation daem.owners.realization.relationOrder 'Compares each physical sequence within its class'
@@ -202,8 +222,8 @@ views 'Domain model' {
     order 6
     description '''
       A binding has an aggregate lock row, not an executable artifact. Trace the Adapter branch through its exact
-      contribution foreign key to the registered Pi carrier; for Pi Native there is no provider branch. Launcher
-      dependencies, host environment names, and optional delegated execution are separate from that provider choice.
+      contribution foreign key to the declared Pi Adapter carrier. Native uses the same destination with a different
+      codec and no provider branch. Launcher, environment references, and delegated execution are separate from provider choice.
     '''
     link ../../internal/realization/lock/build/mcp_subjects_test.go 'Provider-mediated and standalone lock rows'
     include daem.owners.desired.mcpServer, daem.owners.topology.mcpProjection, daem.owners.topology.executableDependency,
@@ -218,7 +238,8 @@ views 'Domain model' {
     description '''
       Follow a named extension from structural carrier selection to its exact relation and request. Then compare
       the separate evidence families: passive host inventory, pending work, historical attempts, and a durable
-      claim. A successful but unverified install can have attempt history without a claim.
+      claim. An unverified install can leave an attempt without a claim. Explicit adoption can record a claim without
+      an install attempt.
     '''
     include daem.owners.desired.extension, daem.owners.topology.carrier, daem.owners.topology.hostRelation,
       daem.owners.realization.delegatedRelation, daem.owners.realization.routeRequest, daem.owners.assurance.relationInventory,

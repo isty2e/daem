@@ -1,6 +1,6 @@
 model {
   extend daem.owners.assurance {
-    installedState = domainObject 'Installed State snapshot' 'Last settled projection baselines, carrier facts, and attempt history.' {
+    installedState = domainObject 'Installed State snapshot' 'Published projection baselines, carrier facts, and attempt history.' {
       description '''
         `durable.Snapshot` has at most one managed baseline per projection subject, either a path row or a managed
         aggregate row. It rejects duplicate path destinations and a managed path at an aggregate root. Several
@@ -30,7 +30,7 @@ model {
       '''
       link ../../internal/assurance/durable/managed_aggregate.go 'Validated subject and contribution'
     }
-    pathEvidence = domainObject 'Live path evidence' 'Presence, type, modes, and applicable digest or membership evidence.' {
+    pathEvidence = domainObject 'Live path evidence' 'Presence, mode and applicable digest or membership evidence.' {
       description '''
         `ManagedPathEvidence` records current file facts for comparison. Whole-tree hashes and a verified
         shipped-members projection answer different questions. For a copied skill, user-added files can be outside
@@ -76,6 +76,27 @@ model {
       '''
       link ../../internal/reconcile/managed_aggregate.go 'Aggregate decision and subject deltas'
       link ../../internal/realization/aggregate/compose/document.go 'Shared document composition'
+    }
+    nativeNarrowing = domainObject 'Whole-to-key narrowing' 'One whole baseline and an optional retained-key plan.' {
+      description '''
+        `NativeNarrowingAction` ties an exact key-mode source to the previous whole-file baseline and the same
+        live document. A nonempty selection needs its precise key plan: either the whole baseline still matches
+        or the selected values already match the desired values. Unselected content is released, not deleted.
+        An empty selection keeps the file and has no key plan. This action consumes the old baseline and the new
+        key subjects instead of running their ordinary path and aggregate decisions independently.
+      '''
+      link ../../internal/reconcile/native_narrowing.go 'Validated action inputs and optional key plan'
+      link ../../internal/reconcile/build/documenttransition/narrowing_test.go 'Readback, drift, and release-only narrowing'
+    }
+    nativeWholeAdoption = domainObject 'Key-to-whole adoption' 'An exact whole-file record plus prior key retirements.' {
+      description '''
+        `NativeWholeAdoptionPlan` records a whole-file baseline without changing host bytes. It needs the actual
+        source, matching existing content, explicit management admission, and the exact active claims for the
+        prior key subjects of the same declaration and document. It cannot consume another participant, omit old
+        keys, or retarget the file. A blocked decision does not retire its earlier key subjects.
+      '''
+      link ../../internal/reconcile/build/projection/native_whole_adoption.go 'Exact source, claims, and retirements'
+      link ../../internal/workflow/readiness/native_planning_ownership_test.go 'Actual before evidence without host mutation'
     }
   }
 
@@ -145,17 +166,18 @@ model {
     recoveryBasis = domainObject 'Qualified journal recovery' 'Selected evidence and a classified phase, not execution replay.' {
       description '''
         An active recovery assessment compares current paths, qualified backups, State, and claims with the record.
-        Clean-before and clean-after can retire evidence. With recoverable paths and before-State, recovery can roll
-        back; with after-State and matching host outputs it can finalize the outstanding claims. A contradiction can
-        block both choices. A retired-cleanup selection needs only its own RecoveryDir authority, not host, State, or
-        output claims. A permission-only selection is separate and cannot settle a conflicting active journal.
+        Clean-before and clean-after can retire evidence. Recoverable paths, before-State and eligible claims allow
+        rollback. Expected-after paths and State with claims eligible to finalize allow claim settlement without
+        host replay. A contradiction can block both choices. A retired-cleanup selection needs only its own RecoveryDir
+        authority for execution, not host, State, or output claims. Permission-only recovery is separate and cannot
+        settle a conflicting active journal.
       '''
       link ../../internal/effect/journal/recovery/classify.go 'Recovery phase from independent evidence'
       link ../../internal/effect/journal/recoveryoperation/plan.go 'Active or cleanup-only authority'
       link ../../internal/workflow/recover/selection.go 'Selection precedence and protection overlap'
       link ../../internal/effect/execute/ownership_apply_test.go 'After-State cancellation finalizes without replay'
     }
-    fileSetRecord = domainObject 'File-set publication record' 'Atomic file transaction evidence, distinct from an Apply journal.' {
+    fileSetRecord = domainObject 'File-set publication record' 'Multi-file transaction evidence, distinct from an Apply journal.' {
       description '''
         The file-set marker identifies one publication with selected targets and before/after evidence. Local declaration
         changes and shared metadata conversion use different authority scopes. A published file-set marker can remain
@@ -184,8 +206,15 @@ model {
   daem.owners.outputIdentity.registry .domainRelation daem.owners.reconcile.decisions 'Provides relevant ownership and protection facts'
   daem.owners.reconcile.decisions .domainRelation daem.owners.reconcile.pathDecision 'Can include path occupancy decisions'
   daem.owners.reconcile.decisions .domainRelation daem.owners.reconcile.aggregateDecision 'Can include native document decisions'
+  daem.owners.reconcile.decisions .domainRelation daem.owners.reconcile.nativeNarrowing 'Carries a distinct ownership transition'
   daem.owners.assurance.pathEvidence .domainRelation daem.owners.reconcile.pathDecision 'Provides independent live path evidence'
-  daem.owners.realization.documentObservation .domainRelation daem.owners.reconcile.aggregateDecision 'Provides selected live document evidence'
+  daem.owners.assurance.aggregateEvidence .domainRelation daem.owners.reconcile.aggregateDecision 'Provides selected live document evidence'
+  daem.owners.reconcile.nativeNarrowing .domainRelation daem.owners.assurance.pathBaseline 'Consumes the previous whole-file baseline'
+  daem.owners.reconcile.nativeNarrowing .domainRelation daem.owners.realization.documentObservation 'Nonempty selection uses the whole digest and key evidence'
+  daem.owners.reconcile.nativeNarrowing .domainRelation daem.owners.assurance.aggregateBaseline 'When settled, records only the retained keys'
+  daem.owners.reconcile.nativeWholeAdoption .domainRelation daem.owners.reconcile.pathDecision 'Produces Record or Blocked, not a host write'
+  daem.owners.reconcile.nativeWholeAdoption .domainRelation daem.owners.assurance.aggregateBaseline 'Retires exactly the prior keys on success'
+  daem.owners.reconcile.nativeWholeAdoption .domainRelation daem.owners.outputIdentity.claim 'Admits only the selected active claim fragment'
   daem.owners.reconcile.decisions .domainRelation daem.safety.operationBasis 'Selected work supplies plan identity inputs'
   daem.safety.operationBasis .domainRelation daem.barrier.effectAuthority 'Domain requests and demand for boundary qualification'
   daem.barrier.effectAuthority .domainRelation daem.owners.effect.journalRecord 'Forward publication requires revalidated authority'
@@ -231,7 +260,7 @@ views 'Domain model' {
     link ../../internal/workflow/apply/native_shared_source_command_test.go 'Native decisions on shared and separate documents'
     link ../../test/cli/lifecycle/managedpath/skill_membership_test.go 'Tree membership and replacement'
     include daem.owners.realization.lockSnapshot, daem.owners.assurance.installedState, daem.owners.assurance.pathBaseline,
-      daem.owners.assurance.aggregateBaseline, daem.owners.assurance.pathEvidence, daem.owners.realization.documentObservation,
+      daem.owners.assurance.aggregateBaseline, daem.owners.assurance.pathEvidence, daem.owners.assurance.aggregateEvidence,
       daem.owners.reconcile.decisions, daem.owners.reconcile.pathDecision, daem.owners.reconcile.aggregateDecision,
       daem.owners.outputIdentity.registry
     exclude * -> * where kind is not domainRelation
@@ -252,6 +281,20 @@ views 'Domain model' {
       daem.owners.effect.journalRecord, daem.owners.effect.physicalPlacement, daem.owners.effect.claimTransition,
       daem.owners.assurance.installedState, daem.owners.outputIdentity.claim, daem.owners.outputIdentity.registry,
       daem.owners.effect.recoveryBasis, daem.owners.effect.fileSetRecord
+    exclude * -> * where kind is not domainRelation
+  }
+
+  view domainNativeTransitions {
+    title 'Changing the scope of native document ownership'
+    order 12
+    description '''
+      The same declaration can change ownership mode without moving its document. Whole-to-keys releases
+      unselected content without treating it as deletion. Keys-to-whole only records an exact existing match
+      and retires the admitted key ownership as a unit. Neither operation adopts a conflicting physical alias.
+    '''
+    include daem.owners.reconcile.nativeNarrowing, daem.owners.reconcile.nativeWholeAdoption, daem.owners.reconcile.pathDecision,
+      daem.owners.realization.documentObservation, daem.owners.assurance.pathBaseline, daem.owners.assurance.aggregateBaseline,
+      daem.owners.outputIdentity.claim
     exclude * -> * where kind is not domainRelation
   }
 }

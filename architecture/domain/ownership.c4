@@ -16,12 +16,14 @@ model {
   extend daem.owners.outputIdentity {
     managedAddress = domainObject 'Managed address' 'Exact physical path + one typed footprint.' {
       description '''
-        `ownership.ManagedAddress` combines `pathauthority.Exact` with a whole-path or key footprint. Claim
-        conflicts are overlap checks, not just duplicate keys. Physical path ancestry and native filesystem
-        semantics matter as well as key ancestry. `ownership.LogicalKey` (portable destination and footprint)
-        locates an operation row; it does not prove physical equivalence or grant write authority.
+        `ownership.ManagedAddress` combines `pathauthority.Exact` with a whole-path or key footprint. Exact equality
+        compares path identity and footprint. An overlap can also follow from path ancestry or intersecting key scopes.
+        `MayOverlap` conservatively excludes possible conflicts with legacy namespace evidence; it proves neither
+        equality nor containment. A provisional path is likewise not an exact address. `ownership.LogicalKey`
+        (portable destination and footprint) identifies an operation row, not a physical write capability.
       '''
       link ../../internal/output/ownership/address.go 'Exact and possible overlap'
+      link ../../internal/output/ownership/legacy_native_overlap_test.go 'Uncertain overlap is not equality'
       link ../../internal/output/ownership/logical_key.go 'Logical operation key'
     }
     registry = domainObject 'Output Registry' 'Independent sets of claims, bindings, and protections.' {

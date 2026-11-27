@@ -57,15 +57,23 @@ model {
       '''
       link ../../internal/realization/aggregate/contribution_set.go 'Partitioning, uniqueness, and equality rules'
     }
-    documentObservation = domainObject 'Selected document observation' 'Document presence and codec-scoped evidence.' {
+    codecSnapshot = domainObject 'Codec snapshot' 'One selection, document presence, and selected projection states.' {
       description '''
-        `aggregate.DocumentObservation` keeps the observation of a document separate from the selected facts produced
-        by its codecs. An `aggregate.Snapshot` describes what a codec could read and compare in its selected region.
-        It is not the installed `durable.Snapshot` or a claim. Document presence, occupancy, and a semantic value match
-        are different facts; preserving one projection may require retaining other content in the same file.
+        `aggregate.Snapshot` describes what a codec reads and compares within its selection. Document presence,
+        occupancy of a selected key or member, and a semantic value match are distinct. A snapshot can represent
+        absence; a codec observation failure is separate evidence. This is live or rendered document evidence,
+        not the installed `durable.Snapshot` or a claim.
       '''
-      link ../../internal/realization/aggregate/document_observation.go 'Present, absent or blocked observation'
       link ../../internal/realization/aggregate/codec_protocol.go 'Codec selection and snapshot'
+    }
+    documentObservation = domainObject 'Existing-document comparison' 'Selected snapshot bound to an exact content hash.' {
+      description '''
+        `aggregate.DocumentObservation` is computed from one existing immutable document: codec snapshot and
+        non-executable content hash must describe the same bytes. Native narrowing uses both facts to qualify
+        the transition from whole-file ownership to keys. It cannot prove identity of an absent or inaccessible file.
+      '''
+      link ../../internal/realization/aggregate/document_observation.go 'Observe and hash the same existing document'
+      link ../../internal/reconcile/build/documenttransition/narrowing.go 'Narrowing qualification uses both comparisons'
     }
     documentCandidate = domainObject 'Composed document candidate' 'One candidate file and verified participant snapshots.' {
       description '''
@@ -91,6 +99,14 @@ model {
       link ../../internal/assurance/pathauthority/authority.go 'Validated equality and semantics witness'
       link ../../internal/assurance/pathauthority/reference.go 'Exact identity versus locator'
       link ../../internal/effect/journal/document/physical_placement.go 'Physical grouping and transfer rules'
+    }
+    aggregateEvidence = domainObject 'Live aggregate evidence' 'One document, one selected codec snapshot, and its mode.' {
+      description '''
+        `observe.AggregateEvidence` correlates a fresh read of one logical document with a snapshot identified
+        by document and codec. Presence must agree; a missing document has no file mode. A failed selected codec
+        read has its own `AggregateObservationFailure` rather than evidence that a projection is empty.
+      '''
+      link ../../internal/assurance/observe/managed_aggregate.go 'Present/absent evidence and failure representation'
     }
   }
 
@@ -122,9 +138,11 @@ model {
   daem.owners.realization.pathProjection .domainRelation daem.owners.outputIdentity.footprint 'Selects the whole path'
   daem.owners.realization.contributionSet .domainRelation daem.owners.realization.aggregateContribution 'Groups contributions sharing one full projection contract'
   daem.owners.realization.documentAddress .domainRelation daem.owners.assurance.physicalPath 'Qualified aliases may resolve to the same document'
-  daem.owners.realization.documentObservation .domainRelation daem.owners.realization.documentAddress 'Correlates evidence with the selected document'
-  daem.owners.realization.documentObservation .domainRelation daem.owners.realization.projectionContract 'Reads occupancy and values with the selected codec'
-  daem.owners.realization.documentCandidate .domainRelation daem.owners.realization.documentObservation 'Checks original evidence and reads the final projections'
+  daem.owners.realization.codecSnapshot .domainRelation daem.owners.realization.projectionContract 'Reads occupancy and values with the selected codec'
+  daem.owners.realization.documentObservation .domainRelation daem.owners.realization.codecSnapshot 'Binds one snapshot to the same present file’s digest'
+  daem.owners.assurance.aggregateEvidence .domainRelation daem.owners.realization.codecSnapshot 'Evidence matches the current document’s presence'
+  daem.owners.assurance.aggregateEvidence .domainRelation daem.owners.realization.documentAddress 'Identifies the logical document and its selected codec'
+  daem.owners.realization.documentCandidate .domainRelation daem.owners.realization.codecSnapshot 'Checks each original snapshot and verifies the combined edit'
 }
 
 views 'Domain model' {
@@ -140,7 +158,8 @@ views 'Domain model' {
     include daem.owners.desired.agentConfig, daem.owners.supply.declaredSource, daem.owners.realization.lockedSubject,
       daem.owners.realization.realizationForm, daem.owners.realization.pathProjection, daem.owners.realization.aggregateContribution,
       daem.owners.realization.projectionContract, daem.owners.realization.documentAddress,
-      daem.owners.outputIdentity.footprint, daem.owners.assurance.physicalPath
+      daem.owners.outputIdentity.footprint, daem.owners.assurance.physicalPath,
+      daem.owners.realization.documentObservation, daem.owners.realization.codecSnapshot
     exclude * -> * where kind is not domainRelation
   }
 
@@ -159,7 +178,7 @@ views 'Domain model' {
     include daem.owners.desired.agentConfig, daem.owners.topology.mcpProjection, daem.owners.realization.lockedSubject,
       daem.owners.realization.realizationForm, daem.owners.realization.aggregateContribution, daem.owners.realization.contributionSet,
       daem.owners.realization.projectionContract, daem.owners.realization.documentAddress,
-      daem.owners.effect.physicalPlacement, daem.owners.realization.documentObservation, daem.owners.realization.documentCandidate
+      daem.owners.effect.physicalPlacement, daem.owners.realization.codecSnapshot, daem.owners.realization.documentCandidate
     exclude * -> * where kind is not domainRelation
   }
 }
