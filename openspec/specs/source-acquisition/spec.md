@@ -52,7 +52,7 @@ Daem SHALL contact only the declared locator for network format observation. An 
 
 Local sources SHALL resolve by filesystem path. Project-relative paths resolve from the selected manifest's directory; global local sources require absolute paths. The mode describes the source, not permission to install a symlink. [Skills](../skills/spec.md), [instructions](../instructions/spec.md) and [hook assets](../hooks/spec.md) define which source forms they accept.
 
-Current local source support does not include a symlink as the selected artifact or inside it, including for `mode = "link"`. Ordinary lookup can resolve ancestor symlinks. This limitation is separate from the options for importing an existing host installation.
+Current source resolution refuses a symlink as the selected artifact or inside it, including for `mode = "link"`. Ordinary lookup can resolve ancestor symlinks. This limitation is separate from the options for importing an existing host installation.
 
 An S3 URI `s3://bucket/key` selects one object, not a prefix or bucket. Reject query strings, fragments, embedded credentials, empty keys and keys ending in `/`. The source can request `version_id` and override `region`; otherwise region and credentials come from the AWS SDK configuration. Formats are `file` (default), `tar`, and `tar.gz` (`tgz` is an alias). Do not mix values from different source kinds; unused empty fields that the decoder treats as absent do not select another kind.
 

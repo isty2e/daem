@@ -23,7 +23,7 @@ Daem SHALL write only the exact selected config contribution, preserving unrelat
 
 | Host | Selected configuration | Environment form |
 | --- | --- | --- |
-| Codex | Project `.codex/config.toml` or admitted user config, `mcp_servers.<name>` | No project env. Global same-name `env_vars`, sorted and deduplicated; the declared native string and supported `{ name, source = "local" }` forms import equivalently. |
+| Codex | Project `.codex/config.toml` or global `~/.codex/config.toml`, `mcp_servers.<name>` | No project env. Global same-name `env_vars`, sorted and deduplicated. A native string name, an object with `name`, and an object with `name` and `source = "local"` import equivalently. |
 | Claude Code | Project `.mcp.json` or global top-level `~/.claude.json` `mcpServers` | Aliases; global values must be exact `${SOURCE}`, not literals, default expansion or compound interpolation. |
 | OpenCode | Project or default user `opencode.json`, strict JSON `/mcp/<name>` with local type | No project env. Global `environment` values must be exact `{env:SOURCE}`, not shell, file or compound interpolation. |
 | Pi | Project `.pi/mcp.json` or user `mcp.json` at the Pi agent root | The recorded Native or Adapter codec and its aliases. |

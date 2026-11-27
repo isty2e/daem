@@ -8,9 +8,11 @@ Define command selection, interaction, output, and compatibility across daem CLI
 
 ### Requirement: Resolve the named command before selecting its output mode
 
-Daem SHALL support scoped help from the root, group, or leaf without selecting a workspace. Help is human output and takes precedence in its admitted forms. `--version` is an exact root alias with no additional arguments and no `-v` alias. Bare groups are not successful queries. Unknown routes do not gain JSON output, and `update` is not an alias for a host refresh.
+Daem SHALL support scoped help from the root, group, or leaf without selecting a workspace. Help is human output and takes precedence in its admitted forms. `--version` is an exact root alias with no additional arguments and no `-v` alias. A group with no selected leaf can show navigation help but does not perform an operation. There is no root `--json` prefix; an unknown or missing command route is a human usage error, not a leaf JSON result.
 
-Selectors use one value per token, not comma lists. Where a selector is repeatable, duplicates collapse after validation. Ordered MCP `--arg` values are data, not a selection set. Execution filters the effective declared targets; it does not add authorization or broaden the declaration. A `--` separator allows an admitted literal operand without treating it as an option.
+Selectors use one value per token, not comma lists. Repeated `--target`, `--scope`, and skill-group `--member` values collapse after validation. Ordered MCP `--arg` values are data, not a selection set. Execution filters the effective declared targets; it does not add authorization or broaden the declaration. A `--` separator allows an admitted literal operand without treating it as an option.
+
+The current CLI has no top-level `update`, `plan`, `diff`, `install`, `uninstall`, `prune`, `snapshot`, `restore`, or `run` command. The supported routes are lock/outdated for source comparison, refresh for one host carrier, apply preview for plans and diffs, manifest/add/remove plus apply for desired presence, and recover for interrupted work. Daem does not wrap the agent runtime.
 
 #### Scenario: Seek help without a workspace
 
@@ -19,9 +21,9 @@ Selectors use one value per token, not comma lists. Where a selector is repeatab
 
 ### Requirement: Require the mode appropriate to the effect
 
-Read-only query leaves SHALL reject effect flags they do not admit. Ordinary `init`, `import`, `add`, `remove`, `unmanage` and `lock` leaves default to writing, allow preview, and reject `--yes`. Host/runtime and migration effects use explicit preview, authorized terminal execution or admitted `--yes`. `import agent-config` and `replace agent-config` require the reviewed `--expect-plan` for noninteractive writes; `--yes` alone is not enough. Mode permission is specific to the selected leaf.
+The read-only `list`, `outdated`, `status`, `doctor`, and `version` commands SHALL reject `--dry-run` and `--yes`. Ordinary `init`, `import`, `add`, `remove`, `unmanage` and `lock` leaves default to writing, allow preview, and reject `--yes`. Host/runtime and migration effects use explicit preview, authorized terminal execution or admitted `--yes`. `import agent-config` and `replace agent-config` require the reviewed `--expect-plan` for noninteractive writes; `--yes` alone is not enough. Mode permission is specific to the selected leaf.
 
-For interactive authorization, stdin, stdout and stderr must all be terminals. Finish the disclosure to stdout before printing the prompt to stderr. Accept only `y` or `yes`; EOF, interruption and output failure cannot approve. JSON does not share an interactive prompt. Some no-effect plans skip prompting, but do not bypass command admission or authorize recovery work that was not disclosed.
+For interactive authorization, stdin, stdout and stderr must all be terminals. Finish the disclosure to stdout before printing the prompt to stderr. Accept `y` or `yes` after trimming whitespace and folding case; EOF, interruption and output failure cannot approve. JSON does not share an interactive prompt. An empty host/runtime plan or an already completed state migration can skip the prompt. Command admission still applies: even a bare completed migration repeat requires the three terminals, or an explicit noninteractive mode.
 
 #### Scenario: Redirect stdout on a bare effect command
 
@@ -41,7 +43,7 @@ The human presentation retains relevant blockers, effects, destructive implicati
 
 ### Requirement: Preserve argument identity without disclosing unsafe input
 
-Concrete next commands SHALL preserve the selected intent and reconstruct admitted POSIX argument vectors as single arguments, even for escaped controls. An unrepresentable or unsafe operand yields a template or instruction instead. Equivalent cwd selection can elide `--manifest`; explicit selection cannot be switched to implicit user fallback. Creation hints use creation selection. A reminder to rerun is not an exact replay of the entire command.
+Concrete next commands SHALL preserve the selected intent and reconstruct admitted POSIX argument vectors as single arguments, even for escaped controls. An unrepresentable or unsafe operand yields a template or instruction instead. Equivalent cwd selection can elide `--manifest`; explicit selection cannot be switched to implicit user fallback. Creation hints use creation selection. A reminder to rerun is not an exact replay of the entire command. Guidance is advice for the same directory, environment, and selection; it grants no execution authority, proof of prerequisites, or assurance that a retry is safe.
 
 Dynamic text cannot introduce structure or diagnostic lines. Escape backslashes, control and format characters, and invalid UTF-8. Each dynamic human error detail is limited to 4,096 characters plus the truncation indicator when needed; withhold whole details that cannot be safely inspected. Syntax locations and repair guidance have independent bounds. Omit raw subprocess/protocol output and protected values where required. Rejected S3 URI and MCP transport values are not repeated; S3 diagnostics omit underlying URL parser errors. Redaction covers explicitly supplied secrets and supported credential syntax, not arbitrary unknown values or encodings.
 
@@ -63,7 +65,7 @@ Native `key_path` arrays contain literal property names, unlike aggregate `conte
 
 ### Requirement: Decode a complete result by its independent family version
 
-JSON mode SHALL emit one ordinary result on stdout or the common pre-result error family when applicable. Check the exit code and read a complete result. Inspect `result_type: "cli_error"` first; otherwise use the selected command's result family and check `schema_version`. Versions are independent across families. An ordinary result can have valid nonzero status and need not identify itself with `result_type` or `command`.
+The complete JSON response SHALL be one document on stdout: the ordinary result or, for an applicable pre-result failure, `cli_error`. Read it with the exit code. Inspect `result_type: "cli_error"` first; otherwise use the selected command's result family and check `schema_version`. Versions are independent across families. An ordinary result can have valid nonzero status and need not identify itself with `result_type` or `command`.
 
 The current families correspond to their [version constants](../../../internal/contractversion/current.go) and [result presenters](../../../internal/cli/present):
 
@@ -89,9 +91,9 @@ Each binary emits one current version of a family. A consumer-visible field, typ
 
 ### Requirement: Keep known-leaf pre-result failures typed
 
-A known leaf with JSON selected SHALL use [the common failure envelope](../../../internal/cli/present/cli_error.go) before choosing an ordinary family. The full leaf name excludes operands; `error.kind` classifies usage (2) or operation (1); `message` is explanatory, not a stable code. Optional permission protection is observed only if that stage ran. `guidance` is a possibly empty array of notes, instructions and complete `daem` argv. When context is unsafe or unavailable, give manual guidance. A common failure says nothing about whether effects already happened.
+A known leaf with JSON selected SHALL use [the common failure envelope](../../../internal/cli/present/cli_error.go) before choosing an ordinary family. The full leaf name excludes operands; `error.kind` classifies usage (2) or operation (1). The command, not the parser or workflow stage where the error arose, owns that classification. `message` is explanatory, not a stable code. Optional permission protection is observed only if that stage ran. `guidance` is a possibly empty array of notes, instructions and complete `daem` argv subject to the guidance rules above. A common failure says nothing about whether effects already happened.
 
-Malformed arguments do not erase a later valid `--json`, but declared value slots remain data and an unconsumed `--` terminates recognition. For boolean flags, use the last valid binding; `version` uses its exact syntax. Neither unknown routes nor startup/signal failures are common CLI results. Once an ordinary family is selected, a failure or output fault does not swap it for `cli_error` or attempt to repair partial output.
+Malformed arguments do not erase a later valid `--json`, but declared value slots remain data and an unconsumed `--` terminates recognition. For boolean flags, use the last valid binding; `version` uses its exact syntax. Neither unknown routes nor startup/signal failures are common CLI results. After ordinary family selection, a projection, disclosure or delivery failure does not get a replacement `cli_error`. Projection can fail before any stdout bytes, including apply's pre-effect JSON check; stdout can be absent or partial and stderr can carry a diagnostic. Do not infer effects or lack of effects from the missing result.
 
 #### Scenario: The manifest operand resembles an output flag
 
@@ -100,7 +102,7 @@ Malformed arguments do not erase a later valid `--json`, but declared value slot
 
 ### Requirement: Preserve stream and process outcomes
 
-Daem SHALL keep stable ordinary results on stdout and human misuse/pre-result diagnostics on stderr with empty stdout; exit 2 denotes misuse, exit 1 operation failure or a failed check, and successful or warning-only results exit 0. A long-running human command can show one transient line on terminal stderr; JSON, help, misuse, non-terminal stderr, and confirmation do not use it. Clear the line before stable presentation; duplicate completions do not advance counts twice. Progress write failure disables progress, not the operation. Stable delivery failure returns a failure without replacing an already nonzero command status or dumping a writer's raw error. A declined confirmation leaves its disclosure intact and fails before authorization.
+Daem SHALL keep stable ordinary results on stdout and human misuse diagnostics on stderr with empty stdout. Human operation failures before a result also use stderr; an effect command can already have displayed a preview. Exit 2 denotes misuse, exit 1 operation failure or a failed check, and successful or warning-only results exit 0. A long-running human command can show one transient line on terminal stderr; JSON, help, misuse, non-terminal stderr, and confirmation do not use it. Clear the line before stable presentation; duplicate completions do not advance counts twice. Progress write failure disables progress, not the operation. Stable delivery failure returns a failure without replacing an already nonzero command status or dumping a writer's raw error. A declined confirmation leaves its disclosure intact and fails; refresh also reports its cancelled outcome without launching the host.
 
 The explicit `refresh extension --yes --json` exception writes complete authorization JSON to stderr before launching the host child and one final JSON result to stdout without repeated prose. First observed `SIGINT`, `SIGTERM` or `SIGHUP` supplies exit 130, 143 or 129 respectively and starts cancellation. Later signals preserve that identity while bounding emergency exit; context cancellation alone is not an OS signal.
 

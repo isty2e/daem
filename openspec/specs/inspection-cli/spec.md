@@ -24,7 +24,7 @@ Identify named resource and placement without inventing a primary target for sha
 #### Scenario: A readable schema 6 lock has no source change
 
 - **WHEN** `outdated --check` compares a valid old snapshot against the same exact facts
-- **THEN** the old readable wire version alone need not be an outdated source, and the command does not write the lock
+- **THEN** the old readable wire version alone is not an outdated source; with no exact identity change, the check exits 0 without writing the lock
 
 ### Requirement: Count declarations separately from outputs and paths
 
@@ -41,7 +41,7 @@ Identify named resource and placement without inventing a primary target for sha
 
 ### Requirement: Report status and check cleanliness independently
 
-A valid `status` report SHALL succeed even when its rows report blockers. `--check` succeeds only for a present lock, known-clear owner permission protection, no pending/blocked output, exact extension order and no blocked relation, adoption or extension-removal action. Merely selected missing relations and observe-only relations do not fail the check. Error-grade diagnostics contribute to `has_errors` but do not independently determine `check_clean`. Both status JSON forms carry `check_clean`; apply preview omits it because it has a different planning context.
+A valid `status` report SHALL succeed even when its rows report blockers. `--check` succeeds only for a present lock, known-clear owner permission protection, no pending/blocked output, exact extension order and no blocked relation, adoption or extension-removal action. Merely selected missing relations and observe-only relations do not fail the check. Error-grade diagnostics contribute to `has_errors` but do not independently determine `check_clean`. Human and JSON use the same check predicate. Both status JSON forms carry `check_clean`; apply preview omits it. A clean status is not runtime readiness, permission to apply or a prediction that a process will succeed.
 
 Status does not mutate managed settings or state. It can observe the bounded Pi Native version when required, without invoking package inventory queries, installation or servers. `host_prerequisite` names a separate dimension from Adapter `provider_prerequisite`; non-Native rows report the former as `not_applicable`. The [Native reason codes](../../../internal/assurance/observe/mcp/host_prerequisite.go) distinguish unqualified version, unobserved settings, disabled or unobserved builtin, and configured Adapter intent. A Native blocker is one binding's typed evidence, not a reason to drop other targets. Unsupported effective observation is distinct from a supported observer that could not observe; neither proves no shadow. Attempt history is not current relation or runtime proof. An observation, usage or delivery failure is not a valid assessment.
 
@@ -54,7 +54,7 @@ Status does not mutate managed settings or state. It can observe the bounded Pi 
 
 Status and apply presentations SHALL count managed paths once, including shared outputs, and count aggregate subjects independently even in one file. Output actions, routes, order, adoption, removal, and permission facts remain distinct. Human output groups by public resource/target/scope with stable tie ordering; arrays whose ordering expresses execution or precedence retain it. Routine current/no-op rows can be compacted, while blockers, uncertain attempts, changing terms and required work remain visible. Compact output does not omit detailed admitted facts from verbose or JSON.
 
-Owner `permission_protection` is independent of `--target`. An omitted field can mean clear or unchecked. Observed pending records, failed observation and unavailable platform support are different from no records. A pending owner record makes `--check` nonclean without proving that an unrelated change would be blocked. Same-name retained skill discovery warnings do not claim which copy the host loads or authorize its removal.
+Owner `permission_protection` is independent of `--target`. An omitted field can mean clear or unchecked. Observed pending records, failed observation and unavailable platform support are different from no records. A pending owner record makes `--check` nonclean without proving that an unrelated change would be blocked. Its `next_step` points to a recovery preview with the same manifest; it [does not authorize recovery](../cli-protocol/spec.md#requirement-preserve-argument-identity-without-disclosing-unsafe-input). Same-name retained skill discovery warnings do not claim which copy the host loads or authorize its removal.
 
 #### Scenario: Several settings share a physical document
 

@@ -24,7 +24,9 @@ Daem SHALL accept integer `version = 1` as the manifest schema, not a daem relea
 
 The manifest SHALL define a nonempty default target set. Target values are `codex`, `claude-code`, `opencode`, `pi` and `antigravity-cli`, with no duplicates within a declared set. A resource that accepts `targets` inherits it when omitted or empty; a nonempty resource set replaces it. Hook assets have no target field; selection comes from their consumers.
 
-The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest and lock can represent non-copy modes, and status can inspect them. If selected `apply` work would need to carry out a non-copy placement, daem refuses it before producing a dry-run plan or mutating the host.
+The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest and lock can represent non-copy modes, and status can inspect them. If selected `apply` work would need to carry out a non-copy placement, daem refuses to present it as an executable plan or mutate the host. A human dry-run can show a non-executable preview before returning failure; JSON reports the pre-result refusal.
+
+Non-copy apply support is deferred until placement, recovery-journal, and statefile semantics are supported together.
 
 #### Scenario: Select one target at execution
 

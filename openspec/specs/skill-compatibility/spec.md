@@ -17,7 +17,7 @@ A normal skill artifact SHALL be a directory with an exact uppercase `SKILL.md` 
 
 ### Requirement: Check selected target policy without turning warnings into refusals
 
-Daem SHALL use the selected [compatibility profiles](../../../internal/supply/compat/skill/profile.go) to check YAML frontmatter. `name` and `description` are strings when present; empty and null values count as missing. Codex, OpenCode, Pi and Antigravity CLI require both; Claude Code requires frontmatter but a missing description is a warning. Missing required fields and other selected-profile errors block a lock unless an admitted repair resolves them. They do not permit a partial authoring write or a host mutation. Unknown fields produce compatibility warnings for OpenCode and Antigravity CLI, not lock refusals.
+Daem SHALL use the selected [compatibility profiles](../../../internal/supply/compat/skill/profile.go) to check YAML frontmatter. `name` and `description` are strings when present; empty and null values count as missing. Codex, OpenCode, Pi and Antigravity CLI require both; Claude Code requires frontmatter but a missing description is a warning. Missing required fields and other selected-profile errors block a lock unless an admitted repair resolves them. They do not permit a partial authoring write or a host mutation. Fields not recognized by the selected profile produce compatibility warnings, not lock refusals.
 
 OpenCode requires the name to match the installed directory, match `^[a-z0-9]+(-[a-z0-9]+)*$`, and not exceed 64 characters; the description is limited to 1,024 characters. For Pi the name format and those lengths are warnings, not blockers. Pi does not require the name to match the installed directory.
 
