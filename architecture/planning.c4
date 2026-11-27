@@ -11,7 +11,7 @@ views {
     link ../internal/workflow/nativeconfig/assessment.go 'Shared assessment composition'
 
     daem.cli.run -> daem.commands.status 'Run selected inspection'
-    daem.commands.status -> daem.barrier 'Check applicable journal and file-set evidence'
+    daem.commands.status -> daem.barrier 'Require applicable journal and file-set barriers to be clear'
     daem.commands.status -> daem.io.declaration 'Load selected manifest and lock, if present'
     daem.commands.status -> daem.services.native 'Open command-local persistence epoch and assess selection'
     daem.services.native -> daem.services.readiness 'Pass current state, locked facts and qualified native inputs'
@@ -24,20 +24,27 @@ views {
   dynamic view authoringLock {
     title 'Prospective lock and declaration publication'
     description '''
-      A successful add or remove that changes the selected manifest. Lock and outdated share the generation service,
-      not this two-file publication. An authorized lock write resolves normally after any qualified completed-record cleanup.
+      An add or remove write may settle a matching interrupted declaration transaction under exact target leases. It
+      commits the edited manifest with the lock built under the write leases; an unchanged lock remains a retained target.
+      Lock and outdated share generation, not this publication. Preview neither settles transactions nor uses the persistent cache.
     '''
     link ../internal/workflow/authoring/mutation.go 'Prospective generation and write'
     link ../internal/workflow/lock/generate/generate.go 'Shared resolver, lock builder and encoder'
     link ../internal/declaration/transaction/transaction.go 'Manifest and default lockfile transaction'
 
-    daem.cli.run -> daem.commands.author 'Select the requested edit'
-    daem.commands.author -> daem.io.declaration 'Normalize and validate the prospective manifest'
+    daem.cli.run -> daem.commands.author 'Select a declaration write'
+    daem.commands.author -> daem.barrier 'Qualify the selected declaration file-set'
+    daem.commands.author -> daem.io.fileset 'If an exact published transaction blocks reading, settle it under its target leases'
+    daem.commands.author -> daem.io.declaration 'Read the manifest and build the prospective edit'
+    daem.commands.author -> daem.safety 'Compile authority for the selected control and consumed source paths'
+    daem.commands.author -> daem.io.leases 'Acquire the write and source domains'
+    daem.commands.author -> daem.io.fileset 'Settle any admitted interrupted write before reloading the candidate'
+    daem.commands.author -> daem.barrier 'Revalidate and supply a guard for any persistent cache write'
     daem.commands.author -> daem.services.generate 'Request the prospective locked snapshot'
     daem.services.generate -> daem.owners.realization 'Assemble the locked realization contracts'
     daem.owners.realization -> daem.io.source 'Resolve required artifacts through the supplied resolver'
     daem.services.generate -> daem.io.declaration 'Encode the validated lockfile'
-    daem.commands.author -> daem.barrier 'Confirm the selected file-set authority for publication'
+    daem.commands.author -> daem.barrier 'Bind StateDir and recheck revisions and file-set before commit'
     daem.commands.author -> daem.io.fileset 'Commit the selected manifest and default lockfile together'
     daem.io.fileset -> files.intent 'Publish under exact transaction evidence'
   }
@@ -58,25 +65,30 @@ views {
     daem.commands.adopt -> daem.cli.run 'Return plan and capture-specific approval identity'
     operator -> daem.cli.run 'Authorize that disclosed plan'
     daem.cli.run -> daem.commands.adopt 'Execute the exact approved capture'
+    daem.commands.adopt -> daem.io.leases 'Acquire the capture, source and native document domains'
     daem.commands.adopt -> daem.barrier 'Revalidate selected authority, including the file-set boundary'
-    daem.commands.adopt -> daem.io.fileset 'Publish admitted manifest and source targets, not host bytes'
+    daem.commands.adopt -> daem.services.native 'Reobserve the value and compare the approved plan under leases'
+    daem.commands.adopt -> daem.io.fileset 'Publish selected declaration and source targets; leave the host document unchanged'
   }
 
   dynamic view nativeReplacement {
     title 'Plan-bound replacement of selected native values'
     description '''
       Replace is not capture or an unrestricted overwrite. It builds a selected-key plan through Apply, checks the
-      caller’s approval token against that plan, and requalifies direct execution. Masked display is not the identity.
+      approval token against that plan, and reuses Apply’s lease, replan and journal path. Human confirmation binds
+      the plan just disclosed; non-interactive writes require `--yes --expect-plan` from the reviewed preview. Masked
+      display is not the identity.
     '''
     link ../internal/cli/replace.go 'Preview and exact approval token'
     link ../internal/workflow/apply/native_replacement.go 'Replacement planning and execution'
 
     daem.cli.run -> daem.commands.apply 'Build a replacement plan for the requested keys'
-    daem.commands.apply -> daem.services.native 'Qualify the owned document and selected keys'
+    daem.commands.apply -> daem.services.native 'Qualify document ownership and the selected keys'
     daem.commands.apply -> daem.cli.run 'Return the replacement view and its approval token'
     operator -> daem.cli.run 'Supply matching approval for the selected plan'
     daem.cli.run -> daem.commands.apply 'Execute only the matching plan'
-    daem.commands.apply -> daem.barrier 'Requalify selected mutation authority'
+    daem.commands.apply -> daem.io.leases 'Acquire the Apply domains for the selected write'
+    daem.commands.apply -> daem.barrier 'Replan and requalify selected mutation authority under the leases'
     daem.commands.apply -> daem.owners.effect 'Perform the journaled native transition'
   }
 }

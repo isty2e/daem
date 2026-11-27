@@ -4,7 +4,7 @@ views {
     description '''
       A single admitted Refresh route that requires native settings protection. Preparation checks already-applied values;
       it cannot apply pending settings or ownership changes. An invocation without that native protection requirement
-      uses its own direct subprocess path. A started failure may have host effects; Refresh does not retry or roll them back.
+      uses a direct subprocess path. A started failure may have host effects; Refresh does not retry or roll them back.
     '''
     link ../internal/workflow/refresh/plan.go 'Locked route and disclosure'
     link ../internal/workflow/refresh/execute.go 'Reservation, invocation and outcome'
@@ -17,15 +17,20 @@ views {
     daem.commands.refresh -> daem.cli.run 'Disclose the exact attempt'
     operator -> daem.cli.run 'Authorize this attempt'
     daem.cli.run -> daem.commands.refresh 'Consume the prepared refresh'
-    daem.commands.refresh -> daem.io.leases 'Acquire, reobserve and verify current plan evidence'
+    daem.commands.refresh -> daem.io.conversion 'Attempt eligible metadata conversion and replan if needed before acquiring refresh leases'
+    daem.commands.refresh -> daem.io.leases 'Acquire the selected domains'
+    daem.commands.refresh -> daem.io.observe 'Reobserve inputs and compare the current plan'
+    daem.commands.refresh -> daem.services.invocation 'Prepare protection for already-applied settings'
     daem.commands.refresh -> daem.barrier 'Reserve the refresh frontier and validate before launch'
-    daem.commands.refresh -> daem.services.invocation 'Use qualified already-applied settings'
+    daem.commands.refresh -> daem.services.invocation 'Consume the prepared native invocation'
     daem.services.invocation -> daem.services.protection 'Execute the prepared protected invocation'
     daem.services.protection -> files.registries 'Publish armed protection'
     daem.services.protection -> daem.io.subprocess 'Start one gated, timed attempt'
     daem.services.protection -> files.registries 'Record the child binding before releasing the invocation'
     daem.io.subprocess -> host 'Invoke the selected refresh route'
     daem.services.protection -> daem.io.storage 'Contain added access on qualified documents; retain tightening'
+    daem.services.protection -> files.registries 'Settle confirmed protection; retain unresolved records'
+    daem.services.invocation -> daem.io.observe 'Check resulting settings without repairing unexpected changes'
     daem.commands.refresh -> daem.io.observe 'Reobserve the selected relation if the route requires it'
     daem.commands.refresh -> files.state 'Retain bounded attempt facts when the persistence authority still holds'
   }
@@ -39,16 +44,20 @@ views {
     '''
     link ../internal/workflow/probe/command.go 'Exact locked request'
     link ../internal/workflow/probe/prepared.go 'Retained root, barrier and immutable execution request'
+    link ../internal/workflow/probe/workdir.go 'Binding to the selected project root'
 
     daem.cli.run -> daem.commands.probe 'Prepare one selected locked probe'
+    daem.commands.probe -> daem.barrier 'Capture the selected recovery and file-set authority'
     daem.commands.probe -> daem.io.declaration 'Load the selected exact locked launch'
-    daem.commands.probe -> daem.barrier 'Capture the selected recovery and file-set barrier'
+    daem.commands.probe -> daem.io.leases 'Retain the selected working-directory binding'
     daem.commands.probe -> daem.cli.run 'Disclose argv, environment names, timeout and effects'
     operator -> daem.cli.run 'Authorize that probe request'
     daem.cli.run -> daem.commands.probe 'Execute the retained request'
+    daem.commands.probe -> daem.io.leases 'Acquire the retained barrier domains'
     daem.commands.probe -> daem.barrier 'Revalidate the barrier for the retained root and request'
-    daem.commands.probe -> daem.io.subprocess 'Launch, attempt MCP initialize and clean up'
-    daem.io.subprocess -> server 'Run the exact locked stdio command'
+    daem.commands.probe -> daem.io.subprocess 'Execute the bounded probe with the retained root'
+    daem.io.subprocess -> server 'Start the exact locked stdio command and attempt MCP initialize'
+    daem.io.subprocess -> daem.commands.probe 'Return bounded process and protocol facts after cleanup'
     daem.commands.probe -> daem.cli.run 'Return bounded, dimensional probe facts'
   }
 }

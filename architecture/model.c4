@@ -75,6 +75,8 @@ model {
   daem = system 'daem' {
     description '''
       A local Go CLI. The boxes inside it show responsibilities, not separately deployed services or a package-per-box design.
+      Normalize flexible inputs at their boundary rather than carrying raw syntax, paths, subprocess output or presentation
+      objects through the core as generic data. The static Host-Surface and per-operation Safety compilers remain separate.
 
       Refinements preserve exact wire bytes and ordering, stable IDs, operation identities, authority and revision semantics,
       supported scopes, visible effect order, partial outcomes, and recovery. Private representations and layouts can change
@@ -121,7 +123,7 @@ model {
         link ../internal/workflow/adopt 'Adopt workflow and capture recovery'
       }
       init = component 'Init' {
-        description 'Creates the selected starter manifest, subject to its own file-set publication authority.'
+        description 'Publishes one starter manifest under file-set-only admission.'
         link ../internal/workflow/init 'Initialization'
       }
       lock = component 'Lock and outdated' {
@@ -144,8 +146,12 @@ model {
       apply = component 'Apply' {
         description '''
           Plans read-only and executes an authorized effect schedule. It retains distinct full, provider-stable and remaining
-          plan identities. Only the phase that observes a pending carrier completion can settle it. After a provider attempt,
-          Apply compares the final schedule in a fresh replan and again under the remaining leases.
+          plan identities. The provider phase owns its exact matching pending completion; core and final promotion settle only
+          the rest. Those phases use observed claims and relations, including no-op relation facts. A predicted completion does
+          not publish a claim or recreate an empty reservation.
+
+          Ordinary provider execution compares the final schedule in a fresh replan and again under the remaining leases.
+          The protected native continuation requalifies under its retained leases and checks the reserved final schedule there.
 
           Broader provider core rebinding is deferred. Revisit it only with a supported case that requires wider rebinding.
         '''
@@ -154,8 +160,9 @@ model {
         link ../internal/workflow/apply/effect_schedule_components.go 'Effect order'
       }
       refresh = component 'Refresh' {
-        description 'Qualifies one explicit locked route and an operation-specific frontier, then runs one authorized attempt with the applicable protection.'
+        description 'Qualifies one explicit locked route and an operation-specific frontier, then runs one authorized attempt with the applicable protection. Refresh refuses an overlapping pending Pi Git pin transition; Apply settles it.'
         link ../internal/workflow/refresh 'Refresh workflow'
+        link ../internal/workflow/refresh/pin_transition.go 'Pending pin exclusion'
       }
       probe = component 'Explicit MCP probe' {
         description 'Retains a disclosed request and separately proves launch authority. It does not persist runtime readiness or introduce a probe fingerprint.'
@@ -196,7 +203,7 @@ model {
         link ../internal/workflow/nativeconfig/invocation 'Native invocation service'
       }
       protection = component 'Protected invocation' {
-        description 'Prepares, arms and binds permission protection for a selected native call, then contains access on the selected documents.'
+        description 'Prepares, arms and binds protection for a selected native call, then contains access on the selected documents. A carrier route can publish correlation after arming and before launch; a protected MCP delegate does not publish carrier correlation.'
         link ../internal/workflow/protection/invocation 'Protected forward invocation'
       }
       permissionRecovery = component 'Permission recovery' {
@@ -255,10 +262,13 @@ model {
         Compiles deterministic, immutable views of owner-local support, placement, observation and route facts without host I/O.
         SurfaceKey separates target, scope, family and variant. SurfaceID is private linkage, not a public or durable identity.
 
-        The MCP compiler checks one primary realization per surface, its topology namespace when it creates a subject, required
-        placements and codecs, distinct observation purposes, and explicit actuator selection and variant defaults. MCP provider,
-        inventory, effective and runtime facts are separate views. The product catalog adds typed support and selected placement and
-        route views for instructions, skills, hooks, hook assets and extensions, including logical consumers sharing a physical path.
+        Compiled rows keep one identity per key and one primary realization per surface. Topology, placement and codec facts
+        belong only where the representation needs them; observations are distinguished by purpose, and each operation and dispatch
+        selects at most one actuator. Variant defaults and unsupported combinations are explicit rather than partial rows.
+
+        MCP provider, inventory, effective and runtime facts are separate views. The product catalog adds typed support and selected
+        placement and route views for instructions, skills, hooks, hook assets and extensions. Several logical instruction, skill
+        or hook-asset consumers can share a physical path without inheriting one another’s target support.
 
         Lookups return facts, not host adapters or probes. A missing runtime capability does not change product support. Catalog
         consumers coexist with owner-local policies; native configuration is not another compiled product surface.
@@ -273,9 +283,10 @@ model {
 
     safety = component 'Operation-Safety compiler' {
       description '''
-        Compiles normalized authority facts into logical, physical and route domain steps; operation-specific revision and identity
-        projections; and typed effect obligations with semantic demand for the migrated lifecycles. Workflows bind the actual
-        leases and revisions. Apply's private detail enters as opaque fragments. File-set-only commands consume narrower domain plans.
+        Accepts normalized authority inputs, decisions, qualified current and durable evidence, and an opaque barrier identity.
+        It owns fact validity, ordering and conflicts; domain steps and revision roles; exact identity projections; and typed effect
+        obligations with semantic demand for migrated lifecycles. Apply's private detail enters as opaque fragments. The compiler
+        serializes and hashes the enclosing fields. Workflows bind actual leases and revisions, including narrower file-set domains.
         Full, provider-stable and remaining Apply, Refresh, active Recovery and cleanup-only Recovery projections stay distinct.
         The compiler does not discover paths, acquire authority, choose an effect, access storage or execute a host.
 
@@ -294,11 +305,13 @@ model {
 
     barrier = component 'State Barrier' {
       description '''
-        Interprets independent journal and file-set axes and binds StateDir/RecoveryDir authority. It lowers semantic demand with
-        selected path shape and physical capabilities, and manages admission, consumption and revalidation across effects and persistence.
-        Apply retains structural checks and a conservative scalar reservation; Refresh binds its frontier. File-set-only operations and
-        RecoveryDir-only cleanup each have narrower admissions. Bounded demand belongs to the admitted operation, not a later
-        callback. Read-only observation grants no write authority, and planning does not create StateDir.
+        Interprets independent journal and file-set outcomes, retains StateDir and RecoveryDir identities, and witnesses the first
+        StateDir creation. It lowers bounded demand against selected path shape and platform capability. It owns shared or exclusive
+        admission, consumption, revalidation around effects and persistence, and barrier classification with cancellation precedence.
+
+        Apply retains both structural and scalar physical checks; Refresh couples its frontier to the retained StateDir. File-set-only
+        and RecoveryDir-only paths have narrower admissions. A replan or callback cannot add unreserved work. Read-only checks
+        keep command-local refusal semantics without granting write authority. Planning and no-effect execution do not create StateDir.
 
         Universal removal of scalar reservations and exact-frontier admission are deferred. Revisit with a reproduced reservation
         defect or measured avoidable refusals or maintenance cost, and a lifecycle-local cutover that actually retires the competing
@@ -345,7 +358,7 @@ model {
         link ../internal/effect/fileset 'File-set publication and settlement'
       }
       conversion = component 'Shared metadata format conversion' {
-        description 'Qualifies the selected conversion cohort against its separate global fence. Interrupted publication is settled under the original recorded selection.'
+        description 'Qualifies the selected conversion cohort under separate admission. Automatic conversion does not bypass the calling command’s recovery and mutation gates. Interrupted publication is settled under the original recorded selection.'
         link ../internal/effect/metadataconversion 'Located metadata conversion'
         link ../internal/effect/metadataconversion/recover.go 'Original selection and recovery'
       }

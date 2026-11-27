@@ -4,11 +4,13 @@ views {
     description '''
       An ordinary direct write with a current plan and no cleanup, metadata conversion or provider prerequisite.
       Preview stops at observation and disclosure. A no-effect plan does not create StateDir to represent a plan.
+      When an exact previously provisional output is qualified, its promotion updates the journal before the registry.
       Failure before commit may require compensation; a committed or uncertain result is not permission to replay the write.
     '''
     link ../internal/cli/apply.go 'Write planning, disclosure and authorization'
     link ../internal/workflow/apply/execute_command.go 'Execution replan and allocation'
     link ../internal/effect/execute/apply.go 'Ordinary journal and effect commit'
+    link ../internal/effect/execute/ordinary_claim_promotion.go 'Journal-first provisional claim promotion'
 
     daem.cli.run -> daem.commands.apply 'Prepare the selected write plan and retain root authority'
     daem.commands.apply -> daem.barrier 'Capture journal and file-set authority'
@@ -56,50 +58,56 @@ views {
   dynamic view providerPrerequisite {
     title 'Pi provider prerequisite and fresh continuation'
     description '''
-      Ordinary Apply when a Pi Adapter binding needs the selected provider installed. An incompatible or unobservable
-      present provider is not treated as absent. The two final-schedule comparisons bind remaining work to the original
-      reservation. Observed provider completion has one phase owner; planned completion is not published state.
+      Ordinary Apply installs a prerequisite Pi provider before core effects. An incompatible present or unobservable
+      provider is not treated as absent. Both final-schedule comparisons bind the remaining work to the original reservation;
+      a mismatch stops the continuation without undoing the completed attempt. When a protected native prefix precedes
+      the provider, the continuation keeps its leases and requalifies the state, claims and reserved remainder under them.
     '''
     link ../internal/workflow/apply/provider_phase.go 'Provider attempt, replan and under-lease comparison'
+    link ../internal/workflow/apply/execute_command.go 'Protected native provider continuation'
     link ../internal/workflow/apply/provider_order_authorization_test.go 'Provider replan behavior'
 
     daem.commands.apply -> daem.safety 'Retain provider-stable identity and prepared final schedule'
     daem.commands.apply -> daem.barrier 'Use the prior reservation for the provider phase'
     daem.commands.apply -> daem.io.subprocess 'Attempt the selected provider route'
     daem.io.subprocess -> host 'Install the qualified Pi provider'
-    daem.commands.apply -> daem.io.observe 'Collect current provider and management evidence'
-    daem.commands.apply -> daem.safety 'Compare permitted changes, remaining authority and final schedule'
-    daem.commands.apply -> daem.io.leases 'Acquire and verify the qualified remaining domains'
+    daem.commands.apply -> daem.io.leases 'Release pre-provider leases for the ordinary replan'
+    daem.commands.apply -> daem.services.native 'Replan without leases with fresh provider and barrier evidence'
+    daem.commands.apply -> daem.safety 'Match stable facts and the reserved schedule; reject expanded authority'
+    daem.commands.apply -> daem.io.leases 'Acquire qualified remaining domains'
+    daem.commands.apply -> daem.barrier 'Recheck the barrier and retained root before capturing revisions'
     daem.commands.apply -> daem.services.native 'Rebuild the remaining plan under the leases'
-    daem.commands.apply -> daem.safety 'Compare the final schedule again'
+    daem.commands.apply -> daem.safety 'Match the replanned authority and final schedule again'
     daem.commands.apply -> daem.owners.effect 'Continue with the matched remaining work only'
   }
 
   dynamic view sourceHandoff {
     title 'Carrier source handoff'
     description '''
-      One admitted final manifest changes the source of a managed carrier. Settle the whole affected old set first,
-      including a swap between declarations. This is not an atomic replacement: completed removals remain if conditional
-      acquisition fails. A qualifying managed Pi Git pin change instead uses its recorded in-place transition.
+      One final manifest changes the source of a managed carrier. A selected native settings prefix commits before this
+      phase. Settle the whole affected old set, including a swap between declarations, before qualifying the remainder.
+      Acquisition runs later, in the provider or final-route phase. This is not an atomic replacement: completed removals
+      remain on failure. A qualifying managed Pi Git pin change instead uses its recorded in-place transition.
     '''
     link ../internal/workflow/apply/carrier_handoff_phase.go 'Handoff prerequisite and remaining plan'
     link ../internal/workflow/apply/pin_transition_schedule.go 'Separate managed pin transition'
 
     daem.commands.apply -> daem.safety 'Admit retirement and conditional remaining work'
     daem.commands.apply -> daem.owners.effect 'Settle the selected old claims and required removals'
-    daem.commands.apply -> daem.io.observe 'Read fresh host and management evidence'
-    daem.commands.apply -> daem.safety 'Validate the remaining authorized work and schedule'
-    daem.commands.apply -> daem.io.subprocess 'Run qualified acquisition in its admitted later phase'
-    daem.io.subprocess -> host 'Install the selected replacement'
+    daem.commands.apply -> daem.services.native 'Replan under the held leases with fresh host and management evidence'
+    daem.commands.apply -> daem.safety 'Match the authorized remaining work and reserved schedule'
+    daem.commands.apply -> daem.barrier 'Require a fresh first-effect boundary check in the continuation'
   }
 
   dynamic view splitNativeApply {
     title 'Native settings, executable delegate and deferred order'
     description '''
       A split native plan with an already installed Pi package sequence sharing a settings layer with managed keys,
-      and a scheduled Claude Code project MCP delegate. It establishes the delegate's ordinary/MCP prerequisites first;
-      native retirement, ownership transitions and coupled Pi order are deferred. A declined new precedence risk does
-      not write the coupled change. It does not undo the already invoked delegate.
+      and a scheduled Claude Code project MCP delegate. Host routes and carrier work run here only when selected.
+      A handoff or provider prerequisite, when selected, runs after the native prefix and before this continuation.
+      The delegate's ordinary and MCP prerequisites settle before invocation; native retirement, ownership transitions and
+      coupled Pi order wait until afterward. A declined new precedence risk leaves the coupled change unwritten and does
+      not undo the already invoked delegate.
     '''
     link ../internal/workflow/apply/execute_command.go 'Native prefix and after-delegates replan'
     link ../internal/workflow/apply/native_invocation.go 'Prepared protection for the exact delegate'
@@ -107,7 +115,10 @@ views {
     link ../test/cli/lifecycle/nativeextension/settlement/native_order_delegate_test.go 'Delegate sees the pre-order settings'
 
     daem.commands.apply -> daem.owners.effect 'Settle selected native settings prefix'
-    daem.commands.apply -> daem.safety 'Requalify the matched pending work'
+    daem.commands.apply -> daem.services.native 'Replan and match the reserved remaining work under the held leases'
+    daem.commands.apply -> files.registries 'Retire selected global claims'
+    daem.commands.apply -> daem.owners.effect 'Settle selected carrier removals'
+    daem.commands.apply -> daem.io.subprocess 'Attempt admitted final host routes before the native suffix'
     daem.commands.apply -> daem.owners.effect 'Publish ordinary and MCP prerequisites for the delegate'
     daem.commands.apply -> daem.services.invocation 'Invoke the delegate through its prepared native route'
     daem.services.invocation -> daem.services.protection 'Use the containing plan’s authority for the selected documents'
@@ -116,5 +127,6 @@ views {
     daem.services.protection -> daem.io.storage 'Contain added access before returning the attempt'
     daem.commands.apply -> daem.io.observe 'Reassess settings, owned values and order after the attempt'
     daem.commands.apply -> daem.owners.effect 'Settle admitted deferred native work and coupled order'
+    daem.commands.apply -> files.registries 'Settle terminal global adoption last'
   }
 }

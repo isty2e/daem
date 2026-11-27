@@ -2,15 +2,19 @@ views {
   dynamic view activeRollback {
     title 'Active Apply journal rollback'
     description '''
-      A selected active journal whose guarded changes can be rolled back. A committed host and state instead let Recover
-      finalize prepared claims without replaying host writes. No current desired payload substitutes for a recorded backup.
+      An ordinary active Apply journal whose guarded changes can be rolled back. When host and state have committed,
+      Recover can instead finalize the prepared claims without replaying host writes. Native Apply has its own document
+      recovery path under active journal authority. Current desired content does not substitute for a recorded backup.
       A separate continuing file-set fence can remain; invalid file-set evidence or unprovable StateDir blocks active recovery.
     '''
     link ../internal/workflow/recover/recover.go 'Active classification and execution'
     link ../internal/workflow/recover/authority.go 'Active identities and domain projection'
+    link ../internal/effect/execute/recovery.go 'Ordinary effect and claim settlement'
+    link ../internal/effect/execute/nativeoperation/recovery.go 'Native Apply recovery variant'
     link ../internal/workflow/recover/execute_test.go 'Qualified rollback, stale rejection and retirement'
 
     daem.cli.run -> daem.commands.recover 'Prepare selected active recovery'
+    daem.commands.recover -> daem.barrier 'Require the shared metadata fence to be clear for selection'
     daem.commands.recover -> daem.io.journal 'Qualify active record, backups and current recoverable state'
     daem.commands.recover -> daem.barrier 'Check StateDir and the independent file-set fence'
     daem.commands.recover -> daem.safety 'Compile the active recovery identity and required domains'
@@ -18,23 +22,27 @@ views {
     operator -> daem.cli.run 'Confirm the current recoverable operation'
     daem.cli.run -> daem.commands.recover 'Execute the prepared active recovery'
     daem.commands.recover -> daem.io.leases 'Acquire the complete active lease set and revalidate the candidate'
-    daem.commands.recover -> daem.owners.effect 'Restore qualified before-state and settle ownership'
+    daem.commands.recover -> daem.owners.effect 'Execute qualified rollback'
+    daem.owners.effect -> files.state 'Bind and verify the recorded baseline against current State'
     daem.owners.effect -> daem.io.storage 'Verify before-images and restore only what the operation owns'
-    daem.owners.effect -> daem.io.journal 'Reconcile all removal intents before retirement'
+    daem.owners.effect -> files.registries 'Roll back applicable claim transitions'
+    daem.owners.effect -> daem.io.journal 'Requalify the resulting state and removal intents before retirement'
+    daem.commands.recover -> daem.io.journal 'Classify remaining journal authority alongside the separate file-set outcome'
   }
 
   dynamic view retiredCleanup {
     title 'Retained journal cleanup only'
     description '''
-      An already-retired journal has qualified correlated residue. This selection has its own identity, demand and
-      RecoveryDir authority, without inspecting host destinations, state or lock. Terminal garbage collection can fail
-      after semantic retirement; that does not recreate a recovery action.
+      An already-retired journal has qualified correlated residue. After the shared metadata check, cleanup has its own
+      identity, demand and RecoveryDir authority. It needs no host output observation, installed state, lock or StateDir
+      census. Failed garbage collection after semantic retirement does not recreate a recovery action.
     '''
     link ../internal/workflow/recover/selection.go 'Cleanup-only precedence'
     link ../internal/workflow/recover/recover.go 'Cleanup reservation and execution'
     link ../internal/effect/journal/retirement 'Retirement controls and residue'
 
     daem.cli.run -> daem.commands.recover 'Select recoverable work'
+    daem.commands.recover -> daem.barrier 'Check the shared metadata fence for recovery selection'
     daem.commands.recover -> daem.io.journal 'Qualify exact retired-journal control and residue'
     daem.commands.recover -> daem.safety 'Compile cleanup-only identity and domains'
     daem.commands.recover -> daem.cli.run 'Disclose cleanup-only action'
@@ -77,12 +85,20 @@ views {
       is settled, later declaration and lock edits remain intact. The recovery never rewrites host content.
     '''
     link ../internal/workflow/authoring/agent_config_release_execute.go 'Management-release journal creation'
+    link ../internal/workflow/recover/native_release.go 'Release-specific recovery identity and domains'
     link ../internal/effect/execute/nativeoperation/release.go 'Intent-matched file-set then ownership settlement'
     link ../internal/cli/unmanage_agent_config_recovery_test.go 'Public recovery path'
 
-    daem.commands.recover -> daem.io.journal 'Select the releasing owner’s exact journal and recorded control locations'
+    daem.cli.run -> daem.commands.recover 'Select active management-release recovery'
+    daem.commands.recover -> daem.io.journal 'Identify the releasing owner’s journal and recorded control locations'
+    daem.commands.recover -> daem.safety 'Bind the release-specific recovery identity and domain steps'
+    daem.commands.recover -> daem.cli.run 'Disclose the selected metadata release recovery'
+    operator -> daem.cli.run 'Authorize this recovery'
+    daem.cli.run -> daem.commands.recover 'Consume the prepared recovery'
     daem.commands.recover -> daem.io.leases 'Requalify active recovery under the selected authority'
+    daem.commands.recover -> daem.barrier 'Validate shared metadata and retained StateDir authority'
     daem.commands.recover -> daem.owners.effect 'Execute selected native management release recovery'
+    daem.owners.effect -> files.registries 'Refuse pending protection for the selected release'
     daem.owners.effect -> daem.io.fileset 'Settle only the journal’s manifest, default lock and State transaction'
     daem.owners.effect -> files.state 'Assess the current State after local settlement'
     daem.owners.effect -> files.registries 'Keep or finish releasing the old owner’s exact metadata'
@@ -105,27 +121,56 @@ views {
     operator -> daem.cli.run 'Authorize release of those rows'
     daem.cli.run -> daem.commands.recover 'Execute the approved release'
     daem.commands.recover -> daem.io.leases 'Acquire state and output registry authority'
-    daem.commands.recover -> files.registries 'After revalidation, publish removal of the exact selected rows'
+    daem.commands.recover -> daem.barrier 'Revalidate barriers and leased authority'
+    daem.commands.recover -> files.state 'Reconfirm the exact missing-state witness'
+    daem.commands.recover -> daem.io.storage 'Compare the settled rows again and publish the qualified registry write'
+    daem.io.storage -> files.registries 'Remove only the selected output claims and bindings'
   }
 
   dynamic view metadataRecovery {
     title 'Shared metadata conversion recovery'
     description '''
-      Recover a published conversion from its recorded original selection, even when another workspace sharing
-      the data directory invokes it. The separate default-user state relocation recovers its four-file transaction,
-      including the old-state receipt. Neither route replays installed host outputs.
+      Recover a published conversion from its recorded original selection, even when invoked from another workspace
+      sharing the data directory. With no active conversion, metadata recovery separately checks for eligible cleanup
+      or a no-op. It does not replay installed host outputs.
     '''
     link ../internal/effect/metadataconversion/recover.go 'Original selection and exact file-set recovery'
-    link ../internal/workflow/migrate/execute.go 'Separate user-state relocation'
+    link ../internal/workflow/migrate/metadata.go 'Active recovery versus cleanup selection'
 
     daem.cli.run -> daem.commands.migrate 'Select recovery of a published metadata conversion'
+    daem.commands.migrate -> daem.barrier 'Identify the active global metadata fence'
     daem.commands.migrate -> daem.io.conversion 'Qualify the recorded original selection and cohort'
     daem.io.conversion -> daem.io.fileset 'Inspect marker, retained intent and target evidence'
     daem.commands.migrate -> daem.cli.run 'Disclose the selected metadata-only action'
     operator -> daem.cli.run 'Authorize the selected migration recovery'
     daem.cli.run -> daem.commands.migrate 'Execute the selected recovery'
     daem.io.conversion -> daem.io.leases 'Acquire and revalidate the participating authority'
+    daem.io.conversion -> daem.io.fileset 'Recompute intent from retained before-images and match the prepared disposition'
+    daem.io.conversion -> daem.barrier 'Recheck the global metadata recovery authority before settlement'
     daem.io.conversion -> daem.io.fileset 'Restore or finalize the exact recorded transaction'
-    daem.io.fileset -> files.recovery 'Verify terminal files before retiring the active evidence'
+    daem.io.fileset -> daem.io.storage 'Confirm terminal State and registry images, restoring recorded before-images on rollback'
+    daem.io.fileset -> files.recovery 'Retire the exact active publication evidence'
+  }
+
+  dynamic view stateRelocation {
+    title 'Relocation of the legacy default-user state'
+    description '''
+      State migration transfers an installed baseline and shared claim authority, not installed host contents. The
+      interrupted variant inspects and settles the same target set instead of writing new state. It does not use the
+      shared metadata conversion’s cohort or recorded original selection.
+    '''
+    link ../internal/workflow/migrate/state.go 'Legacy and current authority selection'
+    link ../internal/workflow/migrate/execute.go 'Relocation publication or recovery'
+
+    daem.cli.run -> daem.commands.migrate 'Select legacy default-user state relocation'
+    daem.commands.migrate -> daem.barrier 'Qualify the source and target barriers'
+    daem.commands.migrate -> files.state 'Read the legacy baseline and prove the destination is unoccupied'
+    daem.commands.migrate -> files.registries 'Qualify the shared claim transfer'
+    daem.commands.migrate -> daem.cli.run 'Disclose the selected transfer'
+    operator -> daem.cli.run 'Authorize the migration'
+    daem.cli.run -> daem.commands.migrate 'Execute the selected transfer'
+    daem.commands.migrate -> daem.safety 'Compile relocation authority for the four targets'
+    daem.commands.migrate -> daem.io.leases 'Acquire both sides and revalidate the revisions'
+    daem.commands.migrate -> daem.io.fileset 'Publish the new state and both registries, with the old-state receipt as commit point'
   }
 }
