@@ -24,8 +24,8 @@ model {
     description 'Selects a workspace and command; authorizes effects when required.'
   }
 
-  sources = external 'Git repositories and S3 objects' {
-    description 'Upstream artifact sources. Local sources are read from the filesystem.'
+  sources = external 'Remote Git and S3 sources' {
+    description 'Upstream artifact sources. Local sources and the cache are part of the local filesystem.'
     link ../internal/supply/source/backend 'Source backends'
   }
 
@@ -80,8 +80,10 @@ model {
       supported scopes, visible effect order, partial outcomes, and recovery. Private representations and layouts can change
       without changing those contracts. Public or durable changes need a separate compatibility decision.
 
-      Keep an existing authority until its replacement has same-input parity and the last consumer has moved. Do not remove
-      a live compatibility path to finish a migration checklist. Revisit a specific cut with last-consumer or changed-dependency evidence.
+      Keep an existing authority until its replacement has same-input parity and the last consumer has moved. Removing remaining
+      migration code or renaming packages is deferred. Revisit a specific cut when last-consumer evidence supports deletion without
+      weakening a contract or a changed dependency graph justifies moving it. The maintainer owns these decisions and the deferred
+      decisions recorded under their respective components.
     '''
     link ../cmd/daem/main.go 'Executable entrypoint'
     link ../openspec/specs 'Product contracts'
@@ -90,6 +92,7 @@ model {
       run = component 'CLI composition' {
         description 'Selects the command and its platform admission, owns terminal interaction, and wires process output, progress and cancellation.'
         link ../internal/cli/run.go 'Dispatch and platform ingress'
+        link ../internal/workflow/platform/assess.go 'Command-level platform assessment'
         link ../cmd/daem/signals.go 'Process signal lifecycle'
         link ../internal/cli/progress.go 'Progress composition'
       }
@@ -105,7 +108,7 @@ model {
     }
 
     commands = area 'Command workflows' {
-      description 'Select context, evidence, sequencing and result. Shared services have scoped direct-import roles; peer commands are not workflow dependencies.'
+      description 'Select context, evidence, sequencing and result. Production imports between named workflow packages have scoped roles. Test dependencies and subpackages are separate.'
       link ../internal/workflow 'Command packages'
       link ../internal/archguard/workflow_imports.go 'Direct workflow import policy'
 
@@ -114,7 +117,7 @@ model {
         link ../internal/workflow/authoring 'Add, remove and unmanage'
       }
       adopt = component 'Import and capture' {
-        description 'Collects qualified host evidence and prepares declaration or native value capture. Capture identity is not an operation-plan fingerprint.'
+        description 'Collects qualified host evidence and prepares declaration or native value capture. The Adopt and native capture plans own their input identities and source evidence; Operation-Safety supplies domain and hashing primitives without defining those identities.'
         link ../internal/workflow/adopt 'Adopt workflow and capture recovery'
       }
       init = component 'Init' {
@@ -140,9 +143,9 @@ model {
       }
       apply = component 'Apply' {
         description '''
-          Plans read-only and executes an authorized effect schedule. It retains distinct full, provider-stable, and remaining
-          plan identities. Matching pending completions have one phase owner. Provider requalification compares both final
-          schedules rather than replacing a prepared core plan with unrelated new work.
+          Plans read-only and executes an authorized effect schedule. It retains distinct full, provider-stable and remaining
+          plan identities. Only the phase that observes a pending carrier completion can settle it. After a provider attempt,
+          Apply compares the final schedule in a fresh replan and again under the remaining leases.
 
           Broader provider core rebinding is deferred. Revisit it only with a supported case that requires wider rebinding.
         '''
@@ -162,6 +165,7 @@ model {
         description 'Selects active journal, retired cleanup, permission recovery or explicit missing-state release. One authority does not grant the others.'
         link ../internal/workflow/recover/selection.go 'Recovery selection'
         link ../internal/workflow/recover/recover.go 'Recovery execution'
+        link ../internal/workflow/recover/output_release.go 'Independent missing-state claim release'
       }
       migrate = component 'Migrate state or metadata' {
         description 'Transfers legacy user-state authority or converts located metadata through distinct transaction and recovery paths.'
@@ -188,7 +192,7 @@ model {
         link ../internal/workflow/workspacecleanup 'Selected cleanup'
       }
       invocation = component 'Native invocation preparation' {
-        description 'Qualifies selected settings and their relation to an admitted host route. It does not confer generic host writes.'
+        description 'Qualifies settings for selected host routes and supported Apply delegates. Protection borrows the containing operation’s authority; it does not confer generic host writes.'
         link ../internal/workflow/nativeconfig/invocation 'Native invocation service'
       }
       protection = component 'Protected invocation' {
@@ -218,6 +222,7 @@ model {
         link ../internal/supply/artifact 'Artifact identity'
         link ../internal/supply/compat/skill/repair 'Stored repair and replay'
         link ../internal/realization/lockfile/repair_conversion.go 'Locked repair encoding'
+        link ../openspec/specs/skill-compatibility/spec.md 'Generation, identity and replay contract'
       }
       realization = component 'Realization' {
         description 'Locked managed path projection, managed aggregate contribution, or delegated relation. Actuation is not a fourth realization form.'
@@ -232,7 +237,8 @@ model {
       reconcile = component 'Reconciliation' {
         description '''
           Makes pure decisions from locked contracts, current evidence, durable authority and explicit policy.
-          Broader blocked-delegate readiness or persistence is deferred; revisit on a supported failure that needs an authority decision.
+          New blocked-delegate readiness or persistence modes are deferred. An aggregate blocker is not proof that every blocked
+          input is unreachable. Revisit on a supported public execution failure requiring a maintainer decision on authority.
         '''
         link ../internal/reconcile 'Decision types and builders'
         link ../internal/reconcile/delegatepolicy 'Delegate readiness policy'
@@ -246,15 +252,19 @@ model {
 
     surface = component 'Host-Surface compiler' {
       description '''
-        Compiles immutable scoped views of owner-local support, placement, observation and route facts. SurfaceKey separates target,
-        scope, family and variant. SurfaceID is private linkage, not a replacement for any public or durable identity.
+        Compiles deterministic, immutable views of owner-local support, placement, observation and route facts without host I/O.
+        SurfaceKey separates target, scope, family and variant. SurfaceID is private linkage, not a public or durable identity.
 
-        The product catalog compiles MCP and the reviewed instruction, skill, hook, HookAsset and extension views. It checks the
-        relationships of these typed facts, including explicit defaults, distinct observation purposes, and shared physical placements.
-        A lookup is not a host adapter, an active probe or evidence that every consumer has left owner-local policy. Unsupported rows
-        and unavailable runtime capability are different. Owner-internal placement rules do not reverse-import the catalog.
+        The MCP compiler checks one primary realization per surface, its topology namespace when it creates a subject, required
+        placements and codecs, distinct observation purposes, and explicit actuator selection and variant defaults. MCP provider,
+        inventory, effective and runtime facts are separate views. The product catalog adds typed support and selected placement and
+        route views for instructions, skills, hooks, hook assets and extensions, including logical consumers sharing a physical path.
+
+        Lookups return facts, not host adapters or probes. A missing runtime capability does not change product support. Catalog
+        consumers coexist with owner-local policies; native configuration is not another compiled product surface.
       '''
       link ../internal/hostsurface/catalog/product.go 'Product catalog assembly'
+      link ../internal/hostsurface/key.go 'Logical surface identity'
       link ../internal/hostsurface/catalog/compile.go 'MCP compilation'
       link ../internal/hostsurface/catalog/managed_path.go 'Managed-path surfaces'
       link ../internal/hostsurface/catalog/hook.go 'Hooks and shared assets'
@@ -263,15 +273,19 @@ model {
 
     safety = component 'Operation-Safety compiler' {
       description '''
-        Compiles normalized authority facts into logical, physical and route domains; operation-specific revision and identity
-        projections; and typed effect obligations with semantic demand. Apply's private detail enters as opaque fragments.
+        Compiles normalized authority facts into logical, physical and route domain steps; operation-specific revision and identity
+        projections; and typed effect obligations with semantic demand for the migrated lifecycles. Workflows bind the actual
+        leases and revisions. Apply's private detail enters as opaque fragments. File-set-only commands consume narrower domain plans.
         Full, provider-stable and remaining Apply, Refresh, active Recovery and cleanup-only Recovery projections stay distinct.
         The compiler does not discover paths, acquire authority, choose an effect, access storage or execute a host.
 
-        Existing bounded segments cover core and failed settlement, carrier settlement/removal, final route prefix and recovery.
-        The final route prefix ends before the prepared host commands; provider prerequisites have a separate entrypoint.
-        A universal fine-grained cursor is deferred. Revisit on a reproduced supported-path defect or a bounded approved feature.
-        Existing bounds apply; revisit a universal structure cap only with evidence of excessive retention or new construction demand.
+        Sequences, alternatives and repetitions represent reserved branches without flattening visibility, observation, persistence,
+        compensation or cleanup. Existing bounded segments cover core and failed settlement, carrier settlement/removal, final route
+        prefix and recovery. The final route prefix ends before the prepared host commands; provider prerequisites remain separate.
+        A whole-operation cursor is deferred. Revisit on a reproduced ordering or authority defect on a supported path, or an
+        approved feature with a bounded design showing why a cursor is preferable to enforcement at the existing owner.
+        Existing document, action, repetition and demand limits apply. Revisit a universal structure cap only when a supported
+        workload shows excessive retention or a new operation materially changes construction bounds.
       '''
       link ../internal/operationplan 'Compiler and identity projections'
       link ../internal/workflow/apply/effect_schedule_components.go 'Apply stream of obligations'
@@ -282,18 +296,21 @@ model {
       description '''
         Interprets independent journal and file-set axes and binds StateDir/RecoveryDir authority. It lowers semantic demand with
         selected path shape and physical capabilities, and manages admission, consumption and revalidation across effects and persistence.
-        Apply retains structural checks and a conservative scalar reservation; Refresh binds its frontier. Cleanup-only recovery has
-        its own RecoveryDir reservation. Read-only observation is not an effect capability. Work that needs no effects does not create StateDir merely to plan.
+        Apply retains structural checks and a conservative scalar reservation; Refresh binds its frontier. File-set-only operations and
+        RecoveryDir-only cleanup each have narrower admissions. Bounded demand belongs to the admitted operation, not a later
+        callback. Read-only observation grants no write authority, and planning does not create StateDir.
 
-        Universal scalar retirement is deferred. Revisit with a reproduced reservation problem or measured avoidable cost and an
-        operation-local cutover that preserves effects and recovery. Existing physical limits and exclusion guarantees still apply.
+        Universal removal of scalar reservations and exact-frontier admission are deferred. Revisit with a reproduced reservation
+        defect or measured avoidable refusals or maintenance cost, and a lifecycle-local cutover that actually retires the competing
+        representation.
       '''
       link ../internal/recoverygate/authority.go 'Effect admission and StateDir creation'
+      link ../internal/recoverygate/state_dir_authority.go 'StateDir identity'
       link ../internal/recoverygate/model.go 'Independent outcome axes'
       link ../internal/recoverygate/reservation_domains.go 'Physical admission domains'
     }
 
-    io = area 'Boundary mechanisms' {
+    io = area 'Boundary services and adapters' {
       declaration = component 'Declaration and codecs' {
         description 'Reads and normalizes declarations. Concrete document and lock codecs remain at admitted composition boundaries.'
         link ../internal/declaration/manifest 'Manifest load and normalization'
@@ -324,9 +341,13 @@ model {
         link ../internal/effect/journal/retirement 'Retirement controls and residue'
       }
       fileset = component 'File-set transactions' {
-        description 'Publishes and settles exact metadata target sets; format conversion and state relocation use this mechanism under different authority.'
+        description 'Publishes and settles exact file sets. Declaration publication, format conversion and state relocation use it under different authority.'
         link ../internal/effect/fileset 'File-set publication and settlement'
+      }
+      conversion = component 'Shared metadata format conversion' {
+        description 'Qualifies the selected conversion cohort against its separate global fence. Interrupted publication is settled under the original recorded selection.'
         link ../internal/effect/metadataconversion 'Located metadata conversion'
+        link ../internal/effect/metadataconversion/recover.go 'Original selection and recovery'
       }
       storage = component 'Native storage publication' {
         description 'Implements rooted reads, writes, renames, supported metadata preservation and explicit uncertainty. It does not decide which document or claim can change.'
@@ -347,11 +368,12 @@ model {
           imply durable recovery authority.
 
           A blanket nonzero Darwin generation/birth-time check for mutation roots, durable provenance and StateDir remains deferred.
-          A zero tuple can retain useful authority checks without proving inode-reuse safety. Revisit on a reproduced unavailable or
-          missed incarnation or an explicit compatibility decision. Linux cross-boot active recovery is not supported.
+          A zero tuple can retain useful authority checks without proving inode-reuse safety. Revisit on a supported reproduction
+          of an unavailable incarnation or missed replacement, or an explicit decision to require a nonzero tuple. Artifact
+          admission is unchanged. Linux cross-boot active recovery is not supported.
         '''
-        link ../internal/platformsupport 'Platform admission'
-        link ../internal/recoverygate/state_dir_authority.go 'StateDir identity'
+        link ../internal/workflow/platform/assess.go 'Platform workflow used at ingress and by Doctor'
+        link ../internal/platformsupport 'Product admission rules'
         link ../.github/workflows/ci.yml 'Native capability and compile jobs'
       }
     }
@@ -363,8 +385,12 @@ model {
         Paths are module-relative, including nested internal directories. Removing a real blocking rule needs equivalent behavioral
         or graph-level coverage, with forbidden and legitimate-neighbor evidence.
 
-        A complete package classifier and rejection based solely on unclassified placement remain out of scope. Revisit with a concrete
-        uncovered forbidden dependency or an approved bounded design, not an exact file count or one universal resource/host abstraction.
+        A complete semantic classifier is deferred. Revisit on a concrete uncovered forbidden dependency or a separately approved
+        bounded replacement with forbidden and legitimate-neighbor evidence. Exact classification is not a substitute for that evidence.
+
+        Keep typed owners instead of a universal resource/profile/adapter or reflection and callback-based plan representation.
+        Do not persist a compiler representation or mint an unversioned identity. Cross-products of families, targets, operations
+        and phases do not determine the package layout, and package counts do not establish correctness.
       '''
       link ../internal/archguard 'Ownership, dependency and effect checks'
       link ../tools/test.sh 'Repository test lane'

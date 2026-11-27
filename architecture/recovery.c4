@@ -1,0 +1,131 @@
+views {
+  dynamic view activeRollback {
+    title 'Active Apply journal rollback'
+    description '''
+      A selected active journal whose guarded changes can be rolled back. A committed host and state instead let Recover
+      finalize prepared claims without replaying host writes. No current desired payload substitutes for a recorded backup.
+      A separate continuing file-set fence can remain; invalid file-set evidence or unprovable StateDir blocks active recovery.
+    '''
+    link ../internal/workflow/recover/recover.go 'Active classification and execution'
+    link ../internal/workflow/recover/authority.go 'Active identities and domain projection'
+    link ../internal/workflow/recover/execute_test.go 'Qualified rollback, stale rejection and retirement'
+
+    daem.cli.run -> daem.commands.recover 'Prepare selected active recovery'
+    daem.commands.recover -> daem.io.journal 'Qualify active record, backups and current recoverable state'
+    daem.commands.recover -> daem.barrier 'Check StateDir and the independent file-set fence'
+    daem.commands.recover -> daem.safety 'Compile the active recovery identity and required domains'
+    daem.commands.recover -> daem.cli.run 'Disclose the rollback action'
+    operator -> daem.cli.run 'Confirm the current recoverable operation'
+    daem.cli.run -> daem.commands.recover 'Execute the prepared active recovery'
+    daem.commands.recover -> daem.io.leases 'Acquire the complete active lease set and revalidate the candidate'
+    daem.commands.recover -> daem.owners.effect 'Restore qualified before-state and settle ownership'
+    daem.owners.effect -> daem.io.storage 'Verify before-images and restore only what the operation owns'
+    daem.owners.effect -> daem.io.journal 'Reconcile all removal intents before retirement'
+  }
+
+  dynamic view retiredCleanup {
+    title 'Retained journal cleanup only'
+    description '''
+      An already-retired journal has qualified correlated residue. This selection has its own identity, demand and
+      RecoveryDir authority, without inspecting host destinations, state or lock. Terminal garbage collection can fail
+      after semantic retirement; that does not recreate a recovery action.
+    '''
+    link ../internal/workflow/recover/selection.go 'Cleanup-only precedence'
+    link ../internal/workflow/recover/recover.go 'Cleanup reservation and execution'
+    link ../internal/effect/journal/retirement 'Retirement controls and residue'
+
+    daem.cli.run -> daem.commands.recover 'Select recoverable work'
+    daem.commands.recover -> daem.io.journal 'Qualify exact retired-journal control and residue'
+    daem.commands.recover -> daem.safety 'Compile cleanup-only identity and domains'
+    daem.commands.recover -> daem.cli.run 'Disclose cleanup-only action'
+    operator -> daem.cli.run 'Authorize the selected cleanup'
+    daem.cli.run -> daem.commands.recover 'Execute the prepared cleanup'
+    daem.commands.recover -> daem.io.leases 'Bind and revalidate RecoveryDir-only authority'
+    daem.commands.recover -> daem.io.journal 'Settle exact retirement evidence and collect qualified residue'
+  }
+
+  dynamic view permissionRecovery {
+    title 'Recovery of access after an interrupted invocation'
+    description '''
+      No active or retained-cleanup journal is selected; the file-set boundary is clear. The selected owner has an
+      outstanding protection record. A bound child must be quiescent. Safe peers can settle without clearing a blocked
+      peer. This route does not parse or restore document content, or re-run the child.
+    '''
+    link ../internal/workflow/recover/selection.go 'Fallback selection and overlap refusal'
+    link ../internal/workflow/protection/recovery/execute.go 'Selected recovery and validation'
+
+    daem.cli.run -> daem.commands.recover 'Select recoverable work'
+    daem.commands.recover -> daem.barrier 'Check journal and file-set evidence'
+    daem.commands.recover -> daem.services.permissionRecovery 'Prepare the selected owner’s retained protection'
+    daem.services.permissionRecovery -> files.registries 'Read exact armed or bound record'
+    daem.commands.recover -> daem.cli.run 'Disclose protection actions and blockers'
+    operator -> daem.cli.run 'Authorize the selected protection recovery'
+    daem.cli.run -> daem.commands.recover 'Execute qualified protection recovery'
+    daem.commands.recover -> daem.services.permissionRecovery 'Select eligible document authorities'
+    daem.services.permissionRecovery -> daem.io.leases 'Acquire the selected document and management authority'
+    daem.services.permissionRecovery -> daem.barrier 'Recheck barriers and the selected owner'
+    daem.services.permissionRecovery -> files.registries 'Verify current armed or bound records and quiescence'
+    daem.services.permissionRecovery -> daem.io.storage 'Restrict added access on qualified existing files'
+    daem.services.permissionRecovery -> files.registries 'Settle confirmed records and retain unresolved facts'
+  }
+
+  dynamic view nativeReleaseRecovery {
+    title 'Recovery of native configuration management release'
+    description '''
+      This journal is for an interrupted management release, not Apply or an unrelated declaration edit. Its own
+      transaction can settle before current State and ownership determine the remaining release. Once the file-set
+      is settled, later declaration and lock edits remain intact. The recovery never rewrites host content.
+    '''
+    link ../internal/workflow/authoring/agent_config_release_execute.go 'Management-release journal creation'
+    link ../internal/effect/execute/nativeoperation/release.go 'Intent-matched file-set then ownership settlement'
+    link ../internal/cli/unmanage_agent_config_recovery_test.go 'Public recovery path'
+
+    daem.commands.recover -> daem.io.journal 'Select the releasing owner’s exact journal and recorded control locations'
+    daem.commands.recover -> daem.io.leases 'Requalify active recovery under the selected authority'
+    daem.commands.recover -> daem.owners.effect 'Execute selected native management release recovery'
+    daem.owners.effect -> daem.io.fileset 'Settle only the journal’s manifest, default lock and State transaction'
+    daem.owners.effect -> files.state 'Assess the current State after local settlement'
+    daem.owners.effect -> files.registries 'Keep or finish releasing the old owner’s exact metadata'
+    daem.owners.effect -> daem.io.journal 'Retire settled release evidence'
+  }
+
+  dynamic view missingStateRelease {
+    title 'Explicit release of output claims when installed state is missing'
+    description '''
+      This opt-in recovery route does not restore a journal, repair a file, release a carrier claim, or clear permission
+      protection. It compares the exact missing-state proof and selected settled rows before publishing a registry change.
+    '''
+    link ../internal/workflow/recover/output_release.go 'Read, disclose and release the selected output rows'
+
+    daem.cli.run -> daem.commands.recover 'Select explicit output ownership release'
+    daem.commands.recover -> daem.barrier 'Validate selected recovery barriers'
+    daem.commands.recover -> files.state 'Prove the selected statefile is absent'
+    daem.commands.recover -> files.registries 'Qualify only settled output claims and bindings'
+    daem.commands.recover -> daem.cli.run 'Disclose the rows eligible for release'
+    operator -> daem.cli.run 'Authorize release of those rows'
+    daem.cli.run -> daem.commands.recover 'Execute the approved release'
+    daem.commands.recover -> daem.io.leases 'Acquire state and output registry authority'
+    daem.commands.recover -> files.registries 'After revalidation, publish removal of the exact selected rows'
+  }
+
+  dynamic view metadataRecovery {
+    title 'Shared metadata conversion recovery'
+    description '''
+      Recover a published conversion from its recorded original selection, even when another workspace sharing
+      the data directory invokes it. The separate default-user state relocation recovers its four-file transaction,
+      including the old-state receipt. Neither route replays installed host outputs.
+    '''
+    link ../internal/effect/metadataconversion/recover.go 'Original selection and exact file-set recovery'
+    link ../internal/workflow/migrate/execute.go 'Separate user-state relocation'
+
+    daem.cli.run -> daem.commands.migrate 'Select recovery of a published metadata conversion'
+    daem.commands.migrate -> daem.io.conversion 'Qualify the recorded original selection and cohort'
+    daem.io.conversion -> daem.io.fileset 'Inspect marker, retained intent and target evidence'
+    daem.commands.migrate -> daem.cli.run 'Disclose the selected metadata-only action'
+    operator -> daem.cli.run 'Authorize the selected migration recovery'
+    daem.cli.run -> daem.commands.migrate 'Execute the selected recovery'
+    daem.io.conversion -> daem.io.leases 'Acquire and revalidate the participating authority'
+    daem.io.conversion -> daem.io.fileset 'Restore or finalize the exact recorded transaction'
+    daem.io.fileset -> files.recovery 'Verify terminal files before retiring the active evidence'
+  }
+}

@@ -1,0 +1,54 @@
+views {
+  dynamic view protectedRefresh {
+    title 'Explicit refresh with protected native settings'
+    description '''
+      A single admitted Refresh route that requires native settings protection. Preparation checks already-applied values;
+      it cannot apply pending settings or ownership changes. An invocation without that native protection requirement
+      uses its own direct subprocess path. A started failure may have host effects; Refresh does not retry or roll them back.
+    '''
+    link ../internal/workflow/refresh/plan.go 'Locked route and disclosure'
+    link ../internal/workflow/refresh/execute.go 'Reservation, invocation and outcome'
+    link ../internal/workflow/protection/invocation/execute.go 'Arm, bind, run and contain'
+
+    daem.cli.run -> daem.commands.refresh 'Prepare one exact locked route and timeout'
+    daem.commands.refresh -> daem.barrier 'Capture the selected barriers and authority'
+    daem.commands.refresh -> daem.io.observe 'Check route prerequisites and any required current relation'
+    daem.commands.refresh -> daem.safety 'Bind the operation-specific disclosure and identity'
+    daem.commands.refresh -> daem.cli.run 'Disclose the exact attempt'
+    operator -> daem.cli.run 'Authorize this attempt'
+    daem.cli.run -> daem.commands.refresh 'Consume the prepared refresh'
+    daem.commands.refresh -> daem.io.leases 'Acquire, reobserve and verify current plan evidence'
+    daem.commands.refresh -> daem.barrier 'Reserve the refresh frontier and validate before launch'
+    daem.commands.refresh -> daem.services.invocation 'Use qualified already-applied settings'
+    daem.services.invocation -> daem.services.protection 'Execute the prepared protected invocation'
+    daem.services.protection -> files.registries 'Publish armed protection'
+    daem.services.protection -> daem.io.subprocess 'Start one gated, timed attempt'
+    daem.services.protection -> files.registries 'Record the child binding before releasing the invocation'
+    daem.io.subprocess -> host 'Invoke the selected refresh route'
+    daem.services.protection -> daem.io.storage 'Contain added access on qualified documents; retain tightening'
+    daem.commands.refresh -> daem.io.observe 'Reobserve the selected relation if the route requires it'
+    daem.commands.refresh -> files.state 'Retain bounded attempt facts when the persistence authority still holds'
+  }
+
+  dynamic view explicitProbe {
+    title 'Explicit locked MCP probe'
+    description '''
+      The selected Claude Code or OpenCode project stdio probe, not a delegate started by Apply. A confirmed interactive
+      probe keeps the disclosed request even if declaration bytes change; it still revalidates launch authority.
+      Probe facts do not change configuration, install management, or prove persistent readiness.
+    '''
+    link ../internal/workflow/probe/command.go 'Exact locked request'
+    link ../internal/workflow/probe/prepared.go 'Retained root, barrier and immutable execution request'
+
+    daem.cli.run -> daem.commands.probe 'Prepare one selected locked probe'
+    daem.commands.probe -> daem.io.declaration 'Load the selected exact locked launch'
+    daem.commands.probe -> daem.barrier 'Capture the selected recovery and file-set barrier'
+    daem.commands.probe -> daem.cli.run 'Disclose argv, environment names, timeout and effects'
+    operator -> daem.cli.run 'Authorize that probe request'
+    daem.cli.run -> daem.commands.probe 'Execute the retained request'
+    daem.commands.probe -> daem.barrier 'Revalidate the barrier for the retained root and request'
+    daem.commands.probe -> daem.io.subprocess 'Launch, attempt MCP initialize and clean up'
+    daem.io.subprocess -> server 'Run the exact locked stdio command'
+    daem.commands.probe -> daem.cli.run 'Return bounded, dimensional probe facts'
+  }
+}

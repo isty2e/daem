@@ -1,0 +1,82 @@
+views {
+  dynamic view sharedAssessment {
+    title 'Shared read-only assessment'
+    description '''
+      The Status path illustrates the shared Native configuration → Readiness assessment. Apply preview also uses it,
+      with its own selection and preview checks. Output inventory uses a different Readiness entry point; it does not call Status.
+      This assessment cannot authorize host writes. Native Pi qualification can make an isolated version observation.
+    '''
+    link ../internal/workflow/status/command.go 'Status inputs and assessment'
+    link ../internal/workflow/apply/command.go 'Apply preview'
+    link ../internal/workflow/nativeconfig/assessment.go 'Shared assessment composition'
+
+    daem.cli.run -> daem.commands.status 'Run selected inspection'
+    daem.commands.status -> daem.barrier 'Check applicable journal and file-set evidence'
+    daem.commands.status -> daem.io.declaration 'Load selected manifest and lock, if present'
+    daem.commands.status -> daem.services.native 'Open command-local persistence epoch and assess selection'
+    daem.services.native -> daem.services.readiness 'Pass current state, locked facts and qualified native inputs'
+    daem.services.readiness -> daem.io.observe 'Observe selected supply, outputs and relations'
+    daem.services.readiness -> daem.owners.reconcile 'Build decisions from locked and qualified current facts'
+    daem.commands.status -> daem.cli.run 'Return observations and convergence facts'
+    daem.cli.run -> daem.cli.present 'Render the returned status facts'
+  }
+
+  dynamic view authoringLock {
+    title 'Prospective lock and declaration publication'
+    description '''
+      A successful add or remove that changes the selected manifest. Lock and outdated share the generation service,
+      not this two-file publication. An authorized lock write resolves normally after any qualified completed-record cleanup.
+    '''
+    link ../internal/workflow/authoring/mutation.go 'Prospective generation and write'
+    link ../internal/workflow/lock/generate/generate.go 'Shared resolver, lock builder and encoder'
+    link ../internal/declaration/transaction/transaction.go 'Manifest and default lockfile transaction'
+
+    daem.cli.run -> daem.commands.author 'Select the requested edit'
+    daem.commands.author -> daem.io.declaration 'Normalize and validate the prospective manifest'
+    daem.commands.author -> daem.services.generate 'Request the prospective locked snapshot'
+    daem.services.generate -> daem.owners.realization 'Assemble the locked realization contracts'
+    daem.owners.realization -> daem.io.source 'Resolve required artifacts through the supplied resolver'
+    daem.services.generate -> daem.io.declaration 'Encode the validated lockfile'
+    daem.commands.author -> daem.barrier 'Confirm the selected file-set authority for publication'
+    daem.commands.author -> daem.io.fileset 'Commit the selected manifest and default lockfile together'
+    daem.io.fileset -> files.intent 'Publish under exact transaction evidence'
+  }
+
+  dynamic view nativeCapture {
+    title 'Plan-bound capture of native values'
+    description '''
+      Native config capture records selected values in a declaration source, not in the host document. Its confirmation
+      identity belongs to the capture plan. An interrupted capture can instead disclose a new, separately approved
+      recovery plan for its recorded file-set; that approval does not capture new values.
+    '''
+    link ../internal/workflow/adopt/agent_config_disclosure.go 'Capture approval identity'
+    link ../internal/workflow/adopt/agent_config_execute.go 'Capture publication'
+    link ../internal/workflow/adopt/agent_config_recovery.go 'File-set recovery approval and execution'
+
+    daem.cli.run -> daem.commands.adopt 'Select native capture and qualify its source destination'
+    daem.commands.adopt -> daem.services.native 'Read selected native values and ownership context'
+    daem.commands.adopt -> daem.cli.run 'Return plan and capture-specific approval identity'
+    operator -> daem.cli.run 'Authorize that disclosed plan'
+    daem.cli.run -> daem.commands.adopt 'Execute the exact approved capture'
+    daem.commands.adopt -> daem.barrier 'Revalidate selected authority, including the file-set boundary'
+    daem.commands.adopt -> daem.io.fileset 'Publish admitted manifest and source targets, not host bytes'
+  }
+
+  dynamic view nativeReplacement {
+    title 'Plan-bound replacement of selected native values'
+    description '''
+      Replace is not capture or an unrestricted overwrite. It builds a selected-key plan through Apply, checks the
+      caller’s approval token against that plan, and requalifies direct execution. Masked display is not the identity.
+    '''
+    link ../internal/cli/replace.go 'Preview and exact approval token'
+    link ../internal/workflow/apply/native_replacement.go 'Replacement planning and execution'
+
+    daem.cli.run -> daem.commands.apply 'Build a replacement plan for the requested keys'
+    daem.commands.apply -> daem.services.native 'Qualify the owned document and selected keys'
+    daem.commands.apply -> daem.cli.run 'Return the replacement view and its approval token'
+    operator -> daem.cli.run 'Supply matching approval for the selected plan'
+    daem.cli.run -> daem.commands.apply 'Execute only the matching plan'
+    daem.commands.apply -> daem.barrier 'Requalify selected mutation authority'
+    daem.commands.apply -> daem.owners.effect 'Perform the journaled native transition'
+  }
+}
