@@ -10,7 +10,7 @@ Declare and reconcile an admitted stdio server binding. This is not a package in
 
 A declaration SHALL identify one server, one effective target and an admitted scope, using `transport = "stdio"`. Mutation of global MCP config requires `scope = "global"` on that declaration, not inherited global defaults. Scope and target determine the supported [MCP placement and codec](../../../internal/realization/aggregate/codec/mcp). Remote, bundled, HTTP/OAuth and arbitrary custom file authority do not follow from declaring a server.
 
-A [portable command](../../../internal/declaration/mcp_command.go) is one executable token; an explicit absolute-path object preserves a canonical literal `argv[0]` without shell interpretation or symlink resolution at lock. Args preserve order and duplicates. The add helper admits the portable form only; exact path declarations and supported import can use the object. Neither form provisions or claims the executable.
+A [portable command](../../../internal/declaration/mcp_command.go) is one executable token. The exact object form is `command = { path = "/absolute/path" }`; it preserves a lexically canonical native `argv[0]` without shell interpretation or symlink resolution at lock. Relative paths, traversal, surrounding whitespace, control or bidi formatting characters, `local_parameter`, extra keys and a redundant `portable` flag are not part of this form. Args preserve order and duplicates. The add helper admits the portable form only; declarations and supported import can use the object. Neither provisions or claims the executable.
 
 #### Scenario: Inherit a global default
 
@@ -19,7 +19,17 @@ A [portable command](../../../internal/declaration/mcp_command.go) is one execut
 
 ### Requirement: Preserve the selected host binding and environment grammar
 
-Daem SHALL write only the exact selected config contribution, preserving unrelated content. The codec owns the accepted shapes. Codex project uses command and args; Codex global admits same-name `env_vars` with canonical sorted names. Claude Code project and global admit aliases, with exact `${SOURCE}` in the global file. OpenCode project admits no env; global strict JSON uses exact `{env:SOURCE}` aliases. Antigravity CLI admits global same-name ambient requirements, records those names only, and writes no native `env`. Pi uses its recorded backend's accepted aliases and file shapes.
+Daem SHALL write only the exact selected config contribution, preserving unrelated content. Manifest aliases use `{ from_env = "SOURCE" }`, not literal values. The codec implements the following shape contracts:
+
+| Host | Selected configuration | Environment form |
+| --- | --- | --- |
+| Codex | Project `.codex/config.toml` or admitted user config, `mcp_servers.<name>` | No project env. Global same-name `env_vars`, sorted and deduplicated; the declared native string and supported `{ name, source = "local" }` forms import equivalently. |
+| Claude Code | Project `.mcp.json` or global top-level `~/.claude.json` `mcpServers` | Aliases; global values must be exact `${SOURCE}`, not literals, default expansion or compound interpolation. |
+| OpenCode | Project or default user `opencode.json`, strict JSON `/mcp/<name>` with local type | No project env. Global `environment` values must be exact `{env:SOURCE}`, not shell, file or compound interpolation. |
+| Pi | Project `.pi/mcp.json` or user `mcp.json` at the Pi agent root | The recorded Native or Adapter codec and its aliases. |
+| Antigravity CLI | Global `~/.gemini/config/mcp_config.json` only | Same-name ambient names recorded in the lock. No native `env`, including interpolated forms, and no aliases. |
+
+Known or unowned sibling auth/session/trust fields are not owned by naming a server. In a managed entry the host-specific accepted shapes do not admit arbitrary remote URLs, OAuth, headers, `cwd`, timeout, enablement, or tool-policy keys. Pi's supported enablement/default fields are defined separately.
 
 Unrelated settings and same-name definitions outside the selected authority are not managed by matching a name. Codex TOML preserves unmanaged values and comments, including comments within a removed entry; a comments-only file can remain after the last server is removed. JSON-family edits use the shared [document rules](../agent-configuration/spec.md#requirement-limit-structured-editing-to-the-selected-values).
 
@@ -52,7 +62,7 @@ Environment values are runtime-only, not lock, state, recovery, rendered config,
 
 ### Requirement: Distinguish direct package evidence from reproducibility
 
-For recognized launch argv, daem SHALL classify direct package inputs through the supported ecosystem grammar: complete npm SemVer, validated exact PEP 440 versions, or canonical container SHA-256 digests can establish a pin. Tags and ranges do not. The lock records only what can be derived; opaque or external requirements may leave a partial set and cannot establish pinned assurance. All modeled auxiliary package inputs count. Unknown or floating inputs do not rewrite or refuse otherwise valid argv. A recognized option missing its required argument is malformed, not an opaque selector.
+For recognized launch argv, daem SHALL classify direct package inputs through the supported ecosystem grammar: complete npm SemVer, validated exact PEP 440 versions, or canonical lower-case `sha256:` with 64 hex digits can establish a pin. Tags, partial versions, ranges, arbitrary equality and wildcards are not exact pins. Lock and JSON plan preserve only derivable inputs; `add mcp-server` warns on floating resolution. All modeled auxiliary inputs count, including repeated npm `--package` and uvx `--with`. Opaque syntax, requirements files, unrepresentable uvx extras and direct URLs do not establish pinned assurance. They neither rewrite nor refuse otherwise valid argv. An option that needs a separate value rejects absence, an empty argument or `--` as that value.
 
 Pin evidence is about the direct input only, not transitives, installed versions, package/cache ownership or runtime readiness. This classification does not install or probe packages. Explicit runtime probing is admitted for the cataloged locked project routes (Claude Code and OpenCode); config support alone does not add a probe route or persistence effects.
 

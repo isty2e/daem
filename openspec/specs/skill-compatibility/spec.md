@@ -8,7 +8,7 @@ Keep target-specific loader compatibility separate from the validity of a skill 
 
 ### Requirement: Check the artifact before interpreting its metadata
 
-A normal skill artifact SHALL be a directory with an exact uppercase `SKILL.md` that is a regular, non-symlink file. The [compatibility loader](../../../internal/supply/compat/skill) owns the frontmatter grammar and raw document budget. The budget applies before newline, BOM or YAML processing and applies to casing candidates and repaired bytes as well. It is not a limit on every file in the artifact. Oversized input produces `skill-document-too-large`, not truncated metadata or a partial repair.
+A normal skill artifact SHALL be a directory with an exact uppercase `SKILL.md` that is a regular, non-symlink file. The [compatibility loader](../../../internal/supply/compat/skill) accepts up to 1 MiB before newline, BOM or YAML processing. The limit also applies to casing candidates and repaired bytes, not to every file in the artifact. Oversized input produces `skill-document-too-large`, not truncated metadata or a partial repair.
 
 #### Scenario: A lower-case document exceeds the raw budget
 

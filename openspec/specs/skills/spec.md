@@ -8,9 +8,9 @@ Define directory-skill declarations, placement selection and the membership of a
 
 ### Requirement: Distinguish a skill's identity from its installed name
 
-A skill SHALL have a `name` that is one safe directory component. An optional `id` is a safe resource identifier; otherwise `name` is the ID. IDs must be unique across normalized skills, including group children. Equal install names are allowed when IDs and target/scope destinations do not conflict. The [skill model](../../../internal/desired/skill) owns the exact name and ID grammar.
+A skill SHALL have a `name` that is one safe directory component: not empty, `.`, `..`, `~`-prefixed, or containing `/` or `\`. An optional `id` is a safe resource identifier; otherwise `name` is the ID. IDs must be unique across normalized skills, including group children. Equal install names are allowed when IDs and target/scope destinations do not conflict. The [skill model](../../../internal/desired/skill) enforces the identifier grammar.
 
-Each skill requires a structured local, Git, or S3 archive source. A Git root is a valid source if the root itself is the skill artifact; all of that root, not just its document, is locked. `portable` defaults to true; project-scoped local link sources require an explicit false. `compat_repair` defaults to false.
+Each skill requires a structured local, Git, or S3 archive source (`tar` or `tar.gz`, not an S3 regular-file object). A Git root is a valid source if the root itself is the skill artifact; all of that root, not just its document, is locked. `portable` defaults to true; project-scoped local link sources require an explicit false. `compat_repair` defaults to false.
 
 #### Scenario: The same name is used by separate targets
 
@@ -37,7 +37,7 @@ A group SHALL use a Git or local directory root and exactly one of nonempty `nam
 
 ### Requirement: Resolve selector-backed membership at lock comparison
 
-`lock` and `outdated` SHALL list direct child directories of the selected roots and apply the [selector grammar](../../../internal/desired/skill/selector.go). `glob:` uses Go's `path.Match`; `regex:` uses Go regular expressions. Selectors address names, not paths; `name:` and `[[skill_set]]` are not alternate public forms. During lock generation, every include must match and the final set after exclusion must be nonempty; excludes may match nothing. Each selected child is validated as a skill. Results are deterministic by resource name and source identity.
+`lock` and `outdated` SHALL list direct child directories of the selected roots and apply the [selector grammar](../../../internal/desired/skill/selector.go). `glob:` uses Go's `path.Match` including character classes and brackets for literal metacharacters; `/` and `\` are not admitted in glob patterns. `regex:` uses Go regular expressions, with anchoring available for full-name matches. Selectors address names, not paths; `name:` and `[[skill_set]]` are not alternate public forms. During lock generation, every include must match and the final set after exclusion must be nonempty; excludes may match nothing. Each selected child is validated as a skill. Results are deterministic by resource name and source identity.
 
 Each child's locked provenance is correlated with the group declaration, not its array position. `apply` and `status` use that recorded membership and require the declaration identity to still match. They do not relist roots for new children. Changing a selector that owns locked membership can make the lock stale; normal removal follows relocking and state-owned reconciliation. `doctor` shares one local listing view for its checks and does not expand remote groups.
 
@@ -48,7 +48,19 @@ Each child's locked provenance is correlated with the group declaration, not its
 
 ### Requirement: Bound group expansion without accepting a partial selection
 
-Daem SHALL enforce the [listing](../../../internal/supply/source/root_listing_budget.go) and [expansion](../../../internal/desired/skill/expansion_budget.go) budgets across one phase, not separately for each group. Canonical roots count once; all declarations and observed direct entries count, including files and links that cannot be selected. Include/exclude work and selected children are charged before exceeding their limits; exclusion does not refund an earlier selection. Matching observes cancellation. Exceeding a bound fails the lock rather than publishing partial membership. A local doctor overflow reports the omitted selector-expanded checks and can still check direct skills.
+Daem SHALL enforce the [listing](../../../internal/supply/source/root_listing_budget.go) and [expansion](../../../internal/desired/skill/expansion_budget.go) budgets for one complete phase across Git and local groups. Canonical roots count once; all declarations and observed direct entries count, including files and links that cannot be selected. An earlier selection is not refunded by later exclusion. Matching observes cancellation. The bounds are policy, not manifest fields:
+
+| Resource | Limit |
+| --- | ---: |
+| Group declarations and distinct listed roots, separately | 1,024 each |
+| Direct entries | 100,000 |
+| Direct-entry names in aggregate; one name | 32 MiB; 4 KiB |
+| Selectors; pattern data per group | 128; 64 KiB |
+| Match evaluations | 1,000,000 |
+| Matcher work, `pattern bytes × (name bytes + 1)` per evaluation | 134,217,728 units |
+| Newly selected skills | 4,096 |
+
+Exact limits pass. Exceeding a bound fails the lock without a partial selection. A local doctor overflow reports the omitted selector-expanded checks and can still check direct skills.
 
 #### Scenario: Two individually small groups exceed their combined budget
 
