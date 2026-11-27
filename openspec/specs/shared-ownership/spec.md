@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define authority to manage an output when manifests share a physical destination or data namespace. [Output ownership](../../../internal/output/ownership) and [carrier claims](../../../internal/effect/storage/carrierclaim) implement separate registries. [Managed output](../managed-output/spec.md) owns the content comparison; [host integration](../../../docs/host-integrations.md) describes relation settlement.
+Define authority to manage an output when manifests share a physical destination or data namespace. [Output ownership](../../../internal/output/ownership) and [carrier claims](../../../internal/effect/storage/carrierclaim) implement separate registries. [Managed output](../managed-output/spec.md) owns the content comparison; [carrier lifecycle](../carrier-lifecycle/spec.md) describes relation settlement.
 
 ## Requirements
 

@@ -41,7 +41,7 @@ Pi local identities are normalized lexically in the selected context (project-re
 
 Manual and CLI-authored declarations SHALL use the same locked relation and route facts. `add extension` interprets one opaque source operand using the selected row, and may omit the target only if the selection is unambiguous. `remove extension` selects the declaration ID; an optional target or scope is a safety filter rather than an add default. These commands update declaration and lock, not a running host. Removing a declaration expresses desired absence. `unmanage` instead drops selected management while retaining host state.
 
-Import can declare exact supported Codex, Claude Code, OpenCode and Pi source rows, preserving their source spelling and relative order without installing, locking or adopting. Antigravity CLI evidence without exact source yields a provenance skip. Provider-owned hooks, skills, MCP and other contributions do not become standalone declarations. [Carrier lifecycle](../../../docs/host-integrations.md) owns the exact evidence and authority for adoption, invocation, removal, refresh and deferred operations.
+Import can declare exact supported Codex, Claude Code, OpenCode and Pi source rows, preserving their source spelling and relative order without installing, locking or adopting. Antigravity CLI evidence without exact source yields a provenance skip. Provider-owned hooks, skills, MCP and other contributions do not become standalone declarations. [Carrier lifecycle](../carrier-lifecycle/spec.md) owns the evidence and authority for adoption, invocation, removal and refresh.
 
 #### Scenario: Host inventory shows a plugin without its source
 

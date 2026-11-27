@@ -30,7 +30,7 @@ Platform-gated commands refuse before workspace lookup, resolution, confirmation
 
 On admitted Unix targets, an artifact view SHALL retain stable root/ancestor identity through reads, listings, hashing and copying. Use the required object incarnation and mount evidence for the platform. Darwin artifact reads require birth time or generation; Linux uses a mount ID and birth time or an opaque file handle. Missing the required evidence is not permission to infer identity from inode or path alone. Process-local read evidence does not confer mutation or durable recovery authority.
 
-An absolute root uses native name lookup and may resolve a case variant on a case-insensitive filesystem. Nested paths require exact stored spelling and unchanged identity. Ordinary locator traversal may resolve parent symlinks; no-follow views reject symlink components. This is the artifact boundary, not a blanket Darwin mutation-root rule. Journal continuity and filesystem mutation constraints are described in [Platform Support](../../../docs/platforms.md).
+An absolute root uses native name lookup and may resolve a case variant on a case-insensitive filesystem. Nested paths require exact stored spelling and unchanged identity. Ordinary locator traversal may resolve parent symlinks; no-follow views reject symlink components. This is the artifact boundary, not a blanket Darwin mutation-root rule. [Host filesystem mutation](../host-mutation/spec.md) defines journal continuity and filesystem write constraints.
 
 #### Scenario: A nested name differs only in case
 

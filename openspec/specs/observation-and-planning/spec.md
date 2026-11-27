@@ -19,7 +19,7 @@ Queries collect the evidence for their purpose. `list resources` can work from d
 
 ### Requirement: Keep passive checks separate from explicitly authorized runtime work
 
-Doctor SHALL make passive prerequisite checks rather than invoke host CLIs, servers, package managers, credential helpers or network probes. Bounded disposable checks in selected storage paths may exercise admission and publication; they do not inspect or reconcile managed content by performing a host mutation. For Native Pi MCP, status and apply planning can instead run the isolated, bounded version observation and read modeled settings and source metadata. They do not query package-manager installation locations or start a server to fill missing evidence.
+Doctor SHALL make passive prerequisite checks rather than invoke host CLIs, servers, package managers, credential helpers or network probes. Bounded disposable checks in selected storage paths may exercise admission and publication without changing managed outputs. For Native Pi MCP, status and apply planning can instead run the isolated, bounded version observation and read modeled settings and source metadata. They do not query package-manager installation locations or start a server to fill missing evidence.
 
 A modeled prerequisite that cannot be observed remains unqualified or unobserved. A route for which daem has no observer is a different case. One missing or unsupported observation does not make unrelated known facts unavailable, nor prove that an unobserved competitor is absent. [Explicit MCP probing](../effect-commands/spec.md#requirement-disclose-and-execute-only-the-selected-mcp-probe) is a separate opt-in operation.
 
@@ -30,7 +30,7 @@ A modeled prerequisite that cannot be observed remains unqualified or unobserved
 
 ### Requirement: Treat a preview as evidence, not consent or a mutation
 
-A preview SHALL disclose work from the selected evidence without performing that work. This includes any admitted cleanup, provider prerequisites, conditional handoffs, destructive file replacement and uncertainty about delegated results. In particular, dry-run and a no-op do not create a state directory solely to plan the operation. Query and preview routes retain their own [journal and file-set admission](../../../docs/state-and-recovery.md#forward-operation-barriers); a refusal by a read-only command does not grant a write capability. A later execution has to qualify the current inputs and the applicable consent again, rather than treating the prior preview as approval.
+A preview SHALL disclose work from the selected evidence without performing that work. This includes any admitted cleanup, provider prerequisites, conditional handoffs, destructive file replacement and uncertainty about delegated results. In particular, dry-run and a no-op do not create a state directory solely to plan the operation. Query and preview routes retain their own [journal and file-set admission](../mutation-authority/spec.md#requirement-keep-the-state-directory-and-recovery-barriers-independent); a refusal by a read-only command does not grant a write capability. A later execution has to qualify the current inputs and the applicable consent again, rather than treating the prior preview as approval.
 
 #### Scenario: The workspace has no state directory and no planned effects
 
