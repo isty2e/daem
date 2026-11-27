@@ -149,9 +149,10 @@ model {
         `ManagedCarrierClaim` binds one State authority to `ManagedCarrierIdentity` (carrier, host-relation subject,
         expected keys), the exact install request, and provenance. An observed install or explicit adoption of an
         exact existing relation can establish a claim; adoption runs no installer. An observed pin transition
-        updates the existing claim's provenance. The fact key is the State authority key plus relation subject. Project claims are in State;
-        global claims are in a separate carrier Registry. Other daem-known consumers can bar removal. Admission
-        does not establish that there are no consumers outside that inventory. The claim does not reserve a file or key.
+        updates the existing claim's provenance. The fact key is the State authority key plus relation subject.
+        Project claims are in State; global claims are in a separate carrier Registry. Other daem-known consumers
+        can bar removal, but the absence of recorded consumers says nothing about untracked ones. The claim does
+        not reserve a file or key.
       '''
       link ../../internal/assurance/durable/carrier/managed_carrier.go 'Exact managed carrier identity'
       link ../../internal/assurance/durable/carrier/managed_carrier_claim.go 'Claim creation from observed transitions'
@@ -193,7 +194,7 @@ model {
   daem.owners.topology.mcpProjection .domainRelation daem.owners.topology.executableDependency 'launches_via: exactly one launcher'
   daem.owners.topology.mcpProjection .domainRelation daem.owners.topology.credentialReference 'depends_on: zero or more named sources'
   daem.owners.topology.providerContribution .domainRelation daem.owners.topology.carrier 'provided_by: exactly one provider'
-  daem.owners.topology.providerContribution .domainRelation daem.owners.topology.mcpProjection 'bound_to: one or more projections selecting this provider'
+  daem.owners.topology.providerContribution .domainRelation daem.owners.topology.mcpProjection 'bound_to: one edge per projection selecting this provider'
   daem.owners.topology.mcpProjection .domainRelation daem.owners.realization.aggregateContribution 'Locks its canonical binding value'
   daem.owners.topology.providerContribution .domainRelation daem.owners.realization.lockedSubject 'Carries the exact foreign key, not an extra row'
   daem.owners.topology.mcpProjection .domainRelation daem.owners.realization.executablePlan 'May have admitted executable actuation'
