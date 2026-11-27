@@ -6,26 +6,26 @@ intended behavior, dependencies, and verification evidence remain visible.
 ## Start
 
 1. Read the [README](README.md) and the relevant [documentation](docs/README.md).
-   Read [Architecture](ARCHITECTURE.md) when changing implementation structure.
+   Read [Architecture](architecture/README.md) when changing implementation structure.
 2. Search existing GitHub issues before opening another.
 3. Keep the change scoped to one behavior or contract.
 
-Public behavior changes require implementation, tests, and the responsible
-user documentation to move together.
+When public behavior changes, update its OpenSpec requirements, implementation,
+tests, and any examples or guides that would otherwise become misleading.
 
 ## Contract Ownership
 
 | Change | Owning contract |
 | --- | --- |
-| Executable semantics | Canonical Go models and invariant-bearing tests |
-| Internal owners, compilers, transitions and dependencies | [Architecture](ARCHITECTURE.md), without overriding narrower contracts |
-| Public syntax, commands, host effects or platforms | [Manifest](docs/manifest.md), [CLI](docs/cli.md), [Host Integrations](docs/host-integrations.md), [Platforms](docs/platforms.md) |
-| Summaries and examples | Derived from those contracts; do not introduce syntax or support |
+| Public syntax, commands, host effects, and compatibility | The relevant [OpenSpec capability](openspec/README.md) |
+| Current internal owners, compilers, transitions, and dependencies | The [LikeC4 model](architecture/README.md) |
+| Exact machine representations | The owning parser, codec, catalog, or presenter linked from the contract; tests exercise those representations |
+| Setup, examples, and troubleshooting | [User guides](docs/README.md) derived from the relevant contracts |
 
-CI and guards enforce contracts; they do not create a second authority.
-If implementation and documentation disagree, treat the mismatch as drift.
-Determine which side is wrong, then update implementation, tests, and the
-responsible public document together.
+If a spec and the implementation disagree, check the intended behavior before
+changing either. Keep the LikeC4 model aligned with the code in the same change
+when dependencies, ownership, or material sequencing change. CI and archguard
+check contracts; they do not redefine them.
 
 ## Build From Source
 
@@ -93,6 +93,24 @@ and changed test-harness files. Select test lanes by the change and claim:
 Documentation-only changes do not require Go tests. Review the rendered
 document, links, and diff directly; do not add tests that assert prose contains
 or omits particular wording.
+
+### Verify Specifications And Architecture
+
+Use the [OpenSpec CLI](https://github.com/Fission-AI/OpenSpec) and the
+[LikeC4 CLI](https://likec4.dev/) from the repository root:
+
+```sh
+openspec validate --all
+likec4 validate architecture
+likec4 start architecture
+```
+
+`openspec validate --all` checks the current specs and any active change deltas.
+To render the views without starting the preview server, use
+`likec4 build architecture --output "$(mktemp -d)"`. Keep generated output
+out of the repository. These checks validate structure and rendering; review
+behavioral changes against the owning tests and architecture changes against
+the Go imports and call paths.
 
 `focused` caches unchanged runs using Go inputs, tracked diff, non-ignored
 untracked files and test-read environment values, not ignored/external inputs.

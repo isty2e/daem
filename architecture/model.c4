@@ -1,0 +1,428 @@
+specification {
+  element person {
+    style { shape person }
+  }
+  element system
+  element area
+  element component
+  element external
+  element fileSet
+  element domainObject
+
+  relationship coordination {
+    technology 'Runtime interaction'
+  }
+  relationship facts {
+    technology 'Data flow'
+  }
+  relationship goImport {
+    technology 'Direct Go import'
+  }
+  relationship domainRelation {
+    technology 'Domain model relationship'
+  }
+}
+
+model {
+  operator = person 'Operator or automation' {
+    description 'Selects a workspace and command; authorizes effects when required.'
+  }
+
+  sources = external 'Remote Git and S3 sources' {
+    description 'Upstream artifact sources. Local sources and the cache are part of the local filesystem.'
+    link ../internal/supply/source/backend 'Source backends'
+  }
+
+  host = external 'Agent host tools' {
+    description 'Host-owned plugin and package CLI routes. A process result alone does not prove convergence.'
+    link ../internal/effect/execute/hostroute 'Route adapters'
+  }
+
+  server = external 'Selected MCP executable' {
+    description 'An admitted delegated executable or an explicitly selected stdio runtime probe. These are different operations.'
+    link ../openspec/specs/effect-commands/spec.md 'Probe and effect contracts'
+  }
+
+  files = fileSet 'Local filesystem' {
+    description 'Declared inputs, cached sources, installed agent content, and durable operational evidence.'
+    link ../internal/paths 'Workspace and XDG path selection'
+
+    intent = fileSet 'Manifest and lockfile' {
+      description 'Desired declarations and the locked realization. Neither is an applied baseline.'
+      link ../internal/declaration/manifest 'Manifest boundary'
+      link ../internal/realization/lockfile 'Lockfile codec'
+    }
+    artifacts = fileSet 'Local sources and cache' {
+      description 'Selected local views or cached source artifacts; not evidence of installation or ownership.'
+      link ../internal/supply/source/resolution 'Resolution and cache selection'
+    }
+    installed = fileSet 'Agent outputs and native settings' {
+      description 'Managed copies, selected document contributions, and host-owned settings and package state.'
+      link ../internal/output/hostpath/native 'Native path selection'
+    }
+    state = fileSet 'Installed state and attempt history' {
+      description 'Applied baselines, project carrier facts, pending transitions and bounded attempt history.'
+      link ../internal/assurance/statefile 'Statefile codec'
+    }
+    registries = fileSet 'Shared claims and protection' {
+      description 'Output claims, document bindings and permission protection; separate shared carrier claims.'
+      link ../internal/output/ownership/store 'Output registry'
+      link ../internal/effect/storage/carrierclaim 'Carrier registry'
+    }
+    recovery = fileSet 'Recovery and publication evidence' {
+      description 'Journal, backup, retirement and file-set transaction evidence. These keep separate authority and version boundaries.'
+      link ../internal/effect/journal/record 'Journal codecs'
+      link ../internal/effect/fileset 'File-set evidence'
+    }
+  }
+
+  daem = system 'daem' {
+    description '''
+      A local Go CLI. The boxes inside it show responsibilities, not separately deployed services or a package-per-box design.
+      Normalize flexible inputs at their boundary rather than carrying raw syntax, paths, subprocess output or presentation
+      objects through the core as generic data. The static Host-Surface and per-operation Safety compilers remain separate.
+
+      Refinements preserve exact wire and retained bytes, schemas and order; subject, placement, codec, route, adapter and
+      projection IDs; operation and authority fingerprint values for identical inputs; and mutation domain conflicts, revision
+      membership and roles. Support, refusal, effect visibility, cancellation and stale precedence, partial writes and recovery
+      also stay compatible. Private representations and algorithms can change. Changes to those contracts or to historical
+      artifact interpretation need a separate compatibility decision.
+
+      Keep the current authority during shadow evaluation. Move consumers after same-input parity, then retire the old authority
+      after its last consumer moves. Do not normalize away failed comparisons or keep two writable authorities. Remaining migration
+      cleanup and renaming are deferred; revisit a concrete cut with last-consumer or changed dependency evidence. The maintainer
+      owns the deferrals recorded at the affected components. Deferral does not excuse a demonstrated violation.
+    '''
+    link ../cmd/daem/main.go 'Executable entrypoint'
+    link ../openspec/specs 'Product contracts'
+
+    cli = area 'Process boundary' {
+      run = component 'CLI composition' {
+        description 'Selects the command and its platform admission, owns terminal interaction, and wires process output, progress and cancellation.'
+        link ../internal/cli/run.go 'Dispatch and platform ingress'
+        link ../internal/workflow/platform/assess.go 'Command-level platform assessment'
+        link ../cmd/daem/signals.go 'Process signal lifecycle'
+        link ../internal/cli/progress.go 'Progress composition'
+      }
+      present = component 'Result presentation' {
+        description 'Owns the process-facing human and JSON contract, including public resource labels. It does not own stable subject identities or admission.'
+        link ../internal/cli/present 'Result presenters'
+        link ../internal/cli/present/resource_name.go 'Resource labels'
+      }
+      progress = component 'Terminal progress' {
+        description 'Renders live progress with presentation vocabulary supplied by CLI composition. It does not import the result presenter.'
+        link ../internal/cli/present/progress 'Progress renderers'
+      }
+    }
+
+    commands = area 'Command workflows' {
+      description 'Select context, evidence, sequencing and result. Production imports between named workflow packages have scoped roles. Test dependencies and subpackages are separate.'
+      link ../internal/workflow 'Command packages'
+      link ../internal/archguard/workflow_imports.go 'Direct workflow import policy'
+
+      author = component 'Manifest authoring' {
+        description 'Validates prospective edits and lock generation; publishes admitted declaration or ownership changes.'
+        link ../internal/workflow/authoring 'Add, remove and unmanage'
+      }
+      adopt = component 'Import and capture' {
+        description 'Collects qualified host evidence and prepares declaration or native value capture. The Adopt and native capture plans own their input identities and source evidence; Operation-Safety supplies domain and hashing primitives without defining those identities.'
+        link ../internal/workflow/adopt 'Adopt workflow and capture recovery'
+      }
+      init = component 'Init' {
+        description 'Publishes one starter manifest under file-set-only admission.'
+        link ../internal/workflow/init 'Initialization'
+      }
+      lock = component 'Lock and outdated' {
+        description 'Shares lock generation between comparison and write paths. Lock writes can retire only qualified completed evidence.'
+        link ../internal/workflow/lock 'Lock and comparison workflow'
+      }
+      status = component 'Status' {
+        description 'Uses shared assessment for a selected report; it does not execute Apply or acquire effect authority.'
+        link ../internal/workflow/status/command.go 'Status assessment'
+      }
+      list = component 'List' {
+        description 'Lists declarations, observed outputs, or catalog paths with distinct evidence needs. It does not invoke Status.'
+        link ../internal/workflow/list 'Inventory commands'
+      }
+      diagnose = component 'Doctor and help' {
+        description 'Doctor checks passive prerequisites and can do bounded scratch checks; help describes cataloged commands and support.'
+        link ../internal/workflow/diagnose 'Doctor workflow'
+        link ../internal/workflow/help 'Help catalog'
+      }
+      apply = component 'Apply' {
+        description '''
+          Plans read-only and executes an authorized effect schedule. It retains distinct full, provider-stable and remaining
+          plan identities. The provider phase owns its exact matching pending completion; core and final promotion settle only
+          the rest. Those phases use observed claims and relations, including no-op relation facts. A predicted completion does
+          not publish a claim or recreate an empty reservation.
+
+          Ordinary provider execution compares the final schedule in a fresh replan and again under the remaining leases.
+          The protected native continuation requalifies under its retained leases and checks the reserved final schedule there.
+
+          Broader provider core rebinding is deferred. Revisit it only with a supported case that requires wider rebinding.
+        '''
+        link ../internal/workflow/apply/command.go 'Planning'
+        link ../internal/workflow/apply/execute_command.go 'Execution and requalification'
+        link ../internal/workflow/apply/effect_schedule_components.go 'Effect order'
+      }
+      refresh = component 'Refresh' {
+        description 'Qualifies one explicit locked route and an operation-specific frontier, then runs one authorized attempt with the applicable protection. Refresh refuses an overlapping pending Pi Git pin transition; Apply settles it.'
+        link ../internal/workflow/refresh 'Refresh workflow'
+        link ../internal/workflow/refresh/pin_transition.go 'Pending pin exclusion'
+      }
+      probe = component 'Explicit MCP probe' {
+        description 'Retains a disclosed request and separately proves launch authority. It does not persist runtime readiness or introduce a probe fingerprint.'
+        link ../internal/workflow/probe 'Probe selection and execution'
+      }
+      recover = component 'Recover' {
+        description 'Selects active journal, retired cleanup, permission recovery or explicit missing-state release. One authority does not grant the others.'
+        link ../internal/workflow/recover/selection.go 'Recovery selection'
+        link ../internal/workflow/recover/recover.go 'Recovery execution'
+        link ../internal/workflow/recover/output_release.go 'Independent missing-state claim release'
+      }
+      migrate = component 'Migrate state or metadata' {
+        description 'Transfers legacy user-state authority or converts located metadata through distinct transaction and recovery paths.'
+        link ../internal/workflow/migrate 'Migration workflows'
+      }
+    }
+
+    services = area 'Shared workflow services' {
+      native = component 'Native configuration inputs' {
+        description 'Owns the lifetime of selected codec, location, managed state and native document evidence passed to assessment or prepared work.'
+        link ../internal/workflow/nativeconfig 'Selected native inputs'
+      }
+      readiness = component 'Readiness and inventory' {
+        description 'Sequences bounded observations and composes pure projection, relation and order decisions. Inventory and full assessment gather different facts.'
+        link ../internal/workflow/readiness/assessment.go 'Shared assessment'
+        link ../internal/workflow/readiness/output_inventory.go 'Output inventory'
+      }
+      generate = component 'Prospective lock generation' {
+        description 'Resolves supply, builds the lock snapshot and encodes it. It does not publish the caller’s declaration or lock.'
+        link ../internal/workflow/lock/generate/generate.go 'Lock generation'
+      }
+      cleanup = component 'Completed-record cleanup' {
+        description 'Verifies and retires qualified completed file-set or journal evidence. It does not continue a live interrupted write.'
+        link ../internal/workflow/workspacecleanup 'Selected cleanup'
+      }
+      invocation = component 'Native invocation preparation' {
+        description 'Qualifies settings for selected host routes and supported Apply delegates. Protection borrows the containing operation’s authority; it does not confer generic host writes.'
+        link ../internal/workflow/nativeconfig/invocation 'Native invocation service'
+      }
+      protection = component 'Protected invocation' {
+        description 'Prepares, arms and binds protection for a selected native call, then contains access on the selected documents. A carrier route can publish correlation after arming and before launch; a protected MCP delegate does not publish carrier correlation.'
+        link ../internal/workflow/protection/invocation 'Protected forward invocation'
+      }
+      permissionRecovery = component 'Permission recovery' {
+        description 'Settles known protection for the selected owner without replaying the subprocess or editing contents.'
+        link ../internal/workflow/protection/recovery 'Permission recovery service'
+      }
+    }
+
+    owners = area 'Semantic owners' {
+      desired = component 'Desired' {
+        description 'Canonical authored environment, family identity and desired policy. Boundary syntax and observed state stay outside it.'
+        link ../internal/desired 'Desired models'
+      }
+      topology = component 'Topology' {
+        description 'Structural subjects, edges, stable SubjectID and graph validity. It does not determine placement or read sources.'
+        link ../internal/topology 'Topology and projection identities'
+      }
+      supply = component 'Supply' {
+        description '''
+          Source provenance, exact artifact identity, derivation, and stored skill repair. Supply and Topology are sibling inputs to realization.
+          A repaired skill keeps original input and locked output distinct. Replay verifies the recorded recipe and exact output instead of re-inferring a repair.
+        '''
+        link ../internal/supply/artifact 'Artifact identity'
+        link ../internal/supply/compat/skill/repair 'Stored repair and replay'
+        link ../internal/realization/lockfile/repair_conversion.go 'Locked repair encoding'
+        link ../openspec/specs/skill-compatibility/spec.md 'Generation, identity and replay contract'
+      }
+      realization = component 'Realization' {
+        description 'Locks exact Supply and structural realization as distinct facets of lowered subjects. A structural realization is a managed path projection, managed aggregate contribution, or delegated relation. Actuation is a separate facet.'
+        link ../internal/realization 'Realization contracts'
+        link ../internal/realization/lock/build 'Lock assembly'
+      }
+      assurance = component 'Assurance' {
+        description 'Qualified current and durable facts and their lifetime. Observations, recorded management and attempt history have distinct meaning.'
+        link ../internal/assurance/observe 'Observed facts'
+        link ../internal/assurance/durable 'Durable facts'
+      }
+      reconcile = component 'Reconciliation' {
+        description '''
+          Makes pure decisions from locked contracts, current evidence, durable authority and explicit policy.
+          New blocked-delegate readiness or persistence modes are deferred. An aggregate blocker is not proof that every blocked
+          input is unreachable. Revisit on a supported public execution failure requiring a maintainer decision on authority.
+        '''
+        link ../internal/reconcile 'Decision types and builders'
+        link ../internal/reconcile/delegatepolicy 'Delegate readiness policy'
+      }
+      effect = component 'Effect' {
+        description 'Turns decisions into authorized transitions, with journal-before-mutation, verification, compensation and durable successors. It does not select desired policy or render results.'
+        link ../internal/effect/execute 'Execution and settlement'
+        link ../internal/effect/execute/nativeoperation 'Native document effects'
+      }
+    }
+
+    surface = component 'Host-Surface compiler' {
+      description '''
+        Compiles deterministic, immutable views of owner-local support, placement, observation and route facts without host I/O.
+        SurfaceKey separates target, scope, family and variant. SurfaceID is private linkage, not a public or durable identity.
+        A variant selects a static host contract; it does not encode current evidence, capability or an effect outcome.
+
+        Compiled rows keep one identity per key and one primary realization per surface. A structural subject needs one Topology
+        rule; placement and codec facts belong only where required. Observations are distinguished by purpose, and each operation
+        and dispatch selects at most one actuator. Variant defaults and unsupported combinations are explicit rather than partial rows.
+
+        MCP provider, inventory, effective and runtime facts are separate views. The product catalog adds typed support and selected
+        placement and route views for instructions, skills, hooks, hook assets and extensions. Several logical instruction, skill
+        or hook-asset consumers can share a physical path without inheriting one another’s target support.
+
+        Lookups return facts and stable references, not adapter objects, callbacks, mutable registrations or host behavior. A
+        missing capability does not change product support. Catalog and owner-local consumers coexist during migration. Owner-local
+        realization and codecs do not reverse-import the product catalog, and native configuration is not another compiled surface.
+      '''
+      link ../internal/hostsurface/catalog/product.go 'Product catalog assembly'
+      link ../internal/hostsurface/key.go 'Logical surface identity'
+      link ../internal/hostsurface/catalog/compile.go 'MCP compilation'
+      link ../internal/hostsurface/catalog/managed_path.go 'Managed-path surfaces'
+      link ../internal/hostsurface/catalog/hook.go 'Hooks and shared assets'
+      link ../internal/hostsurface/catalog/extension.go 'Extension surfaces'
+    }
+
+    safety = component 'Operation-Safety compiler' {
+      description '''
+        Accepts normalized authority inputs, decisions, qualified current and durable evidence, and an opaque barrier identity.
+        It owns fact validity, ordering and conflicts; domain steps and revision roles; exact identity projections; and typed effect
+        obligations with semantic demand for migrated lifecycles. Apply's private detail enters as opaque fragments. The compiler
+        serializes and hashes the enclosing fields. Workflows bind actual leases and revisions, including narrower file-set domains.
+        Full, provider-stable and remaining Apply, Refresh, active Recovery and cleanup-only Recovery projections stay distinct.
+        Exact parity includes diagnostic detail where it participates in identity. Combining or retiring a projection needs a
+        versioned compatibility decision. Adopt identity bytes, source freshness and rollback evidence remain outside this compiler.
+        The compiler does not discover paths, acquire authority, choose an effect, access storage or execute a host.
+
+        Sequences, closed exclusive branches and bounded repetition distinguish visibility, observation, persistence, compensation
+        and cleanup. A proven exclusive branch can reserve its maximum reachable demand instead of summing impossible paths. Existing
+        bounded segments cover core and failed settlement, carrier settlement/removal, final route prefix and recovery. The final
+        route prefix ends before prepared host commands; provider prerequisites are separate. These segments do not replace
+        owner-local exact-baseline checks, registry-first publication, retry rules or verified successor preservation.
+        A whole-operation cursor is deferred. Revisit on a reproduced ordering or authority defect on a supported path, or an
+        approved feature with a bounded design showing why a cursor is preferable to enforcement at the existing owner.
+        Existing document, action, repetition and demand limits apply. Revisit a universal structure cap only when a supported
+        workload shows excessive retention or a new operation materially changes construction bounds.
+      '''
+      link ../internal/operationplan 'Compiler and identity projections'
+      link ../internal/workflow/apply/effect_schedule_components.go 'Apply stream of obligations'
+      link ../internal/workflow/refresh/effect_schedule.go 'Refresh frontier'
+    }
+
+    barrier = component 'State Barrier' {
+      description '''
+        Interprets independent journal and file-set outcomes, retains StateDir and RecoveryDir identities, and witnesses the first
+        StateDir creation. It lowers bounded demand against selected path shape and platform capability. It owns shared or exclusive
+        admission and consumption of path, entry, byte, observation and descendant-work reservations; revalidation around effects
+        and persistence; and barrier classification with cancellation precedence. The barrier does not select effect semantics or
+        reconstruct successors; journal, filesystem, storage and subprocess mechanisms remain separate.
+
+        Apply retains both structural and scalar physical checks; Refresh couples its frontier to the retained StateDir. File-set-only
+        and RecoveryDir-only paths have narrower admissions. A replan or callback cannot add unreserved work. Read-only checks
+        keep command-local refusal semantics without granting write authority. Planning and no-effect execution do not create StateDir.
+
+        Universal removal of scalar reservations and exact-frontier admission are deferred. Revisit with a reproduced reservation
+        defect or measured avoidable refusals or maintenance cost, and a lifecycle-local cutover that actually retires the competing
+        representation.
+      '''
+      link ../internal/recoverygate/authority.go 'Effect admission and StateDir creation'
+      link ../internal/recoverygate/state_dir_authority.go 'StateDir identity'
+      link ../internal/recoverygate/model.go 'Independent outcome axes'
+      link ../internal/recoverygate/reservation_domains.go 'Physical admission domains'
+    }
+
+    io = area 'Boundary services and adapters' {
+      declaration = component 'Declaration and codecs' {
+        description 'Reads and normalizes declarations. Concrete document and lock codecs remain at admitted composition boundaries.'
+        link ../internal/declaration/manifest 'Manifest load and normalization'
+        link ../internal/encoding/configdocument 'Host document syntax'
+        link ../internal/realization/aggregate/codec 'Aggregate codecs'
+      }
+      source = component 'Source acquisition' {
+        description 'Opens rooted local or remote artifact views through source backends, and keeps cache policy at the boundary.'
+        link ../internal/supply/source/resolution 'Source resolver'
+        link ../internal/supply/source/backend 'Backend implementations'
+      }
+      observe = component 'Live observation adapters' {
+        description 'Qualify selected host and source evidence. Post-effect checks are sequenced by the owning workflow or invocation route, not a reverse import from Effect transitions.'
+        link ../internal/assurance/observe/live 'Live output observation'
+        link ../internal/assurance/observe/relation/host 'Relation and order observers'
+        link ../internal/assurance/observe/mcp/effective/host 'Purpose-specific effective MCP observation'
+      }
+      leases = component 'Leases and rooted capabilities' {
+        description 'Provides exclusion, physical path authority, revision tracking and bounded work for the authorized operation.'
+        link ../internal/effect/mutation 'Mutation domains, leases and revisions'
+        link ../internal/assurance/pathauthority 'Physical identity semantics'
+        link ../internal/effect/physicalwork 'Physical work accounting'
+      }
+      journal = component 'Journal and retirement' {
+        description 'Owns publication, before/after evidence and retirement namespaces. Backups are not user archives.'
+        link ../internal/effect/journal/publication 'Journal publication'
+        link ../internal/effect/journal/recoveryoperation 'Selected recovery operations'
+        link ../internal/effect/journal/retirement 'Retirement controls and residue'
+      }
+      fileset = component 'File-set transactions' {
+        description 'Publishes and settles exact file sets. Declaration publication, format conversion and state relocation use it under different authority.'
+        link ../internal/effect/fileset 'File-set publication and settlement'
+      }
+      conversion = component 'Shared metadata format conversion' {
+        description 'Qualifies the selected conversion cohort under separate admission. Automatic conversion does not bypass the calling command’s recovery and mutation gates. Interrupted publication is settled under the original recorded selection.'
+        link ../internal/effect/metadataconversion 'Located metadata conversion'
+        link ../internal/effect/metadataconversion/recover.go 'Original selection and recovery'
+      }
+      storage = component 'Native storage publication' {
+        description 'Implements rooted reads, writes, renames, supported metadata preservation and explicit uncertainty. It does not decide which document or claim can change.'
+        link ../internal/effect/storage/commit 'Storage publication and metadata'
+        link ../internal/filesnapshot 'Native snapshot support'
+      }
+      subprocess = component 'Host invocation and subprocess' {
+        description 'Lowers a locked route or probe request to an exact invocation and retains bounded process evidence. Scope and outcome come from separate owners.'
+        link ../internal/effect/execute/hostroute 'Route commands'
+        link ../internal/effect/execute/delegate 'Delegated executable work'
+        link ../internal/assurance/runtimeprobe 'Explicit probe runtime'
+        link ../internal/subprocess 'Subprocess boundary'
+      }
+      platform = component 'Platform admission and provenance' {
+        description '''
+          Command admission, native file capabilities, and journal provenance are separate. Windows has native capability tests
+          without admitted product commands; the BSD filesnapshot/Codex jobs are compile-only. Snapshot and artifact admission do not
+          imply durable recovery authority.
+
+          A blanket nonzero Darwin generation/birth-time check for mutation roots, durable provenance and StateDir remains deferred.
+          In a macOS 26.6.2 probe, capture accepted a tuple with ATTR_CMN_CRTIME set to epoch zero, and StateDir revalidation
+          still rejected rename-and-recreate. This does not prove inode-reuse safety or every filesystem's missing-metadata
+          behavior. The existing root and StateDir identity checks remain. Revisit on a supported unavailable-incarnation or
+          missed-replacement reproduction, or an explicit nonzero-admission decision. Artifact admission is unchanged.
+        '''
+        link ../internal/workflow/platform/assess.go 'Platform workflow used at ingress and by Doctor'
+        link ../internal/platformsupport 'Product admission rules'
+        link ../openspec/specs/host-mutation/spec.md 'Filesystem and recovery guarantees'
+        link ../.github/workflows/ci.yml 'Native capability and compile jobs'
+      }
+    }
+
+    guards = component 'Architecture checks' {
+      description '''
+        Blocking semantic dependency and effect checks stay in archguard. Shadow compiler and barrier findings are diagnostic;
+        analysis and load errors still fail. A missing, duplicate or invalid placement may leave a package unclassified, not approved.
+        Paths are module-relative, including nested internal directories. Removing a real blocking rule needs equivalent behavioral
+        or graph-level coverage, with forbidden and legitimate-neighbor evidence.
+
+        A complete semantic classifier is deferred. Revisit on a concrete uncovered forbidden dependency or a separately approved
+        bounded replacement with forbidden and legitimate-neighbor evidence. Exact classification is not a substitute for that evidence.
+
+        Keep typed owners instead of a universal resource/profile/adapter or reflection and callback-based plan representation.
+        Do not persist a compiler representation or mint an unversioned identity. Cross-products of families, targets, operations
+        and phases do not determine the package layout, and package counts do not establish correctness.
+      '''
+      link ../internal/archguard 'Ownership, dependency and effect checks'
+      link ../tools/test.sh 'Repository test lane'
+    }
+  }
+}

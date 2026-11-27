@@ -3,7 +3,7 @@
 This page shows what daem can currently manage for each supported agent CLI.
 For manifest syntax, see the [Manifest Reference](manifest.md). For exact
 native commands and safety limits, see the
-[Host Integration Contract](host-integrations.md).
+[host integrations guide](host-integrations.md).
 
 ## Reading The Tables
 
@@ -29,20 +29,10 @@ keys in a shared settings file or a dedicated file in full. The manifest
 reference explains [how to switch between these modes](manifest.md#whole-files-and-ownership-changes).
 To start from settings already on disk, use [`daem import agent-config`](cli.md#import-agent-config).
 
-Skills use the default root or a cataloged `install_to` alternative. Inspect
-locations with `daem list paths`. Same-name skills in other modeled discovery
-roots produce warnings in doctor/status/apply, not automatic deletion.
-
-MCP entries configure a server, not install its executable. Pi supports fixed
-Native and Adapter contracts. New automatic authoring selects Native from an
-admitted Pi version or retains Adapter with a diagnostic; existing choices
-remain unchanged. Adapter requires `pi-mcp-adapter`, installed and freshly
-verified before config. Native has no package prerequisite and refuses an
-incompatible version or known builtin replacement without fallback. Config
-convergence does not prove trust, activation or runtime readiness. [MCP Servers](manifest.md#mcp-servers) lists environment-reference
-rules; values stay runtime-only. Only Claude Code project apply may run the
-locked server. `probe mcp-server` is a separate explicit startup check for
-Claude Code/OpenCode project entries.
+Use `daem list paths` to check the install location before choosing a skill
+root. MCP configuration does not install an executable; check the
+[Pi backend guide](host-integrations.md#pi-native-and-adapter) before switching
+an existing Pi binding.
 
 ## Plugins And Extensions
 
@@ -61,46 +51,19 @@ the host, the native object may be called a plugin, package, or extension.
 | List bundled features | Report only | No | No | No | No |
 | Delete leftover data | No | No | No | No | No |
 
-Daem previews the locked host command/config change, obtains confirmation and
-checks the available post-operation evidence. Command success alone is not
-convergence.
-
-Refresh selects one declared extension, but its native command can affect
-broader host state: Codex refresh selects a marketplace, and Pi may update
-matching user and trusted-project rows. See [refresh scope and effects](host-integrations.md#explicit-carrier-refresh).
-
-Removing a declaration requests managed removal on the next confirmed apply;
-it requires a daem-created or explicitly adopted installation and no remaining
-daem-known shared consumer. `unmanage extension` instead leaves the host
-installation in place. Removal is not general cleanup: see each host's
-[retained effects](host-integrations.md#managed-carrier-absence).
-
-A managed source change within the same owner, carrier, target and scope can use
-one apply of the final manifest. Admitted Pi Git pin changes keep their in-place
-route. Other replacements remove the old carrier, check fresh state and then
-acquire the new one; a failed install does not roll back removal. Source
-swaps and same-manifest retries use the same
-[handoff rules](host-integrations.md#managed-source-handoffs).
-
-Import preserves supported exact source spelling and relative order without
-ownership or host changes. Antigravity inventory lacks recoverable source
-provenance, so those rows are skipped. Eligible imported relations still need
-`apply --manage-existing` to acquire management.
-
-Pi package order controls runtime precedence; OpenCode arrays expose config
-order only. Apply re-observes order after install/removal. New interactions with
-unmanaged rows require renewed interactive confirmation; `--yes` stops.
-Multi-sequence results may be partial, with fresh-state retry rather than rollback.
-
-Antigravity covers the CLI, not the IDE. Its detection and managed removal
-require a `PLUGIN@MARKETPLACE` source; other forms do not support those operations.
+Antigravity covers the CLI, not the IDE. Its limited detection and removal
+require a `PLUGIN@MARKETPLACE` source. Before confirming native effects, review
+[refresh scope](host-integrations.md#explicit-carrier-refresh),
+[what removal leaves behind](host-integrations.md#managed-carrier-absence), and
+[what happens when a source changes](host-integrations.md#managed-source-handoffs).
+Use `unmanage extension` if the installation should stay in place.
 
 ## Detailed References
 
 - [Getting Started](getting-started.md) for a first project.
 - [CLI Reference](cli.md) for command and flag behavior.
 - [Manifest Reference](manifest.md) for resource schemas and source forms.
-- [Host Integration Contract](host-integrations.md) for exact target routes,
-  observation evidence, retained effects, and tested host versions.
+- [Host integrations](host-integrations.md) for host-specific examples, checked
+  versions and links to the route specifications.
 - [Platform Support](platforms.md) for operating-system and architecture
   coverage.

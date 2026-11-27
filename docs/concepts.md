@@ -11,8 +11,9 @@ manifest -> lockfile -> status / apply preview -> apply -> managed outputs
 ## Manifest
 
 `daem.toml` declares resources, sources, targets, and scopes. You can edit it
-directly or use the authoring commands. The parser rejects unknown keys and
-invalid declarations; the [Manifest Reference](manifest.md) owns the schema.
+directly or use the authoring commands. The [manifest guide](manifest.md) has
+examples; the [manifest spec](../openspec/specs/manifest/spec.md) defines what
+daem accepts.
 
 Most commands choose the current-directory manifest, then the user manifest;
 there is no parent-directory search. `init` and non-merge `import` instead
@@ -32,7 +33,8 @@ Targets name agent hosts: `codex`, `claude-code`, `opencode`, `pi`, and
 An execution selector such as `--target codex` filters declarations already
 assigned to that host; it does not add Codex to a resource's target set.
 Support differs by resource, scope, and operation. See [Feature Support](features.md)
-for the summary and [Host Integrations](host-integrations.md) for exact routes.
+for the overview and the [carrier route spec](../openspec/specs/carrier-routes/spec.md)
+for extension operations.
 
 ## Sources
 
@@ -48,13 +50,13 @@ Sources supply the content daem locks:
 
 Not every resource uses a source object. A hook command or MCP launch vector
 is configuration, not an instruction to install the executable it names.
-[Sources](manifest.md#sources) defines the admitted forms and resource limits;
+[Sources](manifest.md#sources) gives examples and links to the acquisition rules;
 [Use An Existing Environment](migration.md) shows the local and import paths.
 
 ## Lockfile
 
-`daem.lock.toml`, beside the manifest, records resolved source identities,
-content hashes, declaration provenance, and supported operation identities.
+`daem.lock.toml`, beside the manifest, records source identities resolved at
+lock time, content hashes, declaration provenance, and supported operation identities.
 It does not record ownership of live host files.
 
 `add` and `remove` update the manifest and lockfile together. After editing
@@ -64,10 +66,11 @@ the host output. That requires a separately reviewed apply.
 
 ## Statefile
 
-The statefile records outputs daem wrote or explicitly registered, plus
-managed extension claims and pending transitions. When an output changes
-outside daem, apply reports drift instead of overwriting it. An existing output
-with no daem claim is unmanaged, even if it looks like a declared resource.
+The statefile records what daem last installed or explicitly registered, not
+what currently exists. Apply compares the recorded baseline with live content
+to detect drift before replacing or removing an output. Keep the statefile
+when relocking or removing a declaration. An existing output without recorded
+ownership is unmanaged, even if its content matches a declaration.
 
 `import` copies supported configuration into source files and declarations;
 it does not claim the original outputs. `apply --manage-existing` can register
@@ -77,9 +80,11 @@ not permission to overwrite a mismatch.
 Project metadata lives under `.daem/`. The default user manifest uses the
 [Storage Roots](cli.md#daem-storage-roots) state and cache locations in every
 selection mode. Existing local user-manifest management needs an explicit
-[state-authority migration](state-and-recovery.md#user-state-authority-migration).
+[state-authority migration](troubleshooting.md#user-state-selection-changed).
 Imported `daem.d/` files are user-owned sources, not cache or managed-state
-metadata. Do not delete state or recovery files to bypass a refusal.
+metadata. Do not delete state or recovery files to bypass a refusal. See
+[durable formats](../openspec/specs/durable-management-formats/spec.md) for storage
+and version compatibility.
 
 ### Shared Global Ownership
 
@@ -90,8 +95,8 @@ Carrier claims track daem-known consumers, not every ambient host user.
 ### Mutation Revision Evidence
 
 Changed or unavailable required input evidence invalidates a plan: preview again
-from current state. [Observation limits](state-and-recovery.md#mutation-revision-evidence)
-apply to freshness checks too.
+from current state. See the
+[limits of freshness checks](../openspec/specs/mutation-authority/spec.md#requirement-record-freshness-evidence-at-the-granularity-of-the-operation).
 
 ## Recovery Journal
 
@@ -104,8 +109,21 @@ Start with `daem recover --dry-run` after an interrupted apply. Recovery can
 refuse when its evidence is no longer valid; on Linux, a journal from an earlier
 boot is deliberately refused. Preserve the journal and backups rather than
 editing them to bypass the check. See [Troubleshooting](troubleshooting.md#apply-was-interrupted)
-for actions and the [Recovery Journal reference](state-and-recovery.md#recovery-journal)
-for persistence, cleanup, and resource limits.
+for actions, [interrupted operations](../openspec/specs/interrupted-operations/spec.md)
+for cleanup rules, and [durable formats](../openspec/specs/durable-management-formats/spec.md)
+for storage limits.
+
+## Terms In Plans And Output
+
+| Term | Meaning |
+| --- | --- |
+| Reconciliation | Uses locked intent, recorded state and ownership, and current observations to determine what `status` reports and what `apply` plans. |
+| Subject | A stable internal identity for something modeled by daem, such as a resource, projection, or host relation. Use the separate [resource key](cli.md#resource-names-and-identifiers) as a CLI operand. |
+| Projection | A placement or selected part of host settings. One file can contain several projections. |
+| Carrier | A host-managed plugin or package that daem can act on through a supported [extension](#extension-carriers). Managing it does not grant control of its store or everything it supplies. |
+| Contribution | A managed value in a settings projection, or a capability supplied by a carrier. A [carrier-provided contribution](host-integrations.md#provider-scoped-contribution-diagnostics) is not automatically a resource that daem can manage separately. |
+| Relation | A selected association in a host, such as a plugin selected by name and scope. Observing a relation does not establish ownership or readiness. |
+| Delegated operation | A disclosed command that daem asks a host or package runner to execute. Its exit status alone does not establish that the desired host state was reached. |
 
 ## Managed Resource Types
 

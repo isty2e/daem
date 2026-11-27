@@ -1,9 +1,9 @@
 # Manifest Schema
 
-`daem.toml` declares the resources daem should manage. This is the authoritative
-public schema reference; the current schema version is `1`. Unknown TOML keys
-are rejected, and declarations are normalized before lock or apply planning.
-Schema field names are case-sensitive and must use the spellings documented here.
+`daem.toml` declares the resources daem should manage. This guide shows the
+declaration forms and examples. The [manifest spec](../openspec/specs/manifest/spec.md)
+defines schema admission and defaults; the [capability index](../openspec/README.md)
+links the requirements for each resource.
 
 For setup steps, use [Getting Started](getting-started.md) or
 [Use An Existing Environment](migration.md). For complete inputs, see the
@@ -52,45 +52,9 @@ targets = ["codex"]
 | `agent_config` | array of tables | no | Selected settings or dedicated configuration files; see [Agent Configuration](#agent-configuration). |
 | `extension` | array of tables | no | Supported host plugin/package carrier declarations; see [Extension Carriers](#extension-carriers). |
 
-Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
-`[[package_runner]]`, `[[executable_artifact]]`, and
-`command = { local_parameter = "..." }` are not public syntax and are rejected
-before Desired normalization. The only supported MCP command object is the
-exact absolute-path form documented under [MCP Servers](#mcp-servers). Current
-`[[mcp_server]]` `command` and `args` fields are launch-vector data for the
-managed config projection; they are not provisioning, package installation,
-runtime readiness, or cleanup syntax.
-
-Supported target identifiers:
-
-- `codex`
-- `claude-code`
-- `opencode`
-- `pi`
-- `antigravity-cli`
-
-`antigravity-cli` supports project/global instructions and Agent
-Skills-compatible `[[skill]]`/`[[skill_group]]`, plus explicit-global stdio MCP
-command/args and optional same-name ambient environment requirements. Markdown
-slash-command skills, hooks, project/remote/plugin-bundled MCP, other plugin
-rows, separate rules/workflows, settings, readiness and the IDE remain
-unsupported. See [Instructions](#instructions), [MCP Servers](#mcp-servers) and
-[Feature Support](features.md).
-
-For current target and resource coverage, see [Feature Support](features.md),
-the derived view of the typed target/resource surface.
-
-OpenCode, Pi, and Antigravity CLI are valid targets; their skills use the shared
-Agent Skills directory surface, and their supported instruction scopes are
-documented under [Instructions](#instructions). Command hooks remain unavailable
-for these targets; unsupported hook declarations are lock-only diagnostics, and
-`add hook` rejects `antigravity-cli`. Codex and Claude Code command hooks and
-explicitly declared source-backed hook assets remain supported. `doctor` reports
-registry-derived capability checks; see [Feature Support](features.md). Hook
-assets require `[hook_asset.<name>]` and same-scope `{hook_file:<name>}`
-placeholders. Doctor labels checks `target=<target> capability=<resource-kind>`.
-
-Duplicate targets are rejected.
+For a target's available resources, start with [Feature Support](features.md).
+Use [MCP Servers](#mcp-servers) to configure a server that is already available
+to the host; a `command` and its `args` do not install the executable.
 
 ## Defaults
 
@@ -178,68 +142,13 @@ Git source:
 source = { git = "https://github.com/owner/repo.git", path = "skills/oracle", ref = "main" }
 ```
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `git` | string | yes | Admitted credential-free Git repository locator. |
-| `path` | string | yes | Repository-relative path to export. Use `"."` only when the repository root is the intended source boundary. |
-| `ref` | string | yes | Unqualified branch-or-tag name, qualified branch/tag, or full 40/64-hex commit id. |
-
-Git locators admit `https://`, username-only `ssh://`, Git scp-like
-`[user@]host:path`, absolute `file:///` URLs, and native absolute paths. HTTP,
-the unauthenticated `git://` transport, remote-helper forms, relative repository
-locators, URL query/fragment fields, HTTP userinfo, and URL passwords are
-rejected. Authentication stays in the user's Git/SSH environment and is never
-written to the manifest or lockfile.
-
-All locator, repository-path, and ref values must be non-empty valid UTF-8 with
-no surrounding whitespace, Unicode control character, or Unicode format
-character. URL path text is checked again after percent decoding. A locator may
-not begin with `-` or use a remote-helper `::` form. The supported locator forms
-have these additional rules:
-
-| Form | Required | Rejected |
-| --- | --- | --- |
-| `https://host/path` | Host and non-root repository path. | Userinfo, query, or fragment. |
-| `ssh://[user@]host[:port]/path` | Host, non-root repository path, and an optional non-empty username. | Password, query, or fragment. |
-| `[user@]host:path` | Non-empty host and path; no slash before the first colon. | Empty user/host/path, multiple `@` characters, whitespace, or an option-shaped host. |
-| `file:///absolute/path` | Absolute decoded path. | Host, userinfo, query, or fragment. |
-| Native absolute path | Absolute platform path, normalized with the platform path cleaner. | Relative paths and `~` expansion. |
-
-An unqualified ref resolves only when exactly one matching branch or tag exists;
-qualify collisions as `refs/heads/<name>` or `refs/tags/<name>`. Abbreviated
-object ids, pseudo-refs, revision expressions, refspecs, and option-shaped refs
-are rejected. Full object ids are exactly 40 or 64 hexadecimal characters.
-Symbolic refs reject leading or trailing `/`, repeated `/`, `..`, `@{`,
-whitespace, `~`, `^`, `:`, `?`, `*`, `[`, backslash, trailing `.`, path
-components beginning with `.`, and path components ending with `.lock`.
-Qualified refs are limited to `refs/heads/<name>` and `refs/tags/<name>`.
-
-`path` is a POSIX path independent of the host filesystem. It must already be
-clean, relative, and slash-separated; it may not be `..`, traverse above the
-repository root, or contain a backslash. `.` is the canonical repository-root
-path. These rules define the public Git source grammar and security boundary.
-
-Git sources cannot set `mode`. For individual `[[skill]]` entries,
-`path = "."` means the repository root itself is the skill artifact and must
-contain an exact `SKILL.md` file. Because the whole root is hashed, unrelated
-files at the repository root are also part of the locked content. Use a
-subdirectory path when you want a narrower artifact boundary. For
-`[[skill_group]]`, `source.path` is a source root that is expanded with explicit
-`names` entries or lock-time `include` selectors before each child skill is
-locked. Git `[[skill_group]]` sources may use `path = "."` when the repository
-root itself contains direct child skill directories.
-
-Git lock identity uses this exact key order:
-
-```text
-git:locator=<query-escaped-locator>&path=<query-escaped-path>&ref=<query-escaped-canonical-selector>
-```
-
-The canonical selector is `name:<name>`, `branch:<name>`, `tag:<name>`, or
-`commit:<lowercase-full-object-id>`. The resolved commit remains separate in
-`resolved_ref`, so a floating selector can advance without changing declaration
-identity. Lockfiles created with the earlier delimiter-based Git `source_id`
-format must be regenerated with `daem lock`; there is no legacy identity alias.
+Use `refs/heads/main` when the name `main` identifies both a branch and a tag;
+use a full commit ID to avoid following a moving ref. Prefer a subdirectory
+when only part of a Git repository should be installed. `path = "."` on a single
+skill makes the whole repository root the artifact, including files outside
+`SKILL.md`. Keep Git credentials in the Git/SSH environment. See
+[Git source acquisition](../openspec/specs/source-acquisition/spec.md#requirement-admit-only-the-supported-git-locator-forms)
+for exact locator, path, ref and locked identity rules.
 
 Local source:
 
@@ -270,60 +179,17 @@ S3 source:
 source = { s3 = "s3://daem/skills/oracle.tar.gz", format = "tar.gz", version_id = "3Lg...", region = "us-east-1" }
 ```
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `s3` | string | yes | Single S3 object URI in `s3://bucket/key` form. |
-| `format` | string | no | Object materialization format. Defaults to `file`. Supported values: `file`, `tar`, `tar.gz`, and alias `tgz`. |
-| `version_id` | string | no | S3 object VersionId to request. |
-| `region` | string | no | AWS region override for this source. If omitted, the AWS SDK default config chain supplies the region. |
-
-S3 sources cannot set `git`, `path`, `ref`, or `mode`. The URI must identify a
-single object, not a bucket or prefix directory. Query strings, fragments,
-embedded credentials, empty object keys, and keys ending in `/` are rejected.
-Credentials and profiles are intentionally external to the manifest and
-lockfile. `daem lock` records the returned S3 VersionId as `resolved_ref`
-when S3 returns one, and always records the materialized content hash.
+Use a single object, not a directory prefix. Configure credentials outside the
+manifest, and set `version_id` when the object version must stay fixed. See
+[S3 source acquisition](../openspec/specs/source-acquisition/spec.md#requirement-resolve-local-and-s3-inputs-without-mixing-source-kinds)
+for accepted options, version identity, and cache behavior.
 
 ### Source Resource Limits
 
-Direct regular-file sources are limited to 128 MiB. The same limit applies to
-local files, plain S3 `format = "file"` objects, instruction files, and hook
-assets during source resolution, lock, status, and apply. Known filesystem or
-S3 sizes are only early rejection evidence; daem also enforces the limit while
-hashing, reading exact locked bytes, and streaming downloads. An oversized
-source is rejected without truncation, cache completion, lock publication, or
-host mutation.
-
-Archive extraction has separate input, expansion, entry, and path budgets.
-Those limits do not imply that a plain S3 object may use the larger archive
-input allowance.
-
-| Archive dimension | Limit |
-| --- | ---: |
-| Raw tar or compressed gzip input | 256 MiB |
-| Decompressed tar stream | 768 MiB |
-| Total extracted regular-file bytes | 512 MiB |
-| One regular file | 128 MiB |
-| Logical archive entries | 100,000 |
-| Extracted files and directories | 100,000 |
-| Canonical path | 4,096 bytes and 64 components |
-
-Raw tar extraction reads the entire input, including bytes after the tar end
-marker. Trailing bytes are not extracted, but count toward the 256 MiB raw input
-limit. An archive is rejected if its entries fit the budgets but its trailing
-data makes the complete input exceed that limit.
-
-Source-cache wrapper directories and completion metadata have separate reserved
-capacity and do not consume these archive entry, depth, or byte limits.
-Implicit parent directories count toward the extracted-entry limit. Archive
-entries and extracted descendants are limited independently, so duplicate
-logical entries cannot bypass materialized-tree bounds.
-
-Known transport sizes and archive headers are early rejection evidence only.
-Streaming readers and extraction accounting enforce the same limits. Limit
-failure does not publish a source cache completion record, lockfile result, or
-host mutation. Links, special files, traversal, backslashes, and parent path
-segments in archives are rejected independently of these budgets.
+Check the [source budget table](../openspec/specs/source-acquisition/spec.md#requirement-enforce-source-budgets-on-data-not-just-reported-sizes)
+before increasing an artifact's size. Direct files and archive extraction have
+different limits. If a check fails, select a narrower artifact rather than
+assuming that switching archive formats removes the expanded-content bound.
 
 ## Skills
 
@@ -408,8 +274,8 @@ Validation rules:
 - `targets`, if present, must contain supported target values and no duplicates.
 - Project-scoped local link skills must set `portable = false`.
 - `compat_repair = true` permits only the replayable mechanical repairs
-  defined in [Skill Compatibility](compatibility.md#repair-scope). Omitted or
-  false means repair is not permitted.
+  admitted by the [skill repair spec](../openspec/specs/skill-compatibility/spec.md#requirement-generate-repair-only-for-an-opted-in-lock).
+  See the [repair guide](compatibility.md#repair-scope) for opt-in steps.
 - `target.<target>.install_to`, when present, must exactly match a supported
   skill root for that target and scope. Project values are canonical
   project-relative slash paths. Global values begin with `~/` and remain
@@ -607,35 +473,10 @@ Selector syntax:
   After `exclude` is applied, the final selected set must be non-empty.
 - `exclude` selectors may match zero names.
 
-Selector-backed expansion is bounded before candidate lists or selected Skills
-can grow without limit. The limits apply to one complete skill-group listing
-and expansion phase, across all groups in a `lock`, `outdated`, or local
-`doctor` inspection phase:
-
-| Resource | Limit |
-| --- | ---: |
-| Skill-group declarations | 1,024 |
-| Distinct source roots listed | 1,024 |
-| Direct entries observed | 100,000 |
-| Direct-entry name bytes | 32 MiB |
-| One direct-entry name | 4 KiB |
-| Selectors per group | 128 |
-| Selector pattern bytes per group | 64 KiB |
-| Selector match evaluations | 1,000,000 |
-| Matcher work (pattern bytes x (child-name bytes + 1)) | 134,217,728 units |
-| Newly selected skills | 4,096 |
-
-Git/local sources share these limits. Canonical roots are listed and counted once, but
-every declaration counts toward the group ceiling and every direct entry,
-including files/links, consumes source budget. First selection charges a name;
-later exclusion never refunds it. Matcher work charges every pattern byte
-against each potentially scanned child-name byte plus one pattern-only unit for
-an empty name, before matching; cancellation is checked around each evaluation.
-Exact limits pass; one unit over fails the whole lock without partial output.
-Doctor reports overflow and omits selector-expanded checks, while direct checks
-still run. These limits are package policy, not manifest fields.
-- Expanded lockfile entries are ordered deterministically by skill resource
-  name, then source identity.
+If expansion exceeds a [group budget](../openspec/specs/skills/spec.md#requirement-bound-group-expansion-without-accepting-a-partial-selection),
+choose a narrower source directory or explicit names. An `exclude` rule does
+not refund the work already spent finding a match. See
+[skill-group troubleshooting](troubleshooting.md#lock-or-doctor-exceeded-the-skill-group-expansion-limit).
 
 `apply` and `status` reconstruct selector-backed children only from existing
 Skill `locked.subject` rows whose declaration identity still matches the
@@ -1532,12 +1373,14 @@ existing value or replace a changed managed value, use
 consent; ordinary `apply` does not gain replacement authority. Interrupted apply
 can roll back the selected changes before state commit, or finalize a committed operation
 without replaying host writes. A selected value outside both recorded versions
-blocks recovery. See [State And Recovery](state-and-recovery.md) and
-[interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
+blocks recovery. See [interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
 
-Removal retains empty structural parents; it is not formatting undo. See
-[key-only containers](state-and-recovery.md#key-only-configuration-containers)
-for TOML representation and manual-editing limits.
+Removing a managed key leaves its parent table or object in place. An empty
+TOML profile table may still define a profile, so check how the host uses it
+before deleting it manually. If you need to replace an implicit TOML parent
+with an explicit header, first remove the managed dotted child through daem.
+See the [structured editing rules](../openspec/specs/agent-configuration/spec.md#requirement-limit-structured-editing-to-the-selected-values)
+for what is preserved.
 
 Key-mode changes can be applied together with instructions, skills and independent
 MCP configuration changes. These direct changes share one recovery operation;
@@ -1982,8 +1825,9 @@ relation provenance, not artifact/version/cache convergence, enablement, trust,
 readiness or contributions. Complete leases serialize shared routes/destinations
 across manifests; plans rebuild and revalidate before any effect. Refresh,
 removal, host-preserving unmanage, unsupported prune, probes and
-bundled-contribution import are separate operations. [State And
-Recovery](state-and-recovery.md) describes pending/global claim commits.
+bundled-contribution import are separate operations. See
+[carrier claim settlement](../openspec/specs/carrier-lifecycle/spec.md#requirement-establish-claims-from-qualified-selected-scope-evidence)
+for how pending installs become durable claims.
 
 For Claude Code project/global rows, exact desired absence with a durable
 managed claim may invoke `claude plugin uninstall <plugin>@<marketplace> --scope

@@ -1,0 +1,48 @@
+# Manifest
+
+## Purpose
+
+Define how daem reads a declaration and resolves its defaults. The [TOML decoder](../../../internal/declaration/toml_decode.go) and [manifest loading](../../../internal/declaration/manifest) implement those checks. Resource-specific capabilities give the admitted forms; the [manifest guide](../../../docs/manifest.md) shows how to use them.
+
+## Requirements
+
+### Requirement: Read a versioned declaration
+
+Daem SHALL accept integer `version = 1` as the manifest schema, not a daem release version. It SHALL reject unknown fields, invalid TOML types, and declarations that cannot form a valid resource. The current schema rejects `[[skill_set]]`, `[[local_parameter]]`, `[[package_runner]]` and `[[executable_artifact]]` as unknown fields. It reads a [bounded, stable regular-file referent](../../../internal/declarationartifact/artifact.go) and applies the decoder's TOML structure bounds. Recognizing a resource or target name does not imply that every operation on it is supported.
+
+#### Scenario: An editor accepts a non-integer version
+
+- **WHEN** a manifest has `version = 1.0`
+- **THEN** daem rejects it even if an editor's schema check accepts the value
+
+#### Scenario: A skill group uses unrecognized syntax
+
+- **WHEN** a manifest uses `[[skill_set]]` instead of the admitted `[[skill_group]]` form
+- **THEN** daem reports an unknown field rather than silently ignoring the declaration
+
+### Requirement: Resolve defaults without broadening a declaration
+
+The manifest SHALL define a nonempty default target set. Target values are `codex`, `claude-code`, `opencode`, `pi` and `antigravity-cli`, with no duplicates within a declared set. A resource that accepts `targets` inherits it when omitted or empty; a nonempty resource set replaces it. Hook assets have no target field; selection comes from their consumers.
+
+The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. Skills admit `copy`, `symlink` and `hardlink` as `install_mode`; instruction renderings admit `copy` and `symlink` as `mode`. The manifest and lock can represent those non-copy modes, and status can inspect them. If selected `apply` work would need to carry out a non-copy placement, daem refuses to present it as an executable plan or mutate the host. A human dry-run can show a non-executable preview before returning failure; JSON reports the pre-result refusal.
+
+Non-copy apply support is deferred until placement, recovery-journal, and statefile semantics are supported together.
+
+#### Scenario: Select one target at execution
+
+- **WHEN** a resource inherits `codex` and `pi` and the caller selects `pi`
+- **THEN** the operation considers the Pi placement without changing the declaration or adding targets to other resources
+
+#### Scenario: Decode an unsupported skill install mode
+
+- **WHEN** a valid locked skill selects `symlink` and would need a new installation
+- **THEN** both `apply --dry-run` and confirmed apply refuse the installation
+
+### Requirement: Keep editor validation advisory
+
+Daem SHALL determine admission from runtime decoding and the operation's checks, not editor validation. The optional [editor schema](../../../schemas/daem.schema.json) currently describes structural syntax in a portable Draft 4 subset. A matching schema can assist editing; daem does not configure or check the association. A schema pass says nothing about source availability, lock freshness, mutation authority or runtime readiness.
+
+#### Scenario: A resource passes a structural check but has an invalid reference
+
+- **WHEN** editor validation does not catch an invalid target-specific placement or cross-resource reference
+- **THEN** the normal daem command still checks that placement or reference before relying on it

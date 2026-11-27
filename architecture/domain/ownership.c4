@@ -1,0 +1,112 @@
+model {
+  extend daem.owners.assurance {
+    stateAuthority = domainObject 'State authority' 'Exact State-file key; manifest path is provenance.' {
+      description '''
+        `stateauthority.Authority` identifies the owner by the State-file path key and its filesystem-semantics
+        witness. Manifest path is diagnostic provenance, not the owner key. The selected StateDir contains the State
+        file and its RecoveryDir; the output and carrier registries are shared user data. Moving State registration
+        is a checked transfer, not a change of the diagnostic manifest string.
+      '''
+      link ../../internal/assurance/stateauthority/authority.go 'Owner equality and exact identity'
+      link ../../internal/paths/paths.go 'State, recovery, and data roots'
+      link ../../internal/workflow/migrate/state.go 'State authority transfer'
+    }
+  }
+
+  extend daem.owners.outputIdentity {
+    managedAddress = domainObject 'Managed address' 'Exact physical path + one typed footprint.' {
+      description '''
+        `ownership.ManagedAddress` combines `pathauthority.Exact` with a whole-path or key footprint. Exact equality
+        compares path identity and footprint. An overlap can also follow from path ancestry or intersecting key scopes.
+        `MayOverlap` conservatively excludes possible conflicts with legacy namespace evidence; it proves neither
+        equality nor containment. A provisional path is likewise not an exact address. `ownership.LogicalKey`
+        (portable destination and footprint) identifies an operation row, not a physical write capability.
+      '''
+      link ../../internal/output/ownership/address.go 'Exact and possible overlap'
+      link ../../internal/output/ownership/legacy_native_overlap_test.go 'Uncertain overlap is not equality'
+      link ../../internal/output/ownership/logical_key.go 'Logical operation key'
+    }
+    registry = domainObject 'Output Registry' 'Independent sets of claims, bindings, and protections.' {
+      description '''
+        `ownership.Registry` tracks output facts. It admits disjoint key claims on one physical document but
+        rejects overlapping addresses, including whole path versus any key. Ordinary output claims are planned
+        for global placements; native document selection also covers project-scope claimed documents and keys.
+        Project work has its own project-root evidence and can still be fenced by Registry facts. Host carrier
+        claims are kept in a distinct registry, not this one.
+      '''
+      link ../../internal/output/ownership/registry.go 'Registry fact families and validation'
+      link ../../internal/effect/execute/claimoperation/plan.go 'Ordinary claim planning'
+      link ../../internal/effect/journal/document/selection.go 'Native claim selection'
+      link ../../internal/workflow/apply/authority.go 'Project-root authority and Registry exclusions'
+    }
+    claim = domainObject 'Output claim' 'Exactly one address and one State owner.' {
+      description '''
+        `ownership.Claim` is reserved or active. A reserved claim excludes competitors and carries exactly one
+        operation ID. An active claim has no operation ID and supplies settled ownership for update or removal,
+        subject to the effect's other checks. Equal live data, a document binding, a source lock, or a conditional
+        acquire intent cannot stand in for this durable fact.
+      '''
+      link ../../internal/output/ownership/claim.go 'Claim identity and state-dependent fields'
+      link ../../internal/output/ownership/registry_test.go 'Disjoint keys versus overlapping claims'
+    }
+    documentBinding = domainObject 'Native document binding' 'One exact physical namespace per owner and destination.' {
+      description '''
+        `ownership.DocumentBinding` records the selected physical namespace for an owner and portable destination.
+        A physical document can have several bindings. A binding grants neither exclusive ownership nor permission
+        to write. Before/after membership determines whether a binding is retained, created, or retired. Changing
+        the exact target of an existing binding requires explicit transfer rather than accepting an alias retarget.
+      '''
+      link ../../internal/output/ownership/document_binding.go 'Binding identity and target'
+      link ../../internal/output/ownership/document_binding_intent.go 'Intent versus observed binding'
+      link ../../internal/effect/journal/document/binding_membership.go 'Before/after membership checks'
+    }
+    permissionProtection = domainObject 'Pending permission protection' 'One invocation, one owner, one or more protected documents.' {
+      description '''
+        `ownership.PendingProtection` fences every covered physical document, including writes by its own owner.
+        Each protected document freezes a nonempty binding cohort and a UID/GID/mode ceiling. An armed record has
+        no execution binding; a bound record has exactly one. Clearing requires the appropriate execution and
+        quiescence evidence. A binding and protection can exist with no claims at all.
+      '''
+      link ../../internal/output/ownership/protection.go 'Document and invocation facts'
+      link ../../internal/output/ownership/registry_protection.go 'Whole-document exclusion and overlap'
+      link ../../internal/output/ownership/protection_transition.go 'Arm, bind, and clear transitions'
+      link ../../internal/output/ownership/protection_test.go 'Fencing independent of claims'
+    }
+  }
+
+  daem.owners.assurance .facts daem.owners.outputIdentity 'Qualifies observed physical identity'
+  daem.owners.outputIdentity .facts daem.owners.reconcile 'Supplies observed claim, binding, and protection facts'
+  daem.owners.effect .coordination daem.owners.outputIdentity 'Applies qualified ownership transitions'
+
+  daem.owners.assurance.stateAuthority .domainRelation daem.owners.assurance.physicalPath 'Owner identity is an exact State-file path key'
+  daem.owners.outputIdentity.managedAddress .domainRelation daem.owners.assurance.physicalPath 'Selects an exact physical namespace'
+  daem.owners.outputIdentity.managedAddress .domainRelation daem.owners.outputIdentity.footprint 'Restricts authority to one footprint'
+  daem.owners.outputIdentity.registry .domainRelation daem.owners.outputIdentity.claim 'Stores zero or more non-overlapping claims'
+  daem.owners.outputIdentity.registry .domainRelation daem.owners.outputIdentity.documentBinding 'Stores logical-to-physical bindings independently'
+  daem.owners.outputIdentity.registry .domainRelation daem.owners.outputIdentity.permissionProtection 'Stores whole-document invocation fences independently'
+  daem.owners.outputIdentity.claim .domainRelation daem.owners.outputIdentity.managedAddress 'Claims exactly one address'
+  daem.owners.outputIdentity.claim .domainRelation daem.owners.assurance.stateAuthority 'Belongs to one State owner'
+  daem.owners.outputIdentity.documentBinding .domainRelation daem.owners.assurance.stateAuthority 'Keyed by this owner and a destination'
+  daem.owners.outputIdentity.documentBinding .domainRelation daem.owners.assurance.physicalPath 'Binds to a verified physical document'
+  daem.owners.outputIdentity.permissionProtection .domainRelation daem.owners.assurance.stateAuthority 'Records the invocation owner'
+  daem.owners.outputIdentity.permissionProtection .domainRelation daem.owners.outputIdentity.documentBinding 'Captures each protected document’s binding cohort'
+  daem.owners.assurance.carrierClaim .domainRelation daem.owners.assurance.stateAuthority 'Uses the same State owner key, not an output claim'
+}
+
+views 'Domain model' {
+  view domainOutputOwnership {
+    title 'Output ownership, document bindings, and permission fences'
+    order 9
+    description '''
+      Two State owners can hold disjoint key footprints in one physical document. A whole-file claim overlaps
+      all of them. Separately, a pending invocation protects the entire document even if the Registry has no
+      claims. A binding tells daem where the logical document is; it cannot authorize a write to it.
+    '''
+    link ../../internal/output/ownership/registry_test.go 'Overlapping and disjoint claims'
+    link ../../internal/output/ownership/protection_test.go 'Protection fences with zero claims'
+    include daem.owners.assurance.stateAuthority, daem.owners.assurance.physicalPath, daem.owners.outputIdentity.footprint,
+      daem.owners.outputIdentity.managedAddress, daem.owners.outputIdentity.registry, daem.owners.outputIdentity.claim,
+      daem.owners.outputIdentity.documentBinding, daem.owners.outputIdentity.permissionProtection
+    exclude * -> * where kind is not domainRelation
+  }
+}

@@ -1,0 +1,265 @@
+model {
+  extend daem.owners.desired {
+    environment = domainObject 'Desired environment' 'Normalized declarations, targets, and defaults.' {
+      description '''
+        `desired.Environment` is the canonical authored aggregate. It validates each family and rejects duplicate authored
+        IDs, explicit skill destination collisions, duplicate extension carrier selections, and invalid hook asset references.
+        Collisions involving expanded skill members or native document leaf keys are checked during lock assembly and
+        admission, after those subjects exist. Desired does not resolve source bytes or grant output ownership.
+      '''
+      link ../../internal/desired/environment.go 'Environment and cross-declaration validation'
+      link ../../internal/declaration/toml_decode.go 'TOML normalization boundary'
+    }
+    entityId = domainObject 'Authored entity ID' 'Resource family + family-local name.' {
+      description '''
+        `entity.ID` identifies a desired entity independently of targets, placement, source versions, and runtime occurrences.
+        It is not the CLI operand key or an installed path. Several lowered lock rows may refer to the same entity.
+        Selector-backed `SkillSet` declarations do not have an `entity.ID`; their expanded skills do.
+      '''
+      link ../../internal/desired/entity/id.go 'Closed family kinds and canonical identity'
+    }
+    skillSet = domainObject 'Selector-backed skill set' 'Child selection and correlation, not an installed group.' {
+      description '''
+        A `skill.SkillSet` selects direct children from supplied listing facts and expands to individual `Skill` values at lock time.
+        `SkillSetDeclarationIdentity` correlates an expanded locked member with the normalized group; it does not replace the
+        member's `entity.ID`, `SubjectID`, or exact artifact identity. Explicit-name groups normalize to individual skills.
+      '''
+      link ../../internal/desired/skill/set.go 'Selector-backed declaration'
+      link ../../internal/desired/skill/set_identity.go 'Declaration correlation digest'
+      link ../../internal/realization/lock/build/skill_groups.go 'Lock-time expansion'
+    }
+    skill = domainObject 'Skill' 'Authored name, source, and placement intent.' {
+      description '''
+        An explicit or expanded `skill.Skill`. The authored name, installed leaf name, and declared source are separate.
+        Lock produces one resource subject for its exact artifact plus path projection subjects for the selected placements.
+        Several consumer targets can share one projection when the selected placement is shared.
+      '''
+      link ../../internal/desired/skill/model.go 'Skill identity and selected targets'
+      link ../../internal/realization/lock/build/skills.go 'Resource and path rows for each skill'
+      link ../../internal/realization/lock/build/skill_projection_test.go 'One projection for a shared placement'
+    }
+    instructions = domainObject 'Instructions' 'One exact file source with target-specific rendering.' {
+      description '''
+        `instructions.Instructions` owns its resource ID, source, scope, and a nonempty target set. Each target may
+        request a render path and mode. The host profile interprets the path and supplies placement defaults. Lock
+        retains one exact-file row and the rendered path projections. One projection can cover several targets
+        that select the same admitted placement and mode. A rendering is separate from the supplied bytes.
+      '''
+      link ../../internal/desired/instructions/model.go 'Rendering and target selection'
+      link ../../internal/realization/lock/build/instructions.go 'File resource plus path projections'
+      link ../../internal/realization/lock/refine/instructions.go 'Host placement and shared consumers'
+    }
+    hook = domainObject 'Hook' 'Targeted command contribution, optionally consumes assets.' {
+      description '''
+        `hook.Hook` owns event, command, target and override intent. A supported command hook lowers to native contributions
+        for its target and scope. Its command text is not an exact Supply artifact. An explicit asset placeholder introduces
+        a checked dependency on the same-scope asset projection, not an ownership claim on arbitrary command paths.
+      '''
+      link ../../internal/desired/hook/model.go 'Canonical command and target intent'
+      link ../../internal/topology/hook/lower.go 'Hook projection and asset consumption'
+    }
+    hookAsset = domainObject 'Hook asset' 'A source-backed file identified separately from its consumers.' {
+      description '''
+        Every admitted `hookasset.HookAsset` contributes an exact-file Supply row. Only a referenced asset gets a managed
+        path projection for its scope, shared by the hooks that consume it. An unreferenced asset can therefore be locked
+        without a host path to install. Exact-file use and materialization are computed in both cases. A deterministic
+        transform is recorded only when the requested executable intent changes the file identity.
+      '''
+      link ../../internal/desired/hookasset/model.go 'Asset declaration'
+      link ../../internal/topology/hook/lower.go 'Consumer graph'
+      link ../../internal/realization/lock/build/hook_assets.go 'File supply and materialization'
+      link ../../internal/realization/lock/refine/hook.go 'Referenced path projection'
+    }
+  }
+
+  extend daem.owners.topology {
+    graph = domainObject 'Structural graph' 'Validated subjects and typed edges.' {
+      description '''
+        `topology.Graph` holds unique `SubjectID`s and typed `Edge`s. Endpoints must exist and match the edge's roles.
+        `consumed_by` must be acyclic; a contribution has exactly one `provided_by` carrier. Family lowering uses the graph
+        for related roles such as hook asset consumption or MCP providers and launch dependencies. A graph node need not
+        have a lock row: an executable dependency and an environment-name reference are not managed assets.
+      '''
+      link ../../internal/topology/graph.go 'Typed graph API'
+      link ../../internal/topology/graph_builder.go 'Edge and cardinality validation'
+    }
+    subjectId = domainObject 'Lowered subject ID' 'Structural role + collision namespace + key.' {
+      description '''
+        `topology.SubjectID` identifies a structural subject independently of a lock revision or runtime occurrence.
+        A resource subject can identify exact Supply; a projection has a placement or family-specific binding namespace.
+        A relation, carrier, contribution, executable dependency, or credential reference has its own structural role.
+        For example, a skill can keep one resource subject while projecting to several distinct paths. Installed state refers
+        back to a projection even after its declaration is removed.
+      '''
+      link ../../internal/topology/subject.go 'Role and stable ID'
+      link ../../internal/topology/resource 'Resource subject construction'
+      link ../../internal/topology/projection 'Projection subject construction'
+    }
+    structuralEdges = domainObject 'Structural edge' 'An admitted role-to-role relationship in the graph.' {
+      description '''
+        `topology.Edge` uses `provided_by`, `bound_to`, `launches_via`, `depends_on`, or `consumed_by`.
+        These are relationships among named subjects, not execution steps or package imports. For example, a hook asset
+        projection is `consumed_by` its hooks, and an Adapter provider contribution is `bound_to` an MCP projection.
+      '''
+      link ../../internal/topology/edge.go 'Structural edge kinds'
+      link ../../internal/topology/graph_builder.go 'Allowed endpoints per kind'
+    }
+  }
+
+  extend daem.owners.supply {
+    declaredSource = domainObject 'Declared source' 'Git, local, or S3 provenance before resolution.' {
+      description '''
+        `source.Source` selects a typed locator and source options. A Git ref or an unversioned object can resolve to
+        different content on a later lock. A host carrier source is a different type of intent; it does not turn a
+        host installer or package into an exact Supply artifact.
+      '''
+      link ../../internal/supply/source/source.go 'Typed source provenance'
+      link ../../internal/supply/source/git.go 'Git locator, selection, and ref'
+    }
+    exactArtifact = domainObject 'Exact artifact identity' 'Source ID, optional resolved ref, kind, digest.' {
+      description '''
+        `artifact.ExactIdentity` is the resolved artifact, not its cache location or installed path. Equality compares
+        all four fields. Supply checks artifact content against this identity. A copied installation can carry an
+        installed-content baseline whose digest and projected membership answer a different question.
+      '''
+      link ../../internal/supply/artifact/model.go 'Identity and exact comparison'
+      link ../../internal/supply/source/resolution 'Canonical resolution boundary'
+    }
+    derivation = domainObject 'Locked derivation' 'Direct resolution or an identified deterministic transform.' {
+      description '''
+        `lock.DerivationContract` records how exact Supply participates in replay. A transform names input and expected
+        output identities and the recipe or algorithm identity. For skill repair, the locked artifact is the repaired
+        output and the stored recipe still names the original input. File materialization for instructions, hook assets,
+        and native documents keeps the exact source identity on the file-use row. It records a transform rather than
+        direct resolution when the materialized identity differs, for example when a hook asset gains the executable bit.
+      '''
+      link ../../internal/realization/lock/derivation.go 'Derivation variants and supply equality'
+      link ../../internal/realization/lock/build/skill_repair.go 'Original and repaired skill identity'
+      link ../../internal/realization/lock/build/hook_assets_test.go 'Executable intent apart from exact Supply'
+    }
+  }
+
+  extend daem.owners.realization {
+    lockSnapshot = domainObject 'Lock snapshot' 'Deterministic locked subjects and order constraints.' {
+      description '''
+        `lock.File` contains a version and `LockedSection`. The section validates and indexes its rows, with at most
+        one row per `SubjectID` and potentially many per authored entity. It also validates cross-subject order constraints.
+        It is neither a serialization of all topology edges nor a record of installed state or acquired ownership.
+      '''
+      link ../../internal/realization/lock/collection.go 'Subject and entity indexes'
+      link ../../internal/realization/lock/build/build.go 'Lock assembly across families'
+    }
+    lockedSubject = domainObject 'Locked subject contract' 'One authored entity reference and one structural subject.' {
+      description '''
+        `lock.LockedSubjectContract` has orthogonal optional exact Supply and structural realization facets; at least one is
+        required, and family admission narrows their combinations. A skill resource row supplies bytes and a separate projection
+        row names its destination. An MCP binding row has a contribution without exact Supply; an extension has a delegated
+        relation. Operation contracts, replay coverage and optional launch/provider facts do not grant acquired authority.
+      '''
+      link ../../internal/realization/lock/locked_subject_contract.go 'Canonical row and its facets'
+      link ../../internal/realization/lock/exact_supply_contract.go 'Supply-only resource row'
+      link ../../internal/realization/lock/mcp_contract.go 'MCP projection row'
+    }
+    realizationForm = domainObject 'Structural realization' 'One closed RealizationSpec variant when present.' {
+      description '''
+        `realization.RealizationSpec` selects exactly one of `ManagedPathProjection`, `aggregate.ManagedContribution`,
+        or `DelegatedRelation`. A `DelegatePlan` or host-command route is actuation, not another structural variant.
+      '''
+      link ../../internal/realization/realization.go 'Closed structural union'
+      link ../../internal/realization/realization_validation.go 'Validate the selected body'
+    }
+    pathProjection = domainObject 'Managed path projection' 'One portable destination with one or more consumer targets.' {
+      description '''
+        `realization.ManagedPathProjection` records placement, scope, shape, copy/link form and permission policy. Its
+        destination is a root role plus a relative path, not a captured filesystem object. The target set records who
+        consumes the projection; sharing one path is not a license for multiple manifests to own it. A dedicated
+        `agent_config` document is a whole-path realization, not a root key contribution.
+      '''
+      link ../../internal/realization/managed_path_realization.go 'Managed path identity and policy'
+      link ../../internal/output/destination.go 'Portable destination'
+      link ../../internal/realization/lock/native_document_admission.go 'Dedicated document path realization'
+    }
+    operationContract = domainObject 'Locked operation contract' 'At most one contract per operation kind on a subject.' {
+      description '''
+        `lock.OperationContract` constrains a route, actuation, authority category, preconditions, verification, trust
+        activation and recovery for the selected operation. It describes what a locked subject can ask for, not which leases are
+        currently held, what work has been confirmed, or what a subprocess actually did.
+      '''
+      link ../../internal/realization/lock/operation_contract.go 'Operation-specific route and verification facts'
+      link ../../internal/realization/lock/locked_subject_contract.go 'Unique operation per row'
+    }
+  }
+
+  extend daem.surface {
+    surfaceKey = domainObject 'Host-surface key' 'Target, scope, desired family, and variant.' {
+      description '''
+        `hostsurface.SurfaceKey` selects static support and placement facts. It does not contain the name of a particular
+        desired entity, resolved artifact, physical output, or installed occurrence. A private `SurfaceID` links catalog
+        rows; it does not replace the identities emitted by topology or stored in a lock.
+      '''
+      link ../../internal/hostsurface/key.go 'Static lookup identity'
+      link ../../internal/hostsurface/catalog/product.go 'Product lookup views'
+    }
+  }
+
+  daem.owners.desired.environment .domainRelation daem.owners.desired.entityId 'Validates authored family IDs'
+  daem.owners.desired.environment .domainRelation daem.owners.desired.skillSet 'Can include selector-backed declarations'
+  daem.owners.desired.skillSet .domainRelation daem.owners.desired.skill 'Expands a successful selection into individual skills'
+  daem.owners.desired.skill .domainRelation daem.owners.supply.declaredSource 'Selects a source directory'
+  daem.owners.desired.skill .domainRelation daem.owners.realization.lockedSubject 'One Supply row plus a row per selected placement'
+  daem.owners.desired.instructions .domainRelation daem.owners.supply.declaredSource 'Selects a file input'
+  daem.owners.desired.instructions .domainRelation daem.owners.realization.lockedSubject 'One file-use row plus selected rendering projections'
+  daem.owners.desired.hook .domainRelation daem.owners.realization.lockedSubject 'Locks contributed values, not command artifacts'
+  daem.owners.desired.hookAsset .domainRelation daem.owners.supply.declaredSource 'Selects an exact file source'
+  daem.owners.desired.hookAsset .domainRelation daem.owners.realization.lockedSubject 'One exact file row even without a consumer'
+  daem.owners.desired.hookAsset .domainRelation daem.owners.realization.pathProjection 'One scoped path when referenced'
+  daem.owners.desired.hook .domainRelation daem.owners.desired.hookAsset 'May reference named, same-scope assets'
+  daem.owners.desired.environment .domainRelation daem.owners.topology.graph 'Supplies normalized intent for family lowering'
+  daem.owners.desired.entityId .domainRelation daem.owners.topology.subjectId 'Can lower to multiple structural roles or placements'
+  daem.owners.topology.graph .domainRelation daem.owners.topology.subjectId 'Contains a unique set of structural IDs'
+  daem.owners.topology.graph .domainRelation daem.owners.topology.structuralEdges 'Validates edge endpoints, providers and consumption'
+  daem.owners.supply.declaredSource .domainRelation daem.owners.supply.exactArtifact 'Resolves selected input to an exact artifact'
+  daem.owners.supply.derivation .domainRelation daem.owners.supply.exactArtifact 'Names direct identity or transform input and output'
+  daem.owners.topology.subjectId .domainRelation daem.owners.realization.lockedSubject 'Keys a row when the subject is locked'
+  daem.owners.desired.entityId .domainRelation daem.owners.realization.lockedSubject 'Correlates one entity with its lock rows'
+  daem.owners.supply.exactArtifact .domainRelation daem.owners.realization.lockedSubject 'Supplies the optional exact artifact facet'
+  daem.owners.supply.derivation .domainRelation daem.owners.realization.lockedSubject 'Records replay or materialization provenance'
+  daem.owners.realization.lockSnapshot .domainRelation daem.owners.realization.lockedSubject 'Contains unique, deterministically ordered rows'
+  daem.owners.realization.lockedSubject .domainRelation daem.owners.realization.realizationForm 'May specify one structural form'
+  daem.owners.realization.lockedSubject .domainRelation daem.owners.realization.operationContract 'Retains supported operation constraints'
+  daem.owners.realization.realizationForm .domainRelation daem.owners.realization.pathProjection 'Managed path variant'
+  daem.surface.surfaceKey .domainRelation daem.owners.realization.pathProjection 'Distinguishes static placement choices from instances'
+}
+
+views 'Domain model' {
+  view domainDeclarations {
+    title 'Declarations, identities, and exact supply'
+    order 2
+    description '''
+      A declaration is not a lock row, and a source version is not an installed baseline. Follow the two branches:
+      topology names the structural subjects, while Supply resolves their content. The lock joins the relevant facts.
+    '''
+    include daem.owners.desired.environment, daem.owners.desired.entityId, daem.owners.topology.graph,
+      daem.owners.topology.subjectId, daem.owners.topology.structuralEdges, daem.owners.supply.declaredSource,
+      daem.owners.supply.exactArtifact, daem.owners.supply.derivation, daem.owners.realization.lockSnapshot,
+      daem.owners.realization.lockedSubject, daem.owners.realization.realizationForm, daem.owners.realization.operationContract
+    exclude * -> * where kind is not domainRelation
+  }
+
+  view domainSourceBacked {
+    title 'Source-backed skills, instructions, and hook assets'
+    order 3
+    description '''
+      A shared skill or instruction placement can have one locked projection for multiple consumer targets.
+      An asset with no hook references has an exact Supply row but no installed projection. Follow the locked
+      subject to see which parts identify exact content and which parts select a destination.
+    '''
+    link ../../internal/realization/lock/build/skill_projection_test.go 'Shared skill placement witness'
+    link ../../internal/realization/lock/build/hook_assets_test.go 'Exact-file use and asset materialization witnesses'
+    include daem.owners.desired.skillSet, daem.owners.desired.skill, daem.owners.desired.instructions, daem.owners.desired.hook,
+      daem.owners.desired.hookAsset, daem.owners.supply.declaredSource, daem.owners.supply.exactArtifact,
+      daem.owners.realization.lockedSubject, daem.owners.realization.realizationForm, daem.owners.realization.pathProjection,
+      daem.surface.surfaceKey
+    exclude * -> * where kind is not domainRelation
+  }
+}
