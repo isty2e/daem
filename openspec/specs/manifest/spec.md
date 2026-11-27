@@ -22,7 +22,7 @@ Daem SHALL accept integer `version = 1` as the manifest schema, not a daem relea
 
 ### Requirement: Resolve defaults without broadening a declaration
 
-The manifest SHALL define a nonempty default target set. A resource that accepts `targets` inherits that set when its value is omitted or empty; a nonempty resource set replaces it. The authored target values must be supported and nonduplicated. Hook assets have no target field; selection comes from their consumers.
+The manifest SHALL define a nonempty default target set. Target values are `codex`, `claude-code`, `opencode`, `pi` and `antigravity-cli`, with no duplicates within a declared set. A resource that accepts `targets` inherits it when omitted or empty; a nonempty resource set replaces it. Hook assets have no target field; selection comes from their consumers.
 
 When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest recognizes `copy`, `symlink`, and `hardlink` for skills. A selected non-copy placement is refused before an executable dry-run plan or host mutation.
 
