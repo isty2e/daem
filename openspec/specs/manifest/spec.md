@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Define how daem reads a declaration and resolves its defaults. The [TOML decoder](../../../internal/declaration/toml_decode.go) owns exact fields and types; [manifest loading](../../../internal/declaration/manifest) owns normalization and placement validation. The [Manifest Reference](../../../docs/manifest.md) provides examples and field lookup.
+Define how daem reads a declaration and resolves its defaults. The [TOML decoder](../../../internal/declaration/toml_decode.go) and [manifest loading](../../../internal/declaration/manifest) implement those checks. Resource-specific capabilities give the admitted forms; the [Manifest Reference](../../../docs/manifest.md) is the reference for looking up fields and examples.
 
 ## Requirements
 
 ### Requirement: Read a versioned declaration
 
-Daem SHALL accept the supported integer manifest version defined in [contractversion](../../../internal/contractversion/current.go). It SHALL reject unknown fields, invalid TOML types, and declarations that cannot form a valid resource. Recognizing a resource or target name does not imply that every operation on it is supported.
+Daem SHALL accept integer `version = 1` as the manifest schema, not a daem release version. It SHALL reject unknown fields, invalid TOML types, and declarations that cannot form a valid resource. It reads a [bounded, stable regular-file referent](../../../internal/declarationartifact/artifact.go) and applies the decoder's TOML structure bounds. Recognizing a resource or target name does not imply that every operation on it is supported.
 
 #### Scenario: An editor accepts a non-integer version
 
@@ -22,7 +22,9 @@ Daem SHALL accept the supported integer manifest version defined in [contractver
 
 ### Requirement: Resolve defaults without broadening a declaration
 
-The manifest SHALL define a nonempty default target set. A resource without `targets` inherits it; an explicit set replaces it. Each declared set must use supported target identifiers without duplicates. Scope defaults to `project`, and skill install mode defaults to `copy`, unless changed at a level admitting an override. The manifest recognizes `copy`, `symlink`, and `hardlink`; recognizing a mode is not permission to apply it. Copy is the supported mutating skill placement.
+The manifest SHALL define a nonempty default target set. A resource that accepts `targets` inherits that set when its value is omitted or empty; a nonempty resource set replaces it. The authored target values must be supported and nonduplicated. Hook assets have no target field; selection comes from their consumers.
+
+When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest recognizes `copy`, `symlink`, and `hardlink` for skills. A selected non-copy placement is refused before an executable dry-run plan or host mutation.
 
 #### Scenario: Select one target at execution
 
@@ -32,11 +34,11 @@ The manifest SHALL define a nonempty default target set. A resource without `tar
 #### Scenario: Decode an unsupported skill install mode
 
 - **WHEN** a skill selects a recognized `symlink` install mode
-- **THEN** daem does not treat that mode as an approved mutating placement
+- **THEN** parsing may succeed, but preview or apply cannot proceed with that placement
 
 ### Requirement: Keep editor validation advisory
 
-The optional [editor schema](../../../schemas/daem.schema.json) SHALL describe the manifest's structural syntax using its portable Draft 4 subset. The runtime decoder and the operation's validation, not the editor, determine admission. A schema pass does not establish source availability, lock freshness, permission to mutate, or host readiness. The schema can be associated with the matching release or source revision; daem does not configure or check the editor's association.
+Daem SHALL determine admission from runtime decoding and the operation's checks, not editor validation. The optional [editor schema](../../../schemas/daem.schema.json) currently describes structural syntax in a portable Draft 4 subset. A matching schema can assist editing; daem does not configure or check the association. A schema pass says nothing about source availability, lock freshness, mutation authority or runtime readiness.
 
 #### Scenario: A resource passes a structural check but has an invalid reference
 

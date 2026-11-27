@@ -2,17 +2,32 @@
 
 ## Purpose
 
-Define the supported ways to identify an input artifact, the boundary of the artifact, and what daem may reuse. The executable [source grammar](../../../internal/supply/source), [Git backend](../../../internal/supply/source/backend/gitcli), and [S3 backend](../../../internal/supply/source/backend/s3object) own exact parsing, canonical encodings, and acquisition policy.
+Define the supported ways to identify an input artifact, the boundary of the artifact, and what daem may reuse. The [source parser](../../../internal/supply/source), [Git backend](../../../internal/supply/source/backend/gitcli), and [S3 backend](../../../internal/supply/source/backend/s3object) implement these contracts.
 
 ## Requirements
 
-### Requirement: Keep Git locators, artifact paths, and selectors distinct
+### Requirement: Admit only the supported Git locator forms
 
-Daem SHALL admit credential-free HTTPS, SSH URLs with at most username userinfo, Git scp-like locators, hostless absolute `file:///` URLs, and native absolute repository paths. It SHALL reject unsafe or unmodeled forms including HTTP, `git://`, remote helpers, URL passwords, and query or fragment fields. Locator, path and ref text must satisfy the [grammar](../../../internal/supply/source/git.go), including the checks on decoded URL paths. Git/SSH credentials stay outside the declaration and the lock. A Git source cannot set local `mode`.
+Daem SHALL validate nonempty UTF-8 locator, path and ref text without surrounding whitespace or Unicode control or format characters, including after decoding a URL path. Locators cannot start with `-` or use `::` helper syntax. URL forms do not admit query or fragment fields. HTTP and `git://` are not admitted supply transports. Git/SSH credentials stay outside the declaration and lock; local `mode` is not a Git field.
 
-The repository-relative POSIX `path` selects only the artifact to export, at the commit resolved from `ref`. It must be clean, use slash separators, and remain inside the repository; `.` selects the root. Archive links and escaping entries do not become artifacts. A ref is an unambiguous branch/tag, `refs/heads/` or `refs/tags/` name, or full 40- or 64-hex object ID. Abbreviations, pseudo-refs, revision expressions, refspecs and unsafe symbols are not equivalent selectors. The canonical source identity includes locator, path and selector, not the resolved commit. Older delimiter-based Git identities require lock regeneration; there is no alias.
+| Form | Admission |
+| --- | --- |
+| `https://host/path` | Host and non-root repository path; no userinfo, including username-only. |
+| `ssh://[user@]host[:port]/path` | Host and non-root repository path; an optional nonempty username, no password. |
+| `[user@]host:path` | Nonempty host and path; optional nonempty user; no slash before the first colon, whitespace, extra `@`, or option-shaped host. |
+| `file:///absolute/path` | No host or userinfo; decoded path must be absolute. |
+| Native absolute path | Resolved with the native lexical cleaner; no relative repository locator or `~` expansion. |
 
-Daem uses system Git with the required object-format support: SHA-1 can use older Git without `--object-format`, SHA-256 requires it, and a capable Git receives the explicitly selected format. The caller's `GIT_DEFAULT_HASH` does not choose it. Remote format observation runs in a rooted repository context rather than allowing an enclosing repository's URL rewrite to redirect that observation.
+#### Scenario: HTTPS includes a username
+
+- **WHEN** a locator resembles `https://user@example.org/repo`
+- **THEN** daem rejects it even though it includes no password
+
+### Requirement: Resolve a Git selector to one exact artifact
+
+The artifact `path` SHALL be clean POSIX, slash-separated, relative and non-escaping; `.` selects the root and backslashes are rejected. Daem rejects Git exports containing links or escaping entries. A ref must be an unqualified branch/tag that matches exactly one candidate, a qualified `refs/heads/` or `refs/tags/` name, or a full 40- or 64-hex object ID. Abbreviations, pseudo-refs, revision expressions, refspecs and option-shaped selectors are rejected.
+
+Symbolic names exclude leading or trailing `/`, `//`, `..`, `@{`, whitespace, `~`, `^`, `:`, `?`, `*`, `[`, backslash, trailing `.`, components starting with `.`, and components ending in `.lock`. The stored Git identity is `git:locator=<query-escaped-locator>&path=<query-escaped-path>&ref=<query-escaped-canonical-selector>` in that order; selectors use `name:`, `branch:`, `tag:` or `commit:` with a lower-case full object ID. The resolved commit is separate. Older delimiter-based Git identities require lock regeneration, not an alias.
 
 #### Scenario: A branch and a tag share a name
 
@@ -24,11 +39,22 @@ Daem uses system Git with the required object-format support: SHA-1 can use olde
 - **WHEN** the same admitted branch selector resolves to a new commit on a later lock
 - **THEN** the source identity stays the same while `resolved_ref` records the new commit
 
+### Requirement: Observe Git format at the declared source
+
+Daem SHALL contact only the declared locator for network format observation. An enclosing repository's URL rewrite cannot choose another repository for that observation. System Git can resolve SHA-1 on versions without explicit format selection and must support SHA-256 to resolve that format. The caller's `GIT_DEFAULT_HASH` does not choose the source's format. The backend currently also checks the effective origin before fetch and refuses an origin that did not resolve to the declared locator.
+
+#### Scenario: A surrounding Git repository defines a URL rewrite
+
+- **WHEN** a rewrite would redirect format observation to a different repository
+- **THEN** format observation does not contact that substitute
+
 ### Requirement: Resolve local and S3 inputs without mixing source kinds
 
-Local sources SHALL resolve by filesystem path. Project-relative paths resolve from the selected manifest's directory; global local sources require absolute paths. An admitted local source declares `vendor` or `link`; a project-scoped link skill or skill group requires `portable = false`. This describes the source, not permission to install a symlink. Resource-specific forms still apply: for example, an instruction can specify a local file directly, a skill uses a structured source, and an opaque hook command is not a source declaration.
+Local sources SHALL resolve by filesystem path. Project-relative paths resolve from the selected manifest's directory; global local sources require absolute paths. The selected local artifact and its contents do not admit symlink entries, even with `mode = "link"`; ordinary root lookup can resolve ancestor symlinks. The mode describes the source, not permission to install a symlink. [Skills](../skills/spec.md), [instructions](../instructions/spec.md) and [hook assets](../hooks/spec.md) define which source forms they accept.
 
-An S3 source selects one object, not a prefix or bucket. It may request one `version_id` and supply a `region` override; otherwise region and credentials come from the AWS SDK configuration. Object formats are `file` (default), `tar`, and `tar.gz` (`tgz` is an alias). Reject invalid locators and fields for another source kind. Record a returned VersionId as `resolved_ref` and the materialized content hash even when no VersionId is returned. An explicitly versioned source may reuse a verified cache entry without creating an AWS client; unversioned sources refetch on a later resolution. An ETag alone is not immutable identity.
+An S3 URI `s3://bucket/key` selects one object, not a prefix or bucket. Reject query strings, fragments, embedded credentials, empty keys and keys ending in `/`. The source can request `version_id` and override `region`; otherwise region and credentials come from the AWS SDK configuration. Formats are `file` (default), `tar`, and `tar.gz` (`tgz` is an alias). Do not mix values from different source kinds; unused empty fields that the decoder treats as absent do not select another kind.
+
+`resolved_ref` records the returned VersionId, or the requested ID if none is returned. Always record the materialized content hash. An exact verified hit for an explicitly versioned source can be resolved without AWS configuration, credentials or network access. Unversioned sources refetch on a later resolution. An ETag alone is not immutable identity.
 
 #### Scenario: A versioned object has a verified exact cache hit
 
@@ -42,9 +68,18 @@ An S3 source selects one object, not a prefix or bucket. It may request one `ver
 
 ### Requirement: Enforce source budgets on data, not just reported sizes
 
-Daem SHALL enforce the [direct-file limit](../../../internal/supply/source/directfile/directfile.go) during hash, exact read and download, including plain S3 file objects. Archive input, decompressed stream, expansion, single-file, logical entry, materialized tree and path limits are separate and owned by the [archive extractor](../../../internal/supply/source/archive/budget.go). Included in the archive accounting are implicit parent directories and raw tar bytes after the end marker; cache wrappers and completion metadata have separate capacity. Archive safety checks reject links, special files, traversal, backslashes and parent segments independently of size.
+The [direct-file limit](../../../internal/supply/source/directfile/directfile.go) SHALL apply during source resolution, lock, status and apply, including local files, plain S3 objects, instruction files and hook assets. Known sizes provide early rejection evidence, not a substitute for bounded hash, read or download. Archive budgets are separate, not a larger allowance for plain objects. The current published limits are:
 
-Declared sizes are useful for early rejection, but the limits also apply to what arrives. A refused input is not truncated into a valid artifact and does not publish a cache completion, new lock result, or host mutation.
+| Quantity | Limit |
+| --- | ---: |
+| Direct file or individual archive file | 128 MiB |
+| Raw tar or gzip input, including trailing data | 256 MiB |
+| Decompressed tar stream | 768 MiB |
+| Total regular-file bytes extracted | 512 MiB |
+| Logical entries and extracted files/directories, separately | 100,000 each |
+| Canonical archive path | 4,096 bytes and 64 components |
+
+Implicit parents count toward the extracted-entry budget; cache wrapper and completion metadata use separate capacity. Archive safety checks reject symlinks, hard links, special files, traversal, backslashes and parent segments independently of size. A refused artifact is not truncated into a valid one and does not publish cache completion, a new lock result, or host effects.
 
 #### Scenario: A plain object exceeds the direct-file limit
 
