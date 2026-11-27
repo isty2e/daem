@@ -31,10 +31,10 @@ Before retiring an active journal, recovery SHALL reconcile every persisted remo
 
 Validate exact private locations, parent namespace and identity, durability and complete intent coverage. Missing, surplus, malformed or conflicting evidence, or a missing/replaced parent, blocks this work. Validation does not create a replacement parent. Do not infer deletion authority from a reserved name or prefix; exact private-name evidence does not protect against deliberate same-user forgery.
 
-| Work scope | Limit |
+| Work scope | Current limit |
 | --- | --- |
 | Removal intents per journal | 4,096, with at most before and expected-after whole-path states per intent |
-| Each planning pass and bound execution lifecycle | 90,112 namespace/slot observations; 524,288 root/path component visits; 400,000 recursive entry visits; 16 GiB regular-file content |
+| Each planning pass and bound execution lifecycle | 90,112 namespace/slot observations; 67,108,864 root/path component visits; 400,000 recursive entry visits; 16 GiB regular-file content |
 | One bound physical path | 256 components |
 | One recovery tree | 100,000 entries, 64 descendant-directory levels, 4 GiB |
 
@@ -51,7 +51,7 @@ Daem SHALL revalidate retirement identity, content and durability. Unavailable o
 
 An already-retired but incomplete journal can leave `journal_cleanup_incomplete` with `retained_cleanup_residue` and `finalize_journal_cleanup`. This action touches only the exact correlated recovery root, retirement control, residue and final collection name; it acquires no host, state, ownership, manifest or lock authority. Preflight entry/depth and mount continuity before advancing the control or deleting the first residue child. FIFO, socket and device children block before deleting earlier siblings. Do not follow symlinks; revalidate and remove the link itself where admitted.
 
-After semantic retirement, best-effort garbage collection can fail and leave private control metadata, not retired journals or backups. Report that failure without recreating a recovery action or fencing later commands. A name alone grants no restart-time deletion authority. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` entries are recognized only to block; malformed entries in that reserved namespace also block. Current daem does not inspect, rename, migrate or delete them.
+After semantic retirement, best-effort garbage collection can fail and leave private control metadata, not retired journals or backups. Report that failure without recreating a recovery action or fencing later commands. A name alone grants no restart-time deletion authority. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` entries are recognized only to block; malformed entries in that reserved namespace also block. Current daem does not inspect, rename, migrate or delete them. Resolve a valid old tombstone with its writer when safe, and do not discard it without independent evidence that no interrupted apply or backup remains.
 
 #### Scenario: Physical garbage collection fails after semantic retirement
 
@@ -60,13 +60,24 @@ After semantic retirement, best-effort garbage collection can fail and leave pri
 
 ### Requirement: Keep declaration transactions and journal authority separate
 
-Daem SHALL distinguish a published file-set transaction, invalid evidence, unprovable StateDir access, bounded census overflow and markerless transaction residue. These are not interchangeable journal states. An active journal can be recovered beside qualifying continuing fences, including a census overflow or markerless residue, without clearing those fences. Invalid evidence or unprovable StateDir authority can block active recovery even when RecoveryDir is accessible. Cleanup-only recovery uses its own recovery-root authority and does not require an unrelated StateDir census. Preserve known evidence on one axis even when the other is unknown; honor cancellation during replan.
+Daem SHALL distinguish a published file-set transaction, invalid evidence, unprovable StateDir access, bounded census overflow and markerless transaction residue. An active journal can be recovered beside a published declaration transaction, census overflow or markerless residue without clearing that continuing fence. Invalid file-set evidence or unprovable StateDir authority blocks active recovery even when RecoveryDir is accessible. Cleanup-only recovery uses its own recovery-root authority and does not require an unrelated StateDir census. Preserve known evidence on one axis even when the other is unknown; honor cancellation during replan.
 
-The exact original authoring/unmanage operation settles its interrupted file-set; native capture has its own newly reviewed [recovery plan](../native-value-commands/spec.md). Generic journal recovery does not settle those writes. Legacy user relocation and shared metadata conversion each have their own [migration recovery](../metadata-migration/spec.md). An unmanage retry does not inspect or repair its file-set while conflicting journal authority remains. Local markerless `.daem-tmp-*`, `.metadata-stage-*`, `.daem-tombstone-*` and `.daem-cleanup-*` residue does not have a supported automatic cleanup route. A name is not evidence from which to infer retry or disposal.
+The exact original authoring write settles its interrupted file-set, including `unmanage extension`. Native capture has its own newly reviewed [recovery plan](../native-value-commands/spec.md). Apply-journal recovery does not settle these declaration writes. Legacy user relocation and shared metadata conversion each have their own [migration recovery](../metadata-migration/spec.md). An unmanage retry does not inspect or repair its file-set while conflicting journal authority remains. Local markerless `.daem-tmp-*`, `.metadata-stage-*`, `.daem-tombstone-*` and `.daem-cleanup-*` residue does not have a supported automatic cleanup route. A name is not evidence from which to infer retry or disposal.
 
-Confirmed apply may clear an exactly verified retired journal or completed selected manifest and default lockfile transaction. If both must clear, verify both before clearing either, retire journal evidence first and recheck the approved plan after cleanup. Retain each completed cleanup if later work stops. Dry-run reports it without changing it. A lockfile-only write can clear the same verified selected completed transaction and a verified retired journal blocking that cleanup; `lock --dry-run` refuses a pending declaration record and leaves both untouched. These routes cannot finish an interrupted declaration write or restore its files.
+Confirmed apply may clear an exactly verified retired journal or completed selected manifest and default lockfile transaction. If both must clear, verify both before clearing either, retire journal evidence first and recheck the approved plan after cleanup. Retain each completed cleanup if later work stops. Dry-run reports it without changing it. A lockfile-only write can clear the same verified selected completed transaction and a verified retired journal blocking that cleanup; `lock --dry-run` refuses a pending declaration record and leaves both untouched. Lock resolves sources normally after cleanup, so floating inputs can advance. These routes cannot finish an interrupted declaration write or restore its files.
 
 #### Scenario: Both retired journal cleanup and completed declaration cleanup are selected
 
 - **WHEN** the declaration record no longer qualifies at the joint preflight
 - **THEN** apply does not clear either record on the strength of the retired journal alone
+
+### Requirement: Recover native management release without replaying host changes
+
+For an interrupted `unmanage agent-config` management release, `recover` SHALL settle the journal's exact file-set for the manifest, default lockfile and State before deciding whether to keep or finish releasing management. This exception covers the published transaction belonging to that release, not a separate declaration fence. Require the recorded State and original control-file locations, including selected symlink referents; pending protection still blocks the release.
+
+After the local transaction is settled, leave later manifest and default-lockfile edits alone, including a re-added declaration. Do not write host content or take a new owner's claims. If the operation removed only an unapplied declaration, it is instead an authoring transaction: retry the original `unmanage agent-config`. A committed edit can leave the ID absent after that retry clears the evidence.
+
+#### Scenario: The declaration was added again after the release's file-set settled
+
+- **WHEN** recovery qualifies the remaining release of only the old management
+- **THEN** it leaves the new declaration, lock and host content unchanged and does not take a new owner's claim

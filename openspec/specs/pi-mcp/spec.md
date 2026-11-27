@@ -51,6 +51,8 @@ The provider's modeled config layers in increasing precedence are `~/.config/mcp
 
 Global providers may read unowned project MCP files before project trust, including eager entries. Daem authors only lazy entries, warns on shared global use and does not sanitize other files. Neither provider qualification nor written entries prove trust, activation, connectivity or tools. Native and Adapter are not admitted import routes.
 
+To change a managed backend, first retire its old managed bindings using their stored codecs. This does not require the new backend's runtime. Retire unused Adapter providers separately; do not remove a provider with other managed consumers. Remaining external Adapter intent may still block Native admission and does not grant daem the right to remove it.
+
 #### Scenario: The selected Adapter version cannot be observed
 
 - **WHEN** the package is present but its installed version cannot qualify for the binding

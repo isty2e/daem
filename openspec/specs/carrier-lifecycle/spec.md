@@ -10,7 +10,7 @@ Define how a declared extension can be observed, installed, adopted, removed, ha
 
 For an observed carrier, confirmed apply SHALL invoke only the locked supported install route after fresh exact absence. Malformed, ambiguous, stale, wrong-scope or unavailable selected evidence is not absence. A command result is attempt evidence only. Claim creation requires its exact fresh postcondition under the selected claim store: project statefile or shared global registry. For an affected global install, commit the verified registry claim before retiring its matching pending state. A pending install alone never grants removal authority.
 
-When passive host evidence lacks source provenance but a specific transition can establish it, require that route's exact pending identity as well as its fresh postcondition. For an admitted route with no observer, ordinary apply instead retries the locked install/create command on every run. `attempted_unverified` records the attempt without supplying a skip, ownership or removal claim. Neither path proves an exact installed artifact, enablement, trust, activation, or inventory of current contributions.
+When passive host evidence lacks source provenance but a specific transition can establish it, require that route's exact pending identity as well as its fresh postcondition. For an admitted route with no observer, ordinary apply instead retries the locked install/create command on every run; the host may repair or update its artifacts. `attempted_unverified` records the attempt without supplying a skip, ownership or removal claim. Neither path proves an exact installed artifact, enablement, trust, activation, or inventory of current contributions.
 
 #### Scenario: An observed route exits zero but selected evidence is ambiguous
 
@@ -32,7 +32,7 @@ Adding or removing a declaration edits the manifest and lock, not the host. Omis
 
 ### Requirement: Remove only exact managed relations without remaining known consumers
 
-Managed removal SHALL require the selected route, exact managed authority, fresh selected evidence, and no remaining daem-known shared consumer. The route's fresh absence condition, not exit status, settles it. Where freshly absent evidence satisfies the route without invocation, retire only the claim. Partial or uncertain outcomes retain the pending record and claim until fresh evidence settles or qualifies retry. Undiscoverable ambient host consumers aren't counted as daem-owned consumers.
+Retirement SHALL require exact managed authority and fresh selected evidence. An already-absent relation with no pending removal can retire just its claim, without separate coupled-cleanup proof or deletion. If a removal is pending, require the full recorded postcondition. To start removal work, use only an admitted [host removal route](../carrier-routes/spec.md) with no remaining daem-known shared consumer; an unsupported route stops before invocation. The route's fresh absence condition, not exit status, settles it. Partial or uncertain outcomes retain the pending record and claim until fresh evidence settles or qualifies retry. Daem does not discover ambient host consumers outside its management.
 
 Coupled deletion for one managed removal does not permit broad prune, unrelated cache/dependency/state deletion, credential/trust changes or disablement of contributions. Scoped evidence and the host route define what gets retained.
 
@@ -69,9 +69,9 @@ Retry requires the same desired target and unambiguous exact old or new settings
 
 ### Requirement: Treat refresh as a distinct one-attempt route
 
-Refresh SHALL run only the one explicitly selected locked route under the [refresh interface](../effect-commands/spec.md#requirement-refresh-one-selected-locked-extension-without-broadening-authority). Require fresh exact presence when the selected route models it and reobserve afterward. Otherwise report an unverified attempt, not package convergence. Do not retry, substitute install, or automatically roll back after start.
+Refresh SHALL run only the one explicitly selected locked route under the [refresh interface](../effect-commands/spec.md#requirement-refresh-one-selected-locked-extension-without-broadening-authority). For an observed route, require fresh exact presence and reobserve afterward. Otherwise a successful attempt is unverified, not package convergence. Do not retry, substitute install, or automatically roll back after start.
 
-Refresh accepts already-applied native keys and dedicated files under the applicable settings-rewrite and physical-separation rules. It cannot apply pending settings or ownership changes. For protected settings, limit access to what was observed just before launch, even on a failed attempt, and retain any tighter mode. Unexpected content changes stop the operation without automatic repair. Do not claim permission containment if it could not be verified; settle an interrupted protection record separately from the host route.
+Refresh accepts already-applied native keys and dedicated files under the applicable settings-rewrite and physical-separation rules. It cannot apply pending settings or ownership changes. Unexpected content changes stop the operation without automatic repair. The same [permission protection](../permission-protection/spec.md) applies: remove access added by the child, retain tighter modes, and settle interrupted protection separately from the route.
 
 #### Scenario: A refresh rewrites Codex settings with tighter permissions
 

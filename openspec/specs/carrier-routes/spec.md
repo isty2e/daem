@@ -13,7 +13,7 @@ For explicit-global `codex-plugin`, daem SHALL observe the exact `[plugins."<plu
 | Operation | Route | Required evidence and retained effects |
 | --- | --- | --- |
 | Install | `codex plugin add <plugin>@<marketplace> --json` | Fresh exact config presence supports a claim and a later converged no-op, not an exact artifact claim. |
-| Refresh | `codex plugin marketplace upgrade <marketplace> --json` | Can change the marketplace snapshot and sibling caches. Either changed or unchanged revisions are `attempted_unverified`. An unsupported marketplace fails without a substitute route. |
+| Refresh | `codex plugin marketplace upgrade <marketplace> --json` | Can change the marketplace snapshot and sibling caches, retaining partial changes on failure. Either changed or unchanged revisions are `attempted_unverified`. An unsupported marketplace fails without a substitute route. |
 | Remove | `codex plugin remove <plugin>@<marketplace> --json` | Requires absence of the exact relation and selected `plugins/cache/<marketplace>/<plugin>` path in Codex's root. Cache removal precedes config removal; effects may be partial. Already-absent config before a pending uninstall can settle the claim without invoking Codex or removing orphan cache. |
 
 Removal retains marketplace registration and snapshot, sibling and other-marketplace state, credentials, trust and unrelated stores. Doctor may inspect bounded configured `.codex-plugin/plugin.json` cache manifests. Each enumerated contribution has its provider, kind/key, identity and source or blocker reason with `source_artifact_inspection`, `current = non-current`, and `freshness = fresh`; it does not prove a current installed contribution or authorize managing it separately.
@@ -31,7 +31,7 @@ For Claude Code, daem SHALL read the selected version-2 `plugins/installed_plugi
 | --- | --- | --- |
 | Install | `claude plugin install <plugin>@<marketplace> --scope <scope>` | Fresh exact presence supports the claim. Normal completion without a claim clears the pending install, including failed, absent or unverified outcomes; interruption or authority loss may retain it. |
 | Refresh | `claude plugin update <plugin>@<marketplace> --scope <scope>` | Exact before and after relation evidence, whether managed or external. Does not establish artifact version, cache convergence or restart. |
-| Remove | `claude plugin uninstall <plugin>@<marketplace> --scope <scope> --keep-data` | Fresh exact absence settles removal. Later observation can settle a failed or timed-out attempt without invoking again; ambiguity retains pending state. |
+| Remove | `claude plugin uninstall <plugin>@<marketplace> --scope <scope> --keep-data` | Fresh exact absence settles removal. Later observation can settle a failed, timed-out or wrong-scope attempt without invoking again; ambiguity retains pending state. |
 
 Uninstall retains plugin data, marketplace declarations, versioned/orphaned caches, host metadata, credentials, trust, siblings and unrelated dependencies and resources. It does not prove runtime unload.
 
@@ -52,10 +52,10 @@ Pi observes the selected settings layer with npm, Git or local-source identity. 
 | OpenCode refresh | `opencode plugin <source> --force` with `--global` only globally | `attempted_unverified`; resolution, caches, deduplication, dependencies, cross-document host effects and activation remain host-owned. |
 | OpenCode remove | Direct config edit, not `opencode uninstall` | Remove the exact row from each existing selected candidate; do not create missing files. Retain comments, whitespace, tuple options, siblings, unknown fields, empty arrays and files. Partial success stays pending until fresh absence from every candidate. |
 | Pi install | `pi install <source>` with `-l` only for project scope | New management uses exact absence and presence; no trust or prompt-policy flags. [A managed Git pin change](../carrier-lifecycle/spec.md#requirement-keep-a-managed-pi-git-pin-transition-exact-and-resumable) has its own settlement. |
-| Pi refresh | `pi update --extension <source>` in either scope | No scope flag: it may affect matching user and trusted-project rows. `attempted_unverified`; pins may stay fixed, local paths have no updater, and Git may reset/clean or install dependencies. No approval, self-update, model-update or bulk flags. |
-| Pi remove | `pi remove <source>` with `-l` only for project scope | Prove selected relation absence and the source-kind-specific coupled effects; a local source isn't itself a managed installation artifact to delete. |
+| Pi refresh | `pi update --extension <source>` in either scope | No scope flag: it may affect matching user and trusted-project rows. Pins may stay fixed, local paths have no updater, and Git may reset/clean or install dependencies. Success is `attempted_unverified`; host trust refusal or no match is a host failure. No approval, self-update, model-update or bulk flags. |
+| Pi remove | `pi remove <source>` with `-l` only for project scope | Prove selected relation absence and that the scoped npm package or Git checkout is gone, or that the referenced local source content is unchanged. |
 
-These operations do not grant removal of unrelated stores, local sources, credentials, trust or other-scope state. Pi's correlated provider exposes only the `mcp-client/default` capability. Retire old managed Pi MCP bindings using their stored codec without requiring the new backend's runtime. Retire a provider separately only when no managed consumer remains; external Adapter intent must be handled separately before it can cease blocking Native admission. Changing a backend setting does not migrate the installed contribution.
+Unqualified settings or artifact observations, including unreadable, changing or symlinked selected paths, are not absence. Pi removal stays pending if settings no longer name an npm or Git package but its scoped artifact remains, or if a local source was changed or deleted. These operations do not grant removal of unrelated stores, local sources, credentials, trust or other-scope state. Pi's correlated provider exposes only the `mcp-client/default` capability; [Pi MCP](../pi-mcp/spec.md) governs modeled provider and backend transitions.
 
 #### Scenario: An OpenCode installation appears in more than one selected candidate
 

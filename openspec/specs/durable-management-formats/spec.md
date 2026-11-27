@@ -8,7 +8,9 @@ Define how to interpret recorded management and recovery evidence across compati
 
 ### Requirement: Select the statefile encoding from the facts it must retain
 
-Daem SHALL keep the installed baselines, document commit, pending carrier operations, claims and bounded attempt history distinct. A host-route diagnostic retains the latest request per subject, target, scope and route ID; a different request hash replaces that diagnostic. Process outcome and post-attempt working-directory authority are separate. The v8 reader translates their older combined reason. Diagnostic records do not establish current installation or runtime readiness.
+Daem SHALL keep installed baselines, native document commits, pending carrier operations, claims and bounded attempt history distinct. A host-route diagnostic retains the latest request per subject, target, scope and route ID; a different request hash replaces that diagnostic. Process outcome and post-attempt working-directory authority are separate. Diagnostic records do not establish current installation or runtime readiness.
+
+The current writer selects its encoding by the facts recorded, not by the latest version number:
 
 | Statefile contents, in precedence order | Without recorded statefile location | With recorded statefile location |
 | --- | --- | --- |
@@ -17,7 +19,7 @@ Daem SHALL keep the installed baselines, document commit, pending carrier operat
 | Legacy baselines with selected Claude global hook settings path | v12 | v13 |
 | Other state using legacy baselines | v10 | v11 |
 
-One snapshot may include both installed and older digests. Statefile v10 introduced RFC 6901 `key_path` for aggregate contributions. V8 and v9 remain readable without a rewrite. A recorded lookup location is distinct from the filesystem comparison identity. Existing usable legacy files may keep their encoding; converting one file does not make another file the same version. Older readers may refuse a new format, including the new `pending_pin` field or `pin_transition_observed` provenance in otherwise unchanged claim formats.
+One snapshot may include both installed and older digests. Statefile v10 introduced RFC 6901 `key_path` for aggregate contributions. V8 and v9 remain readable without a rewrite; the v8 reader translates the old combined process/working-directory reason. A recorded lookup location is distinct from the filesystem comparison identity. Existing usable legacy files may keep their encoding; files may have different versions, but one registry uses one encoding. After writing new facts, including `pending_pin` or `pin_transition_observed` in an unchanged claim format, use a binary that understands them.
 
 The optional `native_document_commit` advances only on a real native file mutation that would otherwise leave recorded state unchanged. It distinguishes rollback from finalization. A no-op does not advance it.
 
@@ -30,7 +32,7 @@ The optional `native_document_commit` advances only on a real native file mutati
 
 The output registry SHALL distinguish whole-path and native-key claims from document bindings. Output v4 separates those facts; v5 also records qualified lookup locations. Populated v2 and v3 remain readable without rewriting them; the next state-changing write using the legacy physical format upgrades them to v4. Output v2 key paths represent literal slash-separated segments, not JSON Pointer escapes. Carrier registries use v2 or the located v3; a carrier claim is not a document binding or an output claim. A comparison identity alone is not a filesystem locator.
 
-Accept retired statefile v7 only when all seven known fact arrays are present and empty (`managed_paths`, `managed_aggregate_contributions`, `pending_carrier_installs`, `pending_carrier_removals`, `managed_carrier_claims`, `delegate_attempts`, `host_route_attempts`). Accept a retired output or carrier registry v1 only with present empty `claims`. Missing, `null`, populated or unknown fields are refused. Durable JSON record fields use exact ASCII `lower_snake_case` rather than case-insensitive aliases. Reading an empty retired artifact does not rewrite or delete it; an admitted state-changing write may replace it with the applicable supported encoding. Never synthesize missing filesystem witnesses for populated old artifacts by changing their version numbers.
+Accept retired statefile v7 only when all seven known fact arrays are present and empty (`managed_paths`, `managed_aggregate_contributions`, `pending_carrier_installs`, `pending_carrier_removals`, `managed_carrier_claims`, `delegate_attempts`, `host_route_attempts`). Accept a retired output or carrier registry v1 only with present empty `claims`. Reading an empty retired artifact does not rewrite or delete it; an admitted state-changing write may replace it with the applicable supported encoding. Never synthesize missing filesystem witnesses for populated old artifacts by changing their version numbers. When the original writer can safely settle recovery and remove its own managed outputs through ordinary remove/apply, that retirement can precede re-declaring, locking and applying them with a current writer.
 
 #### Scenario: An old registry contains a claim but lacks a current witness
 
@@ -41,14 +43,14 @@ Accept retired statefile v7 only when all seven known fact arrays are present an
 
 Recovery SHALL interpret the recorded evidence with the matching codec, independently of the current physical statefile encoding. Ordinary format 15 uses canonical Snapshot v10 for its recovery fingerprints. Current readers recognize ordinary v15, v18 and v20, and native v16, v17, v19, v21 and v22. Native v16 is an older selected-document variant; v17 binds native host documents and roots.
 
-| Required evidence | Ordinary writer | Native or mixed writer |
+| Required evidence | Current ordinary encoding | Current native or mixed encoding |
 | --- | --- | --- |
 | Baseline form without the obligations below | v15 | v17 |
 | Recreation of an ordinary projection root deleted by the operation | v18 | v19 |
 | Installed-content evidence, including applicable separate tree restoration modes | v20 | v21 |
 | Whole-file configuration permissions that require the newer native rule | — | v22 |
 
-Choose the applicable form covering combined obligations, not merely the newest version. The whole-file permission form lets rollback preserve a surviving file's permissions and use the recorded before-mode when it has to recreate the file. Older readers that cannot honor the recorded obligations must refuse rather than offer a rollback they cannot carry out. Current daem blocks every pre-v15 journal and neither adopts nor rewrites it; newer unknown formats also give no current recovery authority.
+Choose the applicable form covering combined obligations, not merely the newest version. The whole-file permission form lets rollback preserve a surviving file's permissions and use the recorded before-mode when it has to recreate the file. When a journal has obligations an older reader cannot honor, use an encoding that reader rejects. Native management release journals use a separate release-only record in v17, or v21 for installed-content evidence. Current daem blocks every pre-v15 journal and neither adopts nor rewrites it.
 
 If using the writer of a v10 Linux journal, independently establish that capture was in the current boot and that no relevant filesystem was unmounted or remounted. That writer can accept a reused legacy mount witness. If continuity cannot be established, preserve the journal, backups and host state rather than using the older binary to bypass refusal. Other historic recovery and state retirement guidance belongs in [Troubleshooting](../../../docs/troubleshooting.md#pre-10-durable-authority-schemas).
 
@@ -70,9 +72,11 @@ Compare each target's recognized before/after content. Permissions alone do not 
 
 ### Requirement: Bound storage evidence without turning it into partial authority
 
-Daem SHALL create statefile, journal and registry records with `0600`. For an existing record, changing ordinary permissions alone does not invalidate it or reset those permissions on the next write. The applicable reader requires a stable regular file owned by the invoking user and refuses final links, special files, replacement during reading and oversized content. Declaration artifacts have their separate [stable referent rules](../workspace-selection/spec.md) so a manifest or lockfile link does not become permission to change the selected workspace or an arbitrary referent.
+Daem SHALL create statefile, journal and registry records with `0600`. For an existing record, changing ordinary permissions alone does not invalidate it or reset those permissions on the next write. The applicable reader requires a stable regular file owned by the invoking user and refuses final links, special files, replacement during reading and oversized content. Keep durable records where only trusted users can write them. Declaration artifacts have their separate [stable referent rules](../workspace-selection/spec.md).
 
-| Evidence or document | Limit |
+Durable JSON records use the exact ASCII `lower_snake_case` schema fields, not case-insensitive aliases. Reject unknown fields, missing required fields and null where the format does not admit it. An unknown newer statefile, registry, journal or file-set version is refused without rewriting or deleting it; use a reader that supports the version rather than applying the old-format retirement procedure.
+
+| Evidence or document | Current limit |
 | --- | --- |
 | Manifest or lockfile, including physical read, decode and generated output | 64 MiB each |
 | Metadata transaction target image or restored backup, before or after | 64 MiB each; 8 targets; 256 MiB total captured before-images |
