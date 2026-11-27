@@ -1,0 +1,129 @@
+model {
+  operator .coordination daem.cli.run 'Runs commands and reviews disclosures'
+
+  daem.io.declaration .coordination files.intent 'Reads selected declarations and locked contracts'
+  daem.io.source .coordination sources 'Resolves and reads admitted remote artifacts'
+  daem.io.source .coordination files.artifacts 'Reads rooted local sources and uses the selected cache'
+  daem.io.observe .coordination files.installed 'Observes selected live files and native host state'
+  daem.io.storage .coordination files.installed 'Publishes selected copies or settings changes'
+  daem.io.subprocess .coordination host 'Runs a selected native route'
+  daem.io.subprocess .coordination server 'Runs a selected delegate or explicit probe'
+
+  daem.cli.run .coordination daem.commands 'Dispatches a selected command'
+  daem.cli.run .coordination daem.io.platform 'Checks admission before dispatch where required'
+  daem.cli.run .goImport daem.cli.present 'Renders process output'
+  daem.cli.run .goImport daem.cli.progress 'Installs progress sinks and supplies the resource projector'
+
+  daem.io.declaration .facts daem.owners.desired 'Normalized authored intent'
+  daem.owners.desired .facts daem.owners.topology 'Intent for structural identity and graph lowering'
+  daem.owners.desired .facts daem.owners.supply 'Selected source requests'
+  daem.io.source .facts daem.owners.supply 'Qualified provenance and artifact content'
+  daem.owners.topology .facts daem.owners.realization 'Stable subjects and graph'
+  daem.owners.supply .facts daem.owners.realization 'Exact content and derivation'
+  daem.services.generate .coordination daem.io.source 'Resolves required sources'
+  daem.services.generate .coordination daem.owners.realization 'Builds ordinary or native lock snapshot'
+  daem.owners.realization .facts daem.owners.reconcile 'Locked plans and realization contracts'
+  daem.io.observe .facts daem.owners.assurance 'Qualified live evidence'
+  daem.owners.assurance .facts daem.owners.reconcile 'Current and recorded management facts'
+  daem.services.readiness .coordination daem.io.observe 'Collects evidence for the selected assessment'
+  daem.services.readiness .coordination daem.owners.reconcile 'Builds pure decisions from selected inputs'
+  daem.owners.reconcile .facts daem.owners.effect 'Decisions used to build executable intent'
+  daem.commands.apply .coordination daem.owners.effect 'Prepares and executes selected effects'
+
+  daem.owners.desired .facts daem.surface 'Owner-local family and carrier contracts'
+  daem.owners.topology .facts daem.surface 'Topology namespaces'
+  daem.owners.realization .facts daem.surface 'Placements, support, discovery and route facets'
+  daem.commands.diagnose .coordination daem.surface 'Reads admitted support and discovery views'
+  daem.commands.list .coordination daem.surface 'Reads placement and route views for path inventory'
+  daem.commands.author .coordination daem.surface 'Selects admitted placements and provider profiles'
+  daem.commands.probe .coordination daem.surface 'Selects an admitted runtime-probe capability'
+  daem.services.readiness .coordination daem.surface 'Selects observer and order facts separately'
+  daem.io.subprocess .coordination daem.surface 'Selects extension route profile when building argv'
+
+  daem.commands.apply .coordination daem.safety 'Compiles plan identities and effect schedule'
+  daem.commands.refresh .coordination daem.safety 'Compiles refresh identity and frontier'
+  daem.commands.recover .coordination daem.safety 'Compiles distinct active and cleanup identities'
+  daem.safety .facts daem.barrier 'Typed domains, revision membership and semantic demand'
+  daem.commands.apply .coordination daem.barrier 'Qualifies and reserves forward effects'
+  daem.commands.refresh .coordination daem.barrier 'Qualifies route and binds the reserved frontier'
+  daem.commands.recover .coordination daem.barrier 'Validates applicable State or RecoveryDir authority'
+  daem.commands.status .coordination daem.barrier 'Observes current barriers without effect authority'
+  daem.barrier .coordination daem.io.leases 'Lowers and validates admitted domains and reserved work'
+  daem.barrier .coordination daem.io.journal 'Observes journal availability and authority'
+  daem.barrier .coordination daem.io.fileset 'Observes separate file-set and shared metadata fences'
+
+  daem.owners.effect .coordination daem.io.journal 'Publishes and later retires recovery evidence'
+  daem.owners.effect .coordination daem.io.storage 'Applies, verifies or compensates selected host writes'
+  daem.owners.effect .coordination files.state 'Commits verified state transitions'
+  daem.owners.effect .coordination files.registries 'Reserves and settles claims'
+  daem.io.journal .coordination files.recovery 'Manages exact journal and retirement evidence'
+  daem.io.fileset .coordination files.recovery 'Publishes and verifies transaction evidence'
+  daem.io.fileset .coordination daem.io.storage 'Publishes or restores qualified file sets'
+  daem.services.native .coordination files.state 'Loads selected recorded management'
+  daem.services.native .coordination files.registries 'Loads claims, bindings and pending protection'
+  daem.services.protection .coordination files.registries 'Arms, binds and settles permission records'
+  daem.services.permissionRecovery .coordination files.registries 'Settles selected retained protection'
+
+  daem.commands.adopt .goImport daem.services.native 'Selected native evidence'
+  daem.commands.apply .goImport daem.services.native 'Selected native evidence'
+  daem.commands.apply .goImport daem.services.readiness 'Workspace assessment'
+  daem.commands.apply .goImport daem.services.invocation 'Native invocation'
+  daem.commands.apply .goImport daem.services.protection 'Forward protection'
+  daem.commands.apply .goImport daem.services.cleanup 'Completed-record cleanup'
+  daem.commands.author .goImport daem.services.generate 'Prospective lock generation'
+  daem.commands.list .goImport daem.services.native 'Selected inventory inputs'
+  daem.commands.list .goImport daem.services.readiness 'Output inventory'
+  daem.commands.lock .goImport daem.services.native 'Selected native evidence'
+  daem.commands.lock .goImport daem.services.generate 'Prospective lock generation'
+  daem.commands.lock .goImport daem.services.cleanup 'Completed-record cleanup'
+  daem.commands.recover .goImport daem.services.native 'Selected native evidence'
+  daem.commands.recover .goImport daem.services.permissionRecovery 'Permission recovery'
+  daem.commands.refresh .goImport daem.services.native 'Selected native evidence'
+  daem.commands.refresh .goImport daem.services.invocation 'Native invocation'
+  daem.commands.refresh .goImport daem.services.protection 'Forward protection'
+  daem.commands.status .goImport daem.services.native 'Selected native evidence'
+  daem.commands.status .goImport daem.services.readiness 'Workspace assessment'
+  daem.services.native .goImport daem.services.readiness 'Shared assessment'
+  daem.services.invocation .goImport daem.services.native 'Invocation inputs'
+  daem.services.invocation .goImport daem.services.protection 'Invocation protection'
+  daem.services.cleanup .goImport daem.services.native 'Cleanup inputs'
+}
+
+views {
+  view index {
+    title 'Daem in context'
+    description 'A local CLI reconciles declared and locked intent with agent files and host tools.'
+    include operator, daem, sources, files, host, server
+  }
+
+  view ownership {
+    title 'Semantic ownership and data flow'
+    description 'Supply and Topology are sibling inputs. Observation supplies facts, Reconciliation makes decisions, and Effect owns transitions.'
+    include daem.owners.*, daem.services.readiness, daem.io.declaration, daem.io.observe
+    exclude * -> * where kind is goImport
+  }
+
+  view compilers {
+    title 'Host-Surface, Operation-Safety and the State Barrier'
+    description 'The catalog derives static views. The operation compiler derives typed work. The effectful barrier binds authority.'
+    include daem.surface, daem.safety, daem.barrier, daem.owners.desired, daem.owners.topology, daem.owners.realization,
+      daem.commands.apply, daem.commands.refresh, daem.commands.recover, daem.commands.status, daem.io.leases
+    exclude * -> * where kind is goImport
+  }
+
+  view durability {
+    title 'Host and durable boundaries'
+    description 'Rooted storage publishes bytes; Effect and the surrounding operation own their meaning.'
+    include daem.barrier, daem.owners.effect, daem.io.journal, daem.io.fileset, daem.io.storage, daem.io.leases,
+      daem.services.native, daem.services.protection, files.installed, files.state, files.registries, files.recovery
+    exclude * -> * where kind is goImport
+  }
+
+  view workflowImports {
+    title 'Direct workflow service imports'
+    description 'Observed imports by the named command and service packages. This is not a graph of all imports or of all permissions.'
+    include daem.commands.* -> daem.services.* where kind is goImport
+    include daem.services.* -> daem.services.* where kind is goImport
+    exclude * -> * where kind is not goImport
+  }
+}
