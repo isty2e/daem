@@ -28,8 +28,8 @@ explains the identity evidence daem needs to read and verify an artifact.
 ### macOS Runtime Floor
 
 Older macOS releases can refuse a directory rename when the directory has no
-write bit. If `doctor` reports an unsupported macOS version, use a supported
-machine rather than loosening permissions on a managed tree to get past it.
+write bit. If `doctor` reports an unsupported macOS version, upgrade macOS or
+use a supported machine.
 
 ### macOS Metadata During Writes
 
@@ -52,8 +52,9 @@ filesystem writes.
 
 Use `daem version` to identify the build and `daem doctor` for the platform
 finding and any independent path errors. See the
-[entry gates and diagnostic exceptions](../openspec/specs/platform-and-distribution/spec.md#requirement-separate-platform-admission-from-buildability).
-Trying an effect command with `--dry-run` does not bypass the gate.
+[`doctor` diagnostic boundary](../openspec/specs/platform-and-distribution/spec.md#requirement-preserve-the-unsupported-platform-diagnostic-boundary).
+`--dry-run` does not bypass the
+[platform gate](../openspec/specs/platform-and-distribution/spec.md#requirement-separate-platform-admission-from-buildability).
 
 ## Path Descriptions
 

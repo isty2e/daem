@@ -11,8 +11,9 @@ manifest -> lockfile -> status / apply preview -> apply -> managed outputs
 ## Manifest
 
 `daem.toml` declares resources, sources, targets, and scopes. You can edit it
-directly or use the authoring commands. The parser rejects unknown keys and
-invalid declarations; the [Manifest Reference](manifest.md) owns the schema.
+directly or use the authoring commands. The [manifest guide](manifest.md) has
+examples; the [manifest spec](../openspec/specs/manifest/spec.md) defines what
+daem accepts.
 
 Most commands choose the current-directory manifest, then the user manifest;
 there is no parent-directory search. `init` and non-merge `import` instead
@@ -32,7 +33,8 @@ Targets name agent hosts: `codex`, `claude-code`, `opencode`, `pi`, and
 An execution selector such as `--target codex` filters declarations already
 assigned to that host; it does not add Codex to a resource's target set.
 Support differs by resource, scope, and operation. See [Feature Support](features.md)
-for the summary and [Host Integrations](host-integrations.md) for exact routes.
+for the overview and the [carrier route spec](../openspec/specs/carrier-routes/spec.md)
+for extension operations.
 
 ## Sources
 
@@ -48,7 +50,7 @@ Sources supply the content daem locks:
 
 Not every resource uses a source object. A hook command or MCP launch vector
 is configuration, not an instruction to install the executable it names.
-[Sources](manifest.md#sources) defines the admitted forms and resource limits;
+[Sources](manifest.md#sources) gives examples and links to the acquisition rules;
 [Use An Existing Environment](migration.md) shows the local and import paths.
 
 ## Lockfile
@@ -104,8 +106,9 @@ Start with `daem recover --dry-run` after an interrupted apply. Recovery can
 refuse when its evidence is no longer valid; on Linux, a journal from an earlier
 boot is deliberately refused. Preserve the journal and backups rather than
 editing them to bypass the check. See [Troubleshooting](troubleshooting.md#apply-was-interrupted)
-for actions and the [Recovery Journal reference](state-and-recovery.md#recovery-journal)
-for persistence, cleanup, and resource limits.
+for actions, [interrupted operations](../openspec/specs/interrupted-operations/spec.md)
+for cleanup rules, and [durable formats](../openspec/specs/durable-management-formats/spec.md)
+for storage limits.
 
 ## Managed Resource Types
 

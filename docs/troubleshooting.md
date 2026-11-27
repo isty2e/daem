@@ -76,10 +76,9 @@ packages are not changed by this operation. Interrupted migration uses
 `migrate state --recover --dry-run`; old apply recovery uses
 `recover --legacy-user-state --dry-run`. They are different protocols.
 Destination conflicts, changed roots and missing recovery evidence are not
-fixed by `--yes`. See the complete
-[migration boundary](state-and-recovery.md#user-state-authority-migration),
-including the matching-old-writer requirement for interrupted legacy authoring
-metadata and the retained-cache limitation.
+fixed by `--yes`. See the [migration spec](../openspec/specs/metadata-migration/spec.md)
+for what transfers, what remains in the old cache, and which command and
+version can settle interrupted legacy authoring metadata.
 
 ## State File Is Missing
 
@@ -649,7 +648,7 @@ pin, not the previously managed pin.
 adoption and unmanage cannot abandon a pending pin change. If the original
 pending target or exact scoped evidence cannot be restored, there is no
 supported automatic cancel or rollback; preserve evidence for manual analysis.
-See [Pending Pi Pin Changes](state-and-recovery.md#pending-pi-pin-changes).
+See [Pi pin transitions](../openspec/specs/carrier-lifecycle/spec.md#requirement-keep-a-managed-pi-git-pin-transition-exact-and-resumable).
 
 ## Pi Package Removal Did Not Converge
 
@@ -687,7 +686,7 @@ For a copied skill, changing or removing a shipped file is drift even if the
 next release no longer ships that file. Adding a cache or a note is not drift;
 it stays in place until daem replaces or removes the skill directory. Move
 anything you want to keep outside that directory before applying. For older
-installs without a recorded file list, see [skill baselines](state-and-recovery.md).
+installs without a recorded file list, see [skill baselines](state-and-recovery.md#copied-skill-baselines).
 
 Choose the intended direction before changing files:
 

@@ -592,8 +592,8 @@ The checked native envelope is Pi 0.85.1 in isolated fixtures. This operation
 is not a general npm/moving-ref upgrade or repository/ID/scope migration.
 Automatic native rollback, package-script compensation, implicit trust approval
 and runtime/dependency attestation are unsupported. See
-[pending pin state](state-and-recovery.md#pending-pi-pin-changes) for metadata
-and recovery boundaries.
+[Pi pin transitions](../openspec/specs/carrier-lifecycle/spec.md#requirement-keep-a-managed-pi-git-pin-transition-exact-and-resumable)
+for metadata and recovery boundaries.
 
 ## Antigravity CLI Plugin Carrier Route Summary
 

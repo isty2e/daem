@@ -274,8 +274,8 @@ Validation rules:
 - `targets`, if present, must contain supported target values and no duplicates.
 - Project-scoped local link skills must set `portable = false`.
 - `compat_repair = true` permits only the replayable mechanical repairs
-  defined in [Skill Compatibility](compatibility.md#repair-scope). Omitted or
-  false means repair is not permitted.
+  admitted by the [skill repair spec](../openspec/specs/skill-compatibility/spec.md#requirement-generate-repair-only-for-an-opted-in-lock).
+  See the [repair guide](compatibility.md#repair-scope) for opt-in steps.
 - `target.<target>.install_to`, when present, must exactly match a supported
   skill root for that target and scope. Project values are canonical
   project-relative slash paths. Global values begin with `~/` and remain

@@ -7,7 +7,7 @@ shared registries, and any journal and backups until the refusal is understood.
 ## Statefile
 
 The statefile records what daem last installed or registered. The lockfile
-records what the current manifest asks it to install. Keep the statefile when
+records the resolution of the manifest at lock time. Keep the statefile when
 relocking or removing a declaration; daem needs the earlier baseline to tell
 whether it can safely replace or remove an output. See
 [durable formats](../openspec/specs/durable-management-formats/spec.md) for

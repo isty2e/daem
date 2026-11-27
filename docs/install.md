@@ -20,17 +20,16 @@ The script requires `curl` and standard Unix tools, including `tar`, `awk`,
 `install`, and `shasum` on macOS or `sha256sum` on Linux. Go is not required.
 It does not use `sudo` or edit shell profiles.
 
-Choose a release or installation directory explicitly:
+Use `--version` with the released tag you want to install, or choose a different
+installation directory:
 
 ```sh
-sh daem-install.sh --version v0.7.2
 sh daem-install.sh --bin-dir "$HOME/bin"
 sh daem-install.sh --help
 ```
 
-`--version` selects the binary release; the download command above gets the
-installer from the repository's `main` branch. Keep the downloaded script if
-you want to use it later for offline rollback.
+The download above gets the installer from `main`, even when you select an
+older binary. Keep the script to use it later for offline rollback.
 
 If the installation directory is not on `PATH`, the installer prints a
 reminder. For the default directory, add this to the appropriate shell startup

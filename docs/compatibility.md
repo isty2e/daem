@@ -6,8 +6,8 @@ contains the limits, target rules, and behavior of stored repairs.
 
 ## Diagnostic Layers
 
-First check the artifact: a skill must resolve to a directory with a regular
-`SKILL.md` file. Then use the target named in the diagnostic to check its
+First check that the skill directory contains a regular file named exactly
+`SKILL.md`, not a symlink. Then use the target named in the diagnostic to check its
 metadata. A skill that locks for one host can fail for another. In particular,
 check the installed directory name when OpenCode rejects an otherwise valid
 document.

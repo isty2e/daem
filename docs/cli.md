@@ -1977,8 +1977,8 @@ to proceed.
 `--legacy-user-state` selects only the default user manifest's former local
 apply-journal root, before state migration. It is not an arbitrary state-path
 selector and cannot bypass a canonical migration fence or a retired source.
-See [User-State Authority Migration](state-and-recovery.md#user-state-authority-migration)
-for the separate legacy authoring-metadata recovery boundary.
+See [legacy recovery selection](../openspec/specs/metadata-migration/spec.md#requirement-settle-only-the-recorded-user-state-transfer-or-selected-legacy-apply)
+for the separate route for an interrupted legacy authoring transaction.
 
 If the state file is missing and no matching backup is available, preview
 `daem recover --release-output-ownership --dry-run`. The option is separate
@@ -2153,8 +2153,8 @@ An interrupted migration must be inspected with `migrate state --recover
 --dry-run` and executed with `migrate state --recover --yes`. Its disclosed
 `rollback` or `finalize` action applies only to that migration's exact metadata
 set. It does not recover unrelated authoring transactions or apply journals.
-See [User-State Authority Migration](state-and-recovery.md#user-state-authority-migration)
-for retained evidence, cache behavior, refusals and legacy recovery.
+See the [migration spec](../openspec/specs/metadata-migration/spec.md) for
+retained evidence, cache behavior, refusals and legacy recovery.
 
 JSON uses `schema_version = 1`, `mode` (`dry-run` or `write`), `action`,
 `manifest_path`, `source_statefile`, `destination_statefile`,
