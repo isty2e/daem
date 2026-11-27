@@ -7,6 +7,7 @@ specification {
   element component
   element external
   element fileSet
+  element domainObject
 
   relationship coordination {
     technology 'Runtime interaction'
@@ -16,6 +17,9 @@ specification {
   }
   relationship goImport {
     technology 'Direct Go import'
+  }
+  relationship domainRelation {
+    technology 'Domain model relationship'
   }
 }
 
@@ -232,7 +236,7 @@ model {
         link ../openspec/specs/skill-compatibility/spec.md 'Generation, identity and replay contract'
       }
       realization = component 'Realization' {
-        description 'Locked managed path projection, managed aggregate contribution, or delegated relation. Actuation is not a fourth realization form.'
+        description 'Locks exact Supply and structural realization as distinct facets of lowered subjects. A structural realization is a managed path projection, managed aggregate contribution, or delegated relation. Actuation is a separate facet.'
         link ../internal/realization 'Realization contracts'
         link ../internal/realization/lock/build 'Lock assembly'
       }

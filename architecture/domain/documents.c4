@@ -1,0 +1,166 @@
+model {
+  extend daem.owners.desired {
+    agentConfig = domainObject 'Native configuration declaration' 'One identity, target, scope, path, and file source.' {
+      description '''
+        `agentconfig.Config` selects an optional syntax and either `keys` or `document` ownership. Omission chooses
+        keys. The profile qualifies the combination and selects the destination and grammar. Both modes lock the exact
+        file source. Key mode adds one projection for each atomic value; an empty top-level object adds none. A nested
+        empty object, array, or scalar (including JSON null) is atomic. Document mode adds one dedicated whole-path
+        projection. Treating a root selector as “own the file” would give key mode different authority.
+      '''
+      link ../../internal/desired/agentconfig/model.go 'Config and the two ownership modes'
+      link ../../internal/realization/profile/configuration/placement.go 'Qualified placement and grammar'
+      link ../../internal/realization/lock/build/native_documents.go 'Source row and projection construction'
+      link ../../internal/realization/lock/build/native_keys_test.go 'Empty root and atomic leaves'
+    }
+  }
+
+  extend daem.owners.realization {
+    documentAddress = domainObject 'Logical document address' 'Target + scope + portable destination.' {
+      description '''
+        `aggregate.DocumentAddress` names a selected host settings document. `ProjectionAddress` adds a placement ID,
+        a merge unit, and a non-root key footprint. Codec output can be compared within a projection without confusing
+        it with the entire file. Two distinct document addresses may refer to one physical document. That relationship
+        is established from filesystem evidence, not from equality of `DocumentAddress` or a codec choice.
+      '''
+      link ../../internal/realization/aggregate/managed_contribution.go 'Document and projection addresses'
+      link ../../internal/effect/journal/document/physical_placement.go 'Qualified physical groups across before/after phases'
+    }
+    projectionContract = domainObject 'Projection contract' 'Static address, codec, and preservation rules.' {
+      description '''
+        `aggregate.ProjectionContract` fixes a contribution's address, cardinality, sibling retention and preservation,
+        equivalence, codec contract, and compared fields. The address names the region. The contract determines what a
+        match within that region means and which edits are permitted. It contains neither desired values nor evidence
+        that a document exists. Hook commands, MCP entries, and native keys carry their own profile-selected contracts.
+      '''
+      link ../../internal/realization/aggregate/projection_contract.go 'Static contract and key-only address'
+      link ../../internal/realization/aggregate/contribution_occupancy.go 'Projection overlap checks'
+    }
+    aggregateContribution = domainObject 'Managed contribution' 'Canonical value under one projection contract.' {
+      description '''
+        `aggregate.ManagedContribution` binds a canonical projection value to the static contract.
+        `SubjectContribution` pairs it with a `SubjectID`. An agent_config key ID incorporates its decoded key path,
+        target and scope alongside the authored entity, not the current value. A changed desired value at that key
+        can therefore be compared with the previous contribution for the same subject.
+      '''
+      link ../../internal/realization/aggregate/managed_contribution.go 'Static facts plus canonical content'
+      link ../../internal/topology/projection/agent_config_key.go 'Exact native key subject identity'
+      link ../../internal/realization/lock/nativefragment/agent_config_fragment.go 'One subject contribution per leaf'
+    }
+    contributionSet = domainObject 'Contribution set' 'One nonempty set per populated projection address.' {
+      description '''
+        `aggregate.ContributionSet` requires distinct subject IDs and identical static contracts at the same complete
+        address. An exclusive projection accepts exactly one subject. A shared-set projection can accept several,
+        such as hook commands within a merge unit. This is cardinality within a projection; claims on a physical
+        document still obey Registry overlap rules.
+      '''
+      link ../../internal/realization/aggregate/contribution_set.go 'Partitioning, uniqueness, and equality rules'
+    }
+    documentObservation = domainObject 'Selected document observation' 'Document presence and codec-scoped evidence.' {
+      description '''
+        `aggregate.DocumentObservation` keeps the observation of a document separate from the selected facts produced
+        by its codecs. An `aggregate.Snapshot` describes what a codec could read and compare in its selected region.
+        It is not the installed `durable.Snapshot` or a claim. Document presence, occupancy, and a semantic value match
+        are different facts; preserving one projection may require retaining other content in the same file.
+      '''
+      link ../../internal/realization/aggregate/document_observation.go 'Present, absent or blocked observation'
+      link ../../internal/realization/aggregate/codec_protocol.go 'Codec selection and snapshot'
+    }
+    documentCandidate = domainObject 'Composed document candidate' 'One candidate file and verified participant snapshots.' {
+      description '''
+        `compose.DocumentCandidate` is computed from one original document. Each selected codec proposes the edit for
+        its own disjoint region. Composition checks the combined result against the individual semantic expectations.
+        The caller must first establish one physical document and later qualify publication and recovery. For example,
+        Codex MCP and native keys can change one `config.toml` without owning or rewriting each other's regions.
+      '''
+      link ../../internal/realization/aggregate/compose/document.go 'Compose and re-read candidate projections'
+      link ../../internal/realization/aggregate/compose/document_test.go 'Codex MCP plus native values, with and without an original file'
+      link ../../internal/workflow/apply/native_shared_source_command_test.go 'Shared physical file versus separate documents'
+    }
+  }
+
+  extend daem.owners.assurance {
+    physicalPath = domainObject 'Exact physical path evidence' 'Canonical key + filesystem-semantics witness.' {
+      description '''
+        `pathauthority.Exact` records the canonical identity of a path under the relevant filesystem semantics. A path
+        reference also carries a locator to re-observe. Path spelling, an exact key, and a usable write route are not
+        interchangeable. Native-document qualification groups logical aliases by physical document and checks the
+        association again at effect and recovery boundaries.
+      '''
+      link ../../internal/assurance/pathauthority/authority.go 'Validated equality and semantics witness'
+      link ../../internal/assurance/pathauthority/reference.go 'Exact identity versus locator'
+      link ../../internal/effect/journal/document/physical_placement.go 'Physical grouping and transfer rules'
+    }
+  }
+
+  extend daem.owners {
+    outputIdentity = component 'Output identity and ownership' {
+      description 'Defines typed output scopes and shared ownership facts independently of live bytes and State baselines.'
+      link ../../internal/output 'Portable destinations and footprints'
+      link ../../internal/output/ownership 'Owner claims, bindings, and protection facts'
+
+      footprint = domainObject 'Output footprint' 'Whole path or one non-root native key subtree.' {
+        description '''
+          `output.Footprint` keeps whole-path authority distinct from a key subtree. A `KeyPath` compares canonical
+          segments: a literal `a/b` property is not the same as nested `a` and `b`. A key claim overlaps its ancestors
+          and descendants within the same physical document. A whole-path footprint overlaps all its keys. A root
+          selector cannot be converted to key ownership.
+        '''
+        link ../../internal/output/footprint.go 'Scope validation and containment'
+        link ../../internal/output/key_path.go 'Lossless key segments and RFC 6901 text'
+      }
+    }
+  }
+
+  daem.owners.desired.agentConfig .domainRelation daem.owners.supply.declaredSource 'Selects one exact-file input'
+  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.lockedSubject 'Always supplies a resource row'
+  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.pathProjection 'Document mode: one whole path'
+  daem.owners.desired.agentConfig .domainRelation daem.owners.realization.aggregateContribution 'Key mode: one per atomic value, possibly none'
+  daem.owners.desired.hook .domainRelation daem.owners.realization.aggregateContribution 'Uses a selected hook projection contract'
+  daem.owners.realization.realizationForm .domainRelation daem.owners.realization.aggregateContribution 'Managed aggregate variant'
+  daem.owners.realization.aggregateContribution .domainRelation daem.owners.realization.projectionContract 'Pairs canonical content with static rules'
+  daem.owners.realization.projectionContract .domainRelation daem.owners.realization.documentAddress 'Places the projection in one logical document'
+  daem.owners.realization.projectionContract .domainRelation daem.owners.outputIdentity.footprint 'Selects a key subtree'
+  daem.owners.realization.pathProjection .domainRelation daem.owners.outputIdentity.footprint 'Selects the whole path'
+  daem.owners.realization.contributionSet .domainRelation daem.owners.realization.aggregateContribution 'Groups contributions sharing one full projection contract'
+  daem.owners.realization.documentAddress .domainRelation daem.owners.assurance.physicalPath 'Qualified aliases may resolve to the same document'
+  daem.owners.realization.documentObservation .domainRelation daem.owners.realization.documentAddress 'Correlates evidence with the selected document'
+  daem.owners.realization.documentObservation .domainRelation daem.owners.realization.projectionContract 'Reads occupancy and values with the selected codec'
+  daem.owners.realization.documentCandidate .domainRelation daem.owners.realization.documentObservation 'Checks original evidence and reads the final projections'
+}
+
+views 'Domain model' {
+  view domainNativeDocuments {
+    title 'Native documents, ownership modes, and key identity'
+    order 4
+    description '''
+      Both ownership modes of `agent_config` have an exact source. Key mode is a set of atomic leaf contributions;
+      document mode is whole-file ownership. The footprint describes what is selected, and the address describes
+      where. Physical equivalence is separately qualified, so two logical aliases cannot bypass overlap checks.
+    '''
+    link ../../internal/realization/lock/build/native_documents_test.go 'Exact source and dedicated document identity'
+    include daem.owners.desired.agentConfig, daem.owners.supply.declaredSource, daem.owners.realization.lockedSubject,
+      daem.owners.realization.pathProjection, daem.owners.realization.aggregateContribution,
+      daem.owners.realization.projectionContract, daem.owners.realization.documentAddress,
+      daem.owners.outputIdentity.footprint, daem.owners.assurance.physicalPath
+    exclude * -> * where kind is not domainRelation
+  }
+
+  view domainComposition {
+    title 'Disjoint projections in a shared settings file'
+    order 5
+    description '''
+      Codex MCP entries and native keys are separate contributions even when they occupy one physical `config.toml`.
+      Shared-set cardinality is about subjects within one projection. Composition is about disjoint regions of one
+      file, possibly read by different codecs. The candidate is checked against every participant before it is used
+      by the write route; a dedicated whole-file claim would overlap these key footprints.
+    '''
+    link ../../internal/realization/aggregate/compose/document_test.go 'Mixed Codex composition'
+    link ../../internal/effect/journal/record/document_variants_test.go 'Recovery preserves foreign MCP values'
+    include daem.owners.realization.aggregateContribution, daem.owners.realization.contributionSet,
+      daem.owners.realization.projectionContract, daem.owners.realization.documentAddress,
+      daem.owners.assurance.physicalPath, daem.owners.realization.documentObservation,
+      daem.owners.realization.documentCandidate
+    exclude * -> * where kind is not domainRelation
+  }
+}

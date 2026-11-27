@@ -150,6 +150,7 @@ views {
     title 'Daem in context'
     description 'A local CLI reads remote and local sources, then reconciles declared and locked intent with agent files and host tools. The local filesystem includes sources, installed outputs and operational records.'
     include operator, daem, sources, files, host, server
+    exclude * -> * where kind is domainRelation
   }
 
   view ownership {
@@ -157,12 +158,14 @@ views {
     description 'Supply and Topology are sibling inputs. Observation supplies facts, Reconciliation makes decisions, and Effect owns transitions. Apply also uses observation and decision owners directly at execution boundaries.'
     include daem.owners.*, daem.commands.apply, daem.services.readiness, daem.io.declaration, daem.io.source, daem.io.observe
     exclude * -> * where kind is goImport
+    exclude * -> * where kind is domainRelation
   }
 
   view processBoundary {
     title 'Process entry, dispatch and presentation'
     description 'The CLI wires platform assessment, dispatch, result renderers and progress. It supplies the resource label projector to progress without making the progress package depend on the result presenter.'
     include operator, daem.cli.*, daem.commands, daem.io.platform
+    exclude * -> * where kind is domainRelation
   }
 
   view surfaceCatalog {
@@ -170,6 +173,7 @@ views {
     description 'The static compiler derives scoped facts from the semantic owners. Apply, discovery, inventory, probes, observers, execution and disclosure use different views; the compiler does not run any of them.'
     include daem.owners.* -> daem.surface, daem.commands.* -> daem.surface, daem.services.* -> daem.surface,
       daem.io.* -> daem.surface, daem.cli.* -> daem.surface
+    exclude * -> * where kind is domainRelation
   }
 
   view compilers {
@@ -179,6 +183,7 @@ views {
       daem.commands.status, daem.commands.author, daem.owners.effect, daem.io.leases
     exclude daem.commands.* -> daem.owners.effect
     exclude * -> * where kind is goImport
+    exclude * -> * where kind is domainRelation
   }
 
   view durability {
@@ -188,6 +193,7 @@ views {
       daem.services.native, daem.services.protection, daem.services.permissionRecovery,
       files.intent, files.installed, files.state, files.registries, files.recovery
     exclude * -> * where kind is goImport
+    exclude * -> * where kind is domainRelation
   }
 
   view controlFiles {
@@ -195,6 +201,7 @@ views {
     description 'Init and Lock publish single files. Authoring can publish the manifest and lock together, while capture uses its own selected target set. Prospective lock generation is shared; publication authority stays with the caller.'
     include daem.commands.init, daem.commands.lock, daem.commands.author, daem.commands.adopt, daem.services.generate,
       daem.barrier, daem.io.storage, daem.io.fileset, files.intent
+    exclude * -> * where kind is domainRelation
   }
 
   view workflowImports {
