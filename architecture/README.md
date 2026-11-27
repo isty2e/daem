@@ -31,6 +31,8 @@ Review a change at the owner it affects. New OS support starts with the platform
 
 Deferred decisions and the conditions for revisiting them are recorded on the affected components in the [model](model.c4). Read those notes before extending an operation or removing an existing check.
 
+For product behavior, see [OpenSpec](../openspec/README.md).
+
 To check the model or build the views outside the checkout:
 
 ```sh

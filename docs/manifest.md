@@ -1373,12 +1373,14 @@ existing value or replace a changed managed value, use
 consent; ordinary `apply` does not gain replacement authority. Interrupted apply
 can roll back the selected changes before state commit, or finalize a committed operation
 without replaying host writes. A selected value outside both recorded versions
-blocks recovery. See [State And Recovery](state-and-recovery.md) and
-[interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
+blocks recovery. See [interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
 
-Removal retains empty structural parents; it is not formatting undo. See
-[key-only containers](state-and-recovery.md#key-only-configuration-containers)
-for TOML representation and manual-editing limits.
+Removing a managed key leaves its parent table or object in place. An empty
+TOML profile table may still define a profile, so check how the host uses it
+before deleting it manually. If you need to replace an implicit TOML parent
+with an explicit header, first remove the managed dotted child through daem.
+See the [structured editing rules](../openspec/specs/agent-configuration/spec.md#requirement-limit-structured-editing-to-the-selected-values)
+for what is preserved.
 
 Key-mode changes can be applied together with instructions, skills and independent
 MCP configuration changes. These direct changes share one recovery operation;
@@ -1823,8 +1825,9 @@ relation provenance, not artifact/version/cache convergence, enablement, trust,
 readiness or contributions. Complete leases serialize shared routes/destinations
 across manifests; plans rebuild and revalidate before any effect. Refresh,
 removal, host-preserving unmanage, unsupported prune, probes and
-bundled-contribution import are separate operations. [State And
-Recovery](state-and-recovery.md) describes pending/global claim commits.
+bundled-contribution import are separate operations. See
+[carrier claim settlement](../openspec/specs/carrier-lifecycle/spec.md#requirement-establish-claims-from-qualified-selected-scope-evidence)
+for how pending installs become durable claims.
 
 For Claude Code project/global rows, exact desired absence with a durable
 managed claim may invoke `claude plugin uninstall <plugin>@<marketplace> --scope

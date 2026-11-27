@@ -93,7 +93,7 @@ configuration across projects. Review removal plans and [retained host state](do
   — supported operations and their limits.
 
 See the [product specifications](openspec/README.md) for exact behavior and
-the [LikeC4 views](ARCHITECTURE.md) for the current implementation structure.
+the [LikeC4 views](architecture/README.md) for the current implementation structure.
 For source builds and development checks, see [Contributing](CONTRIBUTING.md).
 
 ## License

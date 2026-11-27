@@ -15,7 +15,7 @@ Keep a backup of files you intend to migrate. Import is not a backup of an
 agent's entire configuration, and `recover` is not historical restore.
 
 For existing daem management in the default user manifest's former local state
-root, use [state-authority migration](state-and-recovery.md#user-state-authority-migration),
+root, use [state-authority migration](troubleshooting.md#user-state-selection-changed),
 not import or reinstallation.
 
 ## Import Live Configuration

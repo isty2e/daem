@@ -39,6 +39,7 @@ exit-code behavior.
   [pending Pi pin change](#a-pi-pin-change-is-pending),
   [Pi removal not converged](#pi-package-removal-did-not-converge).
 - Interrupted work: [apply](#apply-was-interrupted),
+  [pending permission protection](#permission-only-recovery),
   [management metadata conversion](#management-metadata-conversion-was-interrupted),
   [manifest metadata update](#manifest-metadata-update-was-interrupted),
   [journal from an earlier boot](#recovery-journal-from-an-earlier-boot).
@@ -48,8 +49,8 @@ exit-code behavior.
 - [Collect a diagnostic report](#collecting-a-diagnostic-report).
 
 For a planned migration rather than a failure, see
-[Use An Existing Environment](migration.md). Durable record formats and limits
-are described in [State And Recovery](state-and-recovery.md).
+[Use An Existing Environment](migration.md). For on-disk versions and limits,
+see [Durable Formats](../openspec/specs/durable-management-formats/spec.md).
 
 ## Unsupported Platform
 
@@ -71,14 +72,16 @@ daem migrate state --dry-run
 daem migrate state --yes
 ```
 
-Preserve your explicit `--manifest` when needed. Installed outputs and host
-packages are not changed by this operation. Interrupted migration uses
-`migrate state --recover --dry-run`; old apply recovery uses
-`recover --legacy-user-state --dry-run`. They are different protocols.
+Preserve your explicit `--manifest` when needed. Migration moves management
+records, not installed files, host packages, or the cache. Keep the receipt
+at the old state location; do not copy the old snapshot back over it.
+For interrupted migration, use `daem migrate state --recover --dry-run`. For an
+old Apply journal, use `daem recover --legacy-user-state --dry-run` before
+migrating. Finish an interrupted legacy authoring transaction with the command
+and daem version that wrote it.
 Destination conflicts, changed roots and missing recovery evidence are not
 fixed by `--yes`. See the [migration spec](../openspec/specs/metadata-migration/spec.md)
-for what transfers, what remains in the old cache, and which command and
-version can settle interrupted legacy authoring metadata.
+for the transfer, cache and recovery rules.
 
 ## State File Is Missing
 
@@ -448,7 +451,9 @@ historical success row as convergence evidence.
 ## Apply Was Interrupted
 
 While a recovery journal is active, ordinary operations that could conflict
-with it are refused. Inspect the recovery plan first:
+with it are refused. Use the original `CLAUDE_CONFIG_DIR` if the first global
+Claude Code hook install was interrupted before the settings path was recorded;
+leave it unset if the install used the default. Inspect the recovery plan first:
 
 ```bash
 daem recover --dry-run
@@ -459,12 +464,13 @@ non-interactive environment. Recovery may clean up a completed journal, roll
 back guarded changes, or finish ownership finalization. Do not edit host files,
 the statefile, shared ownership data, or the journal while recovery is pending.
 
-If the plan reports `retained_cleanup_residue`, host, statefile, and ownership
-recovery is already complete. The only legal action is
-`finalize_journal_cleanup` over the exact correlated retirement artifacts.
-Review the dry-run and rerun recovery; do not delete hidden residue or the
-visible retirement control manually. A stale, replaced, malformed, or
-cross-paired artifact is intentionally refused instead of being guessed safe.
+If an earlier command reports `journal_cleanup_incomplete`, preview recovery
+again with the same selection. A plan classified as `retained_cleanup_residue`
+means host, statefile, and ownership recovery is already complete. The only
+action is `finalize_journal_cleanup` over the exact correlated retirement
+artifacts. Review the dry-run and rerun recovery; do not delete hidden residue
+or the visible retirement control manually. Stale, replaced, malformed, or
+cross-paired artifacts block cleanup.
 
 If a cleanup obligation reports `namespace_changed` because a captured
 existing parent is absent, daem cannot tell whether that exact directory was
@@ -474,6 +480,10 @@ object to its original path and rerun `recover --dry-run`; do not create a
 replacement directory. If the directory was actually unlinked, preserve the
 journal for manual analysis because current daem has no durable evidence that
 can authorize automatic retirement.
+
+If recovery reports missing or conflicting [removal evidence](../openspec/specs/interrupted-operations/spec.md#requirement-qualify-every-removal-intent-before-retirement),
+leave the parent, staging entries, and backups in place. Do not delete entries
+just because their names share a prefix.
 
 If recovery reports a pre-1.0 `.daem-tombstone-<32 lowercase hex>`, stop the
 upgrade path. The current binary recognizes that exact old format only to
@@ -492,6 +502,22 @@ but `daem recover` has no legal plan for GC-only residue and later commands are
 not blocked. Daem does not automatically sweep the directory after restart
 because the hidden name alone grants no deletion authority. Do not delete it
 solely from its name.
+
+## Permission-Only Recovery
+
+If daem reports pending permission protection, run `daem recover --dry-run`
+for the same workspace. If the original manifest was removed, give its original
+path with `--manifest`. For a custom Claude Code profile, use the original
+`CLAUDE_CONFIG_DIR` so it selects the recorded settings file.
+
+If the preview selects permission recovery and the plan is acceptable, confirm
+with `daem recover` using the same selection. It can restrict access without
+restoring file contents or rerunning the host command. For example, if an owner
+has already tightened a protected file from `0600` to `0400`, recovery leaves
+the narrower mode in place. If the preview selects retired-journal cleanup
+instead, finish that cleanup and preview again. See the
+[permission recovery rules](../openspec/specs/permission-protection/spec.md#requirement-recover-access-without-recovering-file-contents-or-replaying-the-command)
+if recovery is blocked or only partly completes.
 
 ## Management Metadata Conversion Was Interrupted
 
@@ -685,8 +711,14 @@ recorded hash is not a backup.
 For a copied skill, changing or removing a shipped file is drift even if the
 next release no longer ships that file. Adding a cache or a note is not drift;
 it stays in place until daem replaces or removes the skill directory. Move
-anything you want to keep outside that directory before applying. For older
-installs without a recorded file list, see [skill baselines](state-and-recovery.md#copied-skill-baselines).
+anything you want to keep outside that directory before applying.
+
+If daem cannot verify an older installation without a shipped-file list, use a
+matching copy of the original release with
+[`daem migrate metadata --baseline-tree <dir>`](cli.md#migrate-metadata).
+If an interrupted Apply cannot verify the old baseline, use
+[`daem recover --baseline-tree <dir> --dry-run`](cli.md#recover) instead. The
+reference tree proves the baseline; recovery still restores from journal backups.
 
 Choose the intended direction before changing files:
 

@@ -36,7 +36,7 @@ use a supported machine.
 If replacing a file fails on an ACL or file flag, check the
 [metadata-preservation rules](../openspec/specs/host-mutation/spec.md#requirement-preserve-supported-metadata-when-changing-file-contents-or-access)
 before retrying. File replacement and
-[permission-only recovery](state-and-recovery.md#permission-only-recovery)
+[permission-only recovery](troubleshooting.md#permission-only-recovery)
 do not preserve the same attributes: recovery changes access on the existing
 file.
 

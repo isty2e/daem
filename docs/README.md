@@ -16,9 +16,8 @@
 
 ## Understand The Model
 
-- [Concepts](concepts.md) — how manifests, locks, sources, ownership, and apply
-  fit together.
-- [Glossary](glossary.md) — look up unfamiliar output terms.
+[Concepts](concepts.md) explains how manifests, locks, ownership, and apply fit
+together and defines [terms used in plans and output](concepts.md#terms-in-plans-and-output).
 
 ## Find A Reference
 
@@ -33,7 +32,7 @@ Use these guides for examples and entry points. The
 | [Host Integrations](host-integrations.md) | Which native operations run, and what may they leave behind? |
 | [Platform Support](platforms.md) | Which OS/architecture pairs are supported, and what runtime limits apply? |
 | [Skill Compatibility](compatibility.md) | Which skill formats and loading locations does each host support? |
-| [State And Recovery](state-and-recovery.md) | What is stored, what can recovery do, and which limits apply? |
+| [Durable formats](../openspec/specs/durable-management-formats/spec.md) | What does daem store, and which format versions and size limits apply? |
 
 ## Examples
 
@@ -51,4 +50,4 @@ Use these guides for examples and entry points. The
 ## Contribute
 
 See [Contributing](../CONTRIBUTING.md) for setup and verification, and
-[Architecture](../ARCHITECTURE.md) to open the LikeC4 model and views.
+[Architecture](../architecture/README.md) to open the LikeC4 model and views.

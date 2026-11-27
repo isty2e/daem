@@ -1609,7 +1609,7 @@ independently of `--target`.
 Use `check_clean` in a valid status result to decide whether the configuration
 passes `--check`. A pending protection record makes the check non-clean, but a
 no-op or an apply that affects unrelated files can still succeed. To see what
-can be recovered, use [permission-only recovery](state-and-recovery.md#permission-only-recovery).
+can be recovered, use [permission-only recovery](troubleshooting.md#permission-only-recovery).
 
 ## `replace agent-config`
 
@@ -1664,7 +1664,8 @@ Replacement uses normal interrupted-operation recovery. Before state commit,
 rollback restores the selected value that actually existed immediately before
 replacement, not an older managed baseline. After commit, recovery finalizes
 without replaying host writes. Unknown third values block recovery. A successful
-replacement does not retain an undo backup. See [state and recovery](state-and-recovery.md).
+replacement does not retain an undo backup. See
+[interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
 
 ## `apply`
 
@@ -2043,8 +2044,8 @@ uses `completed`, `pending` or `unknown`. Even if all records were cleared and
 `has_errors: true`. Check that flag and the exit status for the whole command;
 `protections[].settlement` describes each record. Partial containment and failed
 publication return nonzero.
-See [Permission-Only Recovery](state-and-recovery.md#permission-only-recovery)
-for its no-content-repair boundary.
+See [Permission-Only Recovery](troubleshooting.md#permission-only-recovery)
+for selection and confirmation steps.
 
 Output ownership release uses `authority_kind = "output_ownership_release"`.
 Its `output_ownership_release` object reports `claim_count`, `binding_count`,

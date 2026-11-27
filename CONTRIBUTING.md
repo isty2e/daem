@@ -6,7 +6,7 @@ intended behavior, dependencies, and verification evidence remain visible.
 ## Start
 
 1. Read the [README](README.md) and the relevant [documentation](docs/README.md).
-   Read [Architecture](ARCHITECTURE.md) when changing implementation structure.
+   Read [Architecture](architecture/README.md) when changing implementation structure.
 2. Search existing GitHub issues before opening another.
 3. Keep the change scoped to one behavior or contract.
 
