@@ -10,7 +10,7 @@ Define directory-skill declarations, placement selection and the membership of a
 
 A skill SHALL have a `name` that is one safe directory component: not empty, `.`, `..`, `~`-prefixed, or containing `/` or `\`. An optional `id` is a safe resource identifier; otherwise `name` is the ID. IDs must be unique across normalized skills, including group children. Equal install names are allowed when IDs and target/scope destinations do not conflict. The [skill model](../../../internal/desired/skill) enforces the identifier grammar.
 
-Each skill requires a structured local, Git, or S3 archive source (`tar` or `tar.gz`, not an S3 regular-file object). A Git root is a valid source if the root itself is the skill artifact; all of that root, not just its document, is locked. `portable` defaults to true; project-scoped local link sources require an explicit false. `compat_repair` defaults to false.
+Each skill requires a structured local, Git, or S3 archive source (`tar` or `tar.gz`, not an S3 regular-file object). Lock covers the entire selected directory, not just `SKILL.md`. For a Git source with `path = "."`, that directory is the repository root. `portable` defaults to true; project-scoped local link sources require an explicit false. `compat_repair` defaults to false.
 
 #### Scenario: The same name is used by separate targets
 
@@ -21,10 +21,31 @@ Each skill requires a structured local, Git, or S3 archive source (`tar` or `tar
 
 Daem SHALL place a skill as one direct child of the selected write root, named by `name`. The [skill profile](../../../internal/realization/profile/skill_profile_rows.go) defines default and optional roots for each target and scope. An `install_to` override must name one of those roots for a target in the declaration. Project values are canonical project-relative slash paths; global values are home-relative `~/` paths, not arbitrary absolute or escaping destinations. Discovery and runtime locations do not grant placement permission.
 
+The `install_mode` declaration recognizes `copy`, `symlink`, and `hardlink`; only the copy form is executable, as specified in [Manifest](../manifest/spec.md#requirement-resolve-defaults-without-broadening-a-declaration).
+
+| Target | Project default | Project alternatives | Global default | Global alternatives |
+| --- | --- | --- | --- | --- |
+| `codex` | `.agents/skills` | — | `~/.agents/skills` | `~/.codex/skills` |
+| `claude-code` | `.claude/skills` | — | `~/.claude/skills` | — |
+| `opencode` | `.opencode/skills` | `.agents/skills`, `.claude/skills` | `~/.config/opencode/skills` | `~/.agents/skills`, `~/.claude/skills` |
+| `pi` | `.pi/skills` | `.agents/skills` | `~/.pi/agent/skills` | `~/.agents/skills` |
+| `antigravity-cli` | `.agents/skills` | — | `~/.gemini/config/skills` | — |
+
 #### Scenario: Select a compatible root for one target
 
 - **WHEN** a Pi declaration chooses its admitted project `.agents/skills` root
 - **THEN** the Pi projection uses that root and appends the skill name, without changing other target selections
+
+### Requirement: Preserve permissions for copied skill entries that persist
+
+For a newly copied skill, daem SHALL create regular files with mode `0600` or `0700` when executable in the locked source; new directories use source directory permissions. An update preserves current permissions on entries shipped at the same path and kind in both versions. A newly shipped entry uses its installation mode even if a local extra used the same path. A change only to source executable class does not chmod an existing installation.
+
+This is distinct from the [managed-output](../../../docs/state-and-recovery.md) rules for baseline comparison, destructive replacement and rollback. It does not promise that the agent ignores extra files or that a copied tree is identical to a source tree's permission metadata.
+
+#### Scenario: A replacement ships a file that had been local only
+
+- **WHEN** a new skill version ships a regular file at an extra file's path
+- **THEN** daem does not inherit that extra file's permissions for the newly shipped entry
 
 ### Requirement: Expand explicit groups as ordinary skills
 

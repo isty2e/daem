@@ -21,6 +21,8 @@ On admitted Codex and Claude Code rows, daem locks a canonical `/hooks` contribu
 
 Daem SHALL track each hook as its own `hook/<name>` subject even when several hooks use one physical `/hooks` aggregate. Observation uses the current [hook codec](../../../internal/realization/aggregate/codec/hook), not a whole-document hash. Unrelated top-level values are preserved. Existing unmanaged hooks block unless the selected aggregate exactly matches and the caller requests adoption. Removal addresses the owned contribution; after the last one it removes `/hooks` and removes the containing file only when no unrelated settings remain. A same-layer inline Codex `[hooks]` in `config.toml` blocks reconciliation of `hooks.json`.
 
+Codex writes `.codex/hooks.json` for the project and `~/.codex/hooks.json` for global hooks. Claude Code writes `.claude/settings.json` for the project and the selected profile's `settings.json` for global hooks.
+
 The first admitted global Claude Code installation selects `CLAUDE_CONFIG_DIR` or `~/.claude` and records the selected settings file, including the directory target of a profile symlink. Preview shows the file; output inventory identifies the resolved path. Later changes follow the recorded profile, including legacy installations at the default location, until the last hook is removed. Combined global native-key and hook changes require the same physical settings file and refuse with both paths when they differ.
 
 #### Scenario: A different shell selects another Claude profile
@@ -30,7 +32,7 @@ The first admitted global Claude Code installation selects `CLAUDE_CONFIG_DIR` o
 
 ### Requirement: Manage only selected explicit regular-file assets
 
-A `[hook_asset.<name>]` SHALL describe one regular `kind = "file"` source using an admitted string or structured form. A local asset may use `vendor` or `link`; the source still has to resolve to an admissible regular file. A supported hook can refer to a selected asset in the same effective scope with `{hook_file:<name>}`. A missing, cross-scope, malformed or unsupported reference fails before mutation. Directory assets, invented entrypoints, implicit path rewriting, and bundled hook installation are outside this form. Import does not infer an asset from a host command.
+A `[hook_asset.<name>]` SHALL describe one regular `kind = "file"` source: an admitted local string or structured `vendor`/`link` path, a regular file at a Git path and resolved commit, or an S3 regular-file object. A supported hook can refer to a selected asset in the same effective scope with `{hook_file:<name>}`. A missing, cross-scope, malformed or unsupported reference fails before mutation. Directory assets, invented entrypoints, implicit path rewriting, and bundled hook installation are outside this form. Import does not infer an asset from a host command.
 
 The [hook asset profile](../../../internal/realization/profile/hook_asset_placement.go) determines placement and creation mode. `executable` defaults to false; initial modes are `0600` or `0700` when true. Changing that flag selects a different asset path; an existing file keeps its current permissions. Status and apply select only assets referenced by selected supported hooks. Removing the last reference leaves normal managed-output removal authority; a remaining reference to a deleted declaration is not allowed. Exact-byte adoption needs `--manage-existing` and keeps permissions.
 

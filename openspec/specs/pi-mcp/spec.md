@@ -8,7 +8,7 @@ Select and qualify Pi's Native and Adapter MCP contracts without silently reinte
 
 ### Requirement: Retain the declared backend
 
-Each Pi binding SHALL record the Native or Adapter contract; an omitted backend means Adapter. This field is not shared with other targets. A declared/loaded-lock cohort in one Pi context is homogeneous. Previous and retiring contracts keep their codec; replacing a managed binding's backend is not an in-place rename. The supported transition retires the old correlation and provider intent before authoring the new form.
+Each Pi binding SHALL record the Native or Adapter contract; an omitted backend means Adapter. Other targets reject the `backend` field. A declared/loaded-lock cohort in one Pi context is homogeneous. Previous and retiring contracts keep their codec; replacing a managed binding's backend is not an in-place rename. The supported transition retires the old correlation and provider intent before authoring the new form.
 
 For the first automatic add without a Pi binding or explicit Adapter provider, a bounded isolated version observation can select Native. An absent, malformed or unqualified observation retains Adapter authoring with a diagnostic; cancellation refuses the operation. An existing homogeneous cohort or explicit provider intent determines selection without another default version probe. Lock and apply do not make this choice again.
 
@@ -32,7 +32,7 @@ The selected builtin semantics distinguish forced inclusion/exclusion from plain
 
 ### Requirement: Reconcile Native files without inferring project trust
 
-Native SHALL use the strict JSON project `.pi/mcp.json` or selected Pi agent-root `mcp.json`, with the supported command, ordered args, exact environment aliases and enabled codemode contract. The [codec](../../../internal/realization/aggregate/codec/mcp/pi_native_config.go) accepts the modeled observed defaults and exposure alias, not Adapter fields, JSONC, HTTP/OAuth or custom exposure. Names whose normalized tool namespaces collide are refused, not renamed. Native activation can connect at startup; codemode is not lazy-server execution.
+Native SHALL use the strict JSON project `.pi/mcp.json` or selected Pi agent-root `mcp.json`, with the supported command, ordered args, exact `${SOURCE}` environment aliases, `enabled = true`, and `exposure = "codemode"`. The [codec](../../../internal/realization/aggregate/codec/mcp/pi_native_config.go) accepts omitted enablement and exposure where they have those defaults, optional `type = "stdio"`, and the `codemode-deferred` exposure alias. It does not accept Adapter fields, JSONC, HTTP/OAuth, `cwd`, timeouts, per-tool exposure, or command interpolation. Names use letters, digits, underscores and hyphens; colliding normalized tool namespaces are refused, not renamed. Native activation can connect at startup; codemode is not lazy-server execution.
 
 Project and user config entries must be physically distinct even through aliases. The trusted project full entry replaces a same-name user entry; a transport-free project entry can override flags only while a user definition survives. Equivalent or replaced lower definitions do not alone block. Same-name managed peers still require desired or recorded contribution evidence and ordinary adoption/ownership checks. Removal reports surviving fallback excluding peers retired by that operation, and does not delete unowned override bytes. Scope selection does not change when the host root environment changes or trust is granted.
 

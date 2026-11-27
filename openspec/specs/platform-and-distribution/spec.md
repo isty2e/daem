@@ -8,7 +8,7 @@ Define where daem commands and release assets are supported. The [platform model
 
 ### Requirement: Separate platform admission from buildability
 
-Daem SHALL admit Apple silicon macOS 26 or later and `linux/amd64` as product targets. It does not infer support from an adapter, a successful compile or a diagnostic path. The product matrix distinguishes supported rows, compile-only rows, and unverified targets. Release claims require the admitted row's native checks, CLI smoke, and artifact reproducibility evidence. On macOS, an unsupported, malformed, unavailable or timed-out `/usr/bin/sw_vers --productVersion` reading cannot qualify a gated command.
+Daem SHALL admit Apple silicon macOS 26 or later and `linux/amd64` as product targets. It does not infer support from an adapter, a successful compile or a diagnostic path. The product matrix distinguishes supported rows, compile-only rows, and unverified targets. Release claims require the admitted row's native checks, CLI smoke, and artifact reproducibility evidence. Gated macOS commands require an observed product version of 26.0 or later; an unsupported version, malformed reading, failed observation or timeout does not qualify.
 
 Platform-gated commands refuse before workspace lookup, resolution, confirmation, or effects, including dry-run. This includes `migrate` recovery/cleanup; an internal no-op branch does not add a Windows command. Help and offline version are available. An operation not covered by the ingress gate still needs its own admitted capabilities; it is not a fallback mode for unsupported platforms.
 
@@ -39,7 +39,7 @@ An absolute root uses native name lookup and may resolve a case variant on a cas
 
 ### Requirement: Install a verified executable without changing managed data
 
-The release installer SHALL check platform before downloading or changing the destination. A translated x86-64 macOS shell qualifies for the Apple silicon artifact only with Rosetta evidence. The selected release defaults to latest stable and the destination to `~/.local/bin`; explicit version and directory options override discovery. The installer requires normal Unix tools, not Go or sudo, and does not edit shell profiles.
+The bundled installer for daem's published GitHub releases SHALL check platform before downloading or changing the destination. A translated x86-64 macOS shell qualifies for the Apple silicon artifact only with Rosetta evidence. The selected release defaults to latest stable and the destination to `~/.local/bin`; explicit version and directory options override discovery. The installer requires normal Unix tools, not Go or sudo, and does not edit shell profiles. This contract is for the published release installer, not for third-party distribution or source builds.
 
 Before replacement, verify the matching SHA-256 entry, one executable `daem` archive member, and staged build identity against the release: tag, resolved revision, committer time, toolchain, native target, Git VCS and clean source. Admission and validation failures preserve current and previous executables; cleanup of temporary files is attempted on exit. These checks share the release provider's authority; neither a checksum nor a tag proves publisher provenance or immutability.
 

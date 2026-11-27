@@ -41,7 +41,7 @@ Symbolic names exclude leading or trailing `/`, `//`, `..`, `@{`, whitespace, `~
 
 ### Requirement: Observe Git format at the declared source
 
-Daem SHALL contact only the declared locator for network format observation. An enclosing repository's URL rewrite cannot choose another repository for that observation. System Git can resolve SHA-1 on versions without explicit format selection and must support SHA-256 to resolve that format. The caller's `GIT_DEFAULT_HASH` does not choose the source's format. The backend currently also checks the effective origin before fetch and refuses an origin that did not resolve to the declared locator.
+Daem SHALL contact only the declared locator for network format observation. An enclosing repository's URL rewrite cannot choose another repository for that observation. Source format does not come from `GIT_DEFAULT_HASH`. Daem can still use SHA-1 with Git that lacks explicit format selection; a Git without SHA-256 support cannot resolve a SHA-256 source.
 
 #### Scenario: A surrounding Git repository defines a URL rewrite
 
@@ -50,7 +50,9 @@ Daem SHALL contact only the declared locator for network format observation. An 
 
 ### Requirement: Resolve local and S3 inputs without mixing source kinds
 
-Local sources SHALL resolve by filesystem path. Project-relative paths resolve from the selected manifest's directory; global local sources require absolute paths. The selected local artifact and its contents do not admit symlink entries, even with `mode = "link"`; ordinary root lookup can resolve ancestor symlinks. The mode describes the source, not permission to install a symlink. [Skills](../skills/spec.md), [instructions](../instructions/spec.md) and [hook assets](../hooks/spec.md) define which source forms they accept.
+Local sources SHALL resolve by filesystem path. Project-relative paths resolve from the selected manifest's directory; global local sources require absolute paths. The mode describes the source, not permission to install a symlink. [Skills](../skills/spec.md), [instructions](../instructions/spec.md) and [hook assets](../hooks/spec.md) define which source forms they accept.
+
+Current local source support does not include a symlink as the selected artifact or inside it, including for `mode = "link"`. Ordinary lookup can resolve ancestor symlinks. This limitation is separate from the options for importing an existing host installation.
 
 An S3 URI `s3://bucket/key` selects one object, not a prefix or bucket. Reject query strings, fragments, embedded credentials, empty keys and keys ending in `/`. The source can request `version_id` and override `region`; otherwise region and credentials come from the AWS SDK configuration. Formats are `file` (default), `tar`, and `tar.gz` (`tgz` is an alias). Do not mix values from different source kinds; unused empty fields that the decoder treats as absent do not select another kind.
 

@@ -17,7 +17,17 @@ An instruction declaration SHALL use a local regular file, an explicit Git ref a
 
 ### Requirement: Render only a supported placement
 
-Daem SHALL resolve each selected target through the [instruction placement rows](../../../internal/realization/profile/instruction_profile_rows.go). A target override must name a target in the declaration. `render_to` chooses a supported canonical relative output at that scope, not an arbitrary path or a discovery-only location. Even at global scope it is relative to the host's instruction root. Copy is the supported render action; `symlink` is recognized syntax but cannot proceed to an executable apply plan or host mutation.
+Daem SHALL resolve each selected target through the [instruction placement rows](../../../internal/realization/profile/instruction_profile_rows.go). A target override must name a target in the declaration. `render_to` chooses a supported canonical relative output at that scope, not an arbitrary path or a discovery-only location. Even at global scope it is relative to the host's instruction root. Copy is the supported render action. The manifest and lock can represent `symlink`; `apply --dry-run` and confirmed apply refuse work that would need to carry out that placement.
+
+| Target | Project output | Global output |
+| --- | --- | --- |
+| `codex` | `AGENTS.md` | `~/.codex/AGENTS.md` |
+| `claude-code` | `CLAUDE.md` | `~/.claude/CLAUDE.md` |
+| `opencode` | `AGENTS.md` | `~/.config/opencode/AGENTS.md` |
+| `pi` | `AGENTS.md` | `~/.pi/agent/AGENTS.md` |
+| `antigravity-cli` | `AGENTS.md` (default) or `GEMINI.md` | `~/.gemini/GEMINI.md` |
+
+Prospective lock generation refuses an unsupported target, scope or output combination before an authoring command writes the manifest or lock.
 
 The locked instruction is non-executable and uses the selected deterministic file materialization. Initial write and update follow the existing managed-file rules: content determines drift and an update preserves current permissions. No host reload or effective-memory guarantee follows from placing the file.
 

@@ -24,7 +24,7 @@ Daem SHALL accept integer `version = 1` as the manifest schema, not a daem relea
 
 The manifest SHALL define a nonempty default target set. Target values are `codex`, `claude-code`, `opencode`, `pi` and `antigravity-cli`, with no duplicates within a declared set. A resource that accepts `targets` inherits it when omitted or empty; a nonempty resource set replaces it. Hook assets have no target field; selection comes from their consumers.
 
-The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest recognizes `copy`, `symlink`, and `hardlink` for skills. A selected non-copy placement is refused before an executable dry-run plan or host mutation.
+The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest and lock can represent non-copy modes, and status can inspect them. If selected `apply` work would need to carry out a non-copy placement, daem refuses it before producing a dry-run plan or mutating the host.
 
 #### Scenario: Select one target at execution
 
@@ -33,8 +33,8 @@ The scope values are `project` and `global`. When omitted or empty, scope defaul
 
 #### Scenario: Decode an unsupported skill install mode
 
-- **WHEN** a skill selects a recognized `symlink` install mode
-- **THEN** parsing may succeed, but preview or apply cannot proceed with that placement
+- **WHEN** a valid locked skill selects `symlink` and would need a new installation
+- **THEN** both `apply --dry-run` and confirmed apply refuse the installation
 
 ### Requirement: Keep editor validation advisory
 

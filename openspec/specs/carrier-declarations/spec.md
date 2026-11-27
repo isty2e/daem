@@ -8,7 +8,17 @@ Declare exact host plugin or package relations. Declaration, lock, observation, 
 
 ### Requirement: Declare one host relation and admit scope explicitly
 
-An extension SHALL have a stable ID and exactly one effective target matching its carrier. Claude Code and Codex use a marketplace selector; OpenCode, Pi and Antigravity CLI use the host-source form. Exact rows and source-kind pairings are owned by the [extension catalog](../../../internal/hostsurface/catalog/extension.go) and [lock profiles](../../../internal/realization/lock/delegated_relation_profiles.go). Claude Code, OpenCode and Pi have admitted project and explicit-global rows; Codex and Antigravity CLI require explicit global. Defaults do not authorize global carrier mutation. Claude Code public `global` lowers to host `user`, not a public alias; `local` is deferred. Pi direct extension resources are not the Pi package relation.
+An extension SHALL have a stable ID and exactly one effective target matching its carrier. The current forms are implemented by the [extension catalog](../../../internal/hostsurface/catalog/extension.go) and [lock profiles](../../../internal/realization/lock/delegated_relation_profiles.go):
+
+| `carrier` | Effective target | Admitted scope | `source` |
+| --- | --- | --- | --- |
+| `claude-code-plugin` | `claude-code` | project or explicit global | `{ marketplace = "<plugin>@<marketplace>" }` |
+| `codex-plugin` | `codex` | explicit global only | `{ marketplace = "<plugin>@<marketplace>" }` |
+| `opencode-plugin` | `opencode` | project or explicit global | `{ host_source = "<host-native-source>" }` |
+| `pi-package` | `pi` | project or explicit global | `{ host_source = "<host-native-source>" }` |
+| `antigravity-cli-plugin` | `antigravity-cli` | explicit global only | `{ host_source = "<host-native-source>" }` |
+
+Defaults do not authorize global carrier mutation. Claude Code public `global` lowers to host `user` only at invocation; public `scope = "user"` is rejected and Claude Code `local` is deferred. Codex project is unsupported (`host-unavailable`). Pi direct extension resources are not the Pi package relation. A declaration chooses one source form, never both.
 
 #### Scenario: Inherit a set of several targets
 
