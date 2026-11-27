@@ -40,9 +40,11 @@ Reserved native configuration belongs to its dedicated surface. This includes Co
 
 ### Requirement: Limit structured editing to the selected values
 
-Daem SHALL preserve unselected content and skip unchanged assignments, even when another assignment changes. The [document codec](../../../internal/encoding/configdocument) determines local JSON-family layout and TOML representation. New JSON objects use the containing style when no local evidence exists, with a two-space multiline root default. Nonempty objects retain ordering/layout of unedited keys and their trailing-comma preference. Empty scope can lose the layout evidence of removed children; a later edit need not recreate their original whitespace or remove generated parent structure.
+Daem SHALL preserve unselected content and skip unchanged assignments, even when another assignment changes. The [document codec](../../../internal/encoding/configdocument) determines local JSON-family layout and TOML representation. New JSON objects use the containing style when no local evidence exists, with a two-space multiline root default. Nonempty objects retain ordering/layout of unedited keys and their trailing-comma preference. Filling an empty `{}` and removing its last child can leave a generated line break; an empty object does not retain the removed members' layout preferences.
 
 Reserializing a changed whole value is not a byte-preservation promise for that value. Same-path object layout can carry forward, whereas array content is compact. Comments are retained but may move; retained CRLF line-comment endings survive, lone CR can normalize on edit, and an edited document can gain a final LF. Recovery does not itself imply formatting undo.
+
+TOML dotted siblings keep their representation; adding and removing a child of an implicit parent does not introduce a redundant explicit header. Adding and removing an atomic child in an existing newline-terminated ordinary section preserves prior bytes if it did not create a parent. A section header at end of file can retain the separator newline needed for its first child.
 
 A new shared or dedicated config file uses `0600`. Editing or removing a managed hook, MCP binding or key in an existing shared file preserves that file's current permissions. A dedicated whole-file update likewise preserves the current file mode; a chmod alone does not make its contents drift.
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the public selection, disclosure and result boundaries for applying, recovering, migrating, probing and refreshing. The [CLI mode rules](../cli-protocol/spec.md) govern authorization and streams. The implementation's lifecycle, recovery, and state rules determine which disclosed work is legal; observing a result is not authority to retry or widen it.
+Define the public selection, disclosure and result boundaries for applying, recovering, migrating, probing and refreshing. The [CLI mode rules](../cli-protocol/spec.md) govern authorization and streams. [Apply lifecycle](../apply-lifecycle/spec.md), [interrupted operations](../interrupted-operations/spec.md) and [metadata migration](../metadata-migration/spec.md) define which disclosed work can proceed. Observing a result is not authority to retry or widen it.
 
 ## Requirements
 
@@ -73,7 +73,7 @@ Permission recovery reports record settlement and per-destination facts, not ear
 
 ### Requirement: Disclose and execute only the selected MCP probe
 
-`probe mcp-server` SHALL choose one admitted locked subject, narrowing by target/scope when needed. Preview discloses exact command/args, environment bindings without values, selected-root cwd policy, timeout, possible external effects and cleanup. Confirmed interactive execution uses that request even if declaration or lock bytes change while awaiting the answer. It can launch the exact locked stdio command to attempt protocol initialize, not edit manifest, lock, managed state or host config. Read-only status does not start this probe.
+`probe mcp-server` SHALL choose one admitted locked Claude Code or OpenCode project stdio subject, narrowing by target/scope when needed. Preview discloses exact command/args, environment bindings without values, selected-root cwd policy, timeout, possible external effects and cleanup. Confirmed interactive execution uses that request even if declaration or lock bytes change while awaiting the answer; it still needs the selected project root and current execution barrier. It can launch the exact locked stdio command to attempt protocol initialize, not edit manifest, lock, managed state or host config. Ordinary status, lock, doctor and apply do not start this probe.
 
 The probe reports launcher, initialize, authentication, endpoint health and tool inventory separately. Unsupported or inapplicable dimensions do not become an aggregate ready/healthy result. None of the evidence is a persistent install/config/trust, package/cache or skip guarantee. [Probe JSON](../../../internal/cli/present/probe.go) preserves the selected operation, effect disclosure and ordered bindings without exposing values.
 

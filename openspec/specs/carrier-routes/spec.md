@@ -72,6 +72,8 @@ For explicit-global Antigravity CLI selectors, daem SHALL correlate the exact pl
 | Refresh | Repeat the locked `agy plugin install <source>` | Explicit reinstall, not a distinct update command. Return `attempted_unverified`, not a particular installed version. |
 | Remove | `agy plugin uninstall <plugin>` | Selectors only; the operand is the plugin name. Verify absence of the selected import row and plugin directory. A freshly absent pair can retire without invocation; partial or uncertain effects stay pending. |
 
+In the checked local-source refresh route, the host replaces the bundle without duplicating its import row and rejects a malformed `plugin.json` before replacement. This is evidence for that route, not a version claim or a guarantee about other source forms or failure stages.
+
 Retain other import rows, siblings, credentials, trust, unrelated stores, marketplace/source setup and IDE state. No opaque/local-source removal, external adoption, project mutation, import/link setup or contribution enablement/disablement follows from these routes.
 
 #### Scenario: Antigravity CLI reports success but the plugin directory remains

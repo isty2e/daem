@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define directory-skill declarations, placement selection and the membership of a locked group. [Skill compatibility](../skill-compatibility/spec.md) governs the content and optional repair. [Managed output and recovery](../../../docs/state-and-recovery.md) govern ownership of installed trees.
+Define directory-skill declarations, placement selection and the membership of a locked group. [Skill compatibility](../skill-compatibility/spec.md) governs the content and optional repair. [Managed output](../managed-output/spec.md) defines installation reconciliation and rollback for these trees.
 
 ## Requirements
 
@@ -40,7 +40,7 @@ The `install_mode` declaration recognizes `copy`, `symlink`, and `hardlink`; onl
 
 For a newly copied skill, daem SHALL create regular files with mode `0600` or `0700` when executable in the locked source; new directories use source directory permissions. An update preserves current permissions on entries shipped at the same path and kind in both versions. A newly shipped entry uses its installation mode even if a local extra used the same path. A change only to source executable class does not chmod an existing installation.
 
-This is distinct from the [managed-output](../../../docs/state-and-recovery.md) rules for baseline comparison, destructive replacement and rollback. It does not promise that the agent ignores extra files or that a copied tree is identical to a source tree's permission metadata.
+This is distinct from the [managed-output rules](../managed-output/spec.md#requirement-check-shipped-skill-membership-without-claiming-the-extra-files) for baseline comparison, destructive replacement and rollback.
 
 #### Scenario: A replacement ships a file that had been local only
 

@@ -12,7 +12,7 @@ Before its first external or visible effect, an operation SHALL qualify the sele
 
 Revalidate the applicable declaration, lock, destination, project root, permission and storage evidence at the operation's boundaries. This includes post-effect or pre-publication checks where a change could invalidate a continued effect or durable successor. Do not broaden approved work, use an exhausted reservation, or reconstruct a spent reservation from an earlier plan. Compensation for an already attempted effect uses the owning operation's evidence.
 
-Keep full Apply, provider-stable Apply, remaining Apply, Refresh, and active and cleanup-only Recovery identities distinct. A qualified replan must still match the applicable identity and fit the reservation; the resulting schedule must preserve the approved effect order. Identical inputs retain the existing fingerprints and conflict meaning. A cleanup-only recovery requires only recovery-root authority and does not borrow the active operation's host, state, or lock authority.
+Replanning may account for the effects of a completed, approved phase. It must still match the authorized remaining work, fit the reservation and preserve the applicable effect order. A provider installation, for example, does not authorize changes to the rest of the plan. A cleanup-only recovery requires only recovery-root authority and does not borrow the active operation's host, state, or lock authority. The [operation-safety architecture](../../../ARCHITECTURE.md#operation-safety-compiler) defines the internal plan identities that enforce these distinctions.
 
 Cancellation or lost authority prevents later forward effects. Preserve a completed effect, a known process attempt or an uncertain publication as such; a later barrier failure does not establish that no effect happened or make a retry safe. A no-effect path does not establish a lease or create state solely through planning.
 
@@ -25,7 +25,7 @@ Cancellation or lost authority prevents later forward effects. Preserve a comple
 
 Authoring, unmanage, import/init publication, prepared MCP probe execution, apply and refresh SHALL recheck the applicable journal and file-set barriers before their effects. An unexpected first appearance of a previously absent StateDir is `stale_snapshot`; loss or replacement of bound directory or mount evidence is `file_set_access_unprovable`. File-set and journal outcomes remain independently reportable. A selected operation can compensate its own work even when forward effects stop.
 
-Read-only paths keep their command-specific admission rules and do not acquire a writer's authority. In particular, lockfile-only generation with a clear file-set barrier does not require recovery of an unrelated journal. A pending declaration write is distinct from a verified completed write of the selected manifest and default lockfile. Clearing retired or completed evidence under an admitted writer never completes an interrupted mutation.
+Read-only paths keep their command-specific admission rules and do not acquire a writer's authority. In particular, lockfile-only generation with a clear file-set barrier does not require recovery of an unrelated journal. [Interrupted operations](../interrupted-operations/spec.md#requirement-keep-declaration-transactions-and-journal-authority-separate) specifies what apply and lock may clear and what still needs the owning recovery command.
 
 #### Scenario: An unrelated active journal exists during lock generation
 

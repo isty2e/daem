@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define how admitted direct writes, delegated commands, and recorded management changes compose. The [apply workflow](../../../internal/workflow/apply) executes the selected work; the [effect command interface](../effect-commands/spec.md) owns disclosure and the result families.
+Define how admitted direct writes, delegated commands, and recorded management changes compose. The [apply workflow](../../../internal/workflow/apply) executes the selected work; the [effect command interface](../effect-commands/spec.md) owns disclosure and the result families. [Provider replan tests](../../../internal/workflow/apply/provider_order_authorization_test.go) exercise the approval boundary across provider effects.
 
 ## Requirements
 
@@ -25,7 +25,7 @@ Apply SHALL establish desired keys before supported Pi package install, reinstal
 
 Claude Code, OpenCode and Antigravity CLI routes can accompany managed keys if their private write namespaces and those files are physically disjoint. For Claude Code that excludes its private root and, for project commands, the project's `.claude`; for OpenCode it excludes the selected plugin candidate paths; for Antigravity it excludes shared config and plugin-store paths. Aliases and nesting count. Different target names are not evidence of separation. An already-current relation does not by itself block direct work or rerun installation.
 
-Whole-file mutations can accompany carrier changes only when their files are disjoint from the command's settings rewrites and private plugin paths. Check them before the later direct phase; an unexpected change stops that phase without content repair. Narrowing to retained keys settles before the commands. Empty narrowing (release without editing content) and explicitly adopted exact key-to-whole matches settle afterward. Preview and confirmed apply both refuse unsupported compositions.
+Whole-file mutations can accompany carrier changes only when their files are disjoint from the command's settings rewrites and private plugin paths. Create, update or remove those files with the other direct file work after the commands. Check them before that phase; an unexpected change stops it without content repair. Narrowing to retained keys settles before the commands. Empty narrowing (release without editing content) and explicitly adopted exact key-to-whole matches settle afterward. Preview and confirmed apply both refuse unsupported compositions.
 
 #### Scenario: A plugin's private write path aliases managed keys
 
@@ -43,13 +43,11 @@ After applicable carrier changes, compute the remaining order from fresh setting
 - **WHEN** `apply --yes` encounters a newly discovered managed/foreign precedence change
 - **THEN** it retains the completed carrier work without writing that order or starting later delegates
 
-### Requirement: Keep explicit probes and delegated executable attempts separate
+### Requirement: Limit executable delegation during apply to the admitted route
 
-A prepared `probe mcp-server` SHALL use the disclosed immutable request, selected project-root evidence and current execution barrier. For a locked Claude Code or OpenCode project stdio subject, it attempts process launch and MCP initialization with timed cleanup and redacted reporting. It does not replace the request with a new lock, probe endpoint health for stdio, query tools or test authentication. Do not treat the absence of daem-managed writes as a guarantee about external effects of that child.
+Ordinary apply SHALL not run the explicit [MCP probe](../effect-commands/spec.md#requirement-disclose-and-execute-only-the-selected-mcp-probe). Only an admitted Claude Code project MCP delegate can execute the exact locked server command during confirmed apply, with sanitized attempt results and bounded post-observation. That attempt does not qualify runtime readiness, authentication, tools, trust, package convergence or a future skip.
 
-Ordinary apply, status, doctor and lock do not run this probe. Only an admitted Claude Code project MCP delegate can execute the exact locked server command during confirmed apply, with sanitized attempt results and bounded post-observation. This does not qualify runtime/authentication, tools, trust, package convergence or a future skip. The [probe runner](../../../internal/assurance/runtimeprobe/mcp) uses a default timeout of 30 seconds for the explicit probe.
+#### Scenario: An OpenCode project row admits a separate explicit probe
 
-#### Scenario: Declarations change while the explicit probe awaits confirmation
-
-- **WHEN** the disclosed request is authorized and its execution boundary still qualifies
-- **THEN** daem may launch that disclosed request, not a substituted newly locked command
+- **WHEN** the operator applies that row instead of probing it
+- **THEN** apply does not launch the server on the strength of its probe eligibility
