@@ -15,16 +15,16 @@ Daem SHALL accept integer `version = 1` as the manifest schema, not a daem relea
 - **WHEN** a manifest has `version = 1.0`
 - **THEN** daem rejects it even if an editor's schema check accepts the value
 
-#### Scenario: A command refers to an unimplemented declaration family
+#### Scenario: A skill group uses unrecognized syntax
 
-- **WHEN** a manifest uses an executable-lifecycle declaration such as `[[package_runner]]`
-- **THEN** daem rejects the field rather than interpreting it as an installation request
+- **WHEN** a manifest uses `[[skill_set]]` instead of the admitted `[[skill_group]]` form
+- **THEN** daem reports an unknown field rather than silently ignoring the declaration
 
 ### Requirement: Resolve defaults without broadening a declaration
 
 The manifest SHALL define a nonempty default target set. Target values are `codex`, `claude-code`, `opencode`, `pi` and `antigravity-cli`, with no duplicates within a declared set. A resource that accepts `targets` inherits it when omitted or empty; a nonempty resource set replaces it. Hook assets have no target field; selection comes from their consumers.
 
-When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest recognizes `copy`, `symlink`, and `hardlink` for skills. A selected non-copy placement is refused before an executable dry-run plan or host mutation.
+The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest recognizes `copy`, `symlink`, and `hardlink` for skills. A selected non-copy placement is refused before an executable dry-run plan or host mutation.
 
 #### Scenario: Select one target at execution
 

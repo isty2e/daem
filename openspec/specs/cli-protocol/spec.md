@@ -19,7 +19,7 @@ Selectors use one value per token, not comma lists. Where a selector is repeatab
 
 ### Requirement: Require the mode appropriate to the effect
 
-Read-only query leaves SHALL reject effect flags they do not admit. Ordinary authoring and lock leaves default to writing, allow preview, and do not require `--yes`. Host/runtime and selected management effects use explicit preview, authorized terminal execution or admitted `--yes`. `import agent-config` and `replace agent-config` require the reviewed `--expect-plan` for noninteractive writes; an ordinary `--yes` alone is not enough for those leaves. Mode permission remains leaf-local.
+Read-only query leaves SHALL reject effect flags they do not admit. Ordinary `init`, `import`, `add`, `remove`, `unmanage` and `lock` leaves default to writing, allow preview, and reject `--yes`. Host/runtime and migration effects use explicit preview, authorized terminal execution or admitted `--yes`. `import agent-config` and `replace agent-config` require the reviewed `--expect-plan` for noninteractive writes; `--yes` alone is not enough. Mode permission is specific to the selected leaf.
 
 For interactive authorization, stdin, stdout and stderr must all be terminals. Finish the disclosure to stdout before printing the prompt to stderr. Accept only `y` or `yes`; EOF, interruption and output failure cannot approve. JSON does not share an interactive prompt. Some no-effect plans skip prompting, but do not bypass command admission or authorize recovery work that was not disclosed.
 
@@ -43,7 +43,7 @@ The human presentation retains relevant blockers, effects, destructive implicati
 
 Concrete next commands SHALL preserve the selected intent and reconstruct admitted POSIX argument vectors as single arguments, even for escaped controls. An unrepresentable or unsafe operand yields a template or instruction instead. Equivalent cwd selection can elide `--manifest`; explicit selection cannot be switched to implicit user fallback. Creation hints use creation selection. A reminder to rerun is not an exact replay of the entire command.
 
-Dynamic text does not own line breaks or output structure. Bound and escape path and error text and omit raw subprocess/protocol output and protected values as defined by the owning result. Rejected S3 URI and MCP transport values are not repeated; S3 parsing does not leak the underlying URL parser's error. Redact explicitly supplied secrets and supported credential syntax. Do not promise recognition of every unknown secret or encoding. A scanner no-match is not evidence that a message can safely disclose an otherwise protected value.
+Dynamic text cannot introduce structure or diagnostic lines. Escape backslashes, control and format characters, and invalid UTF-8. Each dynamic human error detail is limited to 4,096 characters plus the truncation indicator when needed; withhold whole details that cannot be safely inspected. Syntax locations and repair guidance have independent bounds. Omit raw subprocess/protocol output and protected values where required. Rejected S3 URI and MCP transport values are not repeated; S3 diagnostics omit underlying URL parser errors. Redaction covers explicitly supplied secrets and supported credential syntax, not arbitrary unknown values or encodings.
 
 #### Scenario: Manifest syntax contains a rejected credential-bearing S3 source
 
@@ -63,7 +63,22 @@ Native `key_path` arrays contain literal property names, unlike aggregate `conte
 
 ### Requirement: Decode a complete result by its independent family version
 
-JSON mode SHALL emit one ordinary result on stdout or the common pre-result error family when applicable. Check the exit code and read a complete result. Inspect `result_type: "cli_error"` first; otherwise use the selected command's result family and check `schema_version`. [Version constants](../../../internal/contractversion/current.go) and [result presenters](../../../internal/cli/present) own the exact versions and fields. They are independent across families. An ordinary result can have valid nonzero status and need not identify itself with `result_type` or `command`.
+JSON mode SHALL emit one ordinary result on stdout or the common pre-result error family when applicable. Check the exit code and read a complete result. Inspect `result_type: "cli_error"` first; otherwise use the selected command's result family and check `schema_version`. Versions are independent across families. An ordinary result can have valid nonzero status and need not identify itself with `result_type` or `command`.
+
+The current families correspond to their [version constants](../../../internal/contractversion/current.go) and [result presenters](../../../internal/cli/present):
+
+| Surface | Version |
+| --- | ---: |
+| `version`; `init` (independent) | 1 each |
+| `add`, `remove`, ordinary `import`, both `unmanage` leaves | 7 |
+| `lock`, `outdated` | 6 |
+| List resources; outputs; paths | 4; 8; 2 |
+| Reconciliation plan (`status`, apply preview); apply result | 22; 28 |
+| `replace agent-config`; `import agent-config` and its recovery | 2; 3 |
+| `recover` | 11 |
+| `migrate state`; `migrate metadata` (independent) | 1 each |
+| `doctor`; `probe mcp-server`; `refresh extension` | 3; 1; 4 |
+| Common pre-result error | 2 |
 
 Each binary emits one current version of a family. A consumer-visible field, type, nullability or semantic change requires a new version before release; a same-version correction restores the documented contract. Diagnostic codes can be added without a version bump when structure and existing meanings are unchanged; consume an unknown code using severity without inferring cleanliness. Unsupported versions, unfamiliar operation variants or partial delivery do not authorize a subsequent write.
 

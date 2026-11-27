@@ -39,7 +39,7 @@ Current-lock consumers rederive the context-sensitive identities. If a relocatio
 
 ### Requirement: Preserve strict reading and bounded regeneration across schemas
 
-Daem SHALL write the current lock format and read valid schema 6 plans without rewriting them, translating their released aggregate paths in memory and applying current validation. Invalid UTF-8, unknown keys or facets, invalid identities, missing required correlations or permission data, and unknown versions are not usable as plans. The current grammar does not accept the legacy `content_path` or `generated_at` fields. New incompatible wire grammar requires a new version.
+Daem SHALL write schema 7 and read valid schema 6 plans without rewriting them, translating their released aggregate paths in memory and applying current validation. Invalid UTF-8, unknown keys or facets, invalid identities, missing required correlations or permission data, and unknown versions are not usable as plans. The current grammar does not accept the legacy `content_path` or `generated_at` fields. New incompatible wire grammar requires a new version.
 
 Lock generation and admitted transactional authoring can replace schemas 3–6 without relying on their old body; schemas 3–5 are not plans. Unknown earlier or future schemas are preserved. Only standalone `lock` can rebuild a current-version lock with an intact version header and a malformed TOML body. It revalidates the checked destination and ownership of the write; unreadable files and valid TOML with unrecognized contents are not damaged-body rebuilds. `apply`, `status`, `outdated` and paired authoring do not rebuild such a lock.
 
