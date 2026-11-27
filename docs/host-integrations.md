@@ -1,9 +1,10 @@
-# Host Integration Contract
+# Host integrations
 
-Use this reference to check which native operations daem runs, what it can
-verify and what remains afterward. Start with [Feature Support](features.md)
-for host selection; [Manifest](manifest.md) owns syntax, [CLI](cli.md) owns
-commands and [Platform Support](platforms.md) owns OS/architecture coverage.
+Use this guide when selecting a host integration or investigating a native
+operation. [Feature Support](features.md) gives a cross-host overview. The
+[host admission](../openspec/specs/host-admission/spec.md) and
+[carrier route](../openspec/specs/carrier-routes/spec.md) specifications define
+what daem supports, checks, and can leave behind.
 
 ## Product Status Labels
 
@@ -19,36 +20,19 @@ commands and [Platform Support](platforms.md) owns OS/architecture coverage.
 
 ## Target Surface And Operation Matrix
 
-| Surface | Codex | Claude Code | OpenCode | Pi | Antigravity CLI |
-| --- | --- | --- | --- | --- | --- |
-| Instructions | `supported` | `supported` | `supported` | `supported` | `supported` |
-| Skills and skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
-| Command hooks | `supported` | `supported` | `diagnostic` | `diagnostic` | `unsupported` |
-| MCP config | project/global | project/global | project/global | project/global Native or Adapter | global |
-| Agent configuration | project/global | project/global | project/global | project/global | global only |
-| Delegated executable execution | `deferred` | project MCP | `deferred` | `deferred` | `deferred` |
-| Carrier declaration, observation and lifecycle | global | project/global | project/global | project/global package | global; observation/removal require selector |
-| Provider contribution diagnostics | cache diagnostics | `deferred` | `deferred` | admitted MCP provider only | `deferred` |
-| Destructive cleanup/prune | `blocked` | `blocked` | `blocked` | `blocked` | `blocked` |
-| Runtime probes | `deferred` | explicit project MCP | explicit project MCP | `deferred` | `deferred` |
+Use the [feature matrix](features.md) to compare hosts. For a specific
+declaration, `daem list paths` shows the selected location or native route;
+use the relevant spec to determine what that operation can verify.
 
 ### Explicit Carrier Refresh
 
-`refresh extension` selects one extension explicitly; ordinary apply does not
-select refresh routes. Where no observer is admitted, ordinary apply instead
-retries its locked install/create route on every run, which may repair or update
-host-selected artifacts. Neither path grants bulk refresh, uninstall, prune,
-contribution control, rollback or runtime-readiness guarantees. Exact commands are in the
-host summaries below.
-
-Selecting one declaration does not limit every host-owned effect to that
-relation: Codex refresh selects its marketplace, and Pi may update matching user
-and trusted-project rows. Review the disclosed native route and retained effects.
-
-Refresh bounds only the child process: default `10m`, or `--timeout` from `1s`
-through `1h` in whole seconds, disclosed and fingerprinted before authorization.
-Planning, confirmation, observation, history persistence and cleanup are outside
-that timeout. Timeout after start may leave partial host state.
+Preview `daem refresh extension <id> --dry-run` before authorizing a refresh.
+Check the scope of the **native** command: Codex can refresh a marketplace,
+and Pi can update matching user and trusted-project rows. The
+[refresh contract](../openspec/specs/effect-commands/spec.md#requirement-refresh-one-selected-locked-extension-without-broadening-authority)
+defines timeout and result meanings; the timeout only bounds the child process.
+An ordinary apply may retry install on a host without an observer, but it does
+not select the explicit refresh route.
 
 ### Checked Host Versions
 

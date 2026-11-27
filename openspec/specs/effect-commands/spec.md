@@ -27,7 +27,7 @@ Order rows name a physical sequence and its logical class, revision, managed mem
 
 Each precedence-risk row names the managed relation, foreign identity and before/after direction. A count alone cannot authorize the change. A credential-bearing, local or over-256-byte foreign identity is redacted in presentation without changing authorization identity.
 
-Where selected OpenCode sequences settle independently, report each physical sequence as `converged`, `failed` or `not_attempted`, preserving already completed writes when a later sequence fails. A retry reobserves the current files; a prior success row does not prove current convergence.
+Each `relation_order_results` row reports `exact` when no reorder was needed, `converged` when a reorder completed, `failed` when attempted order work failed, or `not_attempted` when it did not run. Where selected OpenCode sequences settle independently, a later failure preserves completed writes for the other sequences. A retry reobserves the current files; a prior success row does not prove current convergence.
 
 Previewed claim adoption uses `would_record`; use `recorded` after a verified commit or `completed_by_install_recovery` with installed-observed provenance when existing install evidence completes it. Preserve the confirmed transitions if later work fails; `not_recorded` is for pre-effect refusal, and an indeterminate successor is `unknown_after_error`, not a receipt. Absence distinguishes `host_route`, `direct_config`, `observation_only` and `state_only`.
 

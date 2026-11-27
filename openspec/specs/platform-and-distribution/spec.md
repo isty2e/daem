@@ -8,9 +8,9 @@ Define where daem commands and release assets are supported. The [platform model
 
 ### Requirement: Separate platform admission from buildability
 
-Daem SHALL admit Apple silicon macOS 26 or later and `linux/amd64` as product targets. It does not infer support from an adapter, a successful compile or a diagnostic path. The product matrix distinguishes supported rows, compile-only rows, and unverified targets. Release claims require the admitted row's native checks, CLI smoke, and artifact reproducibility evidence. Gated macOS commands require an observed product version of 26.0 or later; an unsupported version, malformed reading, failed observation or timeout does not qualify.
+Daem SHALL admit Apple silicon macOS 26 or later and `linux/amd64` as product targets. The product matrix lists `darwin/amd64`, `linux/arm64`, `linux/386`, and `windows/amd64` as compile-only and other non-admitted pairs as unverified. An adapter, a successful compile or a diagnostic path does not establish support. Release claims require the admitted row's native checks, CLI smoke, and artifact reproducibility evidence. Gated macOS commands require an observed product version of 26.0 or later; an unsupported version, malformed reading, failed observation or timeout does not qualify.
 
-Platform-gated commands refuse before workspace lookup, resolution, confirmation, or effects, including dry-run. This includes `migrate` recovery/cleanup; an internal no-op branch does not add a Windows command. Help and offline version are available. An operation not covered by the ingress gate still needs its own admitted capabilities; it is not a fallback mode for unsupported platforms.
+On unsupported platforms, `apply`, `import`, `init`, `lock`, `migrate`, `outdated`, `recover`, and `refresh` refuse before workspace lookup, resolution, confirmation, or effects, including dry-run. The same [entry gate](../../../internal/cli/run.go) applies to admitted effect-producing subjects of `add`, `remove`, `replace`, and `unmanage`. `list`, `status`, and explicit `probe` have no entry gate but refuse when their required storage, root, process, or host capabilities are unavailable. Help and offline version are available.
 
 #### Scenario: Try to preview metadata recovery on Windows
 
@@ -28,9 +28,9 @@ Platform-gated commands refuse before workspace lookup, resolution, confirmation
 
 ### Requirement: Qualify artifact paths for exact source operations
 
-On admitted Unix targets, an artifact view SHALL retain stable root/ancestor identity through reads, listings, hashing and copying. Use the required object incarnation and mount evidence for the platform. Darwin artifact reads require birth time or generation; Linux uses a mount ID and birth time or an opaque file handle. Missing the required evidence is not permission to infer identity from inode or path alone. Process-local read evidence does not confer mutation or durable recovery authority.
+On admitted Unix targets, an artifact view SHALL retain stable root/ancestor identity through reads, listings, hashing and copying. Use the required object incarnation and mount evidence for the platform. Darwin artifact reads require nonzero birth time or generation; Linux uses a mount ID and birth time or an opaque file handle. Comparing a handle does not require permission to reopen by handle. Missing the required evidence is not permission to infer identity from inode or path alone. Process-local read evidence does not confer mutation or durable recovery authority.
 
-An absolute root uses native name lookup and may resolve a case variant on a case-insensitive filesystem. Nested paths require exact stored spelling and unchanged identity. Ordinary locator traversal may resolve parent symlinks; no-follow views reject symlink components. This is the artifact boundary, not a blanket Darwin mutation-root rule. [Host filesystem mutation](../host-mutation/spec.md) defines journal continuity and filesystem write constraints.
+An absolute root uses native name lookup and may resolve a case variant on a case-insensitive filesystem. Nested paths require exact stored spelling and unchanged identity. Ordinary locator traversal may resolve parent symlinks; no-follow views reject symlink components. Requiring exact supplied spelling for absolute roots would change compatibility and needs a separate decision. [Host filesystem mutation](../host-mutation/spec.md) defines journal continuity and filesystem write constraints.
 
 #### Scenario: A nested name differs only in case
 

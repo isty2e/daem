@@ -1,188 +1,66 @@
-# Platform Support
+# Platform support
 
-This page owns operating-system and architecture support. Agent/resource
-coverage is separate: see [Feature Support](features.md).
+For agent and resource coverage, see [Feature Support](features.md). This
+page helps diagnose operating-system and filesystem restrictions.
 
 ## Current Matrix
 
-| Operating system | Architecture | Product support | Verification lane |
-| --- | --- | --- | --- |
-| macOS 26 or newer (`darwin`) | `arm64` | admitted | native required |
-| Linux | `amd64` | admitted | native required |
-| macOS (`darwin`) | `amd64` | not admitted | compile only |
-| Linux | `arm64` | not admitted | compile only |
-| Linux | `386` | not admitted | compile only |
-| Windows | `amd64` | not admitted | compile only |
-| Every other target | any | not admitted | unverified |
-
-An admitted row is a supported design target, not a test result. Release claims
-require that row's native tests, CLI smoke and artifact-reproducibility lane in
-the release run. This does not cover every filesystem, distribution, kernel,
-host CLI or machine configuration. Compile-only builds detect portability
-failures; they do not establish native behavior or promote support.
+Daem runs on Apple silicon with macOS 26 or newer, and on `linux/amd64`.
+See [platform admission and release verification](../openspec/specs/platform-and-distribution/spec.md#requirement-separate-platform-admission-from-buildability)
+for the distinction between a supported target, a compile-only target, and an
+unverified target. Use [Install](install.md) to select a release executable.
 
 ### Linux Recovery
 
-Journal-bearing mutation binds mount identity to the canonical boot UUID from
-verified procfs `kernel/random/boot_id`. Linux uses `STATX_MNT_ID_UNIQUE` when
-available. Older kernels, including 5.15, use a separately tagged
-`STATX_MNT_ID` witness. This fallback supports recovery within the same boot
-without unmounting or remounting the affected filesystems; it does not guarantee
-rejection of a reused legacy mount ID after remount.
-
-Missing mount or boot evidence still blocks journal-bearing mutation, including
-state-only journals. Provenance is validated again before journal-covered host
-writes. Existing unique-ID journal tokens retain their meaning; recovery refuses
-rather than converts a token from a different mount-identity scheme. Finish
-pending recovery before reboot, remount, or a kernel transition.
-
-An active journal from an earlier boot is refused before recovery effects.
-The boot identity is recovery provenance, not part of a manifest, lockfile or
-ordinary operation fingerprint; reboot alone does not invalidate a clean new
-invocation. Operation-local rooted checks need not establish durable recovery
-provenance. On admitted rows, platform-scoped stable-storage publication
-preserves durable evidence across an OS crash or power loss, subject to the
-filesystem caveats below; it does not make post-reboot recovery executable.
+Finish pending recovery before rebooting, remounting an affected filesystem,
+or changing kernels. If a journal survives from another boot, follow
+[Recovery Journal From An Earlier Boot](troubleshooting.md#recovery-journal-from-an-earlier-boot).
+See [Linux journal provenance](../openspec/specs/host-mutation/spec.md#requirement-bind-linux-journal-work-to-boot-and-mount-provenance)
+for required evidence and the legacy kernel fallback.
 
 ### Artifact Paths
 
-On admitted Darwin/Linux targets, artifact reads, listings, hashes and copies
-require stable root/ancestor object and mount identity through completion.
-Darwin requires nonzero birth time or generation for artifact views. Linux
-requires `STATX_MNT_ID` and either `STATX_BTIME` or an opaque file handle from
-`name_to_handle_at` on each component. Handle comparison does not require the
-privilege to reopen by handle. Missing both incarnation mechanisms fails the
-affected operation rather than falling back to inode or pathname alone.
-Read-only locators and process-local witnesses grant no mutation, lease,
-durable-comparison or durable recovery authority.
-
-Absolute artifact-root components use native filesystem lookup: a case variant
-may resolve on a case-insensitive filesystem, while an absent spelling remains
-absent on a case-sensitive one. Nested relative selections require exact stored
-spelling and stable full identity, including change time, mode and size.
-Ordinary views resolve parent symlinks; no-follow views reject every symlink
-component, but do not impose case-sensitive lookup on absolute roots.
-
-Universal exact-input-spelling rejection for absolute artifact roots is outside
-this contract: a root is an input locator, not a required inventory-entry name.
-Adding that refusal requires a separate compatibility decision. The distinct
-[deferred Darwin mutation-root policy](../ARCHITECTURE.md#platform-maintenance-decisions)
-does not weaken the artifact-view rule.
+Use the actual stored spelling of names selected inside a source directory or
+archive. The leading absolute path is resolved by the native filesystem.
+[Artifact path admission](../openspec/specs/platform-and-distribution/spec.md#requirement-qualify-artifact-paths-for-exact-source-operations)
+explains the identity evidence daem needs to read and verify an artifact.
 
 ### macOS Runtime Floor
 
-macOS 26 is required because earlier releases can reject write-disabled
-directory renames before atomic publication or logical removal. Daem checks
-`/usr/bin/sw_vers --productVersion`; a version below `26.0`, malformed output,
-command failure or timeout blocks platform-gated commands before workspace,
-source, storage or host effects. `doctor` retains the diagnostic exceptions below.
+Older macOS releases can refuse a directory rename when the directory has no
+write bit. If `doctor` reports an unsupported macOS version, use a supported
+machine rather than loosening permissions on a managed tree to get past it.
 
 ### macOS Metadata During Writes
 
-Replacing a regular file keeps its ordinary permissions and its backup-exclusion
-flag (`UF_NODUMP`). The new file keeps the extended attributes macOS gives it;
-daem does not copy Finder tags or other opaque attributes from the old file.
-Daem refuses a replacement if it cannot preserve an access control list (ACL)
-or encounters an unsupported file flag, such as the immutable flag.
-
-When preparing a directory for publication, daem checks the files and their
-contents. A Finder tag or a change to `com.apple.provenance` does not invalidate
-them. A change to the access label `com.apple.macl` does.
-
-[Permission-only recovery](state-and-recovery.md#permission-only-recovery)
-narrows access on the existing file. A Finder tag or the backup-exclusion flag
-(`UF_NODUMP`) stays in place and does not block `chmod`. An ACL, or a flag that
-prevents the required change, still blocks the restriction.
+If replacing a file fails on an ACL or file flag, check the
+[metadata-preservation rules](../openspec/specs/host-mutation/spec.md#requirement-preserve-supported-metadata-when-changing-file-contents-or-access)
+before retrying. File replacement and
+[permission-only recovery](state-and-recovery.md#permission-only-recovery)
+do not preserve the same attributes: recovery changes access on the existing
+file.
 
 ### Linux Metadata During Writes
 
-When replacing a regular file, daem preserves existing user attributes
-(`user.*`), including their values. An unrelated attribute added to the new
-file does not block publication. The kernel manages content signatures such as
-`security.ima`; daem does not copy an old signature to new bytes.
-
-Daem refuses a replacement that would discard a POSIX ACL or carry file
-capabilities onto new code. Under SELinux, daem keeps the existing file's full
-security context. If the temporary file has a different label, daem applies
-the original label and verifies it before writing any content. If the current
-login cannot set that label, for example because the file belongs to a different
-SELinux user, the replacement stops and the original stays in place. Other
-access labels must match without relabeling.
-
-A new regular file or missing parent directory keeps the label the kernel gives
-its temporary name. If a policy rule specifies a different label for the final
-name, daem does not apply it after the rename.
-
-The backup-exclusion flag is preserved. A dry run does not exercise filesystem
-writes; a failure in final verification can occur after the new file is visible.
+If replacement cannot establish the original SELinux context, check whether
+the invoking user can set that context. Review the
+[Linux metadata rules](../openspec/specs/host-mutation/spec.md#requirement-preserve-supported-metadata-when-changing-file-contents-or-access)
+before changing policy or retrying. A dry-run success does not test these
+filesystem writes.
 
 ## Unsupported Builds
 
-| Command | Behavior on a not-admitted platform |
-| --- | --- |
-| `--help`, `help <command>`, command-specific help, `version`, `--version` | Available; version uses embedded build facts only. |
-| `doctor` | Nonzero with running `GOOS/GOARCH`, runtime/failure where applicable, required floor, verification class, admitted targets and next step. Resolves target/manifest selection to report path errors as well. |
-| `add`, `apply`, `import`, `init`, `lock`, `outdated`, `recover`, `refresh`, `remove`, `unmanage` | Refused before path resolution, manifest/cache access, confirmation, host/delegated effects or durable metadata publication. Dry-run uses the same gate. |
-| `list`, `status`, explicit `probe` | Not a partial unsupported-platform mode; required storage, project-root, process or host capabilities still fail closed. |
-
-After successful path resolution, `doctor` retains the platform finding and
-runs only checks whose meaning is unchanged. Capability-bound checks report
-`unsupported` or `skipped`, never `ok`; path-resolution failure reports both
-findings without inventing remaining results. On not-admitted platforms it
-does not run Git, search PATH for MCP executables, or invoke durable file-set
-or recovery-inventory adapters. Bounded host-config grammar checks remain
-available. Storage failure cannot erase the platform finding, and diagnostic
-findings never authorize an apply. `outdated` is read-only for desired/host state
-but still requires supported path and source-cache behavior.
+Use `daem version` to identify the build and `daem doctor` for the platform
+finding and any independent path errors. See the
+[entry gates and diagnostic exceptions](../openspec/specs/platform-and-distribution/spec.md#requirement-separate-platform-admission-from-buildability).
+Trying an effect command with `--dry-run` does not bypass the gate.
 
 ## Path Descriptions
 
-Linux amd64 NFSv3 supports ordinary unprivileged single-client `lock`, `apply`,
-and same-boot interruption/recovery, including on kernel 5.15. Run one writer
-at a time against a manifest or destination, on trusted user-controlled paths.
-Multiple Git sources may share a fresh cache within one command; internal
-workers coordinate shared ancestor publication within the process.
-Where NFS lacks atomic no-replace rename, daem checks destination absence and
-uses ordinary rename. Atomic exclusion of a concurrent external writer is
-outside this NFS contract; native no-replace publication remains in use where
-supported. Namespace revalidation remains a useful check, not a promise to
-exclude hostile interference.
-
-An NFS rename error can follow a completed server-side rename. Daem reports an
-indeterminate outcome and retains candidate staging/recovery artifacts rather
-than treating the operation as uncommitted and cleaning them automatically.
-Recovery may require manual analysis; automatic rollback of every uncertain
-result is not guaranteed. Multi-node exclusion and server-outage, reconnect,
-or power-loss durability guarantees are outside this support envelope, including
-journal retirement and residue cleanup. These are support boundaries, not
-promised future capabilities.
-
-Metadata preservation covers mode, ownership, and supported metadata exposed
-through the client. Unsupported NFS file-flag ioctls do not block ordinary
-operations; other inspection failures still do. Server-only ACLs or other
-metadata invisible to the client are not inspected or reproduced.
-
-Metadata-based revalidation compares filesystem-reported identities and
-attributes, not a universal revision counter. Rapid in-place changes can share
-one timestamp; unlink/recreation can reuse an inode before timestamps advance.
-These limits apply to local filesystems too. Keep observed inputs and namespaces
-stable during a command; revalidation detects observable drift but does not
-promise to detect every competing write or inode-reuse cycle.
-
-On Linux, cleanup of private files and directories with restrictive modes uses
-retained descriptors and verified procfs rather than requiring newer flagged
-`fchmodat` support. Missing descriptor/procfs evidence still leaves an error and
-retained residue rather than permitting unchecked pathname chmod.
-
-Darwin mutation, lease and durable-comparison authority follows each parent
-namespace's case behavior, including mixed mounts; a missing suffix inherits
-the deepest existing parent's behavior. Unavailable or contradictory evidence
-is an error, not a case-insensitive fallback. Entry authority keeps the final
-symlink itself; referent authority follows it.
-
-Daem uses OS-reported stored spelling, not user-space APFS/HFS+ Unicode
-normalization. An absent normalization-sensitive destination provides only
-provisional comparison/exclusion evidence, not exact path authority. After
-creation it must be observed afresh in the same namespace, depth and filesystem
-semantics. Recovery refuses root replacement or a different descendant mount
-before effects.
+On NFSv3, keep to a single client and writer against a manifest or destination.
+If a rename reports an indeterminate result, keep the candidate artifacts
+and follow [NFS troubleshooting](troubleshooting.md#nfs-backed-home-or-workspace).
+The [supported NFSv3 scope](../openspec/specs/host-mutation/spec.md#requirement-preserve-the-supported-nfsv3-single-client-boundary)
+does not include exclusion of other clients or guarantees about a server
+outage. For Darwin case and normalization rules, see
+[native namespace revalidation](../openspec/specs/host-mutation/spec.md#requirement-revalidate-native-namespace-and-mutation-identity).

@@ -20,7 +20,10 @@
   fit together.
 - [Glossary](glossary.md) — look up unfamiliar output terms.
 
-## Look Up A Contract
+## Find A Reference
+
+Use these guides for examples and entry points. The
+[OpenSpec capabilities](../openspec/README.md) hold the corresponding product contracts.
 
 | Reference | Questions it answers |
 | --- | --- |
@@ -47,4 +50,5 @@
 
 ## Contribute
 
-See [Contributing](../CONTRIBUTING.md) for setup and change-specific verification.
+See [Contributing](../CONTRIBUTING.md) for setup and verification, and
+[Architecture](../ARCHITECTURE.md) to open the LikeC4 model and views.

@@ -85,13 +85,15 @@ configuration across projects. Review removal plans and [retained host state](do
 
 [Browse the documentation](docs/README.md), or go directly to:
 
-- [CLI Reference](docs/cli.md) — commands, flags, output, and exit codes.
-- [Manifest Reference](docs/manifest.md) — fields and complete examples.
+- [CLI Reference](docs/cli.md) — find commands, examples, and output contracts.
+- [Manifest Reference](docs/manifest.md) — configure resources with examples and field references.
 - [Concepts](docs/concepts.md) — sources, locks, ownership, and reconciliation.
 - [Troubleshooting](docs/troubleshooting.md) — conflicts, drift, and recovery.
 - [Host Integrations](docs/host-integrations.md) and [Platform Support](docs/platforms.md)
   — supported operations and their limits.
 
+See the [product specifications](openspec/README.md) for exact behavior and
+the [LikeC4 views](ARCHITECTURE.md) for the current implementation structure.
 For source builds and development checks, see [Contributing](CONTRIBUTING.md).
 
 ## License

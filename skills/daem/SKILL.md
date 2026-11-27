@@ -103,7 +103,7 @@ For extensions, distinguish the user's removal intents:
 
 Prefer curated authoring when it represents the request, unless the user chooses manual editing. `hook_asset` has no curated add/remove route; preserve declarations and references when editing it.
 
-For syntax, consult the [Manifest Reference](https://github.com/isty2e/daem/blob/main/docs/manifest.md). That link follows `main`; select the matching Git tag for a released executable, or the matching source revision for a source build (`daem version`).
+For syntax, follow the resource specification linked from the [manifest guide](https://github.com/isty2e/daem/blob/main/docs/manifest.md). That link follows `main`; select the matching Git tag for a released executable, or the matching source revision for a source build (`daem version`). In older revisions without OpenSpec, use that revision's manifest reference.
 
 - Read the selected manifest and record each intended hunk's exact old text.
 - Apply narrow patches requiring that old text to match. Never replace the whole file or use a whole-file backup-and-restore sequence.

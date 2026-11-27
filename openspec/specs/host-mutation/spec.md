@@ -49,7 +49,7 @@ Linux cleanup of restrictive private residue can use retained descriptors and ve
 
 On Linux amd64, daem SHALL support unprivileged single-client `lock`, `apply` and same-boot interruption/recovery on NFSv3, including kernel 5.15, on trusted user-controlled paths with one writer to a manifest or destination. Concurrent cache workers within one command may share ancestors. Use native no-replace publication where available. Otherwise daem checks absence before ordinary rename; it does not thereby provide atomic exclusion against other clients or external writers.
 
-A rename error that can follow server-side completion is indeterminate. Retain candidate staging and recovery artifacts rather than treating it as an uncommitted write and cleaning them automatically. Recovery can require manual analysis. The support envelope does not include multi-client exclusion or server-outage, reconnect or power-loss guarantees for those operations, including journal retirement and residue cleanup.
+A rename error that can follow server-side completion is indeterminate. Retain candidate staging and recovery artifacts rather than treating it as an uncommitted write and cleaning them automatically. Recovery can require manual analysis. Multi-client exclusion and server-outage, reconnect or power-loss guarantees for those operations, including journal retirement and residue cleanup, are outside the support envelope, with no commitment to add them.
 
 Preserve mode, ownership and supported metadata exposed by the client. Unsupported NFS file-flag ioctls do not block ordinary operations; other inspection failures still do. Server-only ACLs and other metadata invisible to the client are not inspected or reproduced.
 

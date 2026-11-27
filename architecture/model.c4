@@ -82,14 +82,16 @@ model {
       Normalize flexible inputs at their boundary rather than carrying raw syntax, paths, subprocess output or presentation
       objects through the core as generic data. The static Host-Surface and per-operation Safety compilers remain separate.
 
-      Refinements preserve exact wire bytes and ordering, stable IDs, operation identities, authority and revision semantics,
-      supported scopes, visible effect order, partial outcomes, and recovery. Private representations and layouts can change
-      without changing those contracts. Public or durable changes need a separate compatibility decision.
+      Refinements preserve exact wire and retained bytes, schemas and order; subject, placement, codec, route, adapter and
+      projection IDs; operation and authority fingerprint values for identical inputs; and mutation domain conflicts, revision
+      membership and roles. Support, refusal, effect visibility, cancellation and stale precedence, partial writes and recovery
+      also stay compatible. Private representations and algorithms can change. Changes to those contracts or to historical
+      artifact interpretation need a separate compatibility decision.
 
-      Keep an existing authority until its replacement has same-input parity and the last consumer has moved. Removing remaining
-      migration code or renaming packages is deferred. Revisit a specific cut when last-consumer evidence supports deletion without
-      weakening a contract or a changed dependency graph justifies moving it. The maintainer owns these decisions and the deferred
-      decisions recorded under their respective components.
+      Keep the current authority during shadow evaluation. Move consumers after same-input parity, then retire the old authority
+      after its last consumer moves. Do not normalize away failed comparisons or keep two writable authorities. Remaining migration
+      cleanup and renaming are deferred; revisit a concrete cut with last-consumer or changed dependency evidence. The maintainer
+      owns the deferrals recorded at the affected components. Deferral does not excuse a demonstrated violation.
     '''
     link ../cmd/daem/main.go 'Executable entrypoint'
     link ../openspec/specs 'Product contracts'
@@ -265,17 +267,19 @@ model {
       description '''
         Compiles deterministic, immutable views of owner-local support, placement, observation and route facts without host I/O.
         SurfaceKey separates target, scope, family and variant. SurfaceID is private linkage, not a public or durable identity.
+        A variant selects a static host contract; it does not encode current evidence, capability or an effect outcome.
 
-        Compiled rows keep one identity per key and one primary realization per surface. Topology, placement and codec facts
-        belong only where the representation needs them; observations are distinguished by purpose, and each operation and dispatch
-        selects at most one actuator. Variant defaults and unsupported combinations are explicit rather than partial rows.
+        Compiled rows keep one identity per key and one primary realization per surface. A structural subject needs one Topology
+        rule; placement and codec facts belong only where required. Observations are distinguished by purpose, and each operation
+        and dispatch selects at most one actuator. Variant defaults and unsupported combinations are explicit rather than partial rows.
 
         MCP provider, inventory, effective and runtime facts are separate views. The product catalog adds typed support and selected
         placement and route views for instructions, skills, hooks, hook assets and extensions. Several logical instruction, skill
         or hook-asset consumers can share a physical path without inheriting one another’s target support.
 
-        Lookups return facts, not host adapters or probes. A missing runtime capability does not change product support. Catalog
-        consumers coexist with owner-local policies; native configuration is not another compiled product surface.
+        Lookups return facts and stable references, not adapter objects, callbacks, mutable registrations or host behavior. A
+        missing capability does not change product support. Catalog and owner-local consumers coexist during migration. Owner-local
+        realization and codecs do not reverse-import the product catalog, and native configuration is not another compiled surface.
       '''
       link ../internal/hostsurface/catalog/product.go 'Product catalog assembly'
       link ../internal/hostsurface/key.go 'Logical surface identity'
@@ -292,11 +296,15 @@ model {
         obligations with semantic demand for migrated lifecycles. Apply's private detail enters as opaque fragments. The compiler
         serializes and hashes the enclosing fields. Workflows bind actual leases and revisions, including narrower file-set domains.
         Full, provider-stable and remaining Apply, Refresh, active Recovery and cleanup-only Recovery projections stay distinct.
+        Exact parity includes diagnostic detail where it participates in identity. Combining or retiring a projection needs a
+        versioned compatibility decision. Adopt identity bytes, source freshness and rollback evidence remain outside this compiler.
         The compiler does not discover paths, acquire authority, choose an effect, access storage or execute a host.
 
-        Sequences, alternatives and repetitions represent reserved branches without flattening visibility, observation, persistence,
-        compensation or cleanup. Existing bounded segments cover core and failed settlement, carrier settlement/removal, final route
-        prefix and recovery. The final route prefix ends before the prepared host commands; provider prerequisites remain separate.
+        Sequences, closed exclusive branches and bounded repetition distinguish visibility, observation, persistence, compensation
+        and cleanup. A proven exclusive branch can reserve its maximum reachable demand instead of summing impossible paths. Existing
+        bounded segments cover core and failed settlement, carrier settlement/removal, final route prefix and recovery. The final
+        route prefix ends before prepared host commands; provider prerequisites are separate. These segments do not replace
+        owner-local exact-baseline checks, registry-first publication, retry rules or verified successor preservation.
         A whole-operation cursor is deferred. Revisit on a reproduced ordering or authority defect on a supported path, or an
         approved feature with a bounded design showing why a cursor is preferable to enforcement at the existing owner.
         Existing document, action, repetition and demand limits apply. Revisit a universal structure cap only when a supported
@@ -311,7 +319,9 @@ model {
       description '''
         Interprets independent journal and file-set outcomes, retains StateDir and RecoveryDir identities, and witnesses the first
         StateDir creation. It lowers bounded demand against selected path shape and platform capability. It owns shared or exclusive
-        admission, consumption, revalidation around effects and persistence, and barrier classification with cancellation precedence.
+        admission and consumption of path, entry, byte, observation and descendant-work reservations; revalidation around effects
+        and persistence; and barrier classification with cancellation precedence. The barrier does not select effect semantics or
+        reconstruct successors; journal, filesystem, storage and subprocess mechanisms remain separate.
 
         Apply retains both structural and scalar physical checks; Refresh couples its frontier to the retained StateDir. File-set-only
         and RecoveryDir-only paths have narrower admissions. A replan or callback cannot add unreserved work. Read-only checks
@@ -385,12 +395,14 @@ model {
           imply durable recovery authority.
 
           A blanket nonzero Darwin generation/birth-time check for mutation roots, durable provenance and StateDir remains deferred.
-          A zero tuple can retain useful authority checks without proving inode-reuse safety. Revisit on a supported reproduction
-          of an unavailable incarnation or missed replacement, or an explicit decision to require a nonzero tuple. Artifact
-          admission is unchanged. Linux cross-boot active recovery is not supported.
+          In a macOS 26.6.2 probe, capture accepted a tuple with ATTR_CMN_CRTIME set to epoch zero, and StateDir revalidation
+          still rejected rename-and-recreate. This does not prove inode-reuse safety or every filesystem's missing-metadata
+          behavior. The existing root and StateDir identity checks remain. Revisit on a supported unavailable-incarnation or
+          missed-replacement reproduction, or an explicit nonzero-admission decision. Artifact admission is unchanged.
         '''
         link ../internal/workflow/platform/assess.go 'Platform workflow used at ingress and by Doctor'
         link ../internal/platformsupport 'Product admission rules'
+        link ../openspec/specs/host-mutation/spec.md 'Filesystem and recovery guarantees'
         link ../.github/workflows/ci.yml 'Native capability and compile jobs'
       }
     }

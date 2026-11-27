@@ -23,7 +23,7 @@ It does not use `sudo` or edit shell profiles.
 Choose a release or installation directory explicitly:
 
 ```sh
-sh daem-install.sh --version v0.1.0
+sh daem-install.sh --version v0.7.2
 sh daem-install.sh --bin-dir "$HOME/bin"
 sh daem-install.sh --help
 ```
@@ -192,5 +192,5 @@ cd daem
 go install ./cmd/daem
 ```
 
-Use a current security patch of Go 1.25 or later. A source build normally
+Use the Go version and toolchain in [`go.mod`](../go.mod). A source build normally
 reports a development or pseudo-version rather than an official release tag.

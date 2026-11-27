@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Define how daem reads a declaration and resolves its defaults. The [TOML decoder](../../../internal/declaration/toml_decode.go) and [manifest loading](../../../internal/declaration/manifest) implement those checks. Resource-specific capabilities give the admitted forms; the [Manifest Reference](../../../docs/manifest.md) is the reference for looking up fields and examples.
+Define how daem reads a declaration and resolves its defaults. The [TOML decoder](../../../internal/declaration/toml_decode.go) and [manifest loading](../../../internal/declaration/manifest) implement those checks. Resource-specific capabilities give the admitted forms; the [manifest guide](../../../docs/manifest.md) shows how to use them.
 
 ## Requirements
 
 ### Requirement: Read a versioned declaration
 
-Daem SHALL accept integer `version = 1` as the manifest schema, not a daem release version. It SHALL reject unknown fields, invalid TOML types, and declarations that cannot form a valid resource. It reads a [bounded, stable regular-file referent](../../../internal/declarationartifact/artifact.go) and applies the decoder's TOML structure bounds. Recognizing a resource or target name does not imply that every operation on it is supported.
+Daem SHALL accept integer `version = 1` as the manifest schema, not a daem release version. It SHALL reject unknown fields, invalid TOML types, and declarations that cannot form a valid resource. The current schema rejects `[[skill_set]]`, `[[local_parameter]]`, `[[package_runner]]` and `[[executable_artifact]]` as unknown fields. It reads a [bounded, stable regular-file referent](../../../internal/declarationartifact/artifact.go) and applies the decoder's TOML structure bounds. Recognizing a resource or target name does not imply that every operation on it is supported.
 
 #### Scenario: An editor accepts a non-integer version
 
@@ -24,7 +24,7 @@ Daem SHALL accept integer `version = 1` as the manifest schema, not a daem relea
 
 The manifest SHALL define a nonempty default target set. Target values are `codex`, `claude-code`, `opencode`, `pi` and `antigravity-cli`, with no duplicates within a declared set. A resource that accepts `targets` inherits it when omitted or empty; a nonempty resource set replaces it. Hook assets have no target field; selection comes from their consumers.
 
-The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. The manifest and lock can represent non-copy modes, and status can inspect them. If selected `apply` work would need to carry out a non-copy placement, daem refuses to present it as an executable plan or mutate the host. A human dry-run can show a non-executable preview before returning failure; JSON reports the pre-result refusal.
+The scope values are `project` and `global`. When omitted or empty, scope defaults to `project` and skill install mode to `copy`, except where inherited or specialized defaults apply. For example, `[instructions.global]` defaults to global even in a project-default manifest. Skills admit `copy`, `symlink` and `hardlink` as `install_mode`; instruction renderings admit `copy` and `symlink` as `mode`. The manifest and lock can represent those non-copy modes, and status can inspect them. If selected `apply` work would need to carry out a non-copy placement, daem refuses to present it as an executable plan or mutate the host. A human dry-run can show a non-executable preview before returning failure; JSON reports the pre-result refusal.
 
 Non-copy apply support is deferred until placement, recovery-journal, and statefile semantics are supported together.
 

@@ -29,6 +29,8 @@ The numbered views show particular routes through the same model: assessment and
 
 Review a change at the owner it affects. New OS support starts with the platform rules and physical adapters. A target that reuses a format starts with the catalog and target adapter. A new realization form belongs with Realization and its matching Reconciliation and Effect variants. New observations belong with Assurance and its adapter; recovery changes belong with the State Barrier and recovery effects.
 
+Deferred decisions and the conditions for revisiting them are recorded on the affected components in the [model](model.c4). Read those notes before extending an operation or removing an existing check.
+
 To check the model or build the views outside the checkout:
 
 ```sh

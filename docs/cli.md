@@ -1,13 +1,9 @@
 # CLI Reference
 
-This document is the public command, flag, output, stream, and exit contract for
-`daem`. Resource schema and target-specific fields belong in the
-[Manifest Reference](manifest.md); current user-facing coverage belongs in
-[Feature Support](features.md), while operating-system and architecture support
-belongs in [Platform Support](platforms.md).
-
-For a command sequence rather than a lookup, use [Getting Started](getting-started.md)
-or [Use An Existing Environment](migration.md).
+Use this guide to find commands, flags and examples. The
+[CLI protocol](../openspec/specs/cli-protocol/spec.md) defines command selection,
+output and exit behavior. For a first project, see [Getting Started](getting-started.md).
+To capture existing settings, start with [Use An Existing Environment](migration.md).
 
 ## Contents
 
@@ -38,7 +34,7 @@ or [Use An Existing Environment](migration.md).
 | Start | `import` | Build desired state from existing agent files. |
 | Author | `add` | Add or extend one desired resource and refresh its lock result. |
 | Author | `remove` | Narrow or remove one desired resource and refresh its lock result. |
-| Author | `unmanage` | Release exact daem authority for one extension while preserving host state. |
+| Author | `unmanage` | Release management of a selected extension or native configuration without removing host content. |
 | Resolve | `lock` | Resolve the manifest into the exact adjacent lockfile. |
 | Resolve | `outdated` | Check whether locked source identities can advance. |
 | Inspect | `list` | Enumerate declarations or managed-output ownership. |
@@ -59,18 +55,9 @@ additional arguments and there is no `-v` alias.
 
 ## Platform Support
 
-The exact supported platforms and their verification requirements are
-authoritative in [Platform Support](platforms.md).
-
-On an unsupported platform, help and version remain available and `doctor`
-reports the platform error in human or JSON form. Platform-gated commands fail
-before path resolution or effects, including dry-run. Human refusals use stderr;
-known leaves with JSON selected use the common CLI failure family.
-`doctor --json` provides the diagnostic report. Doctor resolves its selected
-manifest and reports platform and path-resolution errors together. Remaining
-capability-bound checks are `unsupported` or `skipped`, not `ok`, and storage
-failure does not erase the platform finding. See [Platform
-Support](platforms.md) for the authoritative platform rules.
+If a command reports an unsupported platform, use `daem version` and
+`daem doctor` (or `daem doctor --json`) to identify the build and diagnose the
+refusal. See [Platform Support](platforms.md) for setup and filesystem advice.
 
 ## Workspace Selection
 
@@ -180,36 +167,14 @@ normalized effective target set already includes the selected target.
 
 ## Execution Modes
 
-Commands use effect-tiered modes:
-
-| Effect class | Commands | Bare invocation | `--dry-run` | `--yes` |
-| --- | --- | --- | --- | --- |
-| Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
-| Desired/derived state | `init`, `import`, `add`, `remove`, `unmanage extension`, `unmanage agent-config`, `lock` | write | preview | rejected |
-| Named source-file edit | `import agent-config` | three-stream TTY confirmation | preview | requires `--expect-plan` from reviewed preview |
-| Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
-| Management authority | `migrate state` | three-stream TTY confirmation | preview | non-interactive execution |
-| Management metadata | `migrate metadata` | three-stream TTY confirmation | preview | non-interactive execution |
-
-An empty host/runtime plan does not prompt; an already completed state migration
-also needs no new prompt. Skipping a prompt does not waive command admission:
-a bare state-migration repeat still requires terminal stdin/stdout/stderr;
-non-interactive repeats use `--dry-run` or `--yes`. JSON cannot share an
-interactive prompt, so host/runtime, state-migration and metadata-conversion JSON require `--dry-run`
-or `--yes`.
-
-Interactive authorization uses three distinct process streams: stdin accepts
-the answer, stdout carries the stable effect disclosure, and stderr carries the
-prompt and cancellation diagnostic. All three streams must be terminals. The
-complete stdout disclosure must also have been written successfully before the
-stderr prompt appears. Redirecting either output, piping or closing stdin, or
-omitting any stream makes the invocation non-interactive and therefore requires
-`--yes` for effects; daem never copies the plan to stderr or auto-confirms as a
-fallback. The one explicit exception is non-interactive
-`refresh extension --yes --json`: its complete authorization document is
-written to stderr before execution so stdout can remain one final JSON result.
-EOF and every answer other than `y` or `yes` decline. Context cancellation
-interrupts a blocked terminal read and cannot authorize effects.
+Use `--dry-run` to inspect a change before making it. For example, `daem lock`
+writes the lock immediately, while `daem apply` normally shows a plan and
+asks first. Do not pipe `yes` into an interactive command: confirmation needs
+terminal stdin, stdout and stderr. Use the command's noninteractive mode only
+after reviewing the plan. For `import agent-config` and `replace agent-config`,
+pass `--expect-plan` from the reviewed preview as well. The
+[execution mode rules](../openspec/specs/cli-protocol/spec.md#requirement-require-the-mode-appropriate-to-the-effect)
+cover read-only queries, operations that can skip a prompt, and JSON mode.
 
 ## Presentation Flags
 
@@ -353,26 +318,8 @@ can also report write errors in their own result families. If the response is
 incomplete or you do not recognize the family, version or operation, do not use
 it to start another write.
 
-| Command surface | Envelope owner | Current version |
-| --- | --- | ---: |
-| `version` | Executable identity | `1` |
-| `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension`, `unmanage agent-config` | Manifest authoring | `7` |
-| `lock`, `outdated` | Lock comparison | `6` |
-| `list resources` | Resource inventory | `4` |
-| `list outputs` | Output inventory | `8` |
-| `list paths` | Agent location inventory | `2` |
-| `status`, `apply --dry-run` | Reconciliation plan | `22` |
-| confirmed `apply` | Apply result | `28` |
-| `replace agent-config` | Selected-key replacement | `2` |
-| `import agent-config` | Selected physical-value capture or its terminal recovery | `3` |
-| `recover` | Recovery plan/result | `11` |
-| `migrate state` | State-authority migration | `1` |
-| `migrate metadata` | Management metadata conversion | `1` |
-| `doctor` | Passive diagnostics | `3` |
-| `probe mcp-server` | Runtime probe | `1` |
-| `refresh extension` | Extension refresh | `4` |
-| Known leaf failure before an ordinary result | Common CLI failure (`result_type: "cli_error"`) | `2` |
+Use the [result-family version table](../openspec/specs/cli-protocol/spec.md#requirement-decode-a-complete-result-by-its-independent-family-version)
+at the installed executable's tag or source revision.
 
 When upgrading from v0.7.2, add separate readers for `import agent-config`,
 `replace agent-config` and `migrate metadata`. None of these commands existed in
@@ -1638,38 +1585,13 @@ removal verification, and conditional or normalization order, remain visible.
 `--verbose` and JSON retain every individual fact. The same presentation applies
 to apply previews and preflight refusals.
 
-The table below describes exit codes for valid status results. Command failures
-still return `1` before or while emitting their applicable result contract.
-
-| Invocation | Exit `0` | Exit `1` |
-| --- | --- | --- |
-| `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, known-clear owner permission protection, no pending or blocked output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending or unavailable owner permission protection; pending or blocked output action, including an unqualified MCP host; non-exact extension order; or blocked relation, adoption, or extension-removal action |
-
-Diagnostic grades, including `error`, do not by themselves affect the `--check`
-exit code or `check_clean`. The `diagnostics` array carries the reported grades;
-error-grade diagnostics contribute to `has_errors`.
-
-Selected missing extension relations and observe-only relation rows do not make
-`--check` fail. A blocked removal of a managed extension relation does fail. A
-normalize, conditional, or blocked extension-order row is also non-clean. JSON
-and human modes use the same exit predicate.
-
-Both `status --json` and `status --check --json` include the required boolean
-`check_clean`. It is true exactly when the selected observed state satisfies
-the check predicate above, regardless of whether `--check` was requested.
-`check_clean` and `has_errors` are independent in both directions: pending changes
-can make `check_clean` false while `has_errors` remains false; an otherwise clean
-report with error-grade diagnostics can have both fields true and still pass
-`--check`. Ordinary status still exits `0` for a valid report.
-
-`check_clean` is not runtime readiness, permission to apply, or a prediction of
-process success when usage, operation, signal or output-delivery failures occur.
-Failures before an ordinary report follow the [common error contract](#common-cli-failures)
-instead of fabricating an assessment. `apply --dry-run` omits this field: its
-planning context, including `--manage-existing`, is not a status observation.
-Both commands emit the current reconciliation-plan version in the
-[version table](#json-schema-contract); other result families are unchanged.
+Ordinary `status` returns success for a valid report, even if work is pending.
+Use `status --check` when pending work should fail the check. In JSON, inspect
+`check_clean` separately from `has_errors`: pending changes can make the first
+false without setting the second, and an error-grade diagnostic alone does not
+make the observed outputs non-clean. `apply --dry-run` has no `check_clean`
+field. See the [status contract](../openspec/specs/inspection-cli/spec.md#requirement-report-status-and-check-cleanliness-independently)
+for the full predicate. Neither field authorizes an apply.
 
 ### Reading permission protection
 
@@ -2312,9 +2234,9 @@ without blocking normal commands. Repeating completed recovery or cleanup
 reports `none` without writing. Invalid active evidence is never bypassed as
 cleanup.
 Large inventories can require repeated cleanup batches. A batch does not claim
-to have inspected every directory entry. Cleanup effects currently require
-Darwin or Linux. Windows retains clean no-op recovery and discloses unavailable
-cleanup as deferred rather than enabling unverified deletion.
+to have inspected every directory entry. The
+[platform gate](../openspec/specs/platform-and-distribution/spec.md#requirement-separate-platform-admission-from-buildability)
+applies to `migrate metadata --recover`, including previews.
 
 JSON uses `schema_version = 1`, `mode`, `action`, `manifest_path`, `data_dir`,
 `statefiles` and `targets`. `manifest_path` identifies the original selection in
@@ -2574,8 +2496,8 @@ other failures before a result can be formed use the common CLI failure family
 when JSON is selected. A result-write failure may still produce a bounded stderr
 diagnostic, never a replacement result.
 
-Current target-specific route availability remains authoritative in the
-feature matrix.
+See [carrier routes](../openspec/specs/carrier-routes/spec.md) for target and
+source eligibility.
 
 ## Progress
 
@@ -2597,46 +2519,12 @@ fails the command.
 
 ## Streams And Exit Codes
 
-| Situation | Stdout | Stderr | Exit |
-| --- | --- | --- | ---: |
-| Help or successful human result | stable help/result | ephemeral progress or prompt only | `0` |
-| Successful JSON result | exactly one JSON document | empty, except [refresh authorization](#json-stream-exceptions) | `0` |
-| Blocking result for a command whose result contract is failure | stable human or one JSON result | no duplicate prose | `1` |
-| Report-only `status`, including pending or blocked rows | normal result | empty | `0` |
-| Clean `status --check` | normal result | empty | `0` |
-| Non-clean `status --check` | normal result | empty | `1` |
-| Non-current `outdated --check` | normal result | empty | `1` |
-| Warning-only result | stable result | empty | `0` |
-| CLI misuse, human mode or unknown command route | empty | problem plus nearest correction | `2` |
-| Known-leaf CLI misuse with JSON selected | one `cli_error` usage document | empty unless delivery fails | `2` |
-| Operation failure before an ordinary result, human mode | empty | concise error and remediation | `1` |
-| Operation failure before an ordinary result, JSON selected | one `cli_error` operation document | empty unless delivery fails | `1` |
-| Failure after JSON envelope exists | one typed JSON result | [refresh authorization](#json-stream-exceptions); otherwise empty unless write fails | `1` |
-| Confirmation declined/canceled | disclosed plan remains | cancellation line | `1` |
-| Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
-| Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
-| Interrupted by `SIGTERM` | completed or partial stable output | bounded interruption diagnostic | `143` |
-| Interrupted by `SIGHUP` | completed or partial stable output, if the terminal remains writable | bounded interruption diagnostic, if deliverable | `129` |
-
-Stable confirmation disclosures are written to stdout; prompts and bounded
-cancellation diagnostics are written to stderr. Human warnings that belong to
-a valid result stay on stdout. Command-specific non-disclosure rules continue
-to withhold raw subprocess/protocol output, authentication material, headers and
-known secret inputs. The [credential-detection non-goal](#presentation-flags) does not
-relax those rules or promise detection of arbitrary secrets in free-form text.
-
-First `SIGINT`/`SIGTERM`/`SIGHUP` records exit identity and cancels the operation. A
-later signal arms a bounded emergency exit, preserving the first exit code and
-ongoing TERM-to-KILL cleanup window; completed cancellation exits immediately.
-After command completion and pending signal processing, daem fixes its exit status
-using the first signal observed by that point, if any. Later signals do not
-replace that status. A disconnected confirmation terminal never authorizes
-effects. Its EOF/read failure yields `1` if no signal identity was selected;
-a selected `SIGHUP` yields `129`.
-Context cancellation without an OS signal supplies no signal exit identity.
-Internally supplied interactive authorization requires stdin/stdout/stderr, all
-three terminal facts and context-aware confirmation reading; otherwise execution
-is non-interactive.
+Capture stdout and stderr separately in automation. Read the process status
+alongside the [complete JSON result](#json-schema-contract): exit `1` can still
+carry a normal status or recovery report. Do not retry a write just because
+its result was interrupted or could not be delivered. The
+[stream and exit rules](../openspec/specs/cli-protocol/spec.md#requirement-preserve-stream-and-process-outcomes)
+cover signal codes, cancellation, and delivery failures.
 
 ### JSON Stream Exceptions
 
