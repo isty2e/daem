@@ -117,9 +117,10 @@ for storage limits.
 
 | Term | Meaning |
 | --- | --- |
-| Reconciliation | Compares the lock and the last recorded state with current observations to determine what `apply` would do. |
+| Reconciliation | Uses locked intent, recorded state and ownership, and current observations to determine what `status` reports and what `apply` plans. |
 | Subject | A stable internal identity for something modeled by daem, such as a resource, projection, or host relation. Use the separate [resource key](cli.md#resource-names-and-identifiers) as a CLI operand. |
 | Projection | A placement or selected part of host settings. One file can contain several projections. |
+| Carrier | A host-managed plugin or package that daem can act on through a supported [extension](#extension-carriers). Managing it does not grant control of its store or everything it supplies. |
 | Contribution | A managed value in a settings projection, or a capability supplied by a carrier. A [carrier-provided contribution](host-integrations.md#provider-scoped-contribution-diagnostics) is not automatically a resource that daem can manage separately. |
 | Relation | A selected association in a host, such as a plugin selected by name and scope. Observing a relation does not establish ownership or readiness. |
 | Delegated operation | A disclosed command that daem asks a host or package runner to execute. Its exit status alone does not establish that the desired host state was reached. |

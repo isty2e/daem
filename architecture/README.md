@@ -40,4 +40,4 @@ likec4 validate architecture
 likec4 build architecture --output "$(mktemp -d)"
 ```
 
-These commands check the model and render local previews. The build can contain checkout-specific source links; only the source model and views belong in the repository. Compare changed relationships and sequence steps with the linked code and tests at the same revision. The existing Go architecture checks remain under `tools/test.sh repository`.
+The build can contain checkout-specific source links; do not commit its output. Compare changed relationships and sequence steps with the linked code and tests at the same revision. See [verification in the contributor guide](../CONTRIBUTING.md#verify-specifications-and-architecture) for the related OpenSpec and Go architecture checks.

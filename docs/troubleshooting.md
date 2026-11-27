@@ -75,10 +75,11 @@ daem migrate state --yes
 Preserve your explicit `--manifest` when needed. Migration moves management
 records, not installed files, host packages, or the cache. Keep the receipt
 at the old state location; do not copy the old snapshot back over it.
-For interrupted migration, use `daem migrate state --recover --dry-run`. For an
-old Apply journal, use `daem recover --legacy-user-state --dry-run` before
-migrating. Finish an interrupted legacy authoring transaction with the command
-and daem version that wrote it.
+For interrupted migration, use `daem migrate state --recover --dry-run`. Before
+migrating, preview recovery of any old Apply journal with
+`daem recover --legacy-user-state --dry-run` and finish it under that selection.
+Finish any interrupted legacy authoring transaction before migrating, using
+the command and daem version that wrote it.
 Destination conflicts, changed roots and missing recovery evidence are not
 fixed by `--yes`. See the [migration spec](../openspec/specs/metadata-migration/spec.md)
 for the transfer, cache and recovery rules.
@@ -713,9 +714,10 @@ next release no longer ships that file. Adding a cache or a note is not drift;
 it stays in place until daem replaces or removes the skill directory. Move
 anything you want to keep outside that directory before applying.
 
-If daem cannot verify an older installation without a shipped-file list, use a
-matching copy of the original release with
-[`daem migrate metadata --baseline-tree <dir>`](cli.md#migrate-metadata).
+If daem cannot verify an older installation without a shipped-file list,
+preview [metadata migration](cli.md#migrate-metadata) with
+`daem migrate metadata --baseline-tree <dir> --dry-run`, using a matching copy
+of the original release.
 If an interrupted Apply cannot verify the old baseline, use
 [`daem recover --baseline-tree <dir> --dry-run`](cli.md#recover) instead. The
 reference tree proves the baseline; recovery still restores from journal backups.
