@@ -196,21 +196,31 @@ func TestApplyAndLockPreserveBothRecordsIfEitherOwnerCannotProceed(t *testing.T)
 func TestLockOnlyTouchesJournalToClearItsPair(t *testing.T) {
 	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
 	prepareRecoveryApplyDeclarations(t, fixture.manifestPath, "instructions\n")
-	fixture.assertCleanupPresent(t)
 	marker := stageApplyPair(t, fixture.paths, true)
-	var stdout, stderr bytes.Buffer
-	args := []string{"lock", "--json", "--dry-run", "--manifest", fixture.manifestPath}
-	if code := RunWithOptions(args, RunOptions{Stdout: &stdout, Stderr: &stderr}); code != 1 || stderr.Len() != 0 {
-		t.Fatalf("lock preview exit=%d, stdout=%s, stderr=%s", code, &stdout, &stderr)
+	before := make(map[string]string)
+	for _, path := range []string{
+		fixture.manifestPath, fixture.paths.LockfilePath, fixture.paths.StatefilePath, fixture.hostPath,
+		marker, filepath.Join(fixture.controlDir, retirement.RecordFileName),
+	} {
+		before[path] = readCleanupFile(t, path)
 	}
-	fixture.assertCleanupPresent(t)
-	readCleanupFile(t, marker)
-	state, host := readCleanupFile(t, fixture.paths.StatefilePath), readCleanupFile(t, fixture.hostPath)
+
+	preview := clijson.DecodeLock(t, runApplyCleanupJSON(t, "lock", "--dry-run", "--manifest", fixture.manifestPath))
+	if preview.Mode != "dry-run" || preview.PreviousStatus != "comparable" || preview.HasChanges == nil || *preview.HasChanges {
+		t.Fatalf("expected a comparison with no lock changes: %+v", preview)
+	}
+	for path, content := range before {
+		assertApplyConfirmationFileContent(t, path, content)
+	}
+	if _, err := os.Lstat(fixture.residueDir); err != nil {
+		t.Fatalf("preview did not preserve journal residue: %v", err)
+	}
+
 	clijson.DecodeLock(t, runApplyCleanupJSON(t, "lock", "--manifest", fixture.manifestPath))
 	assertCLIPathMissing(t, filepath.Dir(marker))
 	fixture.assertCleanupAbsent(t)
-	assertApplyConfirmationFileContent(t, fixture.paths.StatefilePath, state)
-	assertApplyConfirmationFileContent(t, fixture.hostPath, host)
+	assertApplyConfirmationFileContent(t, fixture.paths.StatefilePath, before[fixture.paths.StatefilePath])
+	assertApplyConfirmationFileContent(t, fixture.hostPath, before[fixture.hostPath])
 }
 
 func TestLockReportsBothRetirementsWhenSourceResolutionFails(t *testing.T) {

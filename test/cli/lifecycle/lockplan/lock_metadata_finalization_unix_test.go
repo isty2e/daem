@@ -45,9 +45,16 @@ func TestLockFinalizesOnlyItsSelectedPair(t *testing.T) {
 	testkit.WriteFile(t, root, "source.md", "current source content\n")
 	legacyLock := "version = 6\n"
 	marker := metadatatx.WriteInterruptedPair(t, paths.StateDir, manifest, lockReferent, settledManifest, legacyLock, true)
+	markerBytes := testkit.ReadFile(t, marker)
 
-	preview := runMetadataLock(t, 1, "--dry-run", "--manifest", manifest)
-	requireMetadataGuidance(t, preview, "preview leaves the recovery record untouched")
+	preview := clijson.DecodeLock(t, []byte(runMetadataLock(t, 0, "--dry-run", "--manifest", manifest)))
+	if preview.PreviousStatus != "legacy" || preview.Mode != "dry-run" || preview.EntryCounts.Subjects == 0 {
+		t.Fatalf("unexpected preview of the completed pair: %+v", preview)
+	}
+	testkit.AssertFileContent(t, manifest, settledManifest)
+	testkit.AssertFileContent(t, lockReferent, legacyLock)
+	testkit.AssertFileContent(t, marker, string(markerBytes))
+
 	foreign := runMetadataLock(t, 1)
 	requireMetadataGuidance(t, foreign, "Manifest Metadata Update Was Interrupted")
 	if _, err := os.Stat(marker); err != nil {
@@ -109,6 +116,14 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 			}
 			if test.global {
 				metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
+			}
+			if !test.finished {
+				preview := clijson.DecodeFailure(t, runMetadataLock(t, 1, "--dry-run"), "lock", "operation")
+				if !slices.ContainsFunc(preview.Guidance, func(item clijson.FailureGuidance) bool {
+					return slices.Equal(item.Argv, []string{"daem", "lock", "--dry-run"})
+				}) {
+					t.Fatalf("preview did not reach the missing source: %+v", preview)
+				}
 			}
 			failure := runMetadataLock(t, 1)
 			if test.global {

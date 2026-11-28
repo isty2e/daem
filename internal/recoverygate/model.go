@@ -281,15 +281,19 @@ func RequireClear(ctx context.Context, paths daempaths.Paths) error {
 	return Observe(ctx, paths)
 }
 
-// RequireFileSetClear fences legacy management and shared metadata, then observes
-// the selected StateDir file-set fence. Lock planning, init planning, and authoring dry-run
-// do not inspect the selected RecoveryDir journals; joint refusal uses
-// RequireClear or EffectAuthority.
-func RequireFileSetClear(ctx context.Context, paths daempaths.Paths) error {
+// RequireStorageSelectionClear checks legacy user state and shared metadata
+// without qualifying the current workspace's local recovery records.
+func RequireStorageSelectionClear(ctx context.Context, paths daempaths.Paths) error {
 	if err := RequireUserStateMigrated(ctx, paths); err != nil {
 		return err
 	}
-	if err := RequireGlobalMetadataClear(ctx, paths); err != nil {
+	return RequireGlobalMetadataClear(ctx, paths)
+}
+
+// RequireFileSetClear additionally checks the selected StateDir file-set fence.
+// Use RequireClear or EffectAuthority to also check the current RecoveryDir.
+func RequireFileSetClear(ctx context.Context, paths daempaths.Paths) error {
+	if err := RequireStorageSelectionClear(ctx, paths); err != nil {
 		return err
 	}
 	authority, err := CaptureStateDir(ctx, paths.StateDir)

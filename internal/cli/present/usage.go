@@ -310,7 +310,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]string{"daem import agent-config pi-ui --target pi --scope global --config-path settings.json --key /quietStartup --merge --dry-run --diff", "daem import agent-config pi-ui --update-source --dry-run --json"}, cliDocumentReference),
 		"lock": leaf("daem lock", "daem lock [--manifest <path>] [--dry-run] [--json|--verbose]", "resolve the manifest into an exact lockfile", nil,
 			[]helpRow{workspace, dryRun, jsonOutput, verbose},
-			[]helpRow{{"", "The lockfile is always daem.lock.toml beside the selected manifest."}, {"", "Writes by default; the same floating manifest may resolve differently over time."}, {"", "A write can clear a completed manifest and lockfile update, including a verified already-retired journal that blocks it. Preview leaves those records untouched."}},
+			[]helpRow{{"", "The lockfile is always daem.lock.toml beside the selected manifest."}, {"", "Writes by default; the same floating manifest may resolve differently over time."}, {"", "Preview uses the files as they stand without checking or clearing the workspace's local recovery records. A write checks recovery separately."}},
 			[]string{"daem lock", "daem lock --dry-run --verbose"}, cliDocumentReference),
 		"outdated": leaf("daem outdated", "daem outdated [--manifest <path>] [--check] [--json|--verbose]", "check whether locked sources can advance", nil,
 			[]helpRow{workspace, check, jsonOutput, verbose}, nil,

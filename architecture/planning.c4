@@ -21,13 +21,30 @@ views {
     daem.cli.run -> daem.cli.present 'Render the returned status facts'
   }
 
+  dynamic view lockPreview {
+    title 'Lockfile comparison without publication'
+    description '''
+      Standalone lock preview checks legacy user state and shared metadata, then uses the selected manifest and lockfile
+      as they stand. It resolves sources in a temporary cache. It does not qualify local recovery or grant write authority;
+      a later lock write checks its own file-set fence and publication scope.
+    '''
+    link ../internal/workflow/lock/lock.go 'Preview selection and shared lock generation'
+    link ../internal/workflow/lock/mutation.go 'Separate publication authority'
+
+    daem.cli.run -> daem.commands.lock 'Request a standalone lock preview'
+    daem.commands.lock -> daem.barrier 'Check legacy user state and shared metadata'
+    daem.commands.lock -> daem.io.declaration 'Read the selected manifest and current lockfile'
+    daem.commands.lock -> daem.services.generate 'Resolve inputs without the persistent cache'
+    daem.commands.lock -> daem.cli.run 'Return the candidate and any available comparison'
+  }
+
   dynamic view authoringLock {
     title 'Prospective lock and declaration publication'
     description '''
       An add or remove write may settle an interrupted transaction within its own declaration write scope. It builds
       the newly requested edit against the settled files, not from recorded arguments. It commits the edited manifest
       with the lock built under the write leases; an unchanged lock remains a retained target.
-      Lock and outdated share generation, not this publication. Preview neither settles transactions nor uses the persistent cache.
+      Standalone lock and outdated share generation, not this publication.
     '''
     link ../internal/workflow/authoring/mutation.go 'Prospective generation and write'
     link ../internal/workflow/lock/generate/generate.go 'Shared resolver, lock builder and encoder'
