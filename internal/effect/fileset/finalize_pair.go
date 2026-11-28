@@ -17,7 +17,7 @@ import (
 var (
 	// ErrDifferentFinalizationPair preserves the published fence without borrowing its paths.
 	ErrDifferentFinalizationPair = fmt.Errorf("%w: record does not belong to the selected file pair", ErrInterruptedFileSetTransaction)
-	// ErrUnfinishedFinalizationPair identifies a verified before/after pair that still needs its original writer.
+	// ErrUnfinishedFinalizationPair identifies a verified pair ineligible for cleanup alone.
 	ErrUnfinishedFinalizationPair = fmt.Errorf("%w: the selected files have not both reached their recorded final state", ErrInterruptedFileSetTransaction)
 	// ErrFileSetRetirementUnconfirmed reports residue or an indeterminate removal outcome.
 	ErrFileSetRetirementUnconfirmed = errors.New("file-set evidence retirement could not be confirmed")
@@ -26,32 +26,51 @@ var (
 // CommittedPair is read-only evidence of one settled generation-3 file set.
 // It binds the complete private inventory and both after-image identities.
 type CommittedPair struct {
+	pairEvidence
+}
+
+type pairEvidence struct {
 	stateDir, replacedPath, companionPath string
 	inventory                             mutationfs.DirectorySnapshot
-	targets                               [2]string
-	hashes                                [2]string
-	identities                            [2]storagecommit.EntryIdentity
+	markerHash                            string
+	images                                [2]pairImage
+	settlement                            RecoveryDisposition
+	removesCompanion                      bool
+}
+
+type pairImage struct {
+	path, hash string // An empty hash identifies an absent file.
+	identity   storagecommit.EntryIdentity
 }
 
 func (pair *CommittedPair) SameEvidence(other *CommittedPair) bool {
-	return pair != nil && other != nil && pair.stateDir == other.stateDir &&
+	return pair != nil && other != nil && pair.pairEvidence.same(other.pairEvidence)
+}
+
+func (pair pairEvidence) same(other pairEvidence) bool {
+	return pair.stateDir == other.stateDir &&
 		pair.replacedPath == other.replacedPath && pair.companionPath == other.companionPath &&
-		pair.inventory.Equal(other.inventory) && pair.targets == other.targets &&
-		pair.hashes == other.hashes && pair.identities[0].SameObject(other.identities[0]) && pair.identities[1].SameObject(other.identities[1])
+		pair.inventory.Equal(other.inventory) && pair.markerHash == other.markerHash &&
+		pair.settlement == other.settlement && pair.images[0].same(other.images[0]) && pair.images[1].same(other.images[1])
+}
+
+func (image pairImage) same(other pairImage) bool {
+	return image.path == other.path && image.hash == other.hash &&
+		(image.hash == "" || image.identity.SameObject(other.identity))
 }
 
 // ReadReplacedImage returns bytes from the exact manifest after-image bound
 // by the proof, without following a later link or adopting a replacement.
 func (pair *CommittedPair) ReadReplacedImage(ctx context.Context) ([]byte, error) {
-	for index, path := range pair.targets {
-		if path != pair.replacedPath {
+	for _, image := range pair.images {
+		if image.path != pair.replacedPath {
 			continue
 		}
-		snapshot, err := observeFinalizationFile(ctx, path, maximumTargetBytes, &fenceObservationBudget{})
+		snapshot, err := observeFinalizationFile(ctx, image.path, maximumTargetBytes, &fenceObservationBudget{})
 		if err != nil {
 			return nil, err
 		}
-		if !pair.matchesImage(index, snapshot) {
+		if !image.matches(snapshot) {
 			return nil, mutation.StaleSnapshotError{}
 		}
 		return snapshot.Content(), nil
@@ -59,8 +78,8 @@ func (pair *CommittedPair) ReadReplacedImage(ctx context.Context) ([]byte, error
 	return nil, fmt.Errorf("file-set pair has no replaced image")
 }
 
-func (pair *CommittedPair) matchesImage(index int, snapshot mutationfs.RegularFileSnapshot) bool {
-	return mutationfs.SameEntryObject(pair.identities[index], snapshot.Identity()) && hashBytes(snapshot.Content()) == pair.hashes[index]
+func (image pairImage) matches(snapshot mutationfs.RegularFileSnapshot) bool {
+	return mutationfs.SameEntryObject(image.identity, snapshot.Identity()) && hashBytes(snapshot.Content()) == image.hash
 }
 
 // ObserveCommittedPair verifies an exact file set without syncing or removing
@@ -71,11 +90,15 @@ func ObserveCommittedPair(ctx context.Context, stateDir, replacedPath, companion
 		return nil, err
 	}
 	defer observation.close()
-	return &observation.proof, nil
+	if observation.evidence.settlement != RecoveryFinalize {
+		return nil, ErrUnfinishedFinalizationPair
+	}
+	return &CommittedPair{pairEvidence: observation.evidence}, nil
 }
 
 type pairObservation struct {
-	proof      CommittedPair
+	evidence   pairEvidence
+	marker     transactionMarker
 	capability rootedpath.CommitCapability
 	budget     *fenceObservationBudget
 }
@@ -87,7 +110,7 @@ func (observation *pairObservation) close() {
 }
 
 func (observation *pairObservation) inventory(ctx context.Context) (mutationfs.DirectorySnapshot, error) {
-	if err := admitFileSetFenceObservation(transactionDir(observation.proof.stateDir), mutationfs.MaximumPhysicalPathDepth, observation.budget, maximumFileSetTargets+1, 0); err != nil {
+	if err := admitFileSetFenceObservation(transactionDir(observation.evidence.stateDir), mutationfs.MaximumPhysicalPathDepth, observation.budget, maximumFileSetTargets+1, 0); err != nil {
 		return mutationfs.DirectorySnapshot{}, err
 	}
 	return storagecommit.SnapshotRootedDirectoryEntries(ctx, observation.capability, maximumFileSetTargets+1)
@@ -95,7 +118,7 @@ func (observation *pairObservation) inventory(ctx context.Context) (mutationfs.D
 
 func observePair(ctx context.Context, stateDir, replacedPath, companionPath string) (*pairObservation, error) {
 	if ctx == nil {
-		return nil, fmt.Errorf("file-set finalization requires context")
+		return nil, fmt.Errorf("file-set pair observation requires context")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -124,7 +147,7 @@ func observePair(ctx context.Context, stateDir, replacedPath, companionPath stri
 		return nil, err
 	}
 	observation := &pairObservation{
-		proof:      CommittedPair{stateDir: stateDir, replacedPath: replacedPath, companionPath: companionPath},
+		evidence:   pairEvidence{stateDir: stateDir, replacedPath: replacedPath, companionPath: companionPath},
 		capability: capability,
 		budget:     budget,
 	}
@@ -145,23 +168,24 @@ func observePair(ctx context.Context, stateDir, replacedPath, companionPath stri
 	if err != nil {
 		return nil, wrapFileSetEvidenceInvalid(err)
 	}
-	marker, err := readPairFinalizationEvidence(ctx, stateDir, inventory, replacedPath, companionPath, budget)
+	marker, markerHash, err := readPairEvidence(ctx, stateDir, inventory, replacedPath, companionPath, budget)
 	if err != nil {
 		return nil, err
 	}
-	identities, err := committedPairIdentities(ctx, marker, budget)
+	images, settlement, err := observePairImages(ctx, marker, budget)
 	if err != nil {
 		return nil, err
 	}
-	observation.proof.inventory = inventory
-	observation.proof.targets = [2]string{marker.Targets[0].Path, marker.Targets[1].Path}
+	observation.marker = marker
+	observation.evidence.inventory = inventory
+	observation.evidence.markerHash = markerHash
+	observation.evidence.images = images
+	observation.evidence.settlement = settlement
 	for index, target := range marker.Targets {
-		observation.proof.hashes[index] = target.Before.Hash
-		if target.Write {
-			observation.proof.hashes[index] = target.AfterHash
+		if target.Path == companionPath {
+			observation.evidence.removesCompanion = !target.Before.Exists && images[index].hash != ""
 		}
 	}
-	observation.proof.identities = identities
 	keep = true
 	return observation, nil
 }
@@ -184,48 +208,79 @@ func (pair *CommittedPair) retire(ctx context.Context, revalidate func(context.C
 		return false, mutation.StaleSnapshotError{}
 	}
 	defer observation.close()
-	if !pair.SameEvidence(&observation.proof) {
+	if !pair.pairEvidence.same(observation.evidence) {
 		return false, mutation.StaleSnapshotError{}
 	}
-	directoryIdentity, ok := pair.inventory.RootIdentity().(storagecommit.EntryIdentity)
-	if !ok {
-		return false, fmt.Errorf("file-set evidence directory identity is unavailable")
+	if err := observation.confirmFinalImages(ctx, confirm); err != nil {
+		return false, err
 	}
-	for index, path := range pair.targets {
-		if err := confirm(ctx, path, observation.proof.identities[index]); err != nil {
-			return false, fmt.Errorf("confirm settled file-set target: %w", err)
-		}
-	}
-
 	if err := revalidate(ctx); err != nil {
 		return false, err
 	}
-	if err := rejectAbandonedFileSetResidueWithBudget(ctx, pair.stateDir, mutationfs.MaximumPhysicalPathDepth, observation.budget); err != nil {
+	if err := observation.validateFinalImages(ctx); err != nil {
 		return false, err
 	}
-	for index, path := range pair.targets {
-		current, err := storagecommit.CaptureEntryIdentity(ctx, path)
+	return observation.retireEvidence(ctx)
+}
+
+func (observation *pairObservation) confirmFinalImages(ctx context.Context, confirm func(context.Context, string, storagecommit.EntryIdentity) error) error {
+	for _, image := range observation.evidence.images {
+		if err := confirm(ctx, image.path, image.identity); err != nil {
+			return fmt.Errorf("confirm settled file-set target: %w", err)
+		}
+	}
+	return nil
+}
+
+func (observation *pairObservation) validateFinalImages(ctx context.Context) error {
+	for _, image := range observation.evidence.images {
+		current, err := storagecommit.CaptureEntryIdentity(ctx, image.path)
 		if err != nil {
-			return false, err
+			return err
 		}
-		if !observation.proof.identities[index].Equal(current) {
-			snapshot, err := observeFinalizationFile(ctx, path, maximumTargetBytes, observation.budget)
+		if !image.identity.Equal(current) {
+			snapshot, err := observeFinalizationFile(ctx, image.path, maximumTargetBytes, observation.budget)
 			if err != nil {
-				return false, err
+				return err
 			}
-			if !pair.matchesImage(index, snapshot) {
-				return false, mutation.StaleSnapshotError{}
+			if !image.matches(snapshot) {
+				return mutation.StaleSnapshotError{}
 			}
 		}
+	}
+	return nil
+}
+
+func (observation *pairObservation) validateEvidence(ctx context.Context) error {
+	evidence := observation.evidence
+	if err := rejectAbandonedFileSetResidueWithBudget(ctx, evidence.stateDir, mutationfs.MaximumPhysicalPathDepth, observation.budget); err != nil {
+		return err
 	}
 	current, err := observation.inventory(ctx)
 	if err != nil {
+		return err
+	}
+	if !evidence.inventory.Equal(current) {
+		return mutation.StaleSnapshotError{}
+	}
+	marker, err := observeFinalizationFile(ctx, markerPath(evidence.stateDir), maximumMarkerBytes, observation.budget)
+	if err != nil {
+		return err
+	}
+	if hashBytes(marker.Content()) != evidence.markerHash {
+		return mutation.StaleSnapshotError{}
+	}
+	return nil
+}
+
+func (observation *pairObservation) retireEvidence(ctx context.Context) (bool, error) {
+	if err := observation.validateEvidence(ctx); err != nil {
 		return false, err
 	}
-	if !pair.inventory.Equal(current) {
-		return false, mutation.StaleSnapshotError{}
+	directoryIdentity, ok := observation.evidence.inventory.RootIdentity().(storagecommit.EntryIdentity)
+	if !ok {
+		return false, fmt.Errorf("file-set evidence directory identity is unavailable")
 	}
-
 	removal, err := storagecommit.NewRootedLogicalRemoval(observation.capability, directoryIdentity)
 	if err != nil {
 		return false, err
@@ -241,9 +296,9 @@ func (pair *CommittedPair) retire(ctx context.Context, revalidate func(context.C
 	return true, nil
 }
 
-func readPairFinalizationEvidence(ctx context.Context, stateDir string, inventory mutationfs.DirectorySnapshot, replacedPath, companionPath string, budget *fenceObservationBudget) (transactionMarker, error) {
+func readPairEvidence(ctx context.Context, stateDir string, inventory mutationfs.DirectorySnapshot, replacedPath, companionPath string, budget *fenceObservationBudget) (transactionMarker, string, error) {
 	if !inventory.RootOwnedByInvoker() || inventory.RootMode() != 0o700 {
-		return transactionMarker{}, wrapFileSetEvidenceInvalid(fmt.Errorf("finalization requires a private, owned evidence directory"))
+		return transactionMarker{}, "", wrapFileSetEvidenceInvalid(fmt.Errorf("settlement requires a private, owned evidence directory"))
 	}
 	entries := make(map[string]mutationfs.DirectoryEntrySnapshot)
 	for _, entry := range inventory.Entries() {
@@ -268,14 +323,14 @@ func readPairFinalizationEvidence(ctx context.Context, stateDir string, inventor
 	path := markerPath(stateDir)
 	content, err := readEvidence(path, maximumMarkerBytes)
 	if err != nil {
-		return transactionMarker{}, wrapFileSetEvidenceInvalid(err)
+		return transactionMarker{}, "", wrapFileSetEvidenceInvalid(err)
 	}
 	marker, err := decodeMarkerVersion(path, content, contractversion.MetadataTransaction, 0, nil)
 	if err != nil {
-		return transactionMarker{}, wrapFileSetEvidenceInvalid(err)
+		return transactionMarker{}, "", wrapFileSetEvidenceInvalid(err)
 	}
 	if !matchesFinalizationPair(marker, replacedPath, companionPath) {
-		return transactionMarker{}, ErrDifferentFinalizationPair
+		return transactionMarker{}, "", ErrDifferentFinalizationPair
 	}
 	for _, target := range marker.Targets {
 		if !target.Before.Exists {
@@ -283,16 +338,16 @@ func readPairFinalizationEvidence(ctx context.Context, stateDir string, inventor
 		}
 		content, err := readEvidence(target.Before.BackupPath, maximumTargetBytes)
 		if err != nil {
-			return transactionMarker{}, wrapFileSetEvidenceInvalid(err)
+			return transactionMarker{}, "", wrapFileSetEvidenceInvalid(err)
 		}
 		if hashBytes(content) != target.Before.Hash {
-			return transactionMarker{}, wrapFileSetEvidenceInvalid(fmt.Errorf("file-set backup content differs from its recorded before-image"))
+			return transactionMarker{}, "", wrapFileSetEvidenceInvalid(fmt.Errorf("file-set backup content differs from its recorded before-image"))
 		}
 	}
 	if len(entries) != 0 {
-		return transactionMarker{}, wrapFileSetEvidenceInvalid(fmt.Errorf("unexpected entry in file-set evidence directory"))
+		return transactionMarker{}, "", wrapFileSetEvidenceInvalid(fmt.Errorf("unexpected entry in file-set evidence directory"))
 	}
-	return marker, nil
+	return marker, hashBytes(content), nil
 }
 
 func matchesFinalizationPair(marker transactionMarker, replacedPath, companionPath string) bool {
@@ -319,39 +374,40 @@ func matchesFinalizationPair(marker transactionMarker, replacedPath, companionPa
 	return true // The decoded marker has unique paths.
 }
 
-func committedPairIdentities(ctx context.Context, marker transactionMarker, budget *fenceObservationBudget) ([2]storagecommit.EntryIdentity, error) {
-	var identities [2]storagecommit.EntryIdentity
-	allAfter := true
+func observePairImages(ctx context.Context, marker transactionMarker, budget *fenceObservationBudget) ([2]pairImage, RecoveryDisposition, error) {
+	var images [2]pairImage
+	settlement := RecoveryFinalize
 	for index, target := range marker.Targets {
 		snapshot, err := observeFinalizationFile(ctx, target.Path, maximumTargetBytes, budget)
 		if errors.Is(err, fs.ErrNotExist) {
 			if target.Before.Exists {
-				return identities, fmt.Errorf("%w: a recorded file is missing", ErrInterruptedFileSetTransaction)
+				return images, "", fmt.Errorf("%w: a recorded file is missing", ErrInterruptedFileSetTransaction)
 			}
-			allAfter = false
+			images[index] = pairImage{path: target.Path}
+			settlement = RecoveryRollback
 			continue
 		}
 		if err != nil {
-			return identities, err
+			return images, "", err
 		}
-		before, after := target.positions(true, hashBytes(snapshot.Content()))
+		hash := hashBytes(snapshot.Content())
+		before, after := target.positions(true, hash)
 		if !after && !before {
-			return identities, fmt.Errorf("%w: a file differs from both recorded states", ErrInterruptedFileSetTransaction)
+			return images, "", fmt.Errorf("%w: a file differs from both recorded states", ErrInterruptedFileSetTransaction)
 		}
 		identity, ok := snapshot.Identity().(storagecommit.EntryIdentity)
 		if !ok {
-			return identities, fmt.Errorf("file-set target identity is unavailable")
+			return images, "", fmt.Errorf("file-set target identity is unavailable")
 		}
-		identities[index] = identity
-		allAfter = allAfter && after
+		images[index] = pairImage{path: target.Path, hash: hash, identity: identity}
+		if !after {
+			settlement = RecoveryRollback
+		}
 	}
-	if !allAfter {
-		return identities, ErrUnfinishedFinalizationPair
+	if images[0].identity.SameObject(images[1].identity) {
+		return images, "", ErrDifferentFinalizationPair
 	}
-	if identities[0].SameObject(identities[1]) {
-		return identities, ErrDifferentFinalizationPair
-	}
-	return identities, nil
+	return images, settlement, nil
 }
 
 func observeFinalizationFile(ctx context.Context, path string, maximumBytes int64, budget *fenceObservationBudget) (mutationfs.RegularFileSnapshot, error) {

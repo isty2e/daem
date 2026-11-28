@@ -285,7 +285,7 @@ flags.
 | `lock` | `--dry-run`, `--json`, `--manifest`, `--verbose` |
 | `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
-| `recover` | `--baseline-tree`, `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--release-output-ownership`, `--verbose`, `--yes` |
+| `recover` | `--baseline-tree`, `--declarations`, `--dry-run`, `--json`, `--legacy-user-state`, `--manifest`, `--release-output-ownership`, `--verbose`, `--yes` |
 | `migrate state` | `--dry-run`, `--json`, `--manifest`, `--recover`, `--yes` |
 | `migrate metadata` | `--baseline-tree`, `--dry-run`, `--json`, `--manifest`, `--recover`, `--reference`, `--yes` |
 | `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
@@ -372,9 +372,9 @@ declared on the asset. Every resource inventory emits version `4`, including
 empty results; consumers of version `3` must update before interpreting it.
 
 In v0.7.2, `recover` version `10` handled active journals and journal cleanup.
-Compared with that release, [version `11`](#recover) also handles
-`permission_safety` and explicit `output_ownership_release`. A terminal journal
-write could omit `authority_kind` in v0.7.2 and still can in version `11`.
+Version `11` added `permission_safety` and explicit `output_ownership_release`.
+[Version `12`](#recover) adds `declaration_transaction` for `--declarations`.
+A terminal journal write can still omit `authority_kind`.
 
 Plan and apply results retain per-binding MCP `host_prerequisite` evidence,
 optional dimension `detail`, the unsupported Pi backend-transition
@@ -1196,9 +1196,9 @@ cannot be inspected, restore access before recovery.
 
 An interrupted `unmanage extension` write leaves a recoverable
 metadata-transaction marker and other consumers fail closed while it remains.
-Rerun the exact write to recover under the same authority set before
-revalidation and commit. `daem recover` is reserved for apply-recovery journals
-and does not consume this marker.
+Rerun the original `unmanage extension` request to settle its transaction
+before the new write. The record includes State and carrier claims, so it is
+separate from [declaration-only recovery](#recovering-an-interrupted-declaration-edit).
 
 ## Authoring JSON
 
@@ -1954,7 +1954,7 @@ cancellation, signal or exit facts.
 ## `recover`
 
 ```bash
-daem recover [--manifest <path>] [[--legacy-user-state] [--baseline-tree <dir>]|--release-output-ownership] [--dry-run|--yes] [--json|--verbose]
+daem recover [--manifest <path>] [[--legacy-user-state] [--baseline-tree <dir>]|--declarations|--release-output-ownership] [--dry-run|--yes] [--json|--verbose]
 ```
 
 Recovery classifies an interrupted apply, finishes retained journal cleanup,
@@ -1965,9 +1965,31 @@ read desired resources from the manifest or lockfile: the manifest selects the
 derived state/recovery paths. An interrupted published metadata-transaction
 marker remains separate from journal recovery. See
 [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
-to choose the matching write or state recovery command. Markerless private
+to choose the recovery command. Markerless private
 residue under the state directory is not recoverable by retry; preserve it for
 analysis.
+
+### Recovering an interrupted declaration edit
+
+Run `daem recover --declarations --dry-run` from the same workspace. If the
+write used `--manifest`, pass the same option and path. The preview checks
+the selected manifest and its default `daem.lock.toml`, including their
+symlink targets. It shows whether recovery would restore a partial write
+or just clear the record of a completed write. If the interrupted write
+created a lockfile where there was none, rollback removes it.
+
+Repeat the command without `--dry-run` for an interactive confirmation, or
+with `--yes` to authorize the current recovery. Recovery stops after settling
+the record. It does not rerun `add` or `remove`, resolve sources, or regenerate
+the lock. Run the edit again only if you still want it. A new `add` or `remove`
+can also settle a pending transaction within its write scope before preparing
+the newly requested edit.
+
+If no qualifying declaration record exists, the command exits unsuccessfully
+without selecting another recovery. `--declarations` cannot be combined with `--legacy-user-state`,
+`--baseline-tree`, or `--release-output-ownership`.
+
+### Other recovery modes
 
 If recovery cannot verify a skill against an older journal after its executable
 bits changed, run `daem recover --baseline-tree <dir> --dry-run` with a copy
@@ -2060,6 +2082,17 @@ Preserve the files and records and inspect a new preview before trying again.
 If `phase` is `released` and `has_errors` is true, the release took effect but
 follow-up work failed. Do not replay the release. Planning failures before a
 release is disclosed use `cli_error`.
+
+Declaration recovery uses `authority_kind = "declaration_transaction"`.
+The `action` is `rollback` (restore the before-state) or `finalize` (clear
+the record without rewriting the files). It is included for `planned` and
+`completed` results. `removes_lockfile: true` is present only when that
+rollback removes a lockfile created by the interrupted write. A selected
+write can be `refused` before settlement, or
+`unconfirmed` if recovery may already have changed the files or record.
+After `unconfirmed`, preserve the files and inspect a fresh preview. If
+`completed` has `has_errors: true`, settlement finished but lease release
+failed. Planning refusals use `cli_error`.
 
 Both `--dry-run --json` and `--yes --json` use the
 [recovery family](#json-schema-contract). Read `authority_kind`, `phase` and

@@ -80,7 +80,7 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 		global      bool
 		want        string
 	}{
-		{name: "mixed", want: "retry the exact interrupted authoring command"},
+		{name: "mixed"},
 		{name: "unknown journal", finished: true, journal: true},
 		{name: "global metadata fence", finished: true, global: true},
 		{name: "source fails after retirement", finished: true, want: "recovery record was already cleared"},
@@ -121,6 +121,14 @@ func TestLockFinalizationFailureAndContinuationAreDistinct(t *testing.T) {
 			}
 			if test.want != "" {
 				requireMetadataGuidance(t, failure, test.want)
+			}
+			if !test.finished {
+				payload := clijson.DecodeFailure(t, failure, "lock", "operation")
+				if !slices.ContainsFunc(payload.Guidance, func(item clijson.FailureGuidance) bool {
+					return slices.Equal(item.Argv, []string{"daem", "recover", "--declarations", "--dry-run"})
+				}) {
+					t.Fatalf("partial pair did not point to declaration recovery: %+v", payload.Guidance)
+				}
 			}
 			if test.finished && !test.journal && !test.global {
 				assertRetiredLockMarker(t, marker)

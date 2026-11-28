@@ -12,7 +12,7 @@ import (
 
 func TestLockUnconfirmedRetirementTellsUserToPreserveEvidence(t *testing.T) {
 	err := fmt.Errorf("lock failed: %w", fileset.ErrFileSetRetirementUnconfirmed)
-	guidance := lockMetadataGuidance(false, workflowlock.MetadataRecoveryStatusOf(err))
+	guidance := lockMetadataGuidance(false, workflowlock.MetadataRecoveryStatusOf(err), "", "")
 	if len(guidance) != 1 || guidance[0].Kind() != clipresent.GuidanceInstruction ||
 		!strings.Contains(guidance[0].Message(), "preserve any remaining recovery files") {
 		t.Fatalf("expected preservation advice without a retry command, got %+v", guidance)

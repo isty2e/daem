@@ -64,7 +64,7 @@ After semantic retirement, best-effort garbage collection can fail and leave pri
 
 Daem SHALL distinguish a published file-set transaction, invalid evidence, unprovable StateDir access, bounded census overflow and markerless transaction residue. An active journal can be recovered beside a published declaration transaction, census overflow or markerless residue without clearing that continuing fence. Invalid file-set evidence or unprovable StateDir authority blocks active recovery even when RecoveryDir is accessible. Cleanup-only recovery uses its own recovery-root authority and does not require an unrelated StateDir census. Preserve known evidence on one axis even when the other is unknown; honor cancellation during replan.
 
-The exact original authoring write settles its interrupted file-set, including `unmanage extension`. Native capture has its own newly reviewed [recovery plan](../native-value-commands/spec.md). Apply-journal recovery does not settle these declaration writes. Legacy user relocation and shared metadata conversion each have their own [migration recovery](../metadata-migration/spec.md). An unmanage retry does not inspect or repair its file-set while conflicting journal authority remains. Local markerless `.daem-tmp-*`, `.metadata-stage-*`, `.daem-tombstone-*` and `.daem-cleanup-*` residue does not have a supported automatic cleanup route. A name is not evidence from which to infer retry or disposal.
+Native capture has its own newly reviewed [recovery plan](../native-value-commands/spec.md). Legacy user relocation and shared metadata conversion each have their own [migration recovery](../metadata-migration/spec.md). An unmanage retry retains its operation-specific file-set authority and does not inspect or repair its file-set while conflicting journal authority remains. Local markerless `.daem-tmp-*`, `.metadata-stage-*`, `.daem-tombstone-*` and `.daem-cleanup-*` residue does not have a supported automatic cleanup route. A name is not evidence from which to infer retry or disposal.
 
 Confirmed apply may clear an exactly verified retired journal or completed selected manifest and default lockfile transaction. If both must clear, verify both before clearing either, retire journal evidence first and recheck the approved plan after cleanup. Retain each completed cleanup if later work stops. Dry-run reports it without changing it. A lockfile-only write can clear the same verified selected completed transaction and a verified retired journal blocking that cleanup; `lock --dry-run` refuses a pending declaration record and leaves both untouched. Lock resolves sources normally after cleanup, so floating inputs can advance. These routes cannot finish an interrupted declaration write or restore its files.
 
@@ -73,11 +73,22 @@ Confirmed apply may clear an exactly verified retired journal or completed selec
 - **WHEN** the declaration record no longer qualifies at the joint preflight
 - **THEN** apply does not clear either record on the strength of the retired journal alone
 
+### Requirement: Settle a declaration pair without replaying the edit
+
+`recover --declarations` SHALL select the ordinary local file-set record for the selected manifest and adjacent default lockfile. Resolve the two referents independently of the record. Admit only the exact pair, without State, registry or other targets. Verify the recorded before and after states and restorable backups; execution revalidates the selected entries, referents and record under the target and recovery leases. An absent record, a different pair, unrecognized contents, or evidence that cannot be verified gives no write authority. A pending journal or shared metadata fence must be handled separately.
+
+Preview reports whether an authorized call would restore the recorded before-state or clear a completed record, without doing either. Execution settles that one record and stops. It does not interpret the interrupted edit, resolve declared sources, or generate a lock. An already completed pair is left in place without rewriting either file. Apply-journal recovery remains separate.
+
+#### Scenario: Lock encounters a partially published authoring transaction
+
+- **WHEN** a lockfile-only write cannot settle a partial declaration pair in its own scope
+- **THEN** it leaves both files and the record alone and points to explicit declaration recovery; the authorized recovery restores the pair without rerunning either edit or lock generation
+
 ### Requirement: Recover native management release without replaying host changes
 
 For an interrupted `unmanage agent-config` management release, `recover` SHALL settle the journal's exact file-set for the manifest, default lockfile and State before deciding whether to keep or finish releasing management. This exception covers the published transaction belonging to that release, not a separate declaration fence. Require the recorded State and original control-file locations, including selected symlink referents. Pending protection for the selected release scope or a control file the transaction may restore blocks the release recovery.
 
-After the local transaction is settled, leave later manifest and default-lockfile edits alone, including a re-added declaration. Do not write host content or take a new owner's claims. If the operation removed only an unapplied declaration, it is instead an authoring transaction: retry the original `unmanage agent-config`. A committed edit can leave the ID absent after that retry clears the evidence.
+After the local transaction is settled, leave later manifest and default-lockfile edits alone, including a re-added declaration. Do not write host content or take a new owner's claims. If the operation removed only an unapplied declaration, retry the original `unmanage agent-config` to settle its file-set, which also records State. A committed edit can leave the ID absent after that retry clears the evidence.
 
 #### Scenario: The declaration was added again after the release's file-set settled
 

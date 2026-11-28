@@ -82,6 +82,29 @@ views {
     daem.services.permissionRecovery -> files.registries 'Settle confirmed records and retain unresolved facts'
   }
 
+  dynamic view declarationRecovery {
+    title 'Recovery of the manifest and default lockfile'
+    description '''
+      This explicit route binds the selected manifest and default lockfile before interpreting the record. A partial
+      write is restored from verified before-images. If both files match the completed write, only the record is
+      cleared. Recovery does not regenerate the lock or execute an authoring request.
+    '''
+    link ../internal/workflow/recover/declarations.go 'Selection, preview and leases'
+    link ../internal/effect/fileset/recover_pair.go 'Revalidate and settle the exact pair'
+
+    daem.cli.run -> daem.commands.recover 'Select only declaration recovery'
+    daem.commands.recover -> daem.barrier 'Check the journal and metadata fences and retain StateDir identity'
+    daem.commands.recover -> daem.io.fileset 'Match the exact pair and verify the current and saved images'
+    daem.commands.recover -> daem.cli.run 'Disclose rollback or cleanup without writing'
+    operator -> daem.cli.run 'Authorize the selected declaration recovery'
+    daem.cli.run -> daem.commands.recover 'Consume the prepared recovery'
+    daem.commands.recover -> daem.io.leases 'Acquire and check the pair and recovery domains'
+    daem.commands.recover -> daem.barrier 'Recheck the retained StateDir and peer fences'
+    daem.commands.recover -> daem.io.fileset 'Revalidate the same record and images, then settle'
+    daem.io.fileset -> daem.io.storage 'Restore recorded before-images only for rollback'
+    daem.io.fileset -> files.recovery 'Retire the exact evidence for the settled pair'
+  }
+
   dynamic view nativeReleaseRecovery {
     title 'Recovery of native configuration management release'
     description '''

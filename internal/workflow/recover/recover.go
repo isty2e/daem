@@ -38,6 +38,7 @@ type PlanInput struct {
 	treeProof              recovery.TreeBaseline
 	LegacyUserState        bool
 	ReleaseOutputOwnership bool
+	Declarations           bool
 }
 
 // ExecuteOptions supplies effect-boundary dependencies without changing
@@ -51,6 +52,16 @@ type ExecuteOptions struct {
 func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("recovery context is required")
+	}
+	if input.Declarations {
+		if input.BaselineTree != "" || input.LegacyUserState || input.ReleaseOutputOwnership {
+			return nil, fmt.Errorf("--declarations selects only the current manifest and lockfile transaction")
+		}
+		planned, err := planDeclarationRecovery(ctx, input.ManifestPath)
+		if err != nil {
+			return nil, err
+		}
+		return newPreparedRecovery(planned), nil
 	}
 	if input.ReleaseOutputOwnership {
 		if input.BaselineTree != "" {
@@ -236,6 +247,13 @@ func Execute(
 	selected, err := prepared.beginExecution()
 	if err != nil {
 		return ExecutionResult{}, err
+	}
+	if declaration, ok := selected.(declarationPreparation); ok {
+		if options.Filesystem != nil {
+			return ExecutionResult{declaration: DeclarationRecoveryRefused}, fmt.Errorf("declaration recovery uses the file-set storage adapter")
+		}
+		phase, err := declaration.execute(ctx)
+		return ExecutionResult{declaration: phase}, err
 	}
 	if release, ok := selected.(outputReleasePreparation); ok {
 		var writer mutationfs.RootedEntryCommitter = storagecommit.Adapter{}

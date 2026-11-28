@@ -21,5 +21,5 @@ func DeclarationRecoveryGuidance(err error) (Guidance, bool) {
 	if !errors.As(err, &linked) {
 		return Guidance{}, false
 	}
-	return InstructionGuidance("if the manifest or lockfile links changed after interruption, restore their original targets, then retry the exact interrupted write with the same --manifest and selection options; preserve the metadata marker"), true
+	return InstructionGuidance("if the manifest or lockfile links changed after interruption, restore their original targets and preserve the metadata marker; see 'Manifest Metadata Update Was Interrupted' in docs/troubleshooting.md for the recovery command"), true
 }

@@ -77,7 +77,7 @@ The current families correspond to their [version constants](../../../internal/c
 | List resources; outputs; paths | 4; 8; 2 |
 | Reconciliation plan (`status`, apply preview); apply result | 22; 28 |
 | `replace agent-config`; `import agent-config` and its recovery | 2; 3 |
-| `recover` | 11 |
+| `recover` | 12 |
 | `migrate state`; `migrate metadata` (independent) | 1 each |
 | `doctor`; `probe mcp-server`; `refresh extension` | 3; 1; 4 |
 | Common pre-result error | 2 |

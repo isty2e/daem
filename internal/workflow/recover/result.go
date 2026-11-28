@@ -37,6 +37,7 @@ const (
 type ExecutionResult struct {
 	permission         *permissions.Result
 	outputRelease      OutputReleasePhase
+	declaration        DeclarationRecoveryPhase
 	authorityState     durableAuthorityState
 	disclosure         journal.RecoverablePlan
 	operationID        string
@@ -45,6 +46,10 @@ type ExecutionResult struct {
 }
 
 func (result ExecutionResult) OutputReleasePhase() OutputReleasePhase { return result.outputRelease }
+
+func (result ExecutionResult) DeclarationRecoveryPhase() DeclarationRecoveryPhase {
+	return result.declaration
+}
 
 type terminalExecutionFailure struct {
 	cause error

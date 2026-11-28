@@ -122,6 +122,7 @@ Never apply with a stale or failed lock.
 - Existing host state under declaration: start with `daem import --target <target> --dry-run`; repeat `--target` when needed. Import writes no lockfile. After successful import, run lock and apply previews separately.
 - Use `daem apply --manage-existing --dry-run` only for explicit intent to adopt eligible exact existing state. Never infer adoption from matching files alone.
 - Interrupted apply: stop ordinary work and run `daem recover --dry-run`. Disclose and authorize its actions before recovery execution.
+- Interrupted `add` or `remove`: use `daem recover --declarations --dry-run` with the same manifest selection. Authorize settlement separately from any edit the user still wants to make.
 - Default-user-manifest legacy state: use `daem migrate state --dry-run`, preserving explicit `--manifest`, before authorizing metadata-only transfer. Interrupted migration uses `migrate state --recover --dry-run`; old apply journals use `recover --legacy-user-state --dry-run`. Do not copy/delete state or reinstall outputs to bypass the fence. Legacy authoring metadata needs the matching previous writer and original command. Changed HOME/XDG namespaces and cache relocation are outside this migration.
 
 ## Failure Rules
