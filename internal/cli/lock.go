@@ -55,8 +55,10 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 		progress.Close()
 		if err != nil {
 			status := workflowlock.MetadataRecoveryStatusOf(err)
+			var selection workflowlock.CommandError
+			_ = errors.As(err, &selection)
 			diagnostic := humanFailureDiagnostic(err).WithPrefix("lock failed: ").
-				WithGuidance(lockMetadataGuidance(*dryRun, status)...)
+				WithGuidance(lockMetadataGuidance(*dryRun, status, selection.ManifestPath, *manifestPath)...)
 			if workflowlock.JournalRetired(err) {
 				diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("the already-retired apply journal was cleared before lock stopped"))
 			}
@@ -110,7 +112,7 @@ func lockSummary(result workflowlock.Result, dryRun bool) clipresent.LockSummary
 	}
 }
 
-func lockMetadataGuidance(dryRun bool, status workflowlock.MetadataRecoveryStatus) []clipresent.Guidance {
+func lockMetadataGuidance(dryRun bool, status workflowlock.MetadataRecoveryStatus, selected, requested string) []clipresent.Guidance {
 	troubleshooting := clipresent.InstructionGuidance("see 'Manifest Metadata Update Was Interrupted' in docs/troubleshooting.md")
 	switch status {
 	case workflowlock.MetadataRecoveryPending:
@@ -121,7 +123,7 @@ func lockMetadataGuidance(dryRun bool, status workflowlock.MetadataRecoveryStatu
 	case workflowlock.MetadataRecoveryDifferentPair:
 		return []clipresent.Guidance{troubleshooting}
 	case workflowlock.MetadataRecoveryUnfinishedPair:
-		return []clipresent.Guidance{clipresent.InstructionGuidance("retry the exact interrupted authoring command with the same manifest selection and arguments")}
+		return []clipresent.Guidance{manifestCommandGuidance([]string{"recover"}, selected, manifestHintOptions(requested, false), "--declarations", "--dry-run")}
 	case workflowlock.MetadataRecoveryRetired:
 		return []clipresent.Guidance{clipresent.NoteGuidance("the previous manifest and lockfile recovery record was already cleared")}
 	case workflowlock.MetadataRecoveryRetirementUnconfirmed:

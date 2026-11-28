@@ -138,6 +138,15 @@ func (paths Paths) GlobalMetadataDir() string {
 	return filepath.Join(paths.DataDir, "metadata")
 }
 
+// WorkspaceControlPaths lists the State, registry, cache, and shared metadata
+// locations separate from the selected declaration files.
+func (paths Paths) WorkspaceControlPaths() []string {
+	return []string{
+		paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath,
+		paths.CacheDir, paths.SourceCacheDir, paths.GlobalMetadataDir(), paths.LegacyUserStateDir,
+	}
+}
+
 func implicitPaths(home homeSelection) (Paths, error) {
 	workingDirectory, err := os.Getwd()
 	if err != nil {

@@ -24,8 +24,9 @@ views {
   dynamic view authoringLock {
     title 'Prospective lock and declaration publication'
     description '''
-      An add or remove write may settle a matching interrupted declaration transaction under exact target leases. It
-      commits the edited manifest with the lock built under the write leases; an unchanged lock remains a retained target.
+      An add or remove write may settle an interrupted transaction within its own declaration write scope. It builds
+      the newly requested edit against the settled files, not from recorded arguments. It commits the edited manifest
+      with the lock built under the write leases; an unchanged lock remains a retained target.
       Lock and outdated share generation, not this publication. Preview neither settles transactions nor uses the persistent cache.
     '''
     link ../internal/workflow/authoring/mutation.go 'Prospective generation and write'

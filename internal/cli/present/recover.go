@@ -134,7 +134,7 @@ func fileSetFenceRemediation(kind fileset.FileSetFenceKind, known bool) string {
 	case fileset.FileSetFenceCensusLimit:
 		return "inspect the bounded StateDir inventory before continuing"
 	case fileset.FileSetFencePublishedTransaction:
-		return "finish or inspect the published file-set transaction separately"
+		return "for an interrupted add or remove, preview with daem recover --declarations --dry-run and the same manifest selection; for other transactions, see 'Manifest Metadata Update Was Interrupted' in docs/troubleshooting.md"
 	default:
 		return "preserve recovery and file-set evidence, then inspect again"
 	}

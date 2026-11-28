@@ -137,6 +137,19 @@ func (prepared *PreparedRecovery) OutputReleaseDisclosure() (OutputReleasePlan, 
 	return selected.disclose(), true
 }
 
+func (prepared *PreparedRecovery) DeclarationDisclosure() (DeclarationRecoveryPlan, bool) {
+	if prepared == nil || prepared.lifecycle == nil {
+		return DeclarationRecoveryPlan{}, false
+	}
+	prepared.lifecycle.mu.Lock()
+	defer prepared.lifecycle.mu.Unlock()
+	selected, ok := prepared.disclosure.(declarationPreparation)
+	if !ok {
+		return DeclarationRecoveryPlan{}, false
+	}
+	return selected.disclose(), true
+}
+
 func (prepared *PreparedRecovery) beginExecution() (preparedRecoveryOperation, error) {
 	if prepared == nil || prepared.lifecycle == nil {
 		return nil, ErrPreparedRecoveryUnavailable

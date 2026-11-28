@@ -3,13 +3,21 @@ package transaction
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	daempaths "github.com/isty2e/daem/internal/paths"
 )
+
+// DeclarationPairControls identifies the workspace locations a declaration
+// transaction must not affect, even via a differently spelled target path.
+func DeclarationPairControls(paths daempaths.Paths, markerPath string) []string {
+	return append(paths.WorkspaceControlPaths(), markerPath, paths.RecoveryDir, filepath.Join(paths.DataDir, "locks"))
+}
 
 // FinalizationPair binds both selected referents and their revisions.
 // Persisted record paths never select the pair.
@@ -76,9 +84,6 @@ func (pair *SettledPair) ReadManifest(ctx context.Context) ([]byte, error) {
 // ObserveSettled requires a replaced manifest and a replaced or retained
 // default lockfile. Nil evidence means the record is no longer present.
 func (pair FinalizationPair) ObserveSettled(ctx context.Context, stateDir string, controls []string, budget rootedpath.PhysicalTraversalBudget) (*SettledPair, error) {
-	if len(pair.requests) != len(pair.referents) {
-		return nil, fmt.Errorf("finalization requires a captured pair")
-	}
 	if err := pair.rejectControlOverlap(controls, budget); err != nil {
 		return nil, err
 	}
@@ -135,6 +140,9 @@ func (pair FinalizationPair) validate(ctx context.Context) error {
 }
 
 func (pair FinalizationPair) rejectControlOverlap(controls []string, budget rootedpath.PhysicalTraversalBudget) error {
+	if len(pair.requests) != len(pair.referents) {
+		return fmt.Errorf("declaration pair was not captured")
+	}
 	depth := mutationfs.MaximumPhysicalPathDepth
 	var destinations [2]mutation.DirectoryEntryAuthorityObservation
 	for index, path := range pair.referents {

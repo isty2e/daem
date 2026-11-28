@@ -103,6 +103,7 @@ model {
   daem.commands.lock .coordination daem.io.storage 'Publishes the selected lockfile'
   daem.commands.adopt .coordination daem.io.fileset 'Publishes declared intent or captured values'
   daem.commands.author .coordination daem.io.fileset 'Publishes the prospective declaration and locked intent'
+  daem.commands.recover .coordination daem.io.fileset 'Settles an explicitly selected declaration pair'
   daem.commands.migrate .coordination daem.io.fileset 'Relocates default user-state authority'
   daem.commands.apply .coordination daem.io.conversion 'Attempts eligible metadata conversion before forward effects'
   daem.commands.author .coordination daem.io.conversion 'Attempts eligible conversion before releasing management'

@@ -15,6 +15,7 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 	baselineTree := baselineTreeFlag(flags)
 	legacyUserState := flags.Bool("legacy-user-state", false, "recover the default user manifest's former local state")
 	releaseOutputs := flags.Bool("release-output-ownership", false, "release recorded output ownership when the selected state file is missing")
+	declarations := flags.Bool("declarations", false, "settle only an interrupted manifest and lockfile transaction")
 	dryRun := flags.Bool("dry-run", false, "classify recovery or cleanup evidence without writing")
 	flags.Bool("json", false, "emit structured JSON output with --dry-run")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
@@ -42,6 +43,9 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		if *releaseOutputs && *baselineTree != "" {
 			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --release-output-ownership and --baseline-tree are mutually exclusive"))
 		}
+		if *declarations && (*releaseOutputs || *legacyUserState || *baselineTree != "") {
+			return response.failure(usageFailure, clipresent.NewFailureDiagnostic("recover failed: --declarations cannot be combined with --release-output-ownership, --legacy-user-state, or --baseline-tree"))
+		}
 		if err := validatePresentationFlags("recover", arguments.output == requestedJSON, *verbose, false); err != nil {
 			return response.failure(usageFailure, humanFailureDiagnostic(err))
 		}
@@ -51,7 +55,9 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		interactiveConfirmation := !*dryRun && !*yes
 		if interactiveConfirmation && !options.confirmation.allowsInteractiveAuthorization() {
 			printInteractiveConfirmationRequired(stderr, "recover", "recovery")
-			if *releaseOutputs {
+			if *declarations {
+				fmt.Fprintln(stderr, "next: preview with daem recover --declarations --dry-run and the same manifest selection; rerun with --yes to authorize recovery")
+			} else if *releaseOutputs {
 				fmt.Fprintln(stderr, "next: preview with daem recover --release-output-ownership --dry-run and the same manifest selection; rerun with --yes to authorize the release")
 			} else {
 				fmt.Fprintln(stderr, "next: run daem recover --dry-run first, then rerun with --yes when the plan is acceptable")
@@ -61,6 +67,7 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 
 		prepared, err := recoverworkflow.Plan(options.context, recoverworkflow.PlanInput{
 			ManifestPath: *manifestPath, LegacyUserState: *legacyUserState, ReleaseOutputOwnership: *releaseOutputs, BaselineTree: *baselineTree,
+			Declarations: *declarations,
 		})
 		if err != nil {
 			return response.failure(operationFailure, clipresent.RecoverPlanningDiagnostic(err, clipresent.HumanOptions{Verbose: *verbose}))
@@ -68,6 +75,9 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 		defer prepared.Close()
 		if err := response.selectOrdinaryResult(); err != nil {
 			return response.failure(operationFailure, humanFailureDiagnostic(err))
+		}
+		if declarations, selected := prepared.DeclarationDisclosure(); selected {
+			return runDeclarationRecovery(stdout, stderr, response, options, prepared, declarations, *dryRun, interactiveConfirmation, arguments.output == requestedJSON)
 		}
 		if release, selected := prepared.OutputReleaseDisclosure(); selected {
 			jsonOutput := arguments.output == requestedJSON
@@ -241,4 +251,58 @@ func prepareRecoverInvocation(args []string, stdout io.Writer, stderr io.Writer,
 
 		return 0
 	}}
+}
+
+func runDeclarationRecovery(
+	stdout, stderr io.Writer,
+	response *commandResponse,
+	options commandOptions,
+	prepared *recoverworkflow.PreparedRecovery,
+	plan recoverworkflow.DeclarationRecoveryPlan,
+	dryRun, interactive, jsonOutput bool,
+) int {
+	if !jsonOutput && (dryRun || interactive) {
+		if err := clipresent.PrintDeclarationRecovery(stdout, plan, recoverworkflow.DeclarationRecoveryPlanned, nil); err != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(err).WithPrefix("recover failed: disclose declaration recovery: "))
+		}
+	}
+	if dryRun {
+		if jsonOutput {
+			if err := clipresent.PrintDeclarationRecoveryJSON(stdout, "dry-run", plan, recoverworkflow.DeclarationRecoveryPlanned, nil); err != nil {
+				return response.failure(operationFailure, humanFailureDiagnostic(err))
+			}
+		}
+		return 0
+	}
+	if interactive {
+		confirmed, err := options.confirmation.prompt("recover")
+		if err != nil {
+			printConfirmationFailure(stderr, "recover", err)
+			return 1
+		}
+		if !confirmed {
+			fmt.Fprintln(stderr, "recover canceled")
+			return 1
+		}
+	}
+
+	result, err := recoverworkflow.Execute(options.context, prepared, options.recoverExecuteOptions)
+	phase := result.DeclarationRecoveryPhase()
+	if jsonOutput {
+		if jsonErr := clipresent.PrintDeclarationRecoveryJSON(stdout, "write", plan, phase, err); jsonErr != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(jsonErr))
+		}
+	} else {
+		output := stdout
+		if err != nil {
+			output = stderr
+		}
+		if writeErr := clipresent.PrintDeclarationRecovery(output, plan, phase, err); writeErr != nil {
+			return response.failure(operationFailure, humanFailureDiagnostic(writeErr).WithPrefix("recover failed: write declaration recovery result: "))
+		}
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
 }

@@ -8,18 +8,21 @@ import (
 )
 
 type Recover struct {
-	SchemaVersion          int    `json:"schema_version"`
-	Command                string `json:"command"`
-	Mode                   string `json:"mode"`
-	Phase                  string `json:"phase"`
-	AuthorityKind          string `json:"authority_kind"`
-	OperationID            string `json:"operation_id"`
-	OperationDir           string `json:"operation_dir"`
-	Classification         string `json:"classification"`
-	ActionCount            int    `json:"action_count"`
-	CleanupObligationCount int    `json:"cleanup_obligation_count"`
-	HasErrors              bool   `json:"has_errors"`
-	ContinuingFileSetFence string `json:"continuing_file_set_fence"`
+	SchemaVersion          int      `json:"schema_version"`
+	Command                string   `json:"command"`
+	Mode                   string   `json:"mode"`
+	Phase                  string   `json:"phase"`
+	AuthorityKind          string   `json:"authority_kind"`
+	OperationID            string   `json:"operation_id"`
+	OperationDir           string   `json:"operation_dir"`
+	Classification         string   `json:"classification"`
+	Action                 string   `json:"action"`
+	RemovesLockfile        bool     `json:"removes_lockfile"`
+	ActionCount            int      `json:"action_count"`
+	CleanupObligationCount int      `json:"cleanup_obligation_count"`
+	HasErrors              bool     `json:"has_errors"`
+	ContinuingFileSetFence string   `json:"continuing_file_set_fence"`
+	Errors                 []string `json:"errors"`
 	Actions                []struct {
 		Kind    string `json:"kind"`
 		Reason  string `json:"reason"`

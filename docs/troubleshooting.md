@@ -573,12 +573,17 @@ fail with `interrupted file-set transaction`. Choose the action by the evidence:
 | Interrupted `unmanage agent-config` with a management-release journal | Preview `daem recover` with `--dry-run` under the original selection. It settles the release's own file-set and then its management records without changing host content. If only an unapplied declaration was removed, retry `unmanage agent-config` instead. |
 | Already-retired journal with cleanup left (`journal_cleanup_incomplete`) | If you intend to apply, start with `daem apply --dry-run`. It shows cleanup if the records qualify. To clear only the journal, start with `daem recover --dry-run`. |
 | Interrupted `import agent-config` | Do not resend the approved write. Preview the same request with `--dry-run --json`. If it offers `operation: "recovery"`, review the files and direction before approving its fingerprint. See [Retrying `import agent-config`](cli.md#retrying-import-agent-config). |
+| Interrupted `add` or `remove` involving only the manifest and default lockfile | Run `daem recover --declarations --dry-run` with the same manifest selection. Then run it without `--dry-run` (or with `--yes`) to settle the record without making a new edit. |
 | The selected manifest and default lockfile already match the completed update | Preview `daem apply` if you intend to apply, or run `daem lock` with the same manifest selection if you intend to refresh the lockfile. The write clears only a verified record for those two files. If an already-retired journal also blocks the write, both records must qualify and journal cleanup runs first. Lock then resolves sources normally, so floating inputs can advance. |
-| Other valid published `metadata-transaction` marker | Retry the exact interrupted authoring or `unmanage` write with the same manifest and selectors. For an interrupted state migration, use `daem migrate state --recover --dry-run`. An ordinary Apply-journal recovery does not settle these transactions. |
+| Other valid published `metadata-transaction` marker | For an interrupted `unmanage` that also recorded State or a registry, retry the same `unmanage` request. For an interrupted state migration, use `daem migrate state --recover --dry-run`. |
 | Marker version 1 or 2 | Current daem preserves it. Finish recovery with the version that wrote it before upgrading. |
 | Invalid/incomplete evidence, out-of-authority target or unclassifiable before/after image | Preserve diagnostics/state for manual inspection; repair before journal recovery. Never edit recorded files independently or delete the marker. |
 | StateDir access/identity cannot be established | Restore it before recovery, even if a journal was observed. An accessible RecoveryDir child is insufficient. Do not retry a write as if a marker existed. |
 | Bounded census overflow with accessible StateDir | Journal recovery may proceed if RecoveryDir is readable, but the census fence remains. This is neither a marker nor named residue; do not infer a retry or prefix-deletion remedy. |
+
+If declaration recovery restores a partial edit, run `add` or `remove` again
+only if you still want that edit. If it clears a completed record, the edit
+is already present.
 
 If the command reports that one record was cleared before a later failure, do
 not restore it. Read the remaining error or run a fresh preview to identify

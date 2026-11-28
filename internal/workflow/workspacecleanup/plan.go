@@ -206,19 +206,11 @@ func (pending *Pending) validate(ctx context.Context, filesystem mutationfs.Read
 }
 
 func (pending *Pending) declarationControls() []string {
-	return append(pending.workspaceControls(), pending.marker, pending.paths.RecoveryDir, pending.leaseStoreNamespace())
+	return transaction.DeclarationPairControls(pending.paths, pending.marker)
 }
 
 func (pending *Pending) leaseStoreNamespace() string {
 	return filepath.Join(pending.paths.DataDir, "locks")
-}
-
-func (pending *Pending) workspaceControls() []string {
-	paths := pending.paths
-	return []string{
-		paths.StatefilePath, paths.OwnershipRegistryPath, paths.CarrierClaimRegistryPath,
-		paths.CacheDir, paths.SourceCacheDir, paths.GlobalMetadataDir(), paths.LegacyUserStateDir,
-	}
 }
 
 // Plan is the owner-qualified cleanup sealed with command input and output
@@ -232,7 +224,7 @@ func (pending *Pending) Seal(ctx context.Context, commandPaths []string) (*Plan,
 	if pending == nil || (pending.journal == nil && pending.pair == nil) {
 		return nil, fmt.Errorf("cleanup requires qualified evidence")
 	}
-	protected := append(pending.workspaceControls(), pending.paths.ManifestPath, pending.paths.LockfilePath)
+	protected := append(pending.paths.WorkspaceControlPaths(), pending.paths.ManifestPath, pending.paths.LockfilePath)
 	protected = append(protected, commandPaths...)
 	slices.Sort(protected)
 	plan := &Plan{pending: pending, protected: slices.Compact(protected)}

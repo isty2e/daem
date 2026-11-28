@@ -17,6 +17,7 @@ import (
 
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/contractversion"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
@@ -411,7 +412,7 @@ type outputReleaseReport struct {
 func readOutputRelease(t *testing.T, payload []byte) outputReleaseReport {
 	t.Helper()
 	var report outputReleaseReport
-	if err := json.Unmarshal(payload, &report); err != nil || report.SchemaVersion != 11 ||
+	if err := json.Unmarshal(payload, &report); err != nil || report.SchemaVersion != contractversion.RecoveryJSON ||
 		report.AuthorityKind != "output_ownership_release" || report.HasErrors {
 		t.Fatalf("invalid successful release: %s (%v)", payload, err)
 	}
