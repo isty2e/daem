@@ -515,8 +515,13 @@ If the preview selects permission recovery and the plan is acceptable, confirm
 with `daem recover` using the same selection. It can restrict access without
 restoring file contents or rerunning the host command. For example, if an owner
 has already tightened a protected file from `0600` to `0400`, recovery leaves
-the narrower mode in place. If the preview selects retired-journal cleanup
-instead, finish that cleanup and preview again. See the
+the narrower mode in place.
+
+If the preview selects journal recovery or retired-journal cleanup, confirm
+that operation with `daem recover` using the same selection. Then run
+`daem recover --dry-run` again: the first command leaves unrelated permission
+protection pending. If daem reports a conflict with a protected file or its
+management records, preserve both records and inspect the reported blocker. See the
 [permission recovery rules](../openspec/specs/permission-protection/spec.md#requirement-recover-access-without-recovering-file-contents-or-replaying-the-command)
 if recovery is blocked or only partly completes.
 

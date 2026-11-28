@@ -22,7 +22,6 @@ import (
 
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 
@@ -346,8 +345,7 @@ func Execute(
 		return result, errors.Join(mutation.StaleSnapshotError{}, fmt.Errorf("recovery is blocked by current evidence"))
 	}
 	if !execution.operationEvidence.Equal(current.operationEvidence) ||
-		!execution.authorityEvidence.authorityFingerprint.Equal(current.authorityEvidence.authorityFingerprint) ||
-		!execution.plan.SameExecutionAuthority(current.plan) {
+		!execution.authorityEvidence.authorityFingerprint.Equal(current.authorityEvidence.authorityFingerprint) {
 		return result, mutation.StaleSnapshotError{}
 	}
 	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
@@ -356,31 +354,14 @@ func Execute(
 		return result, mutation.StaleSnapshotError{}
 	}
 
-	initialDocumentWrites := current.authorityEvidence.initialDocumentWrites
-	documentScope, err := recoverygate.DocumentScope(initialDocumentWrites)
-	if err != nil {
-		return result, err
+	// Protection transitions use the same Registry lease. Recheck from the
+	// leased replan before permitting any host, claim, or binding effect.
+	current.paths = effectPaths
+	if err := current.requireProtectionClear(ctx); err != nil {
+		return result, fmt.Errorf("recover active journal: %w", err)
 	}
-	documentView, err := ownership.EmptyRegistry().Documents(documentScope)
-	if err != nil {
-		return result, err
-	}
-	namespaces, err := initialDocumentWrites.Namespaces()
-	if err != nil {
-		return result, err
-	}
-	if len(namespaces) != 0 {
-		if native, ok := current.plan.(journal.NativeRecoveryPlan); ok {
-			documentView, err = native.ObservedDocuments(documentScope)
-		} else {
-			documentView, err = recoverygate.ObserveDocumentRegistry(ctx, effectPaths.OwnershipRegistryPath, initialDocumentWrites)
-		}
-		if err != nil {
-			return result, err
-		}
-	}
-	if err := documentView.RequireProtectionClear(); err != nil {
-		return result, err
+	if !execution.plan.SameExecutionAuthority(current.plan) {
+		return result, mutation.StaleSnapshotError{}
 	}
 	validateCurrentAuthority := func(ctx context.Context, requests ...mutation.PhysicalAuthorityRequest) error {
 		matches, err := leases.MatchCurrentPhysicalRequests(ctx, requests...)
@@ -416,7 +397,7 @@ func Execute(
 		if !covered {
 			return mutation.StaleSnapshotError{}
 		}
-		return documentView.RequireProtectionClear()
+		return nil
 	}
 	validateVisibilityAuthority := func(ctx context.Context) error {
 		matches, err := leases.VisibilityAuthorityMatchesCurrent(ctx)

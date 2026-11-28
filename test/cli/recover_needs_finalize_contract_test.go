@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,7 +28,9 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 	"github.com/isty2e/daem/test/outputtest"
+	"github.com/isty2e/daem/test/ownershiptest"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
@@ -90,6 +93,27 @@ func TestRunRecoverDryRunReportsNeedsFinalizeInHumanAndJSON(t *testing.T) {
 		t.Fatalf("action = %#v, want finalize_claims/needs_finalize", action)
 	}
 
+	assertCLIRecoveryJournalActive(t, paths.RecoveryDir)
+}
+
+func TestRecoverRefusesProtectedOwnershipFinalizationWithoutHostWrites(t *testing.T) {
+	paths := captureCLIRecoveryNeedsFinalizeJournal(t, filepath.Join(t.TempDir(), "daem.toml"))
+	safety := ownershiptest.ArmPermissionRecovery(t, paths, "~/.codex/AGENTS.md")
+	beforeRegistry := testkit.ReadFile(t, paths.OwnershipRegistryPath)
+	beforeState := testkit.ReadFile(t, paths.StatefilePath)
+	beforeHost := testkit.ReadFile(t, safety.Documents[0])
+
+	prepared, err := recoverworkflow.Plan(t.Context(), recoverworkflow.PlanInput{ManifestPath: paths.ManifestPath})
+	if prepared != nil {
+		_ = prepared.Close()
+	}
+	var conflict *ownership.ProtectionPendingError
+	if !errors.As(err, &conflict) || !conflict.Protection.Equal(safety.Protection) {
+		t.Fatalf("prepare ownership finalization: want actual protection conflict, got %v", err)
+	}
+	testkit.AssertFileContent(t, paths.OwnershipRegistryPath, string(beforeRegistry))
+	testkit.AssertFileContent(t, paths.StatefilePath, string(beforeState))
+	testkit.AssertFileContent(t, safety.Documents[0], string(beforeHost))
 	assertCLIRecoveryJournalActive(t, paths.RecoveryDir)
 }
 

@@ -113,6 +113,6 @@ func (facts AssessmentFacts) DocumentWriteAliases() ([][]aggregate.DocumentAddre
 	return aliases, nil
 }
 
-func (facts AssessmentFacts) ObservedDocuments(scope ownership.DocumentScope) (ownership.DocumentRegistryView, error) {
-	return facts.registry.Documents(scope)
+func (facts AssessmentFacts) RequireProtectionClear(scope ownership.DocumentScope) error {
+	return scope.RequireWritable(facts.registry)
 }

@@ -6,9 +6,11 @@ views {
       Recover can instead finalize the prepared claims without replaying host writes. Native Apply has its own document
       recovery path under active journal authority. Current desired content does not substitute for a recorded backup.
       A separate continuing file-set fence can remain; invalid file-set evidence or unprovable StateDir blocks active recovery.
+      Permission protection outside the selected effects remains pending for a separate invocation.
     '''
     link ../internal/workflow/recover/recover.go 'Active classification and execution'
     link ../internal/workflow/recover/authority.go 'Active identities and domain projection'
+    link ../internal/workflow/recover/journal_protection.go 'Compare the selected effects with pending protection'
     link ../internal/effect/execute/recovery.go 'Ordinary effect and claim settlement'
     link ../internal/effect/execute/nativeoperation/recovery.go 'Native Apply recovery variant'
     link ../internal/workflow/recover/execute_test.go 'Qualified rollback, stale rejection and retirement'
@@ -18,10 +20,12 @@ views {
     daem.commands.recover -> daem.io.journal 'Qualify active record, backups and current recoverable state'
     daem.commands.recover -> daem.barrier 'Check StateDir and the independent file-set fence'
     daem.commands.recover -> daem.safety 'Compile the active recovery identity and required domains'
+    daem.commands.recover -> files.registries 'Check selected physical writes and management changes against pending protection'
     daem.commands.recover -> daem.cli.run 'Disclose the rollback action'
     operator -> daem.cli.run 'Confirm the current recoverable operation'
     daem.cli.run -> daem.commands.recover 'Execute the prepared active recovery'
     daem.commands.recover -> daem.io.leases 'Acquire the complete active lease set and revalidate the candidate'
+    daem.commands.recover -> files.registries 'Recheck disjointness under the recovery leases'
     daem.commands.recover -> daem.owners.effect 'Execute qualified rollback'
     daem.owners.effect -> files.state 'Bind and verify the recorded baseline against current State'
     daem.owners.effect -> daem.io.storage 'Verify before-images and restore only what the operation owns'
@@ -56,8 +60,9 @@ views {
     title 'Recovery of access after an interrupted invocation'
     description '''
       No active or retained-cleanup journal is selected; the file-set boundary is clear. The selected owner has an
-      outstanding protection record. A bound child must be quiescent. Safe peers can settle without clearing a blocked
-      peer. This route does not parse or restore document content, or re-run the child.
+      outstanding protection record. A previous invocation may have recovered an unrelated journal and left the
+      protection pending. A bound child must be quiescent. Safe peers can settle without clearing a blocked peer.
+      This route does not parse or restore document content, or re-run the child.
     '''
     link ../internal/workflow/recover/selection.go 'Fallback selection and overlap refusal'
     link ../internal/workflow/protection/recovery/execute.go 'Selected recovery and validation'
@@ -92,10 +97,12 @@ views {
     daem.cli.run -> daem.commands.recover 'Select active management-release recovery'
     daem.commands.recover -> daem.io.journal 'Identify the releasing owner’s journal and recorded control locations'
     daem.commands.recover -> daem.safety 'Bind the release-specific recovery identity and domain steps'
+    daem.commands.recover -> files.registries 'Check the released management and selected file-set writes against protection'
     daem.commands.recover -> daem.cli.run 'Disclose the selected metadata release recovery'
     operator -> daem.cli.run 'Authorize this recovery'
     daem.cli.run -> daem.commands.recover 'Consume the prepared recovery'
     daem.commands.recover -> daem.io.leases 'Requalify active recovery under the selected authority'
+    daem.commands.recover -> files.registries 'Recheck the release scope and file-set writes under leases'
     daem.commands.recover -> daem.barrier 'Validate shared metadata and retained StateDir authority'
     daem.commands.recover -> daem.owners.effect 'Execute selected native management release recovery'
     daem.owners.effect -> files.registries 'Refuse pending protection for the selected release'

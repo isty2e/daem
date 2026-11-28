@@ -183,14 +183,16 @@ model {
         An active recovery assessment compares current paths, qualified backups, State, and claims with the record.
         Clean-before and clean-after can retire evidence. Recoverable paths, before-State and eligible claims allow
         rollback. Expected-after paths and State with claims eligible to finalize allow claim settlement without
-        host replay. A contradiction can block both choices. Selection gives retired-journal cleanup priority over
-        permission recovery; cleanup execution needs only its RecoveryDir authority. Active journal and protection
-        evidence for the same owner refuse in combination. Permission-only recovery is selected without a blocker
-        only where no recoverable journal is found and the file-set axis is known clear.
+        host replay. A contradiction can block both choices. Selection gives retired-journal cleanup priority; cleanup
+        execution needs only its RecoveryDir authority. Active recovery checks its selected writes and management
+        changes against pending protections at planning and under the recovery leases. A disjoint recovery leaves the
+        protection pending. A separate invocation can settle it once no recoverable journal remains and the file-set
+        axis is known clear.
       '''
       link ../../internal/effect/journal/recovery/classify.go 'Recovery phase from independent evidence'
       link ../../internal/effect/journal/recoveryoperation/plan.go 'Active or cleanup-only authority'
       link ../../internal/workflow/recover/selection.go 'Selection precedence and protection overlap'
+      link ../../internal/workflow/recover/journal_protection.go 'Scoped protection checks for active recovery'
       link ../../internal/effect/execute/ownership_apply_test.go 'After-State cancellation finalizes without replay'
     }
     fileSetRecord = domainObject 'File-set publication record' 'Multi-file transaction evidence, distinct from an Apply journal.' {

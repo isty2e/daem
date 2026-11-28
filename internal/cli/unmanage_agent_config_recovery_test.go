@@ -22,6 +22,7 @@ import (
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/workflow/nativeconfig"
 	workflowrecover "github.com/isty2e/daem/internal/workflow/recover"
+	"github.com/isty2e/daem/test/ownershiptest"
 )
 
 func TestCLIRecoversMetadataOnlyAgentConfigReleaseAndPreservesFenceProjection(t *testing.T) {
@@ -138,6 +139,7 @@ func TestCLIRecoversMetadataOnlyAgentConfigReleaseAndPreservesFenceProjection(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	safety := ownershiptest.ArmPermissionRecovery(t, paths, ".pi/settings.json")
 
 	prepared, err := workflowrecover.Plan(t.Context(), workflowrecover.PlanInput{ManifestPath: paths.ManifestPath})
 	if err != nil {
@@ -169,8 +171,14 @@ func TestCLIRecoversMetadataOnlyAgentConfigReleaseAndPreservesFenceProjection(t 
 		t.Fatal("CLI did not finish release-only recovery")
 	}
 	actual, err := store.LoadProtectionRegistry(t.Context())
-	if err != nil || len(actual.Claims()) != 0 || len(actual.DocumentBindings()) != 0 {
+	if err != nil || len(actual.Claims()) != 0 || len(actual.DocumentBindings()) != 1 {
 		t.Fatal("CLI recovery retained own management", err)
+	}
+	if _, present := actual.DocumentBinding(binding.Owner().Key(), binding.Destination()); present {
+		t.Fatal("CLI recovery retained released binding")
+	}
+	if rows := actual.PendingProtections(); len(rows) != 1 || !rows[0].Equal(safety.Protection) {
+		t.Fatal("CLI release recovery changed unrelated permission protection")
 	}
 	if actual, err := os.ReadFile(host); err != nil || !bytes.Equal(actual, hostBefore) {
 		t.Fatal("CLI recovery changed host content", err)

@@ -11,6 +11,7 @@ import (
 	journal "github.com/isty2e/daem/internal/effect/journal/recoveryoperation"
 	"github.com/isty2e/daem/internal/effect/physicalwork"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/recoverygate"
 	permissions "github.com/isty2e/daem/internal/workflow/protection/recovery"
 )
@@ -36,8 +37,15 @@ func planRecoveryOperation(ctx context.Context, input PlanInput) (*PreparedRecov
 			return nil, fmt.Errorf("--baseline-tree requires an active journal with a recorded directory")
 		}
 	}
-	if journalErr == nil && planned.plan.AuthorityKind() == journal.RecoveryAuthorityJournalCleanup {
+	if journalErr == nil {
+		if err := planned.requireProtectionClear(ctx); err != nil {
+			return nil, fmt.Errorf("recover active journal: %w", err)
+		}
 		return newPreparedRecovery(planned), nil
+	}
+	var protected *ownership.ProtectionPendingError
+	if errors.As(journalErr, &protected) {
+		return nil, fmt.Errorf("recover active journal: %w", journalErr)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -51,17 +59,11 @@ func planRecoveryOperation(ctx context.Context, input PlanInput) (*PreparedRecov
 		return nil, errors.Join(journalErr, err)
 	}
 	if found {
-		if journalErr == nil {
-			return nil, fmt.Errorf("active journal and permission protection overlap for the selected owner")
-		}
 		state := recoverygate.StateOf(journalErr)
 		if !errors.Is(journalErr, journal.ErrNoRecoverableJournal) || !state.FileSetKnown() || state.FileSet() != fileset.FileSetFenceClear {
 			safety = safety.WithBlocker(journalErr)
 		}
 		return newPreparedRecovery(permissionPreparation{prepared: safety}), nil
 	}
-	if journalErr != nil {
-		return nil, journalErr
-	}
-	return newPreparedRecovery(planned), nil
+	return nil, journalErr
 }

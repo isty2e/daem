@@ -26,6 +26,7 @@ type recoveryAuthorityEvidence struct {
 	domains               []mutation.Domain
 	initialDocumentWrites mutation.PhysicalAuthoritySet
 	documentWriteRequests []mutation.PhysicalAuthorityRequest
+	removalSlots          []string
 	authorityFingerprint  mutation.OperationFingerprint
 }
 
@@ -280,10 +281,11 @@ func buildActiveRecoveryAuthorityEvidence(
 	stateDir recoverygate.StateDirAuthority,
 	budget rootedpath.PhysicalTraversalBudget,
 ) (recoveryAuthorityEvidence, error) {
+	intents := plan.RemovalIntents()
 	resolvedDestinations, removalPaths, err := resolveRecoveryAuthorityPaths(
 		paths,
 		plan.GuardedActions(),
-		plan.RemovalIntents(),
+		intents,
 		budget,
 	)
 	if err != nil {
@@ -339,9 +341,9 @@ func buildActiveRecoveryAuthorityEvidence(
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
-	if len(plan.ClaimTransitions()) != 0 || plan.RequiresHostWriteExclusion() {
+	if plan.RequiresOwnershipSettlement() || plan.RequiresHostWriteExclusion() || len(intents) != 0 {
 		access := mutation.AccessShared
-		if len(plan.ClaimTransitions()) != 0 {
+		if plan.RequiresOwnershipSettlement() {
 			access = mutation.AccessExclusive
 		}
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
@@ -367,12 +369,20 @@ func buildActiveRecoveryAuthorityEvidence(
 		}
 		resolved := resolvedDestinations[recoveryDestinationKey{scope: action.Scope, destination: destination}]
 		for _, selected := range targets {
-			if err := builder.AddDocumentWritePair(resolved, string(selected), string(action.Scope)); err != nil {
+			var err error
+			if plan.Classification() == recovery.ClassificationNeedsRollback &&
+				(action.Kind == recovery.ActionKindRestoreWrite || action.Kind == recovery.ActionKindRestoreDelete) {
+				err = builder.AddDocumentWritePair(resolved, string(selected), string(action.Scope))
+			} else {
+				err = builder.AddPhysicalPair(resolved, mutation.AccessExclusive, string(selected), string(action.Scope))
+			}
+			if err != nil {
 				return recoveryAuthorityEvidence{}, err
 			}
 		}
 	}
-	for _, intent := range plan.RemovalIntents() {
+	var removalSlots []string
+	for _, intent := range intents {
 		key := recoveryDestinationKey{
 			scope: intent.Scope(), destination: intent.Destination(),
 		}
@@ -383,6 +393,7 @@ func buildActiveRecoveryAuthorityEvidence(
 				intent.Destination(),
 			)
 		}
+		removalSlots = append(removalSlots, resolved.residue, resolved.cleanup)
 		for _, path := range []string{
 			resolved.destination,
 			resolved.residue,
@@ -429,6 +440,7 @@ func buildActiveRecoveryAuthorityEvidence(
 		domains:               domains,
 		initialDocumentWrites: documentWrites,
 		documentWriteRequests: documentWriteRequests,
+		removalSlots:          removalSlots,
 		authorityFingerprint:  fingerprint,
 	}, nil
 }

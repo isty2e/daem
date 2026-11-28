@@ -42,6 +42,14 @@ func buildNativeReleaseRecoveryAuthority(paths daempaths.Paths, plan journal.Nat
 		return recoveryAuthorityEvidence{}, err
 	}
 	local := plan.LocalPaths()
+	localWrites := make(map[string]struct{})
+	if plan.FileSetFence() == fileset.FileSetFencePublishedTransaction {
+		for _, target := range plan.LocalTargets() {
+			if target.Write {
+				localWrites[target.Path] = struct{}{}
+			}
+		}
+	}
 	for _, path := range []string{paths.ManifestPath, paths.LockfilePath} {
 		if err := builder.AddLogicalPair(path, mutation.AccessExclusive, mutation.AccessExclusive); err != nil {
 			return recoveryAuthorityEvidence{}, err
@@ -51,7 +59,11 @@ func buildNativeReleaseRecoveryAuthority(paths daempaths.Paths, plan journal.Nat
 		if err := builder.AddLogicalPair(path, mutation.AccessExclusive, mutation.AccessExclusive); err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
-		if err := builder.AddPhysicalPair(path, mutation.AccessExclusive, "metadata", "project"); err != nil {
+		if _, writes := localWrites[path]; writes {
+			if err := builder.AddDocumentWritePair(path, "metadata", "project"); err != nil {
+				return recoveryAuthorityEvidence{}, err
+			}
+		} else if err := builder.AddPhysicalPair(path, mutation.AccessExclusive, "metadata", "project"); err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
 	}
@@ -62,6 +74,11 @@ func buildNativeReleaseRecoveryAuthority(paths daempaths.Paths, plan journal.Nat
 		return recoveryAuthorityEvidence{}, err
 	}
 	compiled := builder.Compile()
+	documentWriteRequests := compiled.DocumentWriteRequests()
+	documentWrites, err := mutation.NewPhysicalAuthoritySet(documentWriteRequests...)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, err
+	}
 	domains, err := recoverygate.LowerDomainSteps(compiled.DomainSteps())
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
@@ -70,5 +87,5 @@ func buildNativeReleaseRecoveryAuthority(paths daempaths.Paths, plan journal.Nat
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	return recoveryAuthorityEvidence{domains: domains, authorityFingerprint: fingerprint}, nil
+	return recoveryAuthorityEvidence{domains: domains, initialDocumentWrites: documentWrites, documentWriteRequests: documentWriteRequests, authorityFingerprint: fingerprint}, nil
 }
