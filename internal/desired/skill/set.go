@@ -2,12 +2,15 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/target"
 )
+
+var ErrInvalidSkillSetChildName = errors.New("skill set child name must be a canonical safe single path segment")
 
 // SkillSetSpec is constructor input for one selector-backed SkillSet.
 type SkillSetSpec struct {
@@ -140,7 +143,7 @@ func (set SkillSet) Selects(name string) (bool, error) {
 	}
 	canonicalName, err := cleanName(name)
 	if err != nil || canonicalName != name {
-		return false, fmt.Errorf("skill set child name must be a canonical safe single path segment")
+		return false, ErrInvalidSkillSetChildName
 	}
 	return selectorSetMatches(name, set.include, set.exclude, NewExpansionBudget())
 }

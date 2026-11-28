@@ -351,6 +351,9 @@ func executeAuthoringMutation(
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseBuildLockfile, Err: err}
 	}
+	if err := lockfile.requireDisjointInputs(ctx, current.document, current.change.Content); err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
+	}
 	if err := ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
@@ -374,6 +377,24 @@ func executeAuthoringMutation(
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
 	return operationResultFromChange(current.change, lockfile, options.Mode), nil
+}
+
+func (change LockfileChange) requireDisjointInputs(ctx context.Context, manifest ManifestDocument, prospective []byte) error {
+	if change.status == LockfileStatusUnchanged {
+		return nil
+	}
+	before, err := declarationmanifest.Decode(manifest.Content)
+	if err != nil {
+		return fmt.Errorf("read original manifest for lockfile publication: %w", err)
+	}
+	after, err := declarationmanifest.Decode(prospective)
+	if err != nil {
+		return fmt.Errorf("read prospective manifest for lockfile publication: %w", err)
+	}
+	if err := declarationartifact.RequireDisjointLockfile(ctx, change.target.Path(), manifest.Paths, before, after); err != nil {
+		return fmt.Errorf("cannot write lockfile: %w", err)
+	}
+	return nil
 }
 
 func ensureStateDirForAuthoringEffect(
