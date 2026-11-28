@@ -3,8 +3,8 @@
 Start with read-only inspection. Substitute `--manifest <path>` when the
 workspace is not selected by the normal current-directory or user-manifest
 rules. Keep that same manifest, HOME/XDG environment, and any `--target`
-selection throughout inspection and retry. `recover` selects the whole
-manifest's journal and does not accept `--target`.
+selection throughout inspection and retry. `recover` selects at workspace
+scope; omit `--target`.
 
 ```bash
 daem status --check
@@ -101,7 +101,8 @@ daem recover --release-output-ownership --dry-run
 Add the original `--manifest` argument if you use one. The preview covers all
 settled output claims and document bindings for that state file, even if some
 come from another manifest that shares it. If you want to stop managing those
-outputs, rerun with `--yes` in place of `--dry-run`, or confirm at the terminal.
+outputs, keep `--release-output-ownership` and the same workspace selection
+when you [approve the current release plan](#approving-a-recovery-plan).
 Host files are left in place, but daem no longer protects them under those
 claims or remembers their applied baselines. If you later want to manage the
 existing settings again, review a separate `daem apply --dry-run --manage-existing`
@@ -109,12 +110,13 @@ preview; adoption requires a match rather than overwriting a difference.
 
 This release does not clear pending journals, permission recovery, or published
 metadata transactions. Follow the reported recovery instructions first. For a
-completed manifest and lockfile update, `daem lock` with the same manifest
-selection verifies and clears the record before updating the lockfile. Keep any
-reserved claims whose journal is missing; a state backup alone
-cannot settle them. Daem also refuses release if it cannot match the owner to
-the current state location. Check the original manifest and HOME/XDG selection
-before retrying; do not edit the registry or remove migration receipts.
+pending manifest and lockfile transaction, see
+[Manifest Metadata Update Was Interrupted](#manifest-metadata-update-was-interrupted)
+to settle the record before releasing ownership. Keep any reserved claims whose
+journal is missing; a state backup alone cannot settle them. Daem also refuses
+release if it cannot match the owner to the current state location. Check the
+original manifest and HOME/XDG selection before retrying; do not edit the
+registry or remove migration receipts.
 
 ## Pre-1.0 Durable Authority Schemas
 
@@ -449,29 +451,46 @@ the selected files and recovery evidence, repair only the reported external
 cause, and rerun apply. Retry reobserves current files and does not trust a
 historical success row as convergence evidence.
 
+## Approving a Recovery Plan
+
+`daem recover --yes` selects the recovery that is eligible when it runs, under
+the supplied workspace and recovery options, and runs it without a prompt.
+Use `--yes` only if you intend to authorize that current selection. An earlier
+`--dry-run` does not bind it: the work can change even if the recovery kind
+stays the same.
+
+Approval for an interrupted write does not also approve its recovery. If
+approval covers only an earlier recovery preview, run `daem recover`
+[interactively](cli.md#execution-modes) with the same workspace and recovery
+options. Omit `--dry-run`, `--json`, and `--yes`. Review the plan shown before
+the prompt and confirm only the work you approve. If you cannot confirm
+interactively and approval is limited to the old preview, stop without writing.
+
 ## Apply Was Interrupted
 
 While a recovery journal is active, ordinary operations that could conflict
-with it are refused. Use the original `CLAUDE_CONFIG_DIR` if the first global
-Claude Code hook install was interrupted before the settings path was recorded;
-leave it unset if the install used the default. Inspect the recovery plan first:
+with it are refused. Use the same workspace for recovery, including after an
+interrupted `replace agent-config` that left an Apply journal. If the first
+global Claude Code hook install stopped before recording the settings path, use
+the original `CLAUDE_CONFIG_DIR` or leave it unset if the install used the
+default. Inspect the recovery plan first:
 
 ```bash
 daem recover --dry-run
 ```
 
-Then run interactive `daem recover`, or use `daem recover --yes` in a reviewed
-non-interactive environment. Recovery may clean up a completed journal, roll
-back guarded changes, or finish ownership finalization. Do not edit host files,
-the statefile, shared ownership data, or the journal while recovery is pending.
+Then [approve the current recovery plan](#approving-a-recovery-plan). Recovery
+may clean up a completed journal, roll back guarded changes, or finish ownership
+finalization. Do not edit host files, the statefile, shared ownership data, or
+the journal while recovery is pending.
 
 If an earlier command reports `journal_cleanup_incomplete`, preview recovery
 again with the same selection. A plan classified as `retained_cleanup_residue`
 means host, statefile, and ownership recovery is already complete. The only
 action is `finalize_journal_cleanup` over the exact correlated retirement
-artifacts. Review the dry-run and rerun recovery; do not delete hidden residue
-or the visible retirement control manually. Stale, replaced, malformed, or
-cross-paired artifacts block cleanup.
+artifacts. Review it and [approve the current recovery plan](#approving-a-recovery-plan).
+Do not delete hidden residue or the visible retirement control manually. Stale,
+replaced, malformed, or cross-paired artifacts block cleanup.
 
 If a cleanup obligation reports `namespace_changed` because a captured
 existing parent is absent, daem cannot tell whether that exact directory was
@@ -511,17 +530,17 @@ for the same workspace. If the original manifest was removed, give its original
 path with `--manifest`. For a custom Claude Code profile, use the original
 `CLAUDE_CONFIG_DIR` so it selects the recorded settings file.
 
-If the preview selects permission recovery and the plan is acceptable, confirm
-with `daem recover` using the same selection. It can restrict access without
-restoring file contents or rerunning the host command. For example, if an owner
-has already tightened a protected file from `0600` to `0400`, recovery leaves
-the narrower mode in place.
+If the preview selects permission recovery, use the same selection to
+[review and approve the current plan](#approving-a-recovery-plan). It can
+restrict access without restoring file contents or rerunning the host command.
+For example, if an owner has already tightened a protected file from `0600`
+to `0400`, recovery leaves the narrower mode in place.
 
-If the preview selects journal recovery or retired-journal cleanup, confirm
-that operation with `daem recover` using the same selection. Then run
-`daem recover --dry-run` again: the first command leaves unrelated permission
-protection pending. If daem reports a conflict with a protected file or its
-management records, preserve both records and inspect the reported blocker. See the
+If the preview selects journal recovery or retired-journal cleanup, approve
+that work first. Then run `daem recover --dry-run` again: journal recovery
+leaves unrelated permission protection pending. If daem reports a conflict
+with a protected file or its management records, preserve both records and
+inspect the reported blocker. See the
 [permission recovery rules](../openspec/specs/permission-protection/spec.md#requirement-recover-access-without-recovering-file-contents-or-replaying-the-command)
 if recovery is blocked or only partly completes.
 
@@ -567,21 +586,28 @@ An interrupted `add`, `remove`, `unmanage` or `import agent-config` can leave a
 published metadata marker. A command that requires a settled file set can stop
 with `interrupted file-set transaction`. `daem lock --dry-run` can still
 compare the files as they stand; its success does not clear the marker or
-mean `daem lock` can write. Choose the recovery action by the evidence:
+mean `daem lock` can write. Choose the recovery action by the interrupted
+command and the record it left:
 
 | Evidence | Action |
 | --- | --- |
-| Active Apply journal (`interrupted_apply`) | Start with `daem recover --dry-run`. Finish journal recovery before retrying a write; recovering Apply leaves separate declaration records untouched. |
-| Interrupted `unmanage agent-config` with a management-release journal | Preview `daem recover` with `--dry-run` under the original selection. It settles the release's own file-set and then its management records without changing host content. If only an unapplied declaration was removed, retry `unmanage agent-config` instead. |
+| Active Apply journal (`interrupted_apply`), including after `replace agent-config` | Start with `daem recover --dry-run` using the original manifest selection. Finish journal recovery before retrying a write; it leaves independent declaration transactions alone. |
+| Interrupted `unmanage agent-config` with a management-release journal | Preview `daem recover` with `--dry-run` under the original selection. It settles the release's own file-set and then its management records without changing host content. |
 | Already-retired journal with cleanup left (`journal_cleanup_incomplete`) | If you intend to apply, start with `daem apply --dry-run`. It shows cleanup if the records qualify. To clear only the journal, start with `daem recover --dry-run`. |
-| Interrupted `import agent-config` | Do not resend the approved write. Preview the same request with `--dry-run --json`. If it offers `operation: "recovery"`, review the files and direction before approving its fingerprint. See [Retrying `import agent-config`](cli.md#retrying-import-agent-config). |
-| Interrupted `add` or `remove` involving only the manifest and default lockfile | Run `daem recover --declarations --dry-run` with the same manifest selection. Then run it without `--dry-run` (or with `--yes`) to settle the record without making a new edit. |
-| The selected manifest and default lockfile already match the completed update | Preview `daem apply` if you intend to apply, or run `daem lock` with the same manifest selection if you intend to refresh the lockfile. The write clears only a verified record for those two files. If an already-retired journal also blocks the write, both records must qualify and journal cleanup runs first. Lock then resolves sources normally, so floating inputs can advance. |
-| Other valid published `metadata-transaction` marker | For an interrupted `unmanage` that also recorded State or a registry, retry the same `unmanage` request. For an interrupted state migration, use `daem migrate state --recover --dry-run`. |
+| Interrupted `import agent-config` | Do not resend the approved write. Preview the same request with `--dry-run --json`. If it offers `operation: "recovery"`, review the files and direction and approve the new recovery fingerprint. See [Retrying `import agent-config`](cli.md#retrying-import-agent-config). |
+| Interrupted `add` or `remove` involving only the manifest and default lockfile | Run `daem recover --declarations --dry-run` with the same manifest selection. Keep `--declarations` when you [approve the current plan](#approving-a-recovery-plan) to settle the record without making a new edit. |
+| The selected manifest and default lockfile already match the completed update | `daem outdated` still refuses. To refresh the lockfile, `daem lock` can clear a verified completed record, then resolves sources again, so floating inputs can advance. A blocking retired journal is cleared first if both records qualify. If you intend to apply, `daem apply --dry-run` shows eligible cleanup without performing it. |
+| Interrupted `unmanage` with a file-set record that includes State or a registry | Retry the write with the original workspace and resource selection only if you still want the release. The command checks the recorded files against its write scope, settles the record, then prepares the new release. Otherwise leave the record in place. |
+| Interrupted state migration | Use `daem migrate state --recover --dry-run`. |
 | Marker version 1 or 2 | Current daem preserves it. Finish recovery with the version that wrote it before upgrading. |
 | Invalid/incomplete evidence, out-of-authority target or unclassifiable before/after image | Preserve diagnostics/state for manual inspection; repair before journal recovery. Never edit recorded files independently or delete the marker. |
 | StateDir access/identity cannot be established | Restore it before recovery, even if a journal was observed. An accessible RecoveryDir child is insufficient. Do not retry a write as if a marker existed. |
 | Bounded census overflow with accessible StateDir | Journal recovery may proceed if RecoveryDir is readable, but the census fence remains. This is neither a marker nor named residue; do not infer a retry or prefix-deletion remedy. |
+
+After an interrupted `import agent-config`, `outdated` or a lock write can
+reject the capture record as invalid evidence or say that marker version 4
+was written by a newer daem. The import command reads that format. Use its
+capture recovery preview before attempting an upgrade or manual repair.
 
 If declaration recovery restores a partial edit, run `add` or `remove` again
 only if you still want that edit. If it clears a completed record, the edit
@@ -620,7 +646,8 @@ daem lock
 
 `add` and `remove` update the manifest and lockfile together. A floating source
 can resolve differently on a later lock; use `daem outdated` when you only want
-to inspect whether locked sources can advance.
+to inspect whether locked sources can advance and no file-set record is pending.
+If one is pending, see [Manifest Metadata Update Was Interrupted](#manifest-metadata-update-was-interrupted).
 
 ## Lockfile Is Damaged
 

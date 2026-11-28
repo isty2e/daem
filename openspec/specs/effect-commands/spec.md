@@ -46,7 +46,7 @@ Phase, outcome and typed causal facts drive JSON errors. Distinguish cancellatio
 
 `--declarations` selects only [the ordinary declaration pair](../interrupted-operations/spec.md#requirement-settle-a-declaration-pair-without-replaying-the-edit). It cannot be combined with `--legacy-user-state`, `--baseline-tree`, or `--release-output-ownership`. If the pair is absent or unqualified, do not fall back to another recovery kind.
 
-Authorization of a current interactive plan is not equivalent to retaining a previous `--dry-run` result. `recover --yes` reselects and can choose a different legal kind; it has no `--expect-plan`. [Active and cleanup-only recovery](../interrupted-operations/spec.md) retain distinct evidence and revalidation requirements.
+Interactive confirmation authorizes the plan disclosed in that invocation. `recover --yes` selects currently eligible work under the supplied selectors, without `--expect-plan`. The work can differ from an earlier `--dry-run`, even if the recovery kind is unchanged. Approval limited to the old preview does not authorize that write. [Active and cleanup-only recovery](../interrupted-operations/spec.md) retain distinct evidence and revalidation requirements.
 
 Follow the [permission recovery selection rule](../permission-protection/spec.md#requirement-recover-access-without-recovering-file-contents-or-replaying-the-command) when journal evidence and pending protection coexist.
 
