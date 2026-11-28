@@ -1270,9 +1270,13 @@ sources, expands skill-group selectors, computes replayable skill repairs when
 authorized, and writes `daem.lock.toml` beside the selected manifest. It writes
 by default.
 
-`--dry-run` follows the same resolution path but does not write the lockfile or
-persistent cache. Temporary resolution data is removed before exit. The same
-floating manifest can legitimately resolve to a different exact lock over time.
+`--dry-run` resolves sources from the selected manifest and compares with the
+lockfile as it stands when a comparison is available. It does not check or
+clear the selected workspace's local recovery records. Source resolution uses
+a temporary cache and leaves the persistent cache and lockfile unchanged.
+Legacy user-state and shared metadata checks still apply. A successful preview
+does not mean `daem lock` can write. A floating source may also resolve
+differently when you run the write later.
 
 Before writing, `lock` can clear an interrupted update's recovery record if the
 record covers only the selected manifest and its default lockfile and both
@@ -1280,8 +1284,7 @@ files already match the recorded result. It verifies the files and the record
 before removing the record, then resolves sources for the requested lock write.
 If an already-retired apply journal blocks that cleanup, the same lock write
 can clear its verified remnants first. A lock write that has no pending
-manifest/lockfile update leaves journal recovery alone. `--dry-run` refuses
-while the declaration record is pending and leaves both records untouched.
+manifest/lockfile update leaves journal recovery alone.
 See [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
 if the recorded files do not match or an active journal blocks cleanup.
 

@@ -564,8 +564,10 @@ is unchanged.
 ## Manifest Metadata Update Was Interrupted
 
 An interrupted `add`, `remove`, `unmanage` or `import agent-config` can leave a
-published metadata marker. Manifest/lock/state/shared-carrier consumers then
-fail with `interrupted file-set transaction`. Choose the action by the evidence:
+published metadata marker. A command that requires a settled file set can stop
+with `interrupted file-set transaction`. `daem lock --dry-run` can still
+compare the files as they stand; its success does not clear the marker or
+mean `daem lock` can write. Choose the recovery action by the evidence:
 
 | Evidence | Action |
 | --- | --- |

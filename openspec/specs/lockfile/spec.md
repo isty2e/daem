@@ -53,6 +53,15 @@ Lock generation and admitted transactional authoring can replace schemas 3–6 w
 - **WHEN** schema 6 contains a valid locked plan
 - **THEN** a current-lock consumer can read it without writing, and standalone lock can generate a replacement without comparing the old body
 
+### Requirement: Preview the lock from the selected files without settling recovery
+
+`lock --dry-run` SHALL validate the selected manifest and resolve its sources, then compare the candidate with the lockfile as it stands where comparison is available. It does not consult the selected workspace's local recovery records to admit the preview, settle a transaction, or update the persistent source cache. Legacy user-state and shared metadata checks still apply. The preview does not qualify a later lock write.
+
+#### Scenario: An earlier declaration write stopped between the two files
+
+- **WHEN** the visible manifest and lockfile are independently readable but a local record remains for an unfinished update
+- **THEN** lock preview uses the visible files and leaves them and the record in place
+
 ### Requirement: Do not convert source identity into output authority
 
 The lock SHALL describe resolved inputs and admitted projections, not current output, cache ownership or execution readiness. Apply refuses host mutations whose physical path equals, contains or is contained by a local source consumed by the manifest. A lock write is also refused if its destination would overwrite the manifest or a source. The content compared by exact Supply can include executable class; managed content may still be current after only that source fact changes.

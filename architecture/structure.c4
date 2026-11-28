@@ -81,7 +81,7 @@ model {
   daem.commands.adopt .coordination daem.barrier 'Qualifies selected adoption and file-set authority'
   daem.commands.author .coordination daem.barrier 'Checks authority before declaration or release effects'
   daem.commands.init .coordination daem.barrier 'Qualifies manifest publication authority'
-  daem.commands.lock .coordination daem.barrier 'Checks file-set and shared metadata authority'
+  daem.commands.lock .coordination daem.barrier 'Checks legacy user state, shared metadata, and any applicable file-set fence'
   daem.commands.migrate .coordination daem.barrier 'Checks source, destination or recorded conversion authority'
   daem.services.cleanup .coordination daem.barrier 'Revalidates selected completed-record evidence'
   daem.services.protection .coordination daem.barrier 'Checks fences before preparing a protected invocation'

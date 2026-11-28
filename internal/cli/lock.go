@@ -54,13 +54,16 @@ func prepareLockInvocation(args []string, stdout io.Writer, stderr io.Writer, op
 		})
 		progress.Close()
 		if err != nil {
-			status := workflowlock.MetadataRecoveryStatusOf(err)
-			var selection workflowlock.CommandError
-			_ = errors.As(err, &selection)
-			diagnostic := humanFailureDiagnostic(err).WithPrefix("lock failed: ").
-				WithGuidance(lockMetadataGuidance(*dryRun, status, selection.ManifestPath, *manifestPath)...)
-			if workflowlock.JournalRetired(err) {
-				diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("the already-retired apply journal was cleared before lock stopped"))
+			diagnostic := humanFailureDiagnostic(err).WithPrefix("lock failed: ")
+			status := workflowlock.MetadataRecoveryNotApplicable
+			if !*dryRun {
+				status = workflowlock.MetadataRecoveryStatusOf(err)
+				var selection workflowlock.CommandError
+				_ = errors.As(err, &selection)
+				diagnostic = diagnostic.WithGuidance(lockMetadataGuidance(status, selection.ManifestPath, *manifestPath)...)
+				if workflowlock.JournalRetired(err) {
+					diagnostic = diagnostic.WithGuidance(clipresent.NoteGuidance("the already-retired apply journal was cleared before lock stopped"))
+				}
 			}
 			if status == workflowlock.MetadataRecoveryNotApplicable || status == workflowlock.MetadataRecoveryRetired {
 				diagnostic = diagnostic.WithGuidance(lockWorkflowGuidance(*manifestPath, err)...)
@@ -112,15 +115,10 @@ func lockSummary(result workflowlock.Result, dryRun bool) clipresent.LockSummary
 	}
 }
 
-func lockMetadataGuidance(dryRun bool, status workflowlock.MetadataRecoveryStatus, selected, requested string) []clipresent.Guidance {
+func lockMetadataGuidance(status workflowlock.MetadataRecoveryStatus, selected, requested string) []clipresent.Guidance {
 	troubleshooting := clipresent.InstructionGuidance("see 'Manifest Metadata Update Was Interrupted' in docs/troubleshooting.md")
 	switch status {
-	case workflowlock.MetadataRecoveryPending:
-		if dryRun {
-			return []clipresent.Guidance{clipresent.NoteGuidance("preview leaves the recovery record untouched; if you intend to refresh this lockfile, daem lock with the same manifest selection can clear an already completed manifest and lockfile update and any verified, already-retired journal that blocks it")}
-		}
-		return []clipresent.Guidance{troubleshooting}
-	case workflowlock.MetadataRecoveryDifferentPair:
+	case workflowlock.MetadataRecoveryPending, workflowlock.MetadataRecoveryDifferentPair:
 		return []clipresent.Guidance{troubleshooting}
 	case workflowlock.MetadataRecoveryUnfinishedPair:
 		return []clipresent.Guidance{manifestCommandGuidance([]string{"recover"}, selected, manifestHintOptions(requested, false), "--declarations", "--dry-run")}

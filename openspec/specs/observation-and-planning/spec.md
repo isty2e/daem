@@ -32,6 +32,8 @@ A modeled prerequisite that cannot be observed remains unqualified or unobserved
 
 A preview SHALL disclose work from the selected evidence without performing that work. This includes any admitted cleanup, provider prerequisites, conditional handoffs, destructive file replacement and uncertainty about delegated results. In particular, dry-run and a no-op do not create a state directory solely to plan the operation. Query and preview routes retain their own [journal and file-set admission](../mutation-authority/spec.md#requirement-keep-the-state-directory-and-recovery-barriers-independent); a refusal by a read-only command does not grant a write capability. A later execution has to qualify the current inputs and the applicable consent again, rather than treating the prior preview as approval.
 
+[Lock preview](../lockfile/spec.md#requirement-preview-the-lock-from-the-selected-files-without-settling-recovery) compares the visible files rather than deciding whether a lock write or cleanup may proceed.
+
 #### Scenario: The workspace has no state directory and no planned effects
 
 - **WHEN** the operator previews the work or confirms a plan that needs no effects

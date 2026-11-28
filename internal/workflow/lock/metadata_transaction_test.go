@@ -2,10 +2,10 @@ package lock
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/contractversion"
@@ -13,7 +13,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
-func TestLockConsumersFailClosedOnInterruptedMetadataTransaction(t *testing.T) {
+func TestLockWriteAndOutdatedRefuseInterruptedMetadataTransaction(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	manifestPath := filepath.Join(root, "daem.toml")
@@ -32,16 +32,6 @@ func TestLockConsumersFailClosedOnInterruptedMetadataTransaction(t *testing.T) {
 		run  func() error
 	}{
 		{
-			name: "dry-run",
-			run: func() error {
-				_, err := RunLock(context.Background(), LockInput{
-					ManifestPath: manifestPath,
-					DryRun:       true,
-				})
-				return err
-			},
-		},
-		{
 			name: "write",
 			run: func() error {
 				_, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath})
@@ -59,7 +49,7 @@ func TestLockConsumersFailClosedOnInterruptedMetadataTransaction(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.run()
-			if err == nil || !strings.Contains(err.Error(), "interrupted file-set transaction") {
+			if !errors.Is(err, fileset.ErrInterruptedFileSetTransaction) {
 				t.Fatalf("error = %v, want interrupted file-set transaction", err)
 			}
 		})

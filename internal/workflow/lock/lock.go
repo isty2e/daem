@@ -150,7 +150,11 @@ func previewLock(
 		LockfilePath:     outputPath,
 		ExplicitLockfile: lockfilePath != "",
 	}
-	if err := recoverygate.RequireFileSetClear(ctx, paths); err != nil {
+	requireMetadata := recoverygate.RequireFileSetClear
+	if standalone {
+		requireMetadata = recoverygate.RequireStorageSelectionClear
+	}
+	if err := requireMetadata(ctx, paths); err != nil {
 		errorContext.Err = err
 		return commandResult{}, errorContext
 	}

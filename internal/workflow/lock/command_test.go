@@ -12,6 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/fileset"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	locksnapshot "github.com/isty2e/daem/internal/realization/lock"
@@ -31,13 +32,65 @@ func TestRunLockRefusesGlobalMetadataTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	metadatatx.WriteInterrupted(t, paths.GlobalMetadataDir())
-	if _, err := RunLock(t.Context(), LockInput{ManifestPath: manifestPath}); !errors.Is(err, recoverygate.ErrGlobalMetadataFence) {
-		t.Fatal("lock bypassed the shared transaction", err)
+	for _, dryRun := range []bool{true, false} {
+		if _, err := RunLock(t.Context(), LockInput{ManifestPath: manifestPath, DryRun: dryRun}); !errors.Is(err, recoverygate.ErrGlobalMetadataFence) {
+			t.Fatalf("lock with dry-run=%t bypassed the shared transaction: %v", dryRun, err)
+		}
 	}
 	for _, path := range []string{paths.StateDir, filepath.Join(root, "daem.lock.toml")} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("blocked lock changed project metadata", err)
 		}
+	}
+}
+
+func TestRunLockPreviewKeepsLegacyUserStateGate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	manifest := filepath.Join(root, "config", "daem", "daem.toml")
+	writeWorkflowTestFile(t, filepath.Dir(manifest), "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+	paths, err := daempaths.Resolve(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := paths.LegacyUserState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadatatx.WriteInterrupted(t, legacy.StateDir)
+
+	_, err = RunLock(t.Context(), LockInput{ManifestPath: manifest, DryRun: true})
+	var blocked recoverygate.LegacyUserStateRecoveryError
+	if !errors.As(err, &blocked) || blocked.StateDir != legacy.StateDir {
+		t.Fatalf("preview did not retain the legacy-state refusal: %v", err)
+	}
+}
+
+func TestRunLockPreviewDoesNotNeedReadableLocalRecoveryEvidence(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	manifest := filepath.Join(root, "daem.toml")
+	writeWorkflowTestFile(t, root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+	paths, err := daempaths.Resolve(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := fileset.FileSetAuthorityPath(paths.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const invalidRecord = "not a valid recovery record\n"
+	writeWorkflowTestFile(t, evidence, "transaction.json", invalidRecord)
+
+	result, err := RunLock(t.Context(), LockInput{ManifestPath: manifest, DryRun: true})
+	if err != nil || result.PreviousStatus() != PreviousMissing {
+		t.Fatalf("preview of the visible files: previous=%q, err=%v", result.PreviousStatus(), err)
+	}
+	content, err := os.ReadFile(filepath.Join(evidence, "transaction.json"))
+	if err != nil || string(content) != invalidRecord {
+		t.Fatalf("preview changed the local evidence: content=%q, err=%v", content, err)
 	}
 }
 
