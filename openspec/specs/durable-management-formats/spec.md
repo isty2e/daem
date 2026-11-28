@@ -61,7 +61,15 @@ If using the writer of a v10 Linux journal, independently establish that capture
 
 ### Requirement: Bind interrupted file-set transactions to the recorded variant
 
-A file-set recovery SHALL use the selected transaction format and the owning operation's exact target set. Format 3 retains before-images and after-state evidence of an ordinary transaction. Format 4 supports static sets and, where required, one sized and hashed commit-point after-image bound to its target. Format 5 binds a published marker to a sized and hashed containing intent with before/after target facts for the qualified publication. A generation's marker does not grant another operation's recovery authority. Formats 1 and 2 remain preserved for their corresponding writer; current daem does not settle them by interpreting them as format 3.
+A recovery route SHALL use the reader for its file-set format and match the evidence applicable to that route:
+
+| Format | Recovery binding |
+| --- | --- |
+| 3 | The record retains before-images and after-state evidence. Ordinary authoring and unmanage retries require every recorded target to belong to the caller's allowed paths. Declaration-only recovery and completed-pair cleanup require the exact pair. User-state migration qualifies its exact target set, and native management release matches the journal's target and image evidence. |
+| 4 | Capture recovery matches the complete selected target set. Where required, the record retains one sized and hashed commit-point after-image bound to its target. |
+| 5 | Shared metadata conversion recovery matches the qualified publication intent and marker revision. The marker binds the intent by size and hash; the intent records the before/after target facts. |
+
+These checks match paths and recorded evidence, not the original command line. Preserve formats 1 and 2 for their corresponding writer; do not interpret them as format 3.
 
 Compare each target's recognized before/after content. Permissions alone do not make a manifest/lock pair a third version. Any unrecognized target value, wrong namespace, invalid image or out-of-authority path leaves the files and evidence in place. Verify restore inputs, including type, size and hash, before writing; do not restore a target already at its verified before-state.
 

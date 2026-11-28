@@ -171,8 +171,10 @@ Use `--dry-run` to inspect a change before making it. For example, `daem lock`
 writes the lock immediately, while `daem apply` normally shows a plan and
 asks first. Do not pipe `yes` into an interactive command: confirmation needs
 terminal stdin, stdout and stderr. Use the command's noninteractive mode only
-after reviewing the plan. For `import agent-config` and `replace agent-config`,
-pass `--expect-plan` from the reviewed preview as well. The
+after reviewing the plan and checking what that mode authorizes. For
+`import agent-config` and `replace agent-config`, pass `--expect-plan` from the
+reviewed preview. [`recover --yes`](#recover) selects the current recovery
+instead of binding the write to an earlier preview. The
 [execution mode rules](../openspec/specs/cli-protocol/spec.md#requirement-require-the-mode-appropriate-to-the-effect)
 cover read-only queries, operations that can skip a prompt, and JSON mode.
 
@@ -1194,11 +1196,14 @@ recover --dry-run` first when it can produce a plan; markerless residue and
 published metadata-transaction markers remain afterward. If the state directory
 cannot be inspected, restore access before recovery.
 
-An interrupted `unmanage extension` write leaves a recoverable
-metadata-transaction marker and other consumers fail closed while it remains.
-Rerun the original `unmanage extension` request to settle its transaction
-before the new write. The record includes State and carrier claims, so it is
-separate from [declaration-only recovery](#recovering-an-interrupted-declaration-edit).
+An interrupted `unmanage extension` can leave a record covering the manifest,
+lockfile, State and carrier claims. The record blocks commands that require a
+clear file set, including `unmanage extension --dry-run`. To settle it, retry
+the write with the original workspace and resource selection. The command
+checks that the files are within its write scope, settles the record, then
+prepares the requested release. If you do not want the release, leave the
+record in place and stop. The record is outside the scope of
+[declaration-only recovery](#recovering-an-interrupted-declaration-edit).
 
 ## Authoring JSON
 
@@ -1346,15 +1351,19 @@ managed-state authority.
 daem outdated [--manifest <path>] [--check] [--json|--verbose]
 ```
 
-Outdated runs the same lockable-source resolution and validation path as lock,
-compares the candidate exact identities with the current lockfile, and writes
-nothing persistent. A valid schema 6 lockfile works as a baseline for
-`outdated`; `lock --dry-run` previews its replacement without a comparison.
+`outdated` shares source resolution with `lock` and compares the candidate
+identities with the current lockfile without writing anything persistent. It
+requires a clear local file set before reading the manifest, even when a
+`lock` write could clear a verified completed declaration record. See
+[Manifest Metadata Update Was Interrupted](troubleshooting.md#manifest-metadata-update-was-interrupted).
+A valid schema 6 lockfile works as a baseline for `outdated`;
+`lock --dry-run` previews its replacement without a comparison.
 Default current output is count-only; stale output lists
 every added, changed, or removed identity and the lock next step. `--verbose`
 adds checked current identities and bounded refs. `--check` exits `1` when any
-lock identity would change. Changed entries use the same `changed=` reasons
-as lock.
+lock identity would change. Operation errors also exit `1`; with `--json`,
+check for `cli_error` before treating that status as a comparison with changes.
+Changed entries use the same `changed=` reasons as lock.
 
 Lock and outdated JSON schema version is `6`. It includes command and mode,
 manifest and derived lockfile paths, and `entry_counts` for the newly resolved
@@ -1663,12 +1672,13 @@ the host value already matches the declaration without rewriting that value.
 `--diff` adds a selected-value diff to human
 dry-run output; it cannot be combined with `--json`.
 
-Replacement uses normal interrupted-operation recovery. Before state commit,
-rollback restores the selected value that actually existed immediately before
-replacement, not an older managed baseline. After commit, recovery finalizes
-without replaying host writes. Unknown third values block recovery. A successful
-replacement does not retain an undo backup. See
-[interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
+If replacement leaves an Apply journal, run `daem recover --dry-run` with the
+same manifest selection, then [approve recovery](troubleshooting.md#approving-a-recovery-plan)
+instead of rerunning `replace agent-config`. Before state commit, rollback
+restores the selected value from immediately before replacement, not an older
+managed baseline. After commit, recovery finalizes without replaying host writes.
+Unknown third values block recovery. A successful replacement does not retain
+an undo backup. See [interruption troubleshooting](troubleshooting.md#apply-was-interrupted).
 
 ## `apply`
 
@@ -1960,17 +1970,20 @@ cancellation, signal or exit facts.
 daem recover [--manifest <path>] [[--legacy-user-state] [--baseline-tree <dir>]|--declarations|--release-output-ownership] [--dry-run|--yes] [--json|--verbose]
 ```
 
-Recovery classifies an interrupted apply, finishes retained journal cleanup,
-or handles pending permission recovery. Bare recover
-uses the shared three-stream terminal contract and asks after disclosing the
-current recovery plan; non-interactive execution requires `--yes`. It does not
-read desired resources from the manifest or lockfile: the manifest selects the
-derived state/recovery paths. An interrupted published metadata-transaction
-marker remains separate from journal recovery. See
+The default mode recovers an interrupted journal, finishes retained journal
+cleanup, or handles pending permission recovery. The manifest selects
+the state and recovery paths; journal recovery does not load desired resources
+from the manifest or lockfile. Without `--dry-run` or `--yes`, `recover` shows
+the current plan for [terminal confirmation](#execution-modes). `--yes`
+selects and executes currently eligible work under the supplied options. It
+has no `--expect-plan`: the work may differ from an earlier preview even if
+the kind is unchanged. See
+[Approving a recovery plan](troubleshooting.md#approving-a-recovery-plan).
+
+Apply-journal recovery leaves independent metadata transactions alone. See
 [interrupted manifest updates](troubleshooting.md#manifest-metadata-update-was-interrupted)
-to choose the recovery command. Markerless private
-residue under the state directory is not recoverable by retry; preserve it for
-analysis.
+to choose the command. Preserve private residue that has no recovery record;
+retrying does not clear it.
 
 ### Recovering an interrupted declaration edit
 
@@ -1981,12 +1994,11 @@ symlink targets. It shows whether recovery would restore a partial write
 or just clear the record of a completed write. If the interrupted write
 created a lockfile where there was none, rollback removes it.
 
-Repeat the command without `--dry-run` for an interactive confirmation, or
-with `--yes` to authorize the current recovery. Recovery stops after settling
-the record. It does not rerun `add` or `remove`, resolve sources, or regenerate
-the lock. Run the edit again only if you still want it. A new `add` or `remove`
-can also settle a pending transaction within its write scope before preparing
-the newly requested edit.
+Keep `--declarations` and the same manifest selection when you confirm
+recovery. It stops after settling the record without rerunning `add` or
+`remove`, resolving sources, or regenerating the lock. Run the edit again only
+if you still want it. A new `add` or `remove` can also settle a pending
+transaction within its write scope before preparing the newly requested edit.
 
 If no qualifying declaration record exists, the command exits unsuccessfully
 without selecting another recovery. `--declarations` cannot be combined with `--legacy-user-state`,
@@ -1997,8 +2009,8 @@ without selecting another recovery. `--declarations` cannot be combined with `--
 If recovery cannot verify a skill against an older journal after its executable
 bits changed, run `daem recover --baseline-tree <dir> --dry-run` with a copy
 of the original tree. Daem checks its digest against the journal and reads the
-files to restore from the journal's backups. Use the same option with `--yes`
-to proceed.
+files to restore from the journal's backups. Keep `--baseline-tree` when you
+confirm recovery.
 
 `--legacy-user-state` selects only the default user manifest's former local
 apply-journal root, before state migration. It is not an arbitrary state-path
@@ -2011,9 +2023,9 @@ If the state file is missing and no matching backup is available, preview
 from journal and permission recovery and cannot be combined with
 `--legacy-user-state`. The preview covers all settled output ownership for
 the selected state file, including records from other manifests that share it.
-Interactive confirmation or `--yes` releases those records only, leaving
-installed files and host settings in place. The command refuses if the state
-file is present, ownership cannot be matched, or recovery is pending. See
+Once confirmed, release removes only those records, leaving installed files
+and host settings in place. The command refuses if the state file is present,
+ownership cannot be matched, or recovery is pending. See
 [State File Is Missing](troubleshooting.md#state-file-is-missing) before
 releasing ownership.
 
@@ -2034,13 +2046,11 @@ statefile, ownership registry, manifest, or lockfile. Both forms recheck the
 plan under their leases. Blocked or stale recovery retains evidence and writes
 nothing.
 
-Unlike `import agent-config`, `recover --yes` has no `--expect-plan`: it selects
-the work again. Retired-journal cleanup and eligible active-journal recovery
-take precedence over permission recovery. When journal recovery leaves
-protection pending, preview again to see the next eligible action.
-If you need to approve only that exact plan, `--yes` cannot provide that guarantee.
-After execution, read the actual recovery kind and phase before another write;
-stop if the work differs from what you expected or the result is unclear.
+Retired-journal cleanup and eligible active-journal recovery take precedence over
+permission recovery. When journal recovery leaves protection pending, preview
+again to see the next eligible action. After execution, read the actual recovery
+kind and phase before another write; stop if the work differs from what you
+expected or the result is unclear.
 
 Before an active journal is retired, recovery reconciles every persisted removal
 intent, including entries outside a selected subset. If blocked, it reports the

@@ -109,21 +109,28 @@ For syntax, follow the resource specification linked from the [manifest guide](h
 - Apply narrow patches requiring that old text to match. Never replace the whole file or use a whole-file backup-and-restore sequence.
 - Run `daem lock --dry-run`.
 - On failure, apply the inverse patch only while every new hunk still matches exactly. If any changed, stop and report the concurrent edit; do not overwrite it.
-- After a successful preview, run `daem lock` to persist the exact result.
+- If the preview succeeds, review it before running `daem lock`. The write checks recovery separately and resolves sources again.
 
 Never apply with a stale or failed lock.
 
 ## Update, Import, And Recovery
 
-- Lockable source updates: run `daem outdated`, preview with `daem lock --dry-run`, write with `daem lock`, then follow the apply workflow.
+- Lockable source updates: start with `daem outdated`. If it reports a pending local file-set record, follow Interrupted Work below before attempting a write. Otherwise, preview with `daem lock --dry-run`, write with `daem lock`, then follow the apply workflow.
 - Managed Pi Git commit-pin changes: when supported by the installed daem, keep the extension ID, repository locator and scope unchanged, then use manual manifest edit → lock → apply. Inspect the disclosed old/new pins, checkout reset/clean and dependency-script effects. Do not silently substitute refresh, unmanage, or remove/reinstall.
 - An uncertain pin attempt retains management and its exact target. Obtain a new preview and authorization before retrying that same target; settings alone do not complete it. Report unreadable or conflicting settings instead of guessing. Metadata recovery is not native package rollback.
 - Use `daem refresh extension` only for an explicitly selected extension route supported by the installed daem. Preview before execution.
 - Existing host state under declaration: start with `daem import --target <target> --dry-run`; repeat `--target` when needed. Import writes no lockfile. After successful import, run lock and apply previews separately.
 - Use `daem apply --manage-existing --dry-run` only for explicit intent to adopt eligible exact existing state. Never infer adoption from matching files alone.
-- Interrupted apply: stop ordinary work and run `daem recover --dry-run`. Disclose and authorize its actions before recovery execution.
+
+### Interrupted Work
+
+Keep the original workspace and applicable recovery options. Show the user the recovery plan before asking for approval; approval for the interrupted write does not approve a follow-up recovery. For `daem recover`, use `--yes` only if the user authorizes the work selected when the command runs, not just a previous `--dry-run`. The work can change even within the same recovery kind. If approval covers only the earlier preview, use interactive `recover` (omit `--dry-run`, `--json`, and `--yes`) and confirm only work the user approves from the current plan. With that limited approval, stop without writing if interactive confirmation is unavailable.
+
+- Interrupted apply or an Apply journal left by `replace agent-config`: stop ordinary work and run `daem recover --dry-run`.
+- Interrupted `import agent-config`: do not resend the write. Preview the same request with `--dry-run --json`, even if another command reports invalid file-set evidence or says a newer daem wrote marker version 4. Read `operation` only from a complete, successful preview. For `recovery`, review the files and direction, obtain separate approval, and pass that plan's `fingerprint` to `--yes --expect-plan`. For `capture`, inspect the earlier outcome before seeking approval for a new capture. See [Retrying `import agent-config`](https://github.com/isty2e/daem/blob/main/docs/cli.md#retrying-import-agent-config).
 - Interrupted `add` or `remove`: use `daem recover --declarations --dry-run` with the same manifest selection. Authorize settlement separately from any edit the user still wants to make.
-- Default-user-manifest legacy state: use `daem migrate state --dry-run`, preserving explicit `--manifest`, before authorizing metadata-only transfer. Interrupted migration uses `migrate state --recover --dry-run`; old apply journals use `recover --legacy-user-state --dry-run`. Do not copy/delete state or reinstall outputs to bypass the fence. Legacy authoring metadata needs the matching previous writer and original command. Changed HOME/XDG namespaces and cache relocation are outside this migration.
+- If `outdated` stops at a local file-set record, do not infer that the edit completed. For a requested lock refresh, review `daem lock --dry-run` before writing. A `lock` write can clear a verified completed declaration pair and re-resolves floating sources. For a requested apply, preview with `daem apply --dry-run` to see eligible cleanup. Follow the [interrupted-operations guide](https://github.com/isty2e/daem/blob/main/docs/troubleshooting.md#manifest-metadata-update-was-interrupted) for any remaining record.
+- Default-user-manifest legacy state: use `daem migrate state --dry-run`, preserving explicit `--manifest`, before authorizing metadata-only transfer. Interrupted migration uses `migrate state --recover --dry-run`; old apply journals use `recover --legacy-user-state --dry-run`. Do not copy/delete state or reinstall outputs to bypass the fence. For legacy authoring metadata, use the matching previous writer's recovery route with the original workspace selection. Changed HOME/XDG namespaces and cache relocation are outside this migration.
 
 ## Failure Rules
 
