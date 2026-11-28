@@ -27,18 +27,8 @@ func ConsumedLocalPaths(input Input) ([]string, error) {
 		return nil
 	}
 
-	for _, skill := range input.Environment.Skills() {
-		if err := addResolvedSource(skill.Source()); err != nil {
-			return nil, err
-		}
-	}
-	for _, instruction := range input.Environment.Instructions() {
-		if err := addResolvedSource(instruction.Source()); err != nil {
-			return nil, err
-		}
-	}
-	for _, asset := range input.Environment.HookAssets() {
-		if err := addResolvedSource(asset.Source()); err != nil {
+	for _, spec := range input.Environment.EntityArtifactSources() {
+		if err := addResolvedSource(spec); err != nil {
 			return nil, err
 		}
 	}
@@ -47,12 +37,6 @@ func ConsumedLocalPaths(input Input) ([]string, error) {
 			return nil, err
 		}
 	}
-	for _, config := range input.Environment.AgentConfigs() {
-		if err := addResolvedSource(config.Source()); err != nil {
-			return nil, err
-		}
-	}
-
 	result := make([]string, 0, len(paths))
 	for path := range paths {
 		result = append(result, path)

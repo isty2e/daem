@@ -236,13 +236,16 @@ func commitUnmanageCandidate(
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	if err := ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases); err != nil {
-		return UnmanageExtensionResult{}, err
-	}
 	if !equalPaths(optimistic.localPaths, current.localPaths) ||
 		current.document.Path != optimistic.document.Path ||
 		current.lockfile.Path() != optimistic.lockfile.Path() {
 		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
+	}
+	if err := current.lockfile.requireDisjointInputs(ctx, current.document, current.manifestContent); err != nil {
+		return UnmanageExtensionResult{}, err
+	}
+	if err := ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases); err != nil {
+		return UnmanageExtensionResult{}, err
 	}
 	if matches, err := revisions.MatchesCurrent(ctx); err != nil {
 		return UnmanageExtensionResult{}, err

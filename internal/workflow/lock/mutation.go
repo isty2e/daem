@@ -170,11 +170,16 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = fmt.Errorf("read lockfile: %w", err)
 		return Result{}, errorContext
 	}
-	if previous.status == PreviousDamaged {
-		if err := checkRebuildInputs(ctx, outputPath, paths.ManifestPath, currentLocalPaths, &revisions); err != nil {
-			errorContext.Err = err
-			return Result{}, errorContext
+	if err := declarationartifact.RequireDisjointLockfile(ctx, publication.path, paths, environment); err != nil {
+		if errors.Is(err, declarationartifact.ErrLockfileInputOverlap) {
+			if previous.status == PreviousDamaged {
+				err = fmt.Errorf("cannot rebuild damaged lockfile: its %w", err)
+			} else {
+				err = fmt.Errorf("cannot write lockfile: its %w", err)
+			}
 		}
+		errorContext.Err = err
+		return Result{}, errorContext
 	}
 
 	validateAuthority := func(ctx context.Context) error {

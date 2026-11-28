@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	locksnapshot "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -163,5 +164,29 @@ func TestLockRebuildReportsMissingSourceRatherThanOverlap(t *testing.T) {
 		if content, err := os.ReadFile(filepath.Join(root, "daem.lock.toml")); err != nil || string(content) != damaged {
 			t.Fatalf("damaged lock changed without a source: %q, %v", content, err)
 		}
+	}
+}
+
+func TestLockDoesNotCreateDestinationInsideConsumedTree(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	writeWorkflowTestFile(t, root, "daem.toml", `version = 1
+targets = ['codex']
+
+[[skill]]
+name = 'demo'
+source = { path = 'demo', mode = 'vendor' }
+`)
+	writeWorkflowTestFile(t, root, "demo/SKILL.md", "---\nname: demo\ndescription: fixture\n---\n")
+	lockPath := filepath.Join(root, "demo", "daem.lock.toml")
+	_, err := RunLock(t.Context(), LockInput{
+		ManifestPath: filepath.Join(root, "daem.toml"),
+		LockfilePath: lockPath,
+	})
+	if !errors.Is(err, declarationartifact.ErrLockfileInputOverlap) {
+		t.Fatalf("lock error = %v, want input overlap", err)
+	}
+	if _, err := os.Lstat(lockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lock entry appeared inside the skill source: %v", err)
 	}
 }

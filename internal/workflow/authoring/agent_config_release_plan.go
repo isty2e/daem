@@ -15,6 +15,7 @@ import (
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/agentconfig"
 	"github.com/isty2e/daem/internal/desired/entity"
 	journaldocument "github.com/isty2e/daem/internal/effect/journal/document"
@@ -149,8 +150,9 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 	}
 	declarationFound := false
 	var configs []agentconfig.Config
+	var environment desired.Environment
 	if candidate.files[0].exists {
-		environment, err := declarationmanifest.Decode(candidate.files[0].content)
+		environment, err = declarationmanifest.Decode(candidate.files[0].content)
 		if err != nil {
 			return agentConfigReleaseCandidate{}, err
 		}
@@ -220,6 +222,11 @@ func buildAgentConfigRelease(ctx context.Context, paths daempaths.Paths, request
 			return agentConfigReleaseCandidate{}, err
 		}
 		if changed {
+			if request.Mode == UnmanageModeWrite {
+				if err := declarationartifact.RequireDisjointLockfile(ctx, candidate.files[1].path, paths, environment); err != nil {
+					return agentConfigReleaseCandidate{}, fmt.Errorf("cannot write lockfile: %w", err)
+				}
+			}
 			candidate.files[1].after, err = codec.Marshal(ctx, next)
 			if err != nil {
 				return agentConfigReleaseCandidate{}, err
