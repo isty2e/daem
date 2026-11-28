@@ -2,6 +2,7 @@ package recoverygate
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -15,6 +16,11 @@ func DocumentScope(authority mutation.PhysicalAuthoritySet) (ownership.DocumentS
 	if err != nil {
 		return ownership.DocumentScope{}, err
 	}
+	return DocumentScopeForObservations(observations)
+}
+
+// DocumentScopeForObservations also admits qualified entry-only mutations.
+func DocumentScopeForObservations(observations []mutation.DirectoryEntryAuthorityObservation) (ownership.DocumentScope, error) {
 	var exact []pathauthority.Exact
 	var missing []pathauthority.Provisional
 	for _, observation := range observations {
@@ -22,6 +28,8 @@ func DocumentScope(authority mutation.PhysicalAuthoritySet) (ownership.DocumentS
 			exact = append(exact, value)
 		} else if value, present := observation.Provisional(); present {
 			missing = append(missing, value)
+		} else {
+			return ownership.DocumentScope{}, fmt.Errorf("document scope requires a qualified namespace")
 		}
 	}
 	return ownership.NewDocumentScope(exact, missing)

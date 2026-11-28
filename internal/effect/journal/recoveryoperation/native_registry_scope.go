@@ -57,8 +57,11 @@ func nativeDocumentAuthorityRequests(documents journalqualification.Documents) (
 	return requests, nil
 }
 
-// ObservedDocuments projects the plan's qualified observation without exposing
-// a complete Registry that could be mistaken for a publication candidate.
-func (plan NativeRecoveryPlan) ObservedDocuments(scope ownership.DocumentScope) (ownership.DocumentRegistryView, error) {
-	return plan.assessment.ObservedDocuments(scope)
+// RequireProtectionClear checks the native document and metadata scope as well
+// as the containing recovery's physical writes against the observed registry.
+func (plan NativeRecoveryPlan) RequireProtectionClear(writes ownership.DocumentScope) error {
+	if err := plan.assessment.RequireProtectionClear(plan.registryScope); err != nil {
+		return err
+	}
+	return plan.assessment.RequireProtectionClear(writes)
 }

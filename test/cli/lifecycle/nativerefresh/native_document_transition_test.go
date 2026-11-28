@@ -26,6 +26,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
+	"github.com/isty2e/daem/test/ownershiptest"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/nativefixture"
@@ -634,6 +635,27 @@ func TestNativeDocumentWholeRecovery(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestNativeDocumentRollbackLeavesDisjointPermissionProtection(t *testing.T) {
+	f := newNativeDocumentTransitionFixture(t, target.TargetCodex, target.ScopeProject)
+	code, stdout, stderr := nativefixture.InvokeRecoveryCommand(t, f.RecoveryFixture, "host", "apply", "--yes")
+	if code != nativefixture.RecoveryExit {
+		t.Fatalf("native Apply did not reach host publication: %d %s %s", code, stdout, stderr)
+	}
+	testkit.AssertFileContent(t, f.Destination, f.original)
+	safety := ownershiptest.ArmPermissionRecovery(t, f.Paths, ".pi/settings.json")
+
+	nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--dry-run")
+	nativefixture.RunLifecycleCommand(t, "recover", "--manifest", f.Manifest, "--yes")
+	testkit.AssertPathMissing(t, f.Destination)
+	testkit.AssertNoRecoveryArtifacts(t, f.workspace)
+	if rows, err := safety.Store.LoadPendingProtections(t.Context()); err != nil || len(rows) != 1 || !rows[0].Equal(safety.Protection) {
+		t.Fatal("native rollback did not preserve the other document's protection", err)
+	}
+	if info, err := os.Stat(safety.Documents[0]); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatal("native rollback changed protected file permissions", err)
 	}
 }
 

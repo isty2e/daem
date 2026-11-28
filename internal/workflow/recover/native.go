@@ -144,6 +144,8 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 			}
 		}
 	}
+	// Joint recovery also retains the recorded ordinary write intents. One
+	// member already at its before-state does not remove its protection fence.
 	for _, action := range plan.GuardedOrdinaryActions() {
 		destination, err := output.Parse(action.Destination)
 		if err != nil {
@@ -167,11 +169,13 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
+	var removalSlots []string
 	for _, intent := range intents {
 		residue, cleanup, err := removalnamespace.Paths(intent.Namespace())
 		if err != nil {
 			return recoveryAuthorityEvidence{}, err
 		}
+		removalSlots = append(removalSlots, residue, cleanup)
 		for _, path := range []string{residue, cleanup} {
 			for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 				if err := builder.AddRemovalContinuation(path, effect); err != nil {
@@ -197,5 +201,5 @@ func buildNativeRecoveryAuthorityEvidence(paths daempaths.Paths, plan journal.Na
 	if err != nil {
 		return recoveryAuthorityEvidence{}, err
 	}
-	return recoveryAuthorityEvidence{domains: domains, initialDocumentWrites: documentWrites, documentWriteRequests: documentWriteRequests, authorityFingerprint: fingerprint}, nil
+	return recoveryAuthorityEvidence{domains: domains, initialDocumentWrites: documentWrites, documentWriteRequests: documentWriteRequests, removalSlots: removalSlots, authorityFingerprint: fingerprint}, nil
 }

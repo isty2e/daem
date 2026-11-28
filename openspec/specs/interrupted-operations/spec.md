@@ -20,6 +20,8 @@ Journal-covered apply SHALL write complete recovery evidence before reserving ne
 
 Recover rechecks the current candidate and its required observations before effects. An unrecognized selected value, changed namespace, corrupt or missing required backup, or unqualified mount/boot witness is not permission to overwrite. If an interrupted first Claude global hook install has not yet saved its settings location, qualify the original `CLAUDE_CONFIG_DIR` or original default; another profile cannot redirect recovery. Prepare and authorize the current recovery kind according to the [effect interface](../effect-commands/spec.md#requirement-select-only-the-admitted-recovery-authority).
 
+Pending permission protection fences the selected recovery effects according to the [permission recovery selection rule](../permission-protection/spec.md#requirement-recover-access-without-recovering-file-contents-or-replaying-the-command).
+
 #### Scenario: Host writes and state committed but a prepared claim remains
 
 - **WHEN** the current evidence qualifies finalization of that operation
@@ -73,7 +75,7 @@ Confirmed apply may clear an exactly verified retired journal or completed selec
 
 ### Requirement: Recover native management release without replaying host changes
 
-For an interrupted `unmanage agent-config` management release, `recover` SHALL settle the journal's exact file-set for the manifest, default lockfile and State before deciding whether to keep or finish releasing management. This exception covers the published transaction belonging to that release, not a separate declaration fence. Require the recorded State and original control-file locations, including selected symlink referents; pending protection still blocks the release.
+For an interrupted `unmanage agent-config` management release, `recover` SHALL settle the journal's exact file-set for the manifest, default lockfile and State before deciding whether to keep or finish releasing management. This exception covers the published transaction belonging to that release, not a separate declaration fence. Require the recorded State and original control-file locations, including selected symlink referents. Pending protection for the selected release scope or a control file the transaction may restore blocks the release recovery.
 
 After the local transaction is settled, leave later manifest and default-lockfile edits alone, including a re-added declaration. Do not write host content or take a new owner's claims. If the operation removed only an unapplied declaration, it is instead an authoring transaction: retry the original `unmanage agent-config`. A committed edit can leave the ID absent after that retry clears the evidence.
 

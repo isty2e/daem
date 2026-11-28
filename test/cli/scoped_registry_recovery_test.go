@@ -1,12 +1,14 @@
 package cli_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/isty2e/daem/internal/encoding/configdocument"
+	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	workflowrecover "github.com/isty2e/daem/internal/workflow/recover"
 	"github.com/isty2e/daem/test/ownershiptest"
@@ -86,10 +88,11 @@ func TestPreparedJointRecoveryRefusesNewRelevantProtectionWithoutEffects(t *test
 			if protectedFamily == "ordinary" {
 				protected = instruction
 			}
-			ownershiptest.WritePendingDocumentProtection(t, fixture.Manifest, protected)
+			pending := ownershiptest.WritePendingDocumentProtection(t, fixture.Manifest, protected)
 			before := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, instruction, fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir)
-			if _, err := workflowrecover.Execute(t.Context(), prepared, workflowrecover.ExecuteOptions{}); err == nil {
-				t.Fatal("new relevant protection did not refuse prepared recovery")
+			var conflict *ownership.ProtectionPendingError
+			if _, err := workflowrecover.Execute(t.Context(), prepared, workflowrecover.ExecuteOptions{}); !errors.As(err, &conflict) || !conflict.Protection.Equal(pending) {
+				t.Fatalf("prepared recovery did not report the new protection conflict: %v", err)
 			}
 			if after := nativefixture.SnapshotRecoveryPaths(t, fixture.Destination, instruction, fixture.Paths.StatefilePath, fixture.Paths.OwnershipRegistryPath, fixture.Paths.RecoveryDir); !reflect.DeepEqual(before, after) {
 				t.Fatal("refused recovery changed host, Registry, state or journal")

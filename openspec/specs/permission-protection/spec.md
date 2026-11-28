@@ -30,13 +30,22 @@ Discovery does not itself block unrelated work or a no-op Apply. Actual writes o
 
 ### Requirement: Recover access without recovering file contents or replaying the command
 
-Permission-only `recover` SHALL select the exact state authority's protection without needing manifest or lockfile content or an apply journal. Verified journal cleanup takes precedence. If the selected owner has both an active journal and a protection record, refuse rather than combining them. A continuing or unclassified file-set fence or invalid journal evidence blocks permission-only settlement.
+Permission-only `recover` SHALL select the exact state authority's protection without needing manifest or lockfile content. Verified retired-journal cleanup takes precedence. If an active journal is eligible, recover it first only when its selected physical writes and ownership claim or binding changes are disjoint from pending protection. Recheck that boundary under the recovery leases before effects. If the effects conflict or their authority cannot be established, retain both records and report the blocker.
+
+Joint native recovery includes the journal's retained document write intents in this comparison, even when an individual member already has its recorded value.
+
+One invocation settles only the selected recovery. After journal recovery, a separate `recover` can select the remaining permission protection. A continuing or unclassified file-set fence or invalid journal evidence blocks permission-only settlement.
 
 Check the current document bindings, namespace and supported metadata. A bound invocation needs fresh process quiescence; an armed record is not evidence of a running child. If a Claude profile supplied the recorded settings file, a different `CLAUDE_CONFIG_DIR` cannot satisfy that binding.
 
 Preview changes no permissions. Confirmed recovery can restrict safe peers while another selected document remains blocked, but cannot report complete settlement until all selected protections are confirmed cleared. If access has tightened, do not widen it to the old limit. Verified absence does not authorize recreating a deleted file. Do not parse or rewrite protected content, signal or replay the prior command, or finish its installation. Containment cannot make another unsupported Apply or Refresh combination admissible.
 
 The [recovery command interface](../effect-commands/spec.md#requirement-report-recovery-phases-without-claiming-unavailable-retry-authority) defines reporting, including an uncertain write or a later command failure after records have cleared.
+
+#### Scenario: A journal can be recovered without touching a protected document
+
+- **WHEN** the active journal and the protection share a state authority but the selected effects do not change the protected document or its claims or bindings
+- **THEN** journal recovery leaves the protection pending for a separate invocation
 
 #### Scenario: One protected document is inaccessible and another qualifies
 

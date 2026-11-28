@@ -2010,8 +2010,9 @@ plan under their leases. Blocked or stale recovery retains evidence and writes
 nothing.
 
 Unlike `import agent-config`, `recover --yes` has no `--expect-plan`: it selects
-the work again. For example,
-journal cleanup can take precedence over the permission recovery you previewed.
+the work again. Retired-journal cleanup and eligible active-journal recovery
+take precedence over permission recovery. When journal recovery leaves
+protection pending, preview again to see the next eligible action.
 If you need to approve only that exact plan, `--yes` cannot provide that guarantee.
 After execution, read the actual recovery kind and phase before another write;
 stop if the work differs from what you expected or the result is unclear.

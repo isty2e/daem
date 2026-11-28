@@ -46,6 +46,8 @@ Phase, outcome and typed causal facts drive JSON errors. Distinguish cancellatio
 
 Authorization of a current interactive plan is not equivalent to retaining a previous `--dry-run` result. `recover --yes` reselects and can choose a different legal kind; it has no `--expect-plan`. [Active and cleanup-only recovery](../interrupted-operations/spec.md) retain distinct evidence and revalidation requirements.
 
+Follow the [permission recovery selection rule](../permission-protection/spec.md#requirement-recover-access-without-recovering-file-contents-or-replaying-the-command) when journal evidence and pending protection coexist.
+
 #### Scenario: Journal cleanup takes precedence after a permission preview
 
 - **WHEN** current eligible recovery changes between `--dry-run` and `--yes`
